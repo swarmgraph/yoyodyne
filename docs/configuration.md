@@ -306,6 +306,9 @@ document_checks: [] # what a confirmed document's landing runs; see "The documen
 main_checks: []     # what runs whole on the branch's head every four hours; see "The checks run on main"
 merge_queue_checks: [] # which of the checks above the merge queue runs; see "The checks the merge queue runs"
 merge_queue_race_check: "" # the check the queue adds, narrowed, for a change with no passing result of it
+intent:
+  repository: ""    # a companion intent repository, if the documents live outside the project's own
+  checks: []        # what a landing into that repository runs; see "The companion intent repository's checks"
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -837,9 +840,10 @@ reviewer is handed, a document a work item cites, and the management
 conversations' picture of the product all resolve their root through one
 function, `config.Product.IntentRoot`, which answers the companion repository
 where the configuration names one and the project's repository otherwise. Intent
-read from the companion repository is read as its checkout stands, and the
-context says so, rather than at the project commit a review is measured
-against. A test drives a whole run against a project repository holding none of
+read from the companion repository is read at the commit that repository's target
+branch holds, never from its checkout, and the context names that commit. A run
+records the commit it read, so its developer and its reviewer read the same one,
+and a change in the companion checkout that is not committed is not intent. A test drives a whole run against a project repository holding none of
 the harness's files.
 
 Four things are worth knowing about it:
@@ -853,24 +857,25 @@ Four things are worth knowing about it:
 - **A missing companion repository is a problem `yoyo doctor` names**, with
   `yoyo setup` as the remedy, because nothing can read the project's intent
   until it is there.
-- **A document confirmed by an automatic policy is held, not landed.** A design
-  confirmed under `approvals.designs: automatic` ordinarily lands through a
-  reviewed run into the project's repository. The reviewed run that would land
-  it in the companion repository instead — a branch cut from that repository,
-  checks that mean something for a repository of documents, independent
-  review, and promotion into its target branch under the one-at-a-time
-  promotion rule — is not built yet. Until it is, such a document stays
-  confirmed by its policy and saved in its conversation, the owning role is told
-  once what holds it, and it is tried again at each later message. It is not
-  put to you: confirming a design is not a decision that needs a person. What
-  your policy already puts to you — the brief and the goals under `human`, and
-  everything under `approvals.integration: human` — still is, and your `y`
-  writes the document into the companion repository's checkout, for you to
-  commit there, as `yoyo artifact approve`, `yoyo artifact identify`, and
-  `yoyo invariant` write there too. A confirmed document and the two artifact
-  commands say the write is an uncommitted change in the companion repository
-  and name it, without saying a run will refuse to start over it, because no
-  run starts from that repository.
+- **A confirmed document lands in the companion repository through a reviewed
+  run.** A design confirmed under `approvals.designs: automatic`, and a document
+  you approve, are written by a run cut from that repository's target branch,
+  checked with [the companion intent repository's
+  checks](#the-companion-intent-repositorys-checks), reviewed by the independent
+  reviewer — who is also shown the project's code at a commit the run records —
+  and promoted into that repository's target branch under the one-at-a-time
+  promotion rule. No pull request is opened, because the forge access is the
+  project's; the change is pushed to that repository's own remote where it has
+  one. The run's record names the repository, and the commit it merged. A
+  session built without access to the companion repository cannot cut that run,
+  so the document stays confirmed by its policy and saved in its conversation,
+  the owning role is told once what holds it, and it is tried again at each later
+  message. It is not put to you: confirming a design is not a decision that
+  needs a person. What your policy already puts to you — the brief and the goals
+  under `human` — still is. `yoyo artifact identify` and `yoyo invariant` write
+  into the companion repository's checkout, for you to commit there, and say the
+  write is an uncommitted change in that repository, which is not intent until
+  it is committed on its target branch.
 - **The tracker stays where it was.** The tracker's export under `.beads/` and
   the developer-session instruction files are still the project's, so a fully
   local adoption excludes them as above.
@@ -1513,7 +1518,8 @@ takes the first of them rather than a commit the harness makes.
 
 **Where no run can carry it, the write lands in your checkout and stops
 there, and the command says so.** That is a project with no independent reviewer
-configured, and one that keeps its intent in a companion intent repository:
+configured. A project that keeps its intent in a companion intent repository
+lands the approval through a run cut from that repository instead:
 
 ```
 docs/product/brief.md is now an uncommitted change in /home/you/src/example, and
@@ -3898,6 +3904,54 @@ execution:
 
 `yoyo config show --origins` says which file each value came from.
 
+### The companion intent repository's checks
+
+A confirmed document whose home is a companion intent repository
+(`intent.repository`) is landed by a run cut from that repository's target
+branch, not from the project's code. That run runs `intent.checks` and never
+`checks`, `document_checks`, `landing_checks`, `path_checks`, or `install`,
+because those are the code repository's commands, and a repository that holds
+only documents has nothing for them to build or test.
+
+When you name no list, the run uses two commands:
+
+```yaml
+intent:
+  checks:
+    - yoyo artifact check --intent .
+    - yoyo goals check --intent .
+```
+
+`yoyo artifact check` reads every governed document, its index, and the links
+written in them, and exits non-zero on a document that is malformed.
+`yoyo goals check` reads the goals the same way `yoyo goals list` does and exits
+non-zero when a goals document could not be read, a goal is not linked to the
+brief, or a goal is not written on one line.
+
+Each command runs in the run's own checkout of the intent repository, with
+`YOYODYNE_CONFIG` naming the project's configuration, which the harness sets.
+`--intent .` points the command at that checkout, so it reads the candidate
+document rather than the checkout the configuration names.
+
+To use a list of your own, write it in the configuration kept in the project's
+directory in the machine home, under `intent:` beside `repository:`:
+
+```yaml
+intent:
+  repository: intent
+  checks:
+    - yoyo artifact check --intent .
+    - yoyo goals check --intent .
+    - ./scripts/spell-check.sh
+```
+
+A list you write replaces the default whole, so keep the two commands above if
+you still want them. An entry with no command is refused when the configuration
+loads, and so is `intent.checks` in a configuration with no `intent.repository`:
+the list is what a landing into the companion intent repository runs, so it means
+nothing without one. An entry may be named in `execution.heavy_checks` like any
+other configured check.
+
 ### A check that could not run
 
 A check can end a third way besides passing and failing: it could not run at
@@ -5050,9 +5104,18 @@ closes every item it carries with the merge commit recorded, so a squash merge
 closes them too. One closed without merging gives each item back to the Lead
 Product Manager, parked, with a note naming who closed it and when; the change
 stays on the target branch. While one is open, a waiting item whose landing
-commit appears among its commits is added to it, with a note. `yoyo status` and
-the dashboard say which pull request carries each waiting item, or that none
-does yet. The reasoning is in
+commit appears among its commits is added to it, with a note. What people say
+on an open tracked pull request is read the way feedback on the harness's own
+pull requests is, leaving out what this product's harness wrote, but it never
+starts a run by itself: a review that requests changes, or a comment on a line,
+goes on the development manager's list naming the items whose landed changes
+touched that file (every item, for a review that names no file); an ordinary
+comment goes on her list naming no item; and an approval is noted on each item as
+information only. A repair of a landed item cannot yet be started from that
+feedback; where it calls for a change, the development manager asks the Lead
+Product Manager to admit a work item for it.
+`yoyo status` and the dashboard say which pull request carries each waiting
+item, or that none does yet. The reasoning is in
 [integrating to a local branch](designs/integrating-to-a-local-branch.md).
 
 ### When a configuration change takes effect
@@ -7812,6 +7875,34 @@ in the effective configuration below it wherever it is set. The whole section
 is yours alone: a role's write to the configuration is refused for `intake` and
 everything under it.
 
+## Slack review threads
+
+A project whose pull requests a person merges can ask the harness to keep a
+Slack thread for each, using a server and two tools the `mcp` section above
+already declares. This section only says what loads; the design is
+[Slack review threads](designs/slack-review-threads.md), and nothing yet posts
+or reads a thread. With no `review_threads` section nothing changes.
+
+```yaml
+review_threads:
+  server: slack                 # a server declared under mcp
+  post_tool: post_message       # declared there as act
+  read_tool: read_thread        # declared there as read
+  channel: C0123456789          # Slack's id for the channel, never its name
+  reviewers: [U0AAAA1111]       # Slack member ids whose replies are told
+  check_every: 15m              # optional; at least 5m, at most 24h
+```
+
+- The configuration is refused when it loads, naming the setting, if `server`
+  is not declared under `mcp`, `post_tool` is not declared there as `act`,
+  `read_tool` is not declared there as `read`, `reviewers` is empty, or
+  `check_every` is under 5 minutes or over 24 hours. `channel` is also required.
+- `check_every` is 15 minutes when left out.
+- `yoyo config show` prints the section, and `yoyo doctor` says a section that
+  loads is set, or names the refused setting in plain words.
+- The key is yours alone: a role's write to the configuration is refused for
+  `review_threads`.
+
 ## Reading the repository from a conversation
 
 The three management roles — Lead Product Manager, architect, development manager —
@@ -7841,8 +7932,8 @@ whatever the persona said.
 `max_queries_per_turn` cannot be raised past four: what is bounded is the size
 of a prompt. One reply names at most six paths; one read returns at most 48 KiB
 of a file and one reply's reads together at most 96 KiB, a file beyond that
-being cut with the cut declared and its whole size named rather than split
-across reads; a listing returns at most 400 names; one message reads at most
+being cut with the cut declared, its whole size named, and the bytes that remain
+counted, and read on in parts by naming `"offset"` in the next request; a listing returns at most 400 names; one message reads at most
 twice. A `research`-style block for it would be a bound a project could
 configure past, which is the thing this section exists to say there is not.
 

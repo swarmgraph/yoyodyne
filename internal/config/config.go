@@ -88,6 +88,10 @@ type Config struct {
 	// empty, so a project that says nothing keeps the revision it had before the
 	// key existed.
 	Intake Intake `yaml:"intake,omitempty" json:"intake,omitzero"`
+	// ReviewThreads is the Slack review thread kept for each pull request a
+	// person merges (reviewthreads.go). It is the operator's, as the mcp section
+	// it points into is, and empty unless the project writes it.
+	ReviewThreads ReviewThreads `yaml:"review_threads,omitempty" json:"review_threads,omitzero"`
 	// Intent says which repository holds the governed documents. It is absent
 	// from a project whose own repository holds them, which is the default.
 	Intent Intent `yaml:"intent,omitempty" json:"intent,omitempty"`
@@ -1291,6 +1295,14 @@ func (c Config) productProblems() []string {
 	if err := validateIntentRepository(c.Intent.Repository); err != nil {
 		problems = append(problems, err.Error())
 	}
+	for index, check := range c.Intent.Checks {
+		if strings.TrimSpace(check) == "" {
+			problems = append(problems, fmt.Sprintf("intent check %d cannot be empty", index))
+		}
+	}
+	if len(c.Intent.Checks) > 0 && strings.TrimSpace(c.Intent.Repository) == "" {
+		problems = append(problems, "intent.checks is the list a landing into the companion intent repository runs, so it means nothing without intent.repository")
+	}
 	for _, documentPath := range c.Product.ShippedDocumentation {
 		if err := validateShippedDocument(documentPath); err != nil {
 			problems = append(problems, err.Error())
@@ -1494,6 +1506,7 @@ func (c Config) Validate() error {
 	problems = append(problems, c.OutsideFiles.problems()...)
 	problems = append(problems, c.mcpProblems()...)
 	problems = append(problems, c.intakeProblems()...)
+	problems = append(problems, c.reviewThreadProblems()...)
 
 	approvalValues := []struct {
 		name string

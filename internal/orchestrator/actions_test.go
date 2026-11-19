@@ -996,6 +996,8 @@ var notAStep = map[string]string{
 	"recordStartingTarget":       "writes the commit the worktree was cut from onto the run's record and the item's notes",
 	"noteTeamTakeover":           "writes on the item that its claim on the shared remote was taken over from another factory; it never stops the run, so there is nothing for a definition to route",
 	"documentChecks":             "reads which check list a document landing runs; the check step it informs is verify",
+	"landsInIntentRepository":    "reads whether the run is in the project's companion intent repository, which the steps that act on a repository ask; it decides nothing a definition could route",
+	"checkEnvironment":           "reads the environment the checks of a landing in the companion intent repository are given; the check step it informs is verify",
 	"awaitLandingHold":           "waits out a hold an outside tool placed on landing on the target, with the run's phase and evidence untouched; the promotion it guards is the step",
 	"closeEarlierDocumentCopies": "closes the open pull request of an earlier stopped copy of the document a document run publishes, once that run's own request is recorded; it never stops the run, so there is nothing for a definition to route",
 	"stop":                       "turns a stopped step into the run's outcome, which for a pause or a hold leaves the run in flight",
@@ -1020,20 +1022,23 @@ var notAStep = map[string]string{
 	// steps between them, and the design puts them outside what a definition can
 	// reach for exactly that reason: a sequence that could omit one would be a
 	// sequence that could spend through a pause the operator placed.
-	"stopRequested":           "reads whether the operator has asked this run to stop",
-	"holdForOperator":         "waits out the operator's hold on spending",
-	"holdForDirective":        "waits out a directive that pauses this work",
-	"holdForDependency":       "waits out work this item was made to depend on",
-	"pauseForUsageLimit":      "waits out a provider usage limit",
-	"pauseForServerOverload":  "waits out a provider that could not serve the invocation",
-	"pauseForProviderOutage":  "waits out a provider nobody is logged into or nobody can reach, spending nothing",
-	"awaitRecordedUsageLimit": "serves a usage-limit deadline an earlier process recorded",
+	"stopRequestedAtNewAttempt": "reads whether the operator has asked this run to stop, before a developer attempt",
+	"honorStop":                 "reads whether a stop was asked for, and records one that arrived after the checks passed",
+	"watchForStop":              "watches a step in progress for a stop that has waited its bound",
+	"holdForOperator":           "waits out the operator's hold on spending",
+	"holdForDirective":          "waits out a directive that pauses this work",
+	"holdForDependency":         "waits out work this item was made to depend on",
+	"pauseForUsageLimit":        "waits out a provider usage limit",
+	"pauseForServerOverload":    "waits out a provider that could not serve the invocation",
+	"pauseForProviderOutage":    "waits out a provider nobody is logged into or nobody can reach, spending nothing",
+	"awaitRecordedUsageLimit":   "serves a usage-limit deadline an earlier process recorded",
 
 	// Developer routing (developerrouting.go): which endpoint of a pinned pair a
 	// developer invocation runs on, and the record of each attempt made there.
 	// They are part of the one developer invocation candidate.develop already
 	// is, as the account and model it reads are, rather than steps beside it.
 	"pinDeveloperRouting":         "records the run's developer slot and pinned endpoint pair before the claim",
+	"adoptDeveloperRouting":       "gives a run started before its project configured endpoint pairs its slot and pair at its next developer invocation",
 	"beginDeveloperOperation":     "finds or opens the logical operation a developer invocation serves",
 	"prepareDeveloperAttempt":     "reserves and gates the next attempt of the developer invocation",
 	"finishDeveloperAttempt":      "records how a developer attempt ended",

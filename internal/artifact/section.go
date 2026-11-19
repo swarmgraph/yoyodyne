@@ -3,10 +3,9 @@ package artifact
 // Replacing one section of a document, named by its heading, and leaving every
 // other byte of the document as it was.
 //
-// A revision otherwise carries the document whole, and a role reads at most
-// the first 48 KiB of a file, so a design longer than that could only be
-// revised by cutting it short. A revision naming a section carries that
-// section's new text alone; the harness reads the rest from the document as the
+// A revision otherwise carries the document whole, which is bounded by
+// MaxWriteBodyBytes. A revision naming a section carries that section's new
+// text alone, so a design longer than that can still be revised; the harness reads the rest from the document as the
 // checkout holds it, and the candidate's Before digest binds the result to the
 // exact file it was spliced into, so a document changed underneath is caught
 // the way any other revision's is.

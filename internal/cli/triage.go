@@ -886,6 +886,10 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		// The items a merge withdrawn for its target's red check waits on, read so
 		// the harness arms it again once they close and not before.
 		Items: parts.tracker(),
+		// The unfinished items, read once a pass so a recovery of a stopped run is
+		// set aside where the development manager rebuilt its change as an item of
+		// its own, rather than built and checked a second time beside it.
+		Unfinished: parts.tracker(),
 		// The one thing fired here that nobody decided: a check stage its bound
 		// stopped, continued by the harness at its checks on the change the run
 		// already has. It spends nothing, so no triage budget is wired to it.

@@ -103,6 +103,11 @@ func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry, generations 
 // the merge queue rather than being promoted by the run.
 func (a *activeRun) admitsToMergeQueue() bool {
 	p := a.pipeline
+	// The merge queue lands into the project's target branch, so a landing in
+	// the companion intent repository is promoted by the run itself.
+	if a.landsInIntentRepository() {
+		return false
+	}
 	// A confirmed document and a run that brings a file in go through the queue
 	// like any approved change: with the queue on, nothing replays a change
 	// onto a target that moved, so one kept out could land on a target its
@@ -327,12 +332,11 @@ func (a *activeRun) completeQueued(ctx context.Context, entry runstate.MergeQueu
 	if passed := a.state.ChecksPassed; passed != nil && passed.Narrowed != "" && passed.WholeLeftToQueue {
 		notes += fmt.Sprintf(" The checks before review ran over %s only, and this run did not run the configured checks again over the whole module: the queue does that on the candidate it lands, and lands it only if every one of them passed there. The run's record names that check of the candidate once the change lands.", passed.Narrowed)
 	}
-	if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
-		_, err := p.Tracker.RecordOutcome(ctx, a.state.WorkItemID, notes)
-		return err
-	}); err != nil {
-		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("record the merge queue admission on the item: %w", err)), runstate.StatusFailed)
-	}
+	// The note records what the queue already holds, so a tracker that will not
+	// take it never stops the run: it is tried with backoff, and left owed on
+	// the run's record for reconciliation where it still is not written
+	// (mergequeuenote.go).
+	a.noteQueueAdmission(ctx, notes)
 	a.recordPrice()
 	// The tracker may have been waited on for a long time, and the queue may
 	// have recorded on the run meanwhile — its landing, or a transfer — so the

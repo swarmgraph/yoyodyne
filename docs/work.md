@@ -2015,6 +2015,31 @@ out: 1 refused, 1 unattempted* — because the two are fixed in different places
 The re-runs recorded for yoyodyne-ifd.192 and .187 on 2026-09-19 sat in that
 third ending for a week with nothing anywhere saying so;
 [the diagnosis](diagnoses/yoyodyne-ifd-428-39-unattempted-carry-outs.md) is how.
+Her docket says when each such decision was made and how long it had waited
+with no run taking it up, and a request to finish a merge that is waiting says
+on the item when she asked and how long ago, so a decision standing for hours
+reads as that rather than as a fresh wait.
+
+**A recovery is set aside, not carried out, once its work is elsewhere.** A
+repair, a re-run, or a request to finish a merge through `run.recover`, about a
+stopped run, is neither offered nor carried out, and nothing is spent, where:
+
+- the run's item has closed since the recovery was decided, whatever closed
+  it: the finding says when it closed and why; or
+- another item holds the run's work as its replacement: one she named in a
+  stop decision as doing the item's work instead, or an unfinished item broken
+  out of the run's item after the recovery was decided whose title or
+  description names the run and says it replaces, rebuilds or supersedes its
+  change. Carrying the recovery out beside it would build, review and check the
+  same change twice at once.
+
+It is written onto the item's triage record as no longer applying, naming the
+closed item or the replacement, with a note on the item, and her docket says
+it was set aside and for which item; a request to finish a merge is written
+onto the run's own request as not carried out, so it is not asked again. A
+recovery she decides after the close or after the replacement was made is her
+deciding past it, and is carried out as before. A child item that builds on the
+run's change, or only cites the run, sets nothing aside.
 
 This holds whatever became of the docket entry for the decision's run. A
 decision about a run whose entry an earlier decision closed — a re-run recorded
@@ -2062,13 +2087,21 @@ her sweep or her triage conversation, with her reason and the superseding item
 where there is one. Recording it is what stops the run, and nothing waits for a
 pass: the harness writes beside the run the same request your
 [`/stop`](conversation.md#steering-the-work-from-the-conversation) writes, naming her rather than you,
-and the run honors it at its next provider-call boundary exactly as it honors
-yours — an invocation already streaming finishes first — ending cancelled with
-its branch and worktree preserved, and its developer slot free as its record
-goes terminal. A run with no process behind it — parked on a dependency, say,
-with the process that parked it long gone — reaches no boundary, so the next
+and the run honors it at its next step exactly as it honors yours — before
+its next developer attempt, before its checks, or before its review — ending
+cancelled with its branch and worktree preserved, and its developer slot free
+as its record goes terminal. A developer attempt or the checks already under
+way are let finish only until ten minutes after the stop was asked for, and
+are cut short then, with what the developer had written committed to the run's
+branch first. A run whose checks have already passed on its change when the
+stop reaches it is not cancelled: the change goes on to its review, and the run
+records and says that the stop arrived late. A run with no process behind it —
+parked on a dependency, say, with the process that parked it long gone —
+reaches no step, so the next
 [`yoyo reconcile`](operations.md#recovering-interrupted-runs) honours the stop
-in its place, at once, and ends the run exactly as it would have ended itself.
+in its place, at once, and ends the run exactly as it would have ended itself,
+except a run whose checks passed on its change: that one the sweep keeps, with
+the stop recorded as late, for its own pipeline to carry on to its review.
 Until the sweep honoured a dead run's stop (yoyodyne-ifd.428.49), nothing did: on 2026-09-27 her stop of run-3b94404c
 stood unread for most of a day over a run that had been dead since the evening
 before. The run's record, its ending on the item's notes, and the triage

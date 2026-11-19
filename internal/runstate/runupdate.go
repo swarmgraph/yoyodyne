@@ -284,6 +284,31 @@ func (u RetryRecorded) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// MergeQueueNoteRecorded sets or clears the note a run still owes its item
+// about its change's admission to the merge queue (MergeQueueNoteOwed). A nil
+// Owed clears it, which is what writing the note does.
+type MergeQueueNoteRecorded struct {
+	Owed *MergeQueueNoteOwed
+	At   time.Time
+}
+
+func (u MergeQueueNoteRecorded) apply(state *State) (bool, error) {
+	if u.Owed == nil && state.MergeQueueNoteOwed == nil {
+		return false, nil
+	}
+	if u.Owed != nil {
+		if state.MergeQueue == nil {
+			return false, fmt.Errorf("run %s records no merge queue admission, so it owes no note about one", state.RunID)
+		}
+		owed := *u.Owed
+		state.MergeQueueNoteOwed = &owed
+	} else {
+		state.MergeQueueNoteOwed = nil
+	}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // InstallRecorded adds one run of one of the project's declared install steps
 // to the run's record of them (InstallRun).
 type InstallRecorded struct {
@@ -315,6 +340,26 @@ func (u InstallWaitRecorded) apply(state *State) (bool, error) {
 	} else {
 		state.InstallWait = nil
 	}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
+// LateStopRecorded records a stop that reached the run only after its checks
+// had passed (LateStop). The same stop recorded again changes nothing.
+type LateStopRecorded struct {
+	Stop LateStop
+	At   time.Time
+}
+
+func (u LateStopRecorded) apply(state *State) (bool, error) {
+	if err := u.Stop.Validate(); err != nil {
+		return false, fmt.Errorf("late stop: %w", err)
+	}
+	if state.LateStop != nil && *state.LateStop == u.Stop {
+		return false, nil
+	}
+	stop := u.Stop
+	state.LateStop = &stop
 	state.UpdatedAt = u.At
 	return true, nil
 }

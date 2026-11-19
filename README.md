@@ -376,10 +376,10 @@ lands it in `docs/product/` through its own reviewed run**, with its frontmatter
 and your approval recorded in it: the run checks it, an independent reviewer
 reads it, and it is merged the way every change in your project is — by the
 harness where `approvals.integration` is `automatic`, by you where it is not.
-Nothing is left in your checkout for you to commit. The exceptions are a project
-with no reviewer configured and one that keeps its intent in a separate
-companion repository: there the document is written into your checkout and
-committing it is yours. [Writing a document from a
+Nothing is left in your checkout for you to commit. The exception is a project
+with no reviewer configured: there the document is written into your checkout and
+committing it is yours. A project that keeps its intent in a separate companion
+repository has the run cut from that repository, and the document lands in it. [Writing a document from a
 conversation](docs/artifacts.md#writing-a-document-from-a-conversation) has the
 rest. Goals are what work is admitted against, so without them it will ask you
 for one.

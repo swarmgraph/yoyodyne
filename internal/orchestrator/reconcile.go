@@ -152,7 +152,13 @@ type ReconcileReleases interface {
 type Reconciler struct {
 	Tracker   WorkTracker
 	Worktrees ReconcileWorktrees
-	Store     ReconcileStore
+	// IntentWorktrees is the companion intent repository's manager, which holds
+	// the branch and checkout of a run recorded in that repository
+	// (runstate.RepositoryIntent). Nil where the project has no such repository or
+	// this sweep was built without access to it; a run recorded there is then
+	// reported as unsettled rather than looked for in the project's repository.
+	IntentWorktrees ReconcileWorktrees
+	Store           ReconcileStore
 	// These readers compare a confirmed forge landing with running builds,
 	// including keys added only to shipped templates. They are optional for
 	// callers that have no running-service records to compare.
@@ -235,6 +241,11 @@ type Reconciler struct {
 	// such a pull request, and a forge check reports the ones already tracked as
 	// unread.
 	TeamPullRequests TeamPullRequestReader
+	// LandingPaths lists the paths a landing commit changed, which names the
+	// items a line comment on a tracked pull request may be about
+	// (teampullrequestfeedback.go). Optional: a reconciler wired without it names
+	// every item the request carries and says which touched the file was not read.
+	LandingPaths LandingPathReader
 	// Filer files the item a queued merge's check red on the target itself is,
 	// one per target branch and check, as a red landing files its own; the merge
 	// then waits on that item rather than being handed to a person. Optional: a
@@ -519,9 +530,13 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 	defer lease.Release()
 
 	clearErr := r.retrySchedulingWaitClear(ctx, &state)
+	noteErr := r.retryMergeQueueNote(ctx, &state)
 	result, err := r.settle(ctx, state)
 	if clearErr != nil {
 		result.Failure = clearErr.Error()
+	}
+	if noteErr != nil {
+		result.Failure = joinProblem(result.Failure, noteErr.Error())
 	}
 	if err != nil {
 		// A step that failed partway is never described as settled, however
@@ -535,6 +550,10 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 
 // settle decides one run from its durable state and what the repository shows.
 func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconciliation, error) {
+	r, err := r.forRepository(state)
+	if err != nil {
+		return reconciliationOf(state, ActionUnsettled), err
+	}
 	if state.OutsideFile != nil {
 		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
 		r.Docket = nil
@@ -623,7 +642,17 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
 		}
 		if requested {
-			return r.settleStopRequest(ctx, state, request)
+			// A run whose checks have passed on the change it holds keeps that
+			// change: the stop is recorded as late and the run is settled below
+			// like any run in flight (promptstop.go).
+			written, late, err := r.recordLateStopOnUnheldRun(ctx, state, request)
+			if err != nil {
+				return reconciliationOf(state, ActionUnsettled), err
+			}
+			if !late {
+				return r.settleStopRequest(ctx, state, request)
+			}
+			state = written
 		}
 	}
 	// A run in flight that the development manager has answered through
@@ -2157,18 +2186,19 @@ func vanishedReason(state runstate.State, park recordedPark, grace time.Duration
 }
 
 // honoursStop reports a run the sweep may end on a stop request: one in flight
-// that has not reached its promotion. A live run reads a stop only at a
-// provider-call boundary, and the last of those is its review, so a run in its
-// integrating phase or with a promotion on its record is past every point a
-// stop could have reached. Cancelling one would record work already on the
-// target as stopped; the sweep completes it from its promotion instead, as it
-// always has.
+// that has not reached its promotion. A live run reads a stop at its step
+// boundaries, the last of which is its review, so a run in its integrating
+// phase or with a promotion on its record is past every point a stop could have
+// reached. Cancelling one would record work already on the target as stopped;
+// the sweep completes it from its promotion instead, as it always has. A run
+// whose checks have passed on the change it holds is not cancelled either: the
+// stop is recorded as late and the change kept (recordLateStopOnUnheldRun).
 func honoursStop(state runstate.State) bool {
 	return state.Status.InFlight() && state.Integration == nil && state.Phase != runstate.PhaseIntegrating
 }
 
 // settleStopRequest honours a stop somebody asked for on a run whose process is
-// gone. A live run reads the request at its next provider-call boundary and ends
+// gone. A live run reads the request at its next step and ends
 // itself cancelled, its artifacts where they are and its item told; a run with
 // no process reaches no boundary, and on 2026-09-27 a stop the development
 // manager decided stood unread for most of a day over a run that had been dead

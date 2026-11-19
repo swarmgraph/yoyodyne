@@ -379,9 +379,10 @@ else is yours to approve: you are shown what would be written and asked; your `y
 approval in it and sends its exact content through the same isolated run,
 checks, and independent review a document confirmed under an automatic policy
 takes, merged the way every change in your project is. Nothing is left in your
-checkout for you to commit, except in a project with no reviewer configured or
-one that keeps its intent in a separate companion repository, where the
-approved document is written into your checkout for you to commit. Whose
+checkout for you to commit, except in a project with no reviewer configured,
+where the approved document is written into your checkout for you to commit. A
+project that keeps its intent in a separate companion repository has the run cut
+from that repository, and the document lands there. Whose
 approval it carries and the owning role are recorded in the document; see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation). A change that
 moves what the goals admit or refuse is still yours to decide, and it says so.
@@ -1048,23 +1049,30 @@ process this conversation has nothing to do with, which is what stopping has to
 mean once work starts without you asking for it item by item. The difference is
 only in who does the cancelling. A run this process owns is cancelled here. A run
 somewhere else is *asked*: the request is written beside the run, the process
-working on it reads that at its next provider call and ends the run there, and
+working on it reads that at the run's next step and ends the run there, and
 this waits for the run's own record to say so before reporting anything. So the
 report is about the run rather than about the request. A run that gives up is
 reported as stopped and what it left is settled exactly as above. A run that
 reached its own conclusion first is reported as having finished before the stop
 arrived, with nothing recorded on the item and nothing settled. And a run that
 has not given up by the time the grace runs out is reported as still in flight,
-stopping at its next provider call, with nothing it had thrown away — because a
-provider invocation already streaming is never interrupted. That generation is
-already paid for, and killing it would leave the run needing the same work again,
-which is the cost that makes killing processes the wrong verb in the first place.
+stopping at its next step, with nothing it had thrown away. A step already under
+way — a developer attempt or the checks — is let finish if it can within ten
+minutes of the stop being asked for, because that work is already paid for and
+throwing it away would leave the run needing it again; past ten minutes it is
+cut short, and what the developer had written is kept on the run's branch. A run
+whose checks have already passed on its change when the stop reaches it is not
+cancelled at all: the change goes on to its review, and the run says the stop
+arrived late. Until it takes effect, `yoyo status` shows the stop with who asked
+for it and when, in your local time with the zone named, and `/status` here says
+that a stop has been asked for on the run.
 
 The development manager can stop a run too, without you. A run whose work she
 decides is superseded, narrowed, or mis-launched is one she records a `stop`
 decision about, and the harness writes the same request this does on her behalf,
-naming her; the run stops at its next provider call exactly as it does for you,
-with its branch and worktree preserved.
+naming her; the run stops at its next step, no later than ten minutes after she
+asked, exactly as it does for you, with its branch and worktree preserved, and a
+change whose checks already passed is kept for its review in the same way.
 [Deciding what becomes of stopped work](#deciding-what-becomes-of-stopped-work)
 has the decision, and [how work flows](work.md#letting-the-harness-choose-the-work)
 has what it leaves behind. When it is the Lead Product Manager who decides the
@@ -1728,8 +1736,10 @@ nothing in the block read. A search counts against the same six requests and
 six paths; one read returns at most 48 KiB of a file, and one reply's reads
 together at most 96 KiB; a listing returns at most 400 names; and one message
 reads at most twice before it has to answer. A file longer than a read may
-return is cut with the cut declared and the file's whole size named — not split
-across reads — so a role that wants the rest asks by a narrower question. There
+return is cut with the cut declared, the file's whole size named, where the part
+starts, and how many bytes remain; a role reads the next part by asking again
+with `"offset"` set to where the last part ended, and each part is recorded as
+its own read. There
 is no key that widens any of it, and none that switches the capability off: what
 is bounded is the size of a prompt, which is the protocol's, and a role that may
 not have the harness read for it is one whose bundle does not hold the
@@ -2555,8 +2565,13 @@ the harness's own stores, and the repository does not say whether a proposed
 change was decided or a document landed, so a question naming none of them is
 answered from nothing authoritative. An ask's `refers` list names the records a
 round rests on — an `amendment`, a `work-item`, a `document`, a `run`, a
-`report`, or a `turn` of either party's own conversation (`chat-…#12`) — each
-with the revision read where the asker has one. When the round is delivered the
+`report`, or a `turn` of either party's own conversation (`chat-…#12`). A
+`document`, such as a goal or a design, has to be named with the revision the
+asker read, because a question about wording that has since changed cannot
+otherwise be told apart from one about the wording as it stands. Anything else
+may be named without one, and a work item has none: the harness records when it
+read the item for the round instead, so an answer given against an older state
+of the item can still be found. When the round is delivered the
 harness reads every one from its own stores, redacts it, and attaches it to the
 round, saying where it came from, the revision or commit it reflects, and when it
 was observed in local time; both roles are shown the same attachments, whichever
@@ -2580,6 +2595,16 @@ sees it — an agent's memory, a credential, a provider's session, another
 product's record, or a conversation neither party holds. Nothing an attachment
 says gives either role any authority, and an exchange being answered or closed
 says nothing about whether the records it carried are decided or done.
+
+**An ask the harness cannot read costs the reply nothing else.** A question
+that is malformed, or that names a document without its revision, is not put to
+anybody. Everything else in the same reply — memory writes, tracker actions,
+reports, the other blocks — is carried out exactly as it would have been without
+it, and the role that asked is told in the same message what was wrong, so it
+can correct the block and send it again. The reply lists the question among the blocks refused alone, and a recurring
+pass's record says it was handed back.
+A role that may not ask at all is still refused for carrying the block, readable
+or not.
 
 **A question can name what it was asked against.** The records an exchange's
 opening question names, with the revisions that were read, are also what it is

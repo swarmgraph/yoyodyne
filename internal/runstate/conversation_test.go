@@ -1506,3 +1506,68 @@ func TestConversationBoundsHeldDocumentsApart(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want the fifth held document refused", err)
 	}
 }
+
+// The documents a conversation may keep, at the largest the contract allows, are
+// still a record the store saves and reloads, even when the quotes and newlines
+// in them are escaped.
+func TestTheLargestAllowedSetOfWaitingDocumentsSavesAndReloads(t *testing.T) {
+	t.Parallel()
+
+	store := newConversationStore(t, t.TempDir())
+	line := "A \"quoted\" line of the design.\n"
+	body := strings.Repeat(line, MaxPendingWriteBytes/len(line))
+	body += strings.Repeat("x", MaxPendingWriteBytes-len(body))
+	if len(body) != MaxPendingWriteBytes {
+		t.Fatalf("body is %d bytes", len(body))
+	}
+	conversation := testConversation(t)
+	for index := 0; index < MaxHeldWrites; index++ {
+		id := fmt.Sprintf("design-%d", index)
+		conversation.PendingWrites = append(conversation.PendingWrites, PendingWrite{
+			ID: id, Turn: 1, Action: "revise", Artifact: id, Body: body, Reason: "why",
+			Hold: &artifact.SendingHold{UntilClosed: "yoyodyne-fix", Reason: "waits for the fix"},
+		})
+	}
+	if stored := PendingWriteStoredBytes(conversation.PendingWrites); stored != MaxPendingWriteStoredBytes {
+		t.Fatalf("the set takes %d bytes, expected it to sit at the limit of %d", stored, MaxPendingWriteStoredBytes)
+	}
+	if err := store.Save(conversation); err != nil {
+		t.Fatalf("Save() of the largest allowed set error = %v", err)
+	}
+	loaded, err := store.Load(conversation.Identity())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.PendingWrites) != MaxHeldWrites {
+		t.Fatalf("reloaded %d documents, want %d", len(loaded.PendingWrites), MaxHeldWrites)
+	}
+}
+
+// A record written before the total on waiting documents existed, holding more
+// than that total, still loads and saves: the total is checked where a document
+// is added, so it can never make a conversation that already exists unable to
+// resume.
+func TestARecordOverTheTotalOnWaitingDocumentsStillLoads(t *testing.T) {
+	t.Parallel()
+
+	store := newConversationStore(t, t.TempDir())
+	body := strings.Repeat("x", 70<<10)
+	conversation := testConversation(t)
+	for index := 0; index < MaxPendingWrites; index++ {
+		id := fmt.Sprintf("design-%d", index)
+		conversation.PendingWrites = append(conversation.PendingWrites, PendingWrite{ID: id, Turn: 1, Action: "revise", Artifact: id, Body: body, Reason: "why"})
+	}
+	if stored := PendingWriteStoredBytes(conversation.PendingWrites); stored <= MaxPendingWriteStoredBytes {
+		t.Fatalf("the set takes %d bytes, expected it over the total of %d", stored, MaxPendingWriteStoredBytes)
+	}
+	if err := store.Save(conversation); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := store.Load(conversation.Identity())
+	if err != nil {
+		t.Fatalf("Load() of a record over the total error = %v", err)
+	}
+	if len(loaded.PendingWrites) != MaxPendingWrites {
+		t.Fatalf("reloaded %d documents, want %d", len(loaded.PendingWrites), MaxPendingWrites)
+	}
+}

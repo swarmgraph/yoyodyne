@@ -70,6 +70,10 @@ import (
 // key — which is the refusal an older build owes a transition it cannot follow.
 const StateSchemaVersion = 1
 
+// RepositoryIntent is State.Repository for a run whose worktree, branch, base
+// commit and target branch are the project's companion intent repository's.
+const RepositoryIntent = "intent"
+
 // The shape of the three things a run records about how it was configured and
 // what was executing it. They are stated here rather than imported from the
 // configuration package for the reason the review decisions above are: the
@@ -2293,6 +2297,10 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("install[].name", at("install", index, "name"), &s.Install[index].Name, MaxRecordedTextBytes)
 		nested("install[].output", at("install", index, "output"), &s.Install[index].Output, MaxInstallOutputBytes)
 	}
+	if s.LateStop != nil {
+		unstated("late_stop.requested_by", "late_stop.requested_by", &s.LateStop.RequestedBy, MaxStopRequestedByBytes)
+		unstated("late_stop.reason", "late_stop.reason", &s.LateStop.Reason, MaxStopReasonBytes)
+	}
 	if s.InstallWait != nil {
 		unstated("install_wait.name", "install_wait.name", &s.InstallWait.Name, MaxRecordedTextBytes)
 	}
@@ -2462,6 +2470,10 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("landing_checks.problem", "landing_checks.problem", &s.LandingChecks.Problem, MaxRecordedTextBytes)
 	}
 	own("scheduling_wait_clear_failure", &s.SchedulingWaitClearFailure, MaxChannelProblemBytes, channelProblemCutNote)
+	if s.MergeQueueNoteOwed != nil {
+		nested("merge_queue_note_owed.note", "merge_queue_note_owed.note", &s.MergeQueueNoteOwed.Note, MaxBlockerBytes)
+		nested("merge_queue_note_owed.failure", "merge_queue_note_owed.failure", &s.MergeQueueNoteOwed.Failure, MaxRetryFailureBytes)
+	}
 	own("report_problem", &s.ReportProblem, MaxChannelProblemBytes, channelProblemCutNote)
 	own("amendment_problem", &s.AmendmentProblem, MaxChannelProblemBytes, channelProblemCutNote)
 	for index := range s.RepairContinuations {
@@ -3401,6 +3413,11 @@ type State struct {
 	// retry leaves alone a reason a later pass recorded after it.
 	SchedulingWaitClearAt      *time.Time `json:"scheduling_wait_clear_at,omitempty"`
 	SchedulingWaitClearFailure string     `json:"scheduling_wait_clear_failure,omitempty"`
+	// MergeQueueNoteOwed is the note saying the run's approved change was
+	// admitted to the merge queue, where the run could not write it on the item.
+	// The change waits in the queue all the same; reconcile writes the note. See
+	// MergeQueueNoteOwed.
+	MergeQueueNoteOwed *MergeQueueNoteOwed `json:"merge_queue_note_owed,omitempty"`
 	// Retirement ends obsolete work without removing its branch or checkout.
 	Retirement    *RunRetirement `json:"retirement,omitempty"`
 	SchemaVersion int            `json:"schema_version"`
@@ -3751,6 +3768,18 @@ type State struct {
 	// it was written against rather than whatever happens to be checked out
 	// when the run is picked up again.
 	TargetBranch string `json:"target_branch,omitempty"`
+	// Repository names which repository this run's worktree, branch, base commit
+	// and target branch are in: RepositoryIntent for the project's companion
+	// intent repository, empty for the project's own. Whatever acts on the run's
+	// worktree later reads it to choose the repository to act on.
+	Repository string `json:"repository,omitempty"`
+	// IntentCommit is the commit of the companion intent repository this run read
+	// the project's intent at. It is recorded when the run starts so that the
+	// developer, a resumed attempt and the reviewer all read the same commit.
+	IntentCommit string `json:"intent_commit,omitempty"`
+	// ProjectCommit is, for a run in the companion intent repository, the commit
+	// of the project's own repository its reviewer was shown the code at.
+	ProjectCommit string `json:"project_commit,omitempty"`
 	// UpstreamBranch is the team's branch fixed when the run started, from
 	// execution.upstream_branch. A run that records one does not close its item
 	// when its change lands on the target branch; it waits for the team's merge
@@ -3961,6 +3990,10 @@ type State struct {
 	// the claim, it is what says the clear was never confirmed and the item was
 	// left for the next pull.
 	StaleBlockClear *StaleBlockClear `json:"stale_block_clear,omitempty"`
+	// LateStop is a stop somebody asked for that reached this run only after
+	// its checks had passed, so the change was kept for its review rather than
+	// cancelled (stop.go). Absent on every run no stop reached late.
+	LateStop *LateStop `json:"late_stop,omitempty"`
 	// StartingTarget is the target this run's worktree was cut from, whether the
 	// remote was fetched for it, and how old it was where that fetch failed.
 	// Absent is a run with no target branch, and every run recorded before the
@@ -4454,6 +4487,13 @@ func (s State) Validate() error {
 			problems = append(problems, fmt.Errorf("merge_queue: %w", err))
 		}
 	}
+	if s.MergeQueueNoteOwed != nil {
+		if s.MergeQueue == nil {
+			problems = append(problems, errors.New("merge_queue_note_owed: only a run admitted to the merge queue owes a note about its admission"))
+		} else if err := s.MergeQueueNoteOwed.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("merge_queue_note_owed: %w", err))
+		}
+	}
 	if s.Document != nil {
 		if err := s.Document.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("document publication: %w", err))
@@ -4845,6 +4885,11 @@ func (s State) Validate() error {
 			problems = append(problems, fmt.Errorf("stale_block_clear: %w", err))
 		}
 	}
+	if s.LateStop != nil {
+		if err := s.LateStop.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("late_stop: %w", err))
+		}
+	}
 	if s.StartingTarget != nil {
 		if err := s.StartingTarget.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("starting_target: %w", err))
@@ -5038,6 +5083,15 @@ func (s State) Validate() error {
 	}
 	if s.TargetBranch != "" && !validLocalBranch(s.TargetBranch) {
 		problems = append(problems, errors.New("target_branch must be a local branch name"))
+	}
+	if s.Repository != "" && s.Repository != RepositoryIntent {
+		problems = append(problems, fmt.Errorf("repository %q is not recognized; it is empty or %q", s.Repository, RepositoryIntent))
+	}
+	if s.IntentCommit != "" && !commitPattern.MatchString(s.IntentCommit) {
+		problems = append(problems, errors.New("intent_commit must be a full commit hash"))
+	}
+	if s.ProjectCommit != "" && !commitPattern.MatchString(s.ProjectCommit) {
+		problems = append(problems, errors.New("project_commit must be a full commit hash"))
 	}
 	if s.Integration != nil {
 		// Recorded integration is a claim that approved work was promoted, so it
@@ -5410,6 +5464,11 @@ func (s State) OperatorHeld() time.Duration {
 // run itself is over, and what it did with it has to be found out.
 func (s State) Outstanding() bool {
 	if s.SchedulingWaitClearFailure != "" {
+		return true
+	}
+	// A note about the merge queue admission the run could not write is owed
+	// until the change lands, whose own note on the item says the same and more.
+	if s.MergeQueueNoteOwed != nil && s.Integration == nil {
 		return true
 	}
 	if s.Retirement != nil {

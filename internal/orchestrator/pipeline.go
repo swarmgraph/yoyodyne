@@ -384,7 +384,21 @@ type Pipeline struct {
 	Availability func(from, to time.Time, task string) readmodel.GapCause
 	Tracker      WorkTracker
 	Worktrees    WorktreeManager
-	Store        StateStore
+	// IntentWorktrees is the companion intent repository's worktree manager,
+	// where the project keeps its intent in one (config.Product.IntentRoot), and
+	// nil otherwise. A confirmed document lands there through a run cut from that
+	// repository's target branch (intentroute.go), and every run and review reads
+	// the companion intent at the commit that target holds rather than from its
+	// checkout. A companion project's pipeline without one holds its documents
+	// (ErrCompanionPublicationNotBuilt).
+	IntentWorktrees IntentWorktrees
+	// projectWorktrees and intentLanding are set only by intentRoute, on the copy
+	// of the pipeline that lands a document in the companion intent repository:
+	// Worktrees is then that repository's manager, and projectWorktrees is the
+	// project's own, kept for the reviewer's view of the project's code.
+	projectWorktrees WorktreeManager
+	intentLanding    bool
+	Store            StateStore
 	// Backend is the adapter for the backend the developer slot is configured
 	// for, which is what every run reserved under this configuration records.
 	Backend backend.Backend
@@ -551,8 +565,12 @@ type Pipeline struct {
 	// Sleep waits out a usage-limit pause. It is a field so a test can drive a
 	// pause without spending the real time, and so the wait is always cut short
 	// by a cancelled context rather than holding the process past a shutdown.
-	Sleep    func(ctx context.Context, duration time.Duration) error
-	NewRunID func() (string, error)
+	Sleep func(ctx context.Context, duration time.Duration) error
+	// StopWatchInterval is how often a step in progress reads whether somebody
+	// recorded a stop on its run (promptstop.go). Zero is stopWatchInterval; it
+	// is a field so a test need not wait out the real interval.
+	StopWatchInterval time.Duration
+	NewRunID          func() (string, error)
 	// Accounts chooses which of the configured provider accounts a fresh run is
 	// served by, and is optional. A pipeline wired without one runs every run
 	// under the configuration's single account, which is what a project with one
@@ -820,6 +838,10 @@ type Outcome struct {
 	// SchedulingWaitClearFailure is the clearing of the scheduler's kept reason
 	// this run still owes; see runstate.State.SchedulingWaitClearFailure.
 	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
+	// MergeQueueNoteOwed says, where the note recording the merge queue
+	// admission could not be written on the item, that it is owed and how hard
+	// it was tried; see runstate.MergeQueueNoteOwed.
+	MergeQueueNoteOwed string `json:"merge_queue_note_owed,omitempty"`
 
 	// continuationAccepted is set only after an adopted run has passed its
 	// resume preconditions. A pre-adoption pause can name an existing run
@@ -1092,8 +1114,12 @@ type Outcome struct {
 	// drain bound ran out. Like ProviderStop it is the harness's own clock and
 	// never a report by the agent; the run is in flight and owed a continuation
 	// from the phase recorded on it.
-	RedeployStop *runstate.RedeployStop   `json:"redeploy_stop,omitempty"`
-	Integration  *gitworktree.Integration `json:"integration,omitempty"`
+	RedeployStop *runstate.RedeployStop `json:"redeploy_stop,omitempty"`
+	// LateStop is a stop that reached the run only after its checks had passed,
+	// so the change was kept for its review rather than cancelled
+	// (promptstop.go). It is said in the notes the item is given.
+	LateStop    *runstate.LateStop       `json:"late_stop,omitempty"`
+	Integration *gitworktree.Integration `json:"integration,omitempty"`
 	// PullRequest is the published pull request, present only on a run that
 	// published one. PublishSkipped says why a run that asked to publish did not,
 	// which is a repository with no configured remote and nothing else.
@@ -1721,7 +1747,15 @@ func (a *activeRun) claim(ctx context.Context) error {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
 	a.clearAcceptedSchedulingWait(ctx)
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository)})
+	// Companion intent is read at a commit that is recorded the first time and
+	// read again from the record, so the developer, a resumed attempt and the
+	// reviewer all read the same one.
+	intentRevision, intentCommit, err := a.pipeline.intentRevision(ctx, a.state.IntentCommit)
+	if err != nil {
+		return fmt.Errorf("assemble claimed work item context: %w", err)
+	}
+	a.state.IntentCommit = intentCommit
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository), IntentRevision: intentRevision})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
 	}
@@ -1995,7 +2029,12 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	if err := validateClaimedItem(p.releaseTeamMerged(ctx, item, state.TargetBranch), state.WorkItemID); err != nil {
 		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository)})
+	intentRevision, intentCommit, err := p.intentRevision(ctx, state.IntentCommit)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
+	}
+	state.IntentCommit = intentCommit
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository), IntentRevision: intentRevision})
 	if err != nil {
 		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
 	}
@@ -2199,6 +2238,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			// earlier one recorded.
 			ReportProblem:    state.ReportProblem,
 			AmendmentProblem: state.AmendmentProblem,
+			// A stop that already arrived late is said on the item however many
+			// processes the run passes through on its way to its review.
+			LateStop: state.LateStop,
 		},
 	}
 	run.keptChecksOwed = pickedUpAtChecks
@@ -2223,8 +2265,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// A stop the operator asked for is honored before anything is resumed. The
 	// process that was serving this run may have exited before it reached a
 	// boundary, so without this a later invocation would pick the run up and carry
-	// on with work somebody has already stopped.
-	if err := run.stopRequested(); err != nil {
+	// on with work somebody has already stopped. A run resumed with its checks
+	// passed on the change it holds keeps that change (honorStop).
+	if err := run.honorStop(); err != nil {
 		return run.stop(ctx, err)
 	}
 	// A recorded directive pause is lifted rather than honored. Nothing reaches
@@ -2634,6 +2677,11 @@ type activeRun struct {
 	// is recorded as a narrow update on the record as stored rather than a save
 	// of a copy that may be out of date (recovery.go, recordRetry).
 	narrowRetries bool
+	// repairBegunHere is the repair attempt this process counted and handed to
+	// its developer (repair), and zero before it began one. A run given its
+	// endpoint pair at that round opens it as a genuine new operation rather than
+	// one already under way (adoptDeveloperRouting).
+	repairBegunHere int
 	// scratch is the directory this run's developer is told to write its scratch
 	// files to, cut for this run alone and outside the worktree. It is derived
 	// from the worktree rather than recorded with the run, because it is a fact
@@ -3757,6 +3805,16 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 		if err := a.holdForDependency(ctx); err != nil {
 			return err
 		}
+		// A stop recorded while the developer was working is carried out here,
+		// before the checks are spent on a change nobody is going to take, rather
+		// than at the review once they have passed (promptstop.go).
+		if err := a.honorStop(); err != nil {
+			// The check state was entered and ran nothing; the definition's
+			// outcome for a check stage that judged nothing is unrunnable, which
+			// is what observeCheckEnded names a stop.
+			a.observeCheckEnded(ctx, err, stillRepairable)
+			return err
+		}
 		if err := a.checkRound(ctx); err != nil {
 			// A change too large for the reviewer's copy is not repair input: the
 			// bound is the harness's, so it ends the run where it was measured and
@@ -3948,8 +4006,17 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 			a.state.ChecksPassed.WholeLeftToQueue = true
 			return false, nil
 		}
+		// The checks have passed on this attempt, so a stop found before or during
+		// the whole pass arrived late: it is recorded as such and keeps the change,
+		// rather than cancelling it after its review approved it (promptstop.go).
+		if err := a.honorStop(); err != nil {
+			return false, err
+		}
 		err = a.verifyCandidate(ctx)
 		if err == nil {
+			if lateErr := a.honorStop(); lateErr != nil {
+				return false, lateErr
+			}
 			return false, nil
 		}
 	}
@@ -4018,6 +4085,7 @@ func (a *activeRun) repair(ctx context.Context, prompt string) error {
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save repair attempt %d: %w", a.state.RepairAttempts, err)
 	}
+	a.repairBegunHere = a.state.RepairAttempts
 	return a.develop(ctx, prompt, a.state.ProviderSessionID)
 }
 
@@ -4575,6 +4643,13 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		a.observeDevelopEnded(ctx, err)
 		return err
 	}
+	// A run that started before its project configured endpoint pairs is given
+	// its slot's pair here, at its first developer invocation since, and keeps it
+	// from then on (developerrouting.go).
+	if err := a.adoptDeveloperRouting(ctx); err != nil {
+		a.observeDevelopEnded(ctx, err)
+		return err
+	}
 	// A run pinned to an endpoint pair makes every attempt under one recorded
 	// logical operation, on the endpoint that operation has selected, and
 	// started behind a launch gate (developerrouting.go). route is nil for
@@ -4600,7 +4675,8 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	for {
 		// A stop is asked for before the hold, so a run the operator both stopped
 		// and paused stops rather than parking on a hold nothing will lift for it.
-		if err := a.stopRequested(); err != nil {
+		// A stop answered as late counts again here, at a new attempt.
+		if err := a.stopRequestedAtNewAttempt(); err != nil {
 			a.observeDevelopEnded(ctx, err)
 			return err
 		}
@@ -4621,7 +4697,11 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			}
 		}
 		responseStarted := a.pipeline.clock().Now()
-		providerResult, err := a.attemptDevelopment(ctx, a.withMCPContract(prompt), sessionID)
+		// A stop recorded while the attempt runs cuts it short once it has
+		// waited its bound (promptstop.go).
+		attemptCtx, attemptWatched := a.watchForStop(ctx, "the developer's attempt")
+		providerResult, err := a.attemptDevelopment(attemptCtx, a.withMCPContract(prompt), sessionID)
+		cut, cutShort := attemptWatched()
 		// How a routed attempt ended is recorded before anything below reads
 		// it, with whether its process tree is confirmed stopped.
 		if route != nil {
@@ -4637,6 +4717,16 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		// the work, and a commit made under the cancelled context would fail and
 		// end the round before the session was recorded, leaving nothing a
 		// continuation could pick up.
+		// An attempt a stop cut short keeps what it wrote, committed on the run's
+		// branch as the ending below leaves every stopped run's change.
+		if cutShort {
+			ended := error(cut)
+			if committed := a.commitAttempt(ctx); committed != nil {
+				ended = errors.Join(cut, committed)
+			}
+			a.observeDevelopEnded(ctx, ended)
+			return ended
+		}
 		if drained, forRedeploy := drainedForRedeploy(ctx); forRedeploy {
 			sessionID = a.carrySession(providerResult.SessionID, sessionID)
 			commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), redeployCommitTimeout)
@@ -6564,15 +6654,37 @@ const needsDesignOverride = "The item is labelled " + domain.NeedsDesignLabel + 
 
 // stopRequested reports the operator asking this run to stop, and nothing at all
 // in the ordinary case. It is asked at the boundaries where the operator's hold
-// is asked, and for the same reason: those are the points at which a run is about
-// to spend, so they are the points at which stopping it costs the least.
+// is asked, and before the checks, for the same reason: those are the points at
+// which a run is about to spend, so they are the points at which stopping it
+// costs the least. Where a run may already hold a change that passed its checks
+// it is asked through honorStop, and a step in progress is watched for it
+// (promptstop.go).
 //
 // A record that cannot be read stops nothing and fails nothing. It is deliberately
 // the opposite of how an unreadable hold is treated, because the two protect
 // against opposite mistakes: an unreadable hold might be a pause being spent
 // through, while an unreadable stop request would be a run killed on the strength
 // of a file nobody could parse. The failure travels back with the run instead.
+//
+// A stop this run already answered by recording it as late (honorStop) carries
+// no weight here: the change it would have cancelled has passed its checks, and
+// a later step of the same attempt — the whole-candidate check, a wait on the
+// tracker or on an install step — must not cancel it after all. The next
+// developer attempt asks through stopRequestedAtNewAttempt instead, where it
+// counts again.
 func (a *activeRun) stopRequested() error {
+	err := a.stopRequestedAtNewAttempt()
+	var stopped operatorStop
+	if errors.As(err, &stopped) && answeredLate(a.state, stopped.request) {
+		return nil
+	}
+	return err
+}
+
+// stopRequestedAtNewAttempt is stopRequested before a developer attempt, where a
+// stop counts whether or not it was answered as late: a repair handed back is a
+// new attempt, and the change the late stop kept is no longer the one at stake.
+func (a *activeRun) stopRequestedAtNewAttempt() error {
 	request, requested, err := a.pipeline.Store.StopRequested(a.state.RunID)
 	if err != nil {
 		return fmt.Errorf("read whether the operator asked this run to stop: %w", err)
@@ -6580,7 +6692,7 @@ func (a *activeRun) stopRequested() error {
 	if !requested {
 		return nil
 	}
-	return operatorStop{request: request}
+	return operatorStop{request: request, at: a.pipeline.clock().Now()}
 }
 
 // operatorStop reports a run the operator asked to stop. Unlike the pauses it is
@@ -6591,12 +6703,29 @@ func (a *activeRun) stopRequested() error {
 // stop aimed at this one's.
 type operatorStop struct {
 	request runstate.StopRequest
+	// at is when the run carried the stop out.
+	at time.Time
+	// cut names the step the stop cut short once it had waited
+	// runstate.StopTakesEffectWithin (promptstop.go), and is empty for a stop
+	// carried out at a step boundary.
+	cut string
 }
 
 func (e operatorStop) Error() string {
 	stopped := e.request.StoppedBy() + " stopped this run at " + e.request.RequestedAt.Format(time.RFC3339)
 	if strings.TrimSpace(e.request.Reason) != "" {
 		stopped += ": " + strings.TrimSpace(e.request.Reason)
+	}
+	// When the stop took effect, and the bound it is held to, are said on every
+	// stop the run carried out, so a stop that waited is read as having waited.
+	if !e.at.IsZero() {
+		if e.cut != "" {
+			stopped += fmt.Sprintf("; it took effect at %s by cutting short %s, because a stop waits at most %s for the step a run is in the middle of",
+				runstate.LocalStamp(e.at), e.cut, runstate.StopBoundSays())
+		} else {
+			stopped += fmt.Sprintf("; it took effect at the run's next step (a stop waits at most %s for the step a run is in the middle of)",
+				runstate.StopBoundSays())
+		}
 	}
 	return stopped
 }
@@ -6886,6 +7015,9 @@ func (a *activeRun) verify(ctx context.Context) error {
 	if commands, declared := a.documentChecks(); declared {
 		stageCommands, providerCLIs = commands, nil
 		narrowed = "the document checks, in place of the configured checks, because the change is a confirmed document"
+		if a.landsInIntentRepository() {
+			narrowed = "the companion intent repository's checks, in place of the configured checks, because the change is a confirmed document landing in that repository"
+		}
 		evidenceNarrowed = ""
 	}
 	priority := heavyCheckPriority(a.state)
@@ -6936,10 +7068,15 @@ func (a *activeRun) verify(ctx context.Context) error {
 	_ = p.Store.Save(a.state)
 	var ranResults []checks.Result
 	lastSequence := a.state.LastSequence
+	// A stop recorded while the checks run cuts them short once it has waited
+	// its bound (promptstop.go). The watch covers only the suite, so every
+	// callback below still reads the run's own context.
+	checksCtx, checksWatched := a.watchForStop(ctx, "its checks")
 	if len(keeping.commands) > 0 {
-		ranResults, lastSequence, err = p.Checks.Run(ctx, checks.Request{
+		ranResults, lastSequence, err = p.Checks.Run(checksCtx, checks.Request{
 			RunID:        a.state.RunID,
 			Directory:    a.worktree.Path,
+			Env:          a.checkEnvironment(),
 			Commands:     keeping.commands,
 			ProviderCLIs: keeping.providerCLIs,
 			LastSequence: a.state.LastSequence,
@@ -7010,10 +7147,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 			},
 		}, a.sink)
 	}
+	cut, cutShort := checksWatched()
 	checkResults := append(append([]checks.Result(nil), keeping.kept...), ranResults...)
 	a.outcome.Checks = checkResults
 	a.state.LastSequence = lastSequence
 	a.closeCheckStage(stage, ranResults)
+	if cutShort {
+		return cut
+	}
 	if err != nil {
 		return stoppedBy(runstate.StopChecks, fmt.Errorf("verification infrastructure failed: %w", err))
 	}
@@ -7751,7 +7892,9 @@ func (a *activeRun) finish(ctx context.Context) (Outcome, error) {
 // can read is the one thing worse than a red one.
 func (a *activeRun) runLandingChecks(ctx context.Context) {
 	p := a.pipeline
-	if a.outcome.Integration == nil || len(p.Config.LandingChecks) == 0 {
+	// The landing checks are the project's code repository's, so a landing in the
+	// companion intent repository runs none; its checks ran before review.
+	if a.outcome.Integration == nil || len(p.Config.LandingChecks) == 0 || a.landsInIntentRepository() {
 		return
 	}
 	// A watch session hosting this run is told the landing has begun, so a
@@ -8310,7 +8453,11 @@ func (p Pipeline) closeDocketWithItem(state runstate.State, reason string) {
 // left an artifact behind never reaches it and is settled as the outstanding
 // cleanup it is.
 func (a *activeRun) cleanUp(ctx context.Context) error {
-	cleanup, err := a.pipeline.Worktrees.CleanupIntegrated(ctx, gitworktree.CleanupRequest{
+	worktrees := a.pipeline.worktreesFor(a.state)
+	if worktrees == nil {
+		return errors.New("clean up integrated run artifacts: this process has no access to the repository the run is in, so its branch and checkout are left as they are")
+	}
+	cleanup, err := worktrees.CleanupIntegrated(ctx, gitworktree.CleanupRequest{
 		Worktree:     a.worktree,
 		TargetBranch: a.outcome.Integration.TargetBranch,
 		SourceCommit: a.outcome.Integration.SourceCommit,
@@ -9083,13 +9230,14 @@ func (a *activeRun) verifyPreservation() *Preservation {
 	if !preservation.checkable() {
 		return preservation
 	}
-	if a.pipeline.Worktrees == nil {
+	worktrees := a.pipeline.worktreesFor(a.state)
+	if worktrees == nil {
 		preservation.Unverified = "this process has no repository access to check them with"
 		return preservation
 	}
 	observeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	observed, err := a.pipeline.Worktrees.Observe(observeCtx, worktreeOf(a.state))
+	observed, err := worktrees.Observe(observeCtx, worktreeOf(a.state))
 	if err != nil {
 		preservation.Unverified = err.Error()
 		return preservation
@@ -9182,7 +9330,9 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// A review is a provider invocation like the developer's, so it passes the
 		// same two boundaries in the same order: a run the operator stopped stops
 		// here rather than buying a verdict on a change nobody is going to take.
-		if err := a.stopRequested(); err != nil {
+		// The checks have passed by the time a run is here, so a stop found now
+		// arrived late and keeps the change for this review instead (honorStop).
+		if err := a.honorStop(); err != nil {
 			return "", err
 		}
 		// A run that reached the gate while the operator was holding activity waits
@@ -9563,7 +9713,13 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 		return a.context, nil
 	}
 	revision := reviewedRevision(ctx, p.Worktrees, baseCommit)
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(a.worktree.Path)})
+	// The reviewer reads companion intent at the commit the run recorded, which
+	// is the one its developer read.
+	intentRevision, _, err := p.intentRevision(ctx, a.state.IntentCommit)
+	if err != nil {
+		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
+	}
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(a.worktree.Path), IntentRevision: intentRevision})
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}
@@ -9622,6 +9778,13 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	}
 	account := a.account()
 	attribution := a.spendAttribution(domain.RoleReviewer, runstate.SpendPhaseReview)
+	// A change landing in the companion intent repository is reviewed beside the
+	// project's code, which it is about and which that repository does not hold.
+	var projectCode review.RepositoryEvidence
+	var projectCodeCommit string
+	if a.landsInIntentRepository() {
+		projectCode, projectCodeCommit = a.projectCodeFor(ctx)
+	}
 	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
 		RunID:      a.state.RunID,
 		WorkItemID: a.state.WorkItemID,
@@ -9657,6 +9820,8 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		WorktreePath:                     a.worktree.Path,
 		Changes:                          changes,
 		Repository:                       reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
+		ProjectCode:                      projectCode,
+		ProjectCodeCommit:                projectCodeCommit,
 		Checks:                           a.outcome.Checks,
 		// The harness's record of the MCP calls the developer asked for, labelled
 		// as outside data. It sits apart from the checks, and is evidence for none
@@ -11329,6 +11494,9 @@ func renderOutcomeNotes(outcome Outcome) string {
 	// claimed anything are different records, and only this tells them apart.
 	if line := renderLandingNote(outcome); line != "" {
 		lines = append(lines, line)
+	}
+	if outcome.LateStop != nil {
+		lines = append(lines, "Stop arrived late: "+outcome.LateStop.Says()+".")
 	}
 	if outcome.RepairAttempts > 0 {
 		lines = append(lines, "Repair attempts: "+strconv.Itoa(outcome.RepairAttempts))

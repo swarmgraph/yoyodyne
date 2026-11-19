@@ -138,6 +138,8 @@ func runGoals(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	switch args[0] {
 	case "list":
 		return listGoals(args[1:], stdout, stderr)
+	case "check":
+		return checkGoals(args[1:], stdout, stderr)
 	case "attribution":
 		return reportAttribution(ctx, args[1:], stdout, stderr)
 	case "witness":
@@ -181,6 +183,64 @@ func listGoals(args []string, stdout, stderr io.Writer) int {
 	printGoals(stdout, console.ThemeFor(stdout, os.Getenv), goals)
 	printGoalsProblems(stderr, goals)
 	return 0
+}
+
+// checkGoals is the goals format check: it reads the goals the way "list" does
+// and exits 1 when the set has a goals document that could not be read, a goal
+// not linked to the brief, or a goal not written on one line. It is what a
+// landing into the companion intent repository runs over the goals it carries.
+func checkGoals(args []string, stdout, stderr io.Writer) int {
+	flags := newGoalsFlags("goals check", stderr)
+	intentDirectory := flags.set.String("intent", "", "read the goals from this checkout of the intent repository instead of the configured one")
+	if code, ok := flags.parse(args); !ok {
+		return code
+	}
+	flags.intent = *intentDirectory
+	goals, err := flags.goals()
+	if err != nil {
+		return reportGoalsError(stdout, stderr, *flags.jsonOutput, err)
+	}
+	unsound := len(goals.Problems) + len(goals.LinkProblems) + len(goals.WrapProblems)
+	if *flags.jsonOutput {
+		code := writeJSON(stdout, stderr, goalsOutput{
+			Goals:        goals.Goals,
+			BriefGoals:   goals.BriefGoals,
+			Problems:     goals.Problems,
+			LinkProblems: goals.LinkProblems,
+			WrapProblems: goals.WrapProblems,
+		})
+		if code != 0 {
+			return code
+		}
+		if unsound > 0 {
+			return 1
+		}
+		return 0
+	}
+	if unsound > 0 {
+		printGoalsProblems(stderr, goals)
+		fmt.Fprintf(stderr, "\n%s in the goals\n", countOf(unsound, "problem"))
+		return 1
+	}
+	fmt.Fprintf(stdout, "%s read from %s; their format is sound\n", countOf(len(goals.Goals), "goal"), goalsSources(goals))
+	return 0
+}
+
+// goalsSources names the goals documents the goals were read from, in the order
+// they were first met, or says no goals document stated any.
+func goalsSources(goals goal.Set) string {
+	var paths []string
+	seen := map[string]bool{}
+	for _, entry := range goals.Goals {
+		if entry.Path != "" && !seen[entry.Path] {
+			seen[entry.Path] = true
+			paths = append(paths, entry.Path)
+		}
+	}
+	if len(paths) == 0 {
+		return "no goals document"
+	}
+	return strings.Join(paths, ", ")
 }
 
 // printGoals is the listing itself, laid out to be read rather than parsed: one
@@ -1109,6 +1169,9 @@ type goalsFlags struct {
 	name       string
 	configPath *string
 	jsonOutput *bool
+	// intent, where set, is a checkout of the intent repository the goals are
+	// read from in place of the configured one.
+	intent string
 }
 
 func newGoalsFlags(name string, stderr io.Writer) *goalsFlags {
@@ -1147,6 +1210,9 @@ func (f *goalsFlags) goals() (goal.Set, error) {
 	if err != nil {
 		return goal.Set{}, fmt.Errorf("resolve product repository: %w", err)
 	}
+	if err := overrideIntentRepository(&resolved.Config, f.intent); err != nil {
+		return goal.Set{}, err
+	}
 	return loadGoals(repository, resolved.Config.Product)
 }
 
@@ -1162,7 +1228,7 @@ func reportGoalsError(stdout, stderr io.Writer, jsonOutput bool, err error) int 
 }
 
 func printGoalsUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo goals <list|attribution|witness|reattribute|origins|guard> [options]
+	fmt.Fprintln(writer, `Usage: yoyo goals <list|check|attribution|witness|reattribute|origins|guard> [options]
 
 The goals the repository records, read from the goals artifacts themselves: each
 entry under a goals document's `+"`Goals`"+` heading is a goal that work can be
@@ -1190,6 +1256,10 @@ tracker's metadata.
 
   list          the goals work may be attributed to, their identities, and where
                 each is stated
+  check         exit 1 when a goals document could not be read, a goal is not
+                linked to the brief, or a goal is not written on one line;
+                `+"`--intent <dir>`"+` reads a checkout of the intent repository in
+                place of the configured one
   attribution   what each work item the tracker holds says it is for
   witness       record, where a careless writer cannot reach it, the goal each
                 work item's notes already state

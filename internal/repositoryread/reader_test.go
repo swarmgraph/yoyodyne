@@ -2,6 +2,7 @@ package repositoryread
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -354,5 +355,173 @@ func TestReaderReadsNothingFromADetachedIntentRepository(t *testing.T) {
 	}
 	if results[1].Problem != "" || results[1].Content == "" {
 		t.Fatalf("project read = %#v", results[1])
+	}
+}
+
+// A file longer than one read is read in parts: each part says where it starts
+// and how many bytes remain, and the parts joined are the file.
+func TestReaderReadsALongFileInPartsByOffset(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("0123456789abcdé\n", (2*MaxContentBytes/17)+500)
+	repository := newRepository(t, map[string]string{"long.md": long, "short.md": "short\n"})
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: repository}
+
+	var assembled strings.Builder
+	offset := 0
+	for parts := 0; parts < 10; parts++ {
+		results, err := reader.Read(context.Background(), []Request{{Action: ActionRead, Path: "long.md", Offset: offset}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		part := results[0]
+		if part.Problem != "" {
+			t.Fatalf("part at %d refused: %s", offset, part.Problem)
+		}
+		if part.Offset != offset && !(offset == 0 && part.Offset == 0) {
+			// a start inside a character moves forward, never back
+			if part.Offset < offset {
+				t.Fatalf("part started at %d, asked for %d", part.Offset, offset)
+			}
+		}
+		if part.Truncated {
+			if part.Remaining != len(long)-part.Offset-part.Returned || part.Remaining <= 0 {
+				t.Fatalf("remaining = %d, want %d", part.Remaining, len(long)-part.Offset-part.Returned)
+			}
+			if rendered := Render(results, AsEvidence); !strings.Contains(rendered, fmt.Sprintf(`"offset":%d`, part.Offset+part.Returned)) {
+				t.Fatalf("the rendering does not say where to read next: %q", rendered[:300])
+			}
+		}
+		assembled.WriteString(part.Content)
+		offset = part.Offset + part.Returned
+		if !part.Truncated {
+			break
+		}
+	}
+	if strings.TrimRight(assembled.String(), "\n") != strings.TrimRight(long, "\n") {
+		t.Fatalf("the parts joined are %d bytes, not the file's %d", assembled.Len(), len(long))
+	}
+
+	results, err := reader.Read(context.Background(), []Request{
+		{Action: ActionRead, Path: "short.md", Offset: 1000},
+		{Action: ActionRead, Path: "short.md", Offset: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(results[0].Problem, "past the end") {
+		t.Fatalf("an offset past the end = %#v", results[0])
+	}
+	if results[1].Content != "ort" || results[1].Offset != 2 {
+		t.Fatalf("a read from offset 2 = %#v", results[1])
+	}
+	if err := (Request{Action: ActionRead, Path: "x", Offset: -1}).Validate(); err == nil {
+		t.Fatal("a negative offset was accepted")
+	}
+	if err := (Request{Action: ActionList, Path: "x", Offset: 1}).Validate(); err == nil {
+		t.Fatal("an offset on a list was accepted")
+	}
+}
+
+// Secrets are removed from what a part returns, which changes its length, so
+// the next offset is counted in the file's bytes and not in the returned text:
+// reading on from it reaches every byte once.
+func TestReaderOffsetsAreCountedInTheFilesBytesWhenSecretsAreRemoved(t *testing.T) {
+	t.Parallel()
+
+	const secret = "s3cr3t-value-abcdef-0123456789"
+	line := "token=" + secret + " and some ordinary words\n"
+	long := strings.Repeat(line, (2*MaxContentBytes/len(line))+50)
+	repository := newRepository(t, map[string]string{"long.md": long})
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: repository, RedactValues: []string{secret}}
+
+	offset, covered := 0, 0
+	for parts := 0; parts < 10; parts++ {
+		results, err := reader.Read(context.Background(), []Request{{Action: ActionRead, Path: "long.md", Offset: offset}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		part := results[0]
+		if part.Problem != "" {
+			t.Fatalf("part at %d refused: %s", offset, part.Problem)
+		}
+		if strings.Contains(part.Content, secret) {
+			t.Fatal("a secret reached the role")
+		}
+		if part.Offset != covered {
+			t.Fatalf("part starts at %d, the bytes before it are %d", part.Offset, covered)
+		}
+		if part.Returned == len(part.Content) {
+			t.Fatalf("the redaction did not change the length, so this test proves nothing")
+		}
+		if !part.Truncated {
+			covered += part.Returned
+			break
+		}
+		if want := len(long) - part.Offset - part.Returned; part.Remaining != want {
+			t.Fatalf("remaining = %d, want %d", part.Remaining, want)
+		}
+		if rendered := Render(results, AsEvidence); !strings.Contains(rendered, fmt.Sprintf(`"offset":%d`, part.Offset+part.Returned)) {
+			t.Fatalf("the rendering names the wrong next offset: %q", rendered)
+		}
+		covered += part.Returned
+		offset = covered
+	}
+	if covered != len(strings.TrimRight(long, "\n")) {
+		t.Fatalf("the parts covered %d bytes of the file's %d", covered, len(strings.TrimRight(long, "\n")))
+	}
+}
+
+// A secret is never returned in pieces: a part that would end inside one ends
+// before it, a part asked to start inside one starts after it, and neither the
+// parts nor any two of them joined hold a piece of it longer than a few bytes.
+func TestReaderNeverReturnsAPieceOfASecretAcrossPartsOrFromAnOffset(t *testing.T) {
+	t.Parallel()
+
+	const secret = "s3cr3t-value-QWERTYUIOP-zxcvbnmklj"
+	// A line length that puts a secret over the end of the first part.
+	filler := strings.Repeat("a", MaxContentBytes-10)
+	long := filler + secret + "\nordinary words\n" + strings.Repeat("0123456789abcdef\n", 4000)
+	repository := newRepository(t, map[string]string{"long.md": long})
+	reader := Reader{Process: execution.OSProcessRunner{}, Directory: repository, RedactValues: []string{secret}}
+
+	holdsPiece := func(text string) bool {
+		for size := 8; size <= len(secret); size++ {
+			for from := 0; from+size <= len(secret); from++ {
+				if strings.Contains(text, secret[from:from+size]) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	read := func(offset int) Result {
+		results, err := reader.Read(context.Background(), []Request{{Action: ActionRead, Path: "long.md", Offset: offset}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if results[0].Problem != "" {
+			t.Fatalf("read at %d refused: %s", offset, results[0].Problem)
+		}
+		return results[0]
+	}
+
+	first := read(0)
+	if !first.Truncated || holdsPiece(first.Content) {
+		t.Fatalf("the first part is cut %v and holds a piece of the secret %v", first.Truncated, holdsPiece(first.Content))
+	}
+	if first.Returned != len(filler) {
+		t.Fatalf("the first part covers %d bytes, want it to end where the secret starts at %d", first.Returned, len(filler))
+	}
+	second := read(first.Returned)
+	if second.Offset != first.Returned || holdsPiece(second.Content) || holdsPiece(first.Content+second.Content) {
+		t.Fatalf("the second part starts at %d and holds a piece of the secret", second.Offset)
+	}
+	// An offset chosen inside the secret starts after it.
+	for _, inside := range []int{len(filler) + 1, len(filler) + len(secret)/2, len(filler) + len(secret) - 1} {
+		part := read(inside)
+		if part.Offset != len(filler)+len(secret) || holdsPiece(part.Content) {
+			t.Fatalf("a read from inside the secret at %d starts at %d and holds a piece of it: %v", inside, part.Offset, holdsPiece(part.Content))
+		}
 	}
 }
