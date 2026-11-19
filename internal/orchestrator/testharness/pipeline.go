@@ -588,3 +588,91 @@ func CountCalls(calls []string, name string) int {
 	}
 	return matching
 }
+
+// UsageLimitBackend refuses the developer's first refusals invocations for want
+// of capacity and serves the work afterwards. A refusal is shaped like the one
+// the provider actually returns: an errored result that carries the limit and
+// the session the refused attempt had already established.
+func UsageLimitBackend(refusals int, limit *backend.UsageLimit, verdicts ...string) *orchestratortest.Backend {
+	return RefusingBackend(refusals, func(result backend.RunResult) backend.RunResult {
+		result.StopReason = "usage_limit"
+		result.UsageLimit = limit
+		return result
+	}, verdicts...)
+}
+
+// OpaqueDeathMessage is a provider death whose class says nothing about whether
+// asking again would help. It is what a test uses to reach the relaunch budget's
+// own bound: since yoyodyne-ifd.264 a death that is plainly a dropped connection
+// carries on past that budget on a backoff, so a scenario that wants the budget
+// to be what stops the run has to die of something the harness does not classify
+// as recoverable.
+const OpaqueDeathMessage = "API Error: the provider ended this invocation and named no reason for it"
+
+// OpaqueDeathBackend kills the developer's first deaths invocations with a death
+// nothing can classify, and serves the work afterwards.
+func OpaqueDeathBackend(deaths int, verdicts ...string) *orchestratortest.Backend {
+	return RefusingBackend(deaths, func(result backend.RunResult) backend.RunResult {
+		result.StopReason = "api_error"
+		result.FinalText = OpaqueDeathMessage
+		result.TransientFailure = &backend.TransientFailure{Detail: "api_error: " + OpaqueDeathMessage}
+		return result
+	}, verdicts...)
+}
+
+// ProviderStopBackend stops the developer's first stops invocations the way the
+// harness stops one on time, and serves the work afterwards. A stop is shaped
+// like the real thing: an errored result whose process status says the harness
+// ended it, carrying the session the stopped attempt had already established and
+// leaving the partial work it had already written in the worktree.
+func ProviderStopBackend(stops int, status execution.ProcessStatus, verdicts ...string) *orchestratortest.Backend {
+	provider := &orchestratortest.Backend{DeveloperSession: "developer-session", ReviewerSession: "reviewer-session"}
+	stopped, reviews := 0, 0
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		switch request.Role {
+		case domain.RoleDeveloper:
+			if stopped < stops {
+				stopped++
+				if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "partial.txt"), []byte("half done\n"), 0o600); err != nil {
+					return backend.RunResult{}, err
+				}
+				return backend.RunResult{
+					Backend:    domain.BackendClaudeCode,
+					SessionID:  provider.DeveloperSession,
+					IsError:    true,
+					StopReason: string(status),
+					Process:    execution.ProcessResult{Status: status, ExitCode: -1},
+					LastEvent:  request.LastSequence,
+				}, nil
+			}
+			if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600); err != nil {
+				return backend.RunResult{}, err
+			}
+			return backend.RunResult{
+				Backend:       domain.BackendClaudeCode,
+				SessionID:     provider.DeveloperSession,
+				ResolvedModel: DeveloperResolved,
+				FinalText:     "implemented the work item",
+				Process:       execution.ProcessResult{Status: execution.ProcessSucceeded},
+				LastEvent:     request.LastSequence,
+			}, nil
+		case domain.RoleReviewer:
+			verdict := verdicts[len(verdicts)-1]
+			if reviews < len(verdicts) {
+				verdict = verdicts[reviews]
+			}
+			reviews++
+			return backend.RunResult{
+				Backend:       domain.BackendClaudeCode,
+				SessionID:     provider.ReviewerSession,
+				ResolvedModel: ReviewerResolved,
+				FinalText:     verdict,
+				Process:       execution.ProcessResult{Status: execution.ProcessSucceeded},
+				LastEvent:     request.LastSequence,
+			}, nil
+		default:
+			return backend.RunResult{}, fmt.Errorf("unexpected role %q", request.Role)
+		}
+	}
+	return provider
+}
