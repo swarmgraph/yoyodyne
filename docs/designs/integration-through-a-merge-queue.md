@@ -39,6 +39,10 @@ revisions:
       by: architect
       at: 2026-11-19T04:55:04.87004Z
       reason: 'yoyodyne-ifd.429.230: the trial starts only when the change turning the setting on lands, and that change waits for every listed piece including confirming the merge commit (yoyodyne-ifd.429.187) and for that confirmation run once over the landings through GitHub since build piece 8 of checks on CI, because unconfirmed landings would otherwise count as successes. Records step 2: the full local check compared with .github/workflows/ci.yml at main e4c9aa75; macOS tests stay in the quick checks, tests needing bd and possibly the Node render test are named gaps, with one build piece. Section read whole at e4c9aa75 before revising.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T21:13:18.114339Z
+      reason: 'yoyodyne-ifd.429.241: adds a subsection ruling how a candidate already sent to GitHub is kept from landing unchecked when main moves by another merge: the merge is asked for directly, never by merging when ready, under the promotion lease and only after reading main at the recorded base; every pushed, unlanded candidate whose base is no longer main''s tip returns to draft and is rebuilt with no repair charged; GitHub''s refusal for a branch not up to date counts as a moved main; the up-to-date requirement on main is a setting only a person can change, reported by yoyo doctor whatever the switch says, and the queue does not stop without it. Names two build pieces. The rest of the section is copied unchanged from main 0b641fc8a, read whole before revising.'
 approvals:
     - revision: 0
       by: operator
@@ -79,6 +83,11 @@ approvals:
       by: harness
       at: 2026-11-19T04:55:04.87004Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3036, for document-3036.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-19T21:13:18.114339Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3136, for document-3136.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -175,6 +184,30 @@ A reviewer can check:
 - a person's merge of a ready candidate is confirmed and recorded like the harness's own merge;
 - a merge of a candidate the harness had not marked ready files a critical report naming the merge;
 - no repository setting is changed by the harness.
+
+## When main moves after a candidate was sent to GitHub
+
+On November 18 and 19, 2026 a candidate landed on `main` after another merge had already moved `main` past the candidate's recorded base, so it landed without being checked against that merge (yoyodyne-ifd.429.241). Each time the other merge was made by hand. The protection on `main` does not require a pull request to be up to date with `main`, so GitHub merged the candidate once its checks passed. Confirming the merge commit after landing finds this only once it has happened. These rules stop it before landing:
+
+- **The merge is asked for once, at the moment it can be checked.** The harness never turns on merging when ready for a candidate. It asks GitHub to merge directly, holding the promotion lease, immediately after reading `main` and finding it still at the candidate's recorded base. If `main` has moved, it asks for no merge.
+- **A moved main withdraws the candidate.** On every pass of the queue, and whenever the harness sees `main` move, each candidate pushed to GitHub and not yet landed whose recorded base is no longer the tip of `main` is withdrawn: its pull request returns to draft, as the section above says, any merging when ready is turned off, and a new candidate is built on `main` as it stands, with checks and review earned again. No repair attempt is charged, as for any movement of the target. The record names the commit `main` moved to.
+- **GitHub's refusal counts as a moved main.** If GitHub refuses the merge because the branch is not up to date with `main`, the harness treats it exactly as a moved main above, and spends no repair.
+- **The forge's own guard.** Between the harness reading `main` and GitHub merging there is still a moment in which another merge can land. Only GitHub can close it, by the protection on `main` requiring branches to be up to date before merging. That setting is a step only a person can take, and the harness never changes it. yoyo doctor reports it missing whatever execution.merge_queue says. The queue does not stop while the setting is missing, because the rules above leave only that moment, and confirming the merge commit after landing still files a critical report if a landing made in it differs from the candidate that was checked.
+
+Alternatives rejected: relying only on the up to date setting, because a project that has not set it, or a setting changed later, would leave candidates landing unchecked with nothing in the harness noticing before the landing; relying only on confirming the merge commit after landing, because it finds the unchecked landing once it is already on `main`; stopping the queue until the setting is present, because every approved change would then wait on a setting only a person can change, while the rules above already close all but a moment.
+
+Build work: two pieces, each built and checked on its own.
+
+1. The merge step: no merging when ready for a candidate; the merge asked for directly under the promotion lease, only after reading `main` at the recorded base; GitHub's refusal for a branch not up to date treated as a moved main, with no repair spent.
+2. Watching for a moved main: on every queue pass and on seeing `main` move, every pushed candidate not yet landed whose base is no longer the tip of `main` is returned to draft, has merging when ready turned off, and is rebuilt, with no repair charged and the new tip recorded; and yoyo doctor reports a missing up to date requirement whether the switch is on or off.
+
+A reviewer can check:
+
+- no candidate ever has merging when ready turned on;
+- the merge is asked for only after a read of `main` that found it at the recorded base, under the promotion lease;
+- a candidate pushed and not landed is returned to draft and rebuilt when `main` moves by any merge, a person's included, and no repair is charged;
+- GitHub's refusal for a branch not up to date leads to a rebuild with no repair spent;
+- yoyo doctor reports a missing up to date requirement with the switch on and with it off, and the harness changes no setting.
 
 # Checking one entry ahead
 
