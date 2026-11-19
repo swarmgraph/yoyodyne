@@ -41,11 +41,15 @@ type configDocument struct {
 	// It decodes straight into the effective type for the same reason.
 	MCP *MCP `yaml:"mcp"`
 	// Intake replaces an inherited section entirely, for the reason mcp does.
-	Intake    *intakeDocument    `yaml:"intake"`
-	Intent    *intentDocument    `yaml:"intent"`
-	Team      *teamDocument      `yaml:"team"`
-	Approvals *approvalsDocument `yaml:"approvals"`
-	Checks    *[]string          `yaml:"checks"`
+	Intake *intakeDocument `yaml:"intake"`
+	// ReviewThreads replaces an inherited section entirely, for the same reason:
+	// a thread assembled half from one layer and half from another is one nobody
+	// declared.
+	ReviewThreads *ReviewThreads     `yaml:"review_threads"`
+	Intent        *intentDocument    `yaml:"intent"`
+	Team          *teamDocument      `yaml:"team"`
+	Approvals     *approvalsDocument `yaml:"approvals"`
+	Checks        *[]string          `yaml:"checks"`
 	// LandingChecks replaces an inherited list entirely rather than merging into
 	// it, for the reason Checks does: what runs after a landing is one
 	// statement, and a list half from a bundle and half from a project is not the

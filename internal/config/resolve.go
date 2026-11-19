@@ -634,6 +634,10 @@ func (r *resolution) apply(applied layer) error {
 		r.config.Intake = resolveIntake(*document.Intake)
 		r.origins["intake"] = applied.origin
 	}
+	if document.ReviewThreads != nil {
+		r.config.ReviewThreads = copyReviewThreads(*document.ReviewThreads)
+		r.origins["review_threads"] = applied.origin
+	}
 	if intent := document.Intent; intent != nil {
 		setValue(r.origins, "intent.repository", intent.Repository, &r.config.Intent.Repository, applied.origin)
 		if intent.Checks != nil {
