@@ -54,6 +54,10 @@ revisions:
       by: architect
       at: 2026-11-18T17:37:58.48112Z
       reason: 'yoyodyne-ifd.428.161: records the architect''s ruling on how moves onto a new build stay within 30 minutes a day: at most one move every three hours (a project setting held in code between one and twenty-four hours) onto the newest build, a due move waits out a running queue check and the queue starts no new one, and only the restart itself holds new starts, counted from the start of the hold. Adds the rejected alternatives, three build pieces and reviewer lines; the rest of the section is copied unchanged from main 1242c9cf.'
+    - action: amended
+      by: architect
+      at: 2026-11-19T05:49:39.85583Z
+      reason: 'yoyodyne-ifd.437.71: the section on what an exchange carries no longer calls the revision optional for a document. A document (design, goals or other governed document) needs the revision the writer read and is refused without it, and a work item is stamped with when the harness read it, as the reviewer of yoyodyne-dfk reported the harness now does (report-a7d200c3). Adds verification case 11. The rest of the section is unchanged from main 049769b4.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -80,6 +84,11 @@ approvals:
       by: harness
       at: 2026-11-18T17:37:58.48112Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3024, for document-3024.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-11-19T05:49:39.85583Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3042, for document-3042.1 under the automatic approval policy
 ---
 # Management and supervision: the typed request contract and process residency
 
@@ -99,15 +108,15 @@ The request kinds, readiness vocabulary, outcome summaries, execution profiles, 
 
 **Why.** An exchange session starts with the question, the asker's framing and the earlier rounds, and nothing else. In exchange-d892d320f8c090465f15a07007a3e29d the development manager asked the architect whether amendment-fdc094d6a05f0f396e318d83c81b7184 supplied the ruling for the item about recovering an interrupted release tag (yoyodyne-ifd.436.2.1). The architect could read the repository, but the repository does not hold whether a proposal was decided or a document published, so the answer had nothing authoritative to stand on. The fix is that the harness, not the answering model, supplies the records a question rests on.
 
-**The decision.** A question or an answer names the records it refers to, in the `refers` list an ask already carries: each entry a kind, an identity within this product, and optionally the revision the writer read. Before each round is delivered, the harness resolves every named record from its own stores, redacts it, and attaches it to the round as evidence. Both parties receive the same attachments. Nothing is resolved at the time of writing and carried stale into a later round: every round resolves afresh, and a record named in an earlier round is attached again only if it is named again.
+**The decision.** A question or an answer names the records it refers to, in the `refers` list an ask already carries: each entry a kind, an identity within this product, and the revision the writer read where its kind needs one. A document (a design, a goals document, or any other governed document) needs the revision the writer read, and the harness refuses a reference to a document named without one, telling the writer the revision is missing. A work item needs no revision from the writer: the harness stamps it with the time it read the item, and that time is what a later reader goes by. For the other kinds, naming a revision is the writer's choice. Before each round is delivered, the harness resolves every named record from its own stores, redacts it, and attaches it to the round as evidence. Both parties receive the same attachments. Nothing is resolved at the time of writing and carried stale into a later round: every round resolves afresh, and a record named in an earlier round is attached again only if it is named again.
 
 **Rejected.** A read tool held by the answering session: it leaves the evidence to whether the answering model thinks to read, which is how the incident happened. Copying the asking role's conversation, or any part of it beyond one named turn: the exchange would carry a history neither party chose and the bounds could not hold. Settling runtime state through repository reads: the repository cannot show proposal, decision or publication state. A separate store or read model for exchange evidence: each kind is read through the reader that already serves it.
 
 **Kinds supported, and what each carries.** No other kind is accepted; adding one is a revision of this section naming its identity, its source and what is redacted from it.
 
 - **Amendment**, named by its `amendment-` id. Three states, reported as three separate fields and never merged into one: the proposal (its text, the role that proposed it, the document and the revision it was proposed against); the decision (none, approved, declined or withdrawn, with who decided, when, and the reason recorded); and publication (not written, written and waiting, in a run with the run named, landed with the commit named, or returned with the reason). A proposal with no decision is shown as undecided whatever any exchange said about it.
-- **Work item**, named by its tracker id: what the tracker read returns, with its notes window.
-- **Document**, named by its document id: its kind, owner, current revision, the latest entries of its revision log and approvals, the commit it was read at, any later revision written and not yet landed, and as much of its body as the bounds leave.
+- **Work item**, named by its tracker id: what the tracker read returns, with its notes window, stamped with when the harness read it.
+- **Document**, named by its document id and the revision the writer read: its kind, owner, current revision, the latest entries of its revision log and approvals, the commit it was read at, any later revision written and not yet landed, and as much of its body as the bounds leave.
 - **Run**, named by its run id: its item, state, attempts, stop reason and outcome as the run record holds them.
 - **Report**, named by its `report-` id: the whole message, who filed it, and how it was handled.
 - **Turn**, named by a conversation id and a turn number, and only a turn of the asking or the answering role's own conversation.
@@ -140,6 +149,7 @@ The request kinds, readiness vocabulary, outcome summaries, execution profiles, 
 8. An attachment containing text worded as an instruction: framed as evidence, and the exchange changes nothing.
 9. Closing the exchange: the amendment's and the item's records are unchanged, and no surface reads the closure as their completion.
 10. Cases 1 to 7 give the same attachments on Claude Code and on Codex.
+11. A document named without a revision is refused, and the writer is told the revision is missing; a work item named without one is attached stamped with when the harness read it.
 
 ## Wakeups
 
