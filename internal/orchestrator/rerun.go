@@ -303,6 +303,10 @@ type Rerunner struct {
 	// Preserved retires the stopped run's branch and worktree once the fresh run
 	// integrates. Optional; see PreservedRetirer.
 	Preserved PreservedRetirer
+	// StateRoot is the harness's state directory, where each developer run's
+	// scratch directory is; a stopped run's is removed with its worktree when a
+	// fresh run retires them. Empty removes none.
+	StateRoot string
 	// Remains asks the repository what the stopped run still holds.
 	Remains readmodel.Remains
 	// Publications closes the pull request the stopped run left open, at the same
@@ -1597,10 +1601,22 @@ func (r Rerunner) notePublicationLeftOpen(stopped runstate.State, by Supersessio
 // A retirement that removed nothing writes nothing: this is called on every
 // retirement, including the ones that kept everything.
 func (r Rerunner) recordRemoval(stopped runstate.State, freshRunID string, retirement gitworktree.Retirement, publicationRetired bool) string {
+	// The stopped run's scratch directory goes with its worktree, as it does
+	// wherever a run's worktree is removed: nothing can continue the run without
+	// one, and once the worktree is recorded removed no later sweep visits the
+	// run again. A folder that could not be removed is in the state directory,
+	// where no repository check reads it, so it is said rather than holding up
+	// the retirement.
+	scratchProblem := ""
+	if retirement.Worktree.Removed || stopped.WorktreeRemoved {
+		if err := removeRunScratch(r.StateRoot, stopped.RunID); err != nil {
+			scratchProblem = fmt.Sprintf("the scratch directory of run %s was not removed: %v", stopped.RunID, err)
+		}
+	}
 	worktreeGone := retirement.Worktree.Removed && !stopped.WorktreeRemoved
 	branchGone := retirement.Branch.Removed && !stopped.BranchRemoved
 	if !worktreeGone && !branchGone && !publicationRetired {
-		return ""
+		return scratchProblem
 	}
 	stopped.WorktreeRemoved = stopped.WorktreeRemoved || worktreeGone
 	stopped.BranchRemoved = stopped.BranchRemoved || branchGone
@@ -1617,11 +1633,11 @@ func (r Rerunner) recordRemoval(stopped runstate.State, freshRunID string, retir
 	// did to what it left behind, which is what UpdatedAt has always meant.
 	stopped.UpdatedAt = r.now()
 	if err := r.Runs.Save(stopped); err != nil {
-		return fmt.Sprintf(
+		return joinProblems(fmt.Sprintf(
 			"what run %s left behind was retired, and its own record still says otherwise, so anything reading that run will name artifacts that are gone: %v",
-			stopped.RunID, err)
+			stopped.RunID, err), scratchProblem)
 	}
-	return ""
+	return scratchProblem
 }
 
 // preservedOf is what the repository holds of the stopped run. A

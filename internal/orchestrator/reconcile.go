@@ -1989,6 +1989,16 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 	}
 	state = recorded
 	result := reconciliationOf(state, ActionCompleted)
+	// The run's scratch directory goes with its worktree, as it does when the
+	// run's own process cleans up (activeRun.removeScratch). A folder that could
+	// not be removed is said on the result rather than reopening a run whose work
+	// has landed: it is in the state directory, where no repository check reads it.
+	scratchProblem := ""
+	if cleanup.WorktreeRemoved {
+		if err := removeRunScratch(r.StateRoot, state.RunID); err != nil {
+			scratchProblem = fmt.Sprintf("; its scratch directory was not removed: %v", err)
+		}
+	}
 	result.ConfigMismatches = comparison.active
 	result.TemplateConfigMismatches = comparison.templates
 	// The detail says what the sweep did to the item, and "closed" is only one of
@@ -2001,6 +2011,7 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 	if recovered {
 		result.Detail = "integration recovered from the repository, then " + settled + " and cleaned up"
 	}
+	result.Detail += scratchProblem
 	return result, nil
 }
 
