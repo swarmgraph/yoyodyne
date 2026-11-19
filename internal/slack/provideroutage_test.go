@@ -195,3 +195,83 @@ func TestTheOutageMessageNamesEveryOperatorByMemberID(t *testing.T) {
 		t.Fatalf("taggedAll() with nobody = %q, want the text as rendered", got)
 	}
 }
+
+// A provider nobody can reach is nobody's to end: the ownership registry says
+// the harness resumes once it answers. So it is said once in the channel, with
+// the owner the registry gives it, untagged and sent to nobody directly, it is
+// not said again hourly while it stands, and its end is said in the channel
+// alone.
+func TestAnUnreachableProviderIsSaidInTheChannelAndSentToNobodyDirectly(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	outages := harness.loginExpires(t)
+	if _, _, err := outages.Clear(); err != nil {
+		t.Fatalf("Clear() error = %v", err)
+	}
+	if _, err := outages.Notice(runstate.ProviderOutageObservation{
+		Cause:        domain.ProviderUnreachable,
+		Provider:     domain.BackendClaudeCode,
+		AccountAlias: "default",
+		Detail:       "nothing answered at the provider's API",
+		Waiting:      "the dispatch of yoyodyne-ifd.377",
+		At:           harness.now,
+	}); err != nil {
+		t.Fatalf("Notice() error = %v", err)
+	}
+	harness.now = septemberLoginExpired.Add(15 * time.Second)
+
+	said, found := harness.provider(t, harness.start())
+	if !found || said.Notification.Event.Kind != notify.KindProviderOutage {
+		t.Fatalf("delivery = %+v, found %v; want the outage said in the channel", said, found)
+	}
+	if said.Direct || said.Tag {
+		t.Fatalf("delivery = %+v; want an outage nobody has to end sent to nobody directly and tagging nobody", said)
+	}
+	message, err := notify.Render(said.Notification.Topic, said.Notification.Speaker, said.Notification.Event)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if strings.Contains(message.Body, "Next: the operator's") {
+		t.Fatalf("body %q names the operator for an outage the registry gives to nobody", message.Body)
+	}
+	if !strings.Contains(message.Body, "Next: nobody's") {
+		t.Fatalf("body %q does not name the owner the registry gives the outage", message.Body)
+	}
+	cursors := harness.poll(t, harness.start(), notify.KindProviderOutage)
+
+	// A day of it standing says nothing more, directly or otherwise.
+	for at := harness.now; at.Before(septemberLoginExpired.Add(24 * time.Hour)); at = at.Add(15 * time.Minute) {
+		harness.now = at
+		if again, more := harness.provider(t, cursors); more {
+			t.Fatalf("the unreachable provider was said again at %s: %+v", at, again)
+		}
+	}
+
+	if _, _, err := outages.Clear(); err != nil {
+		t.Fatalf("Clear() error = %v", err)
+	}
+	restored, found := harness.provider(t, cursors)
+	if !found || restored.Notification.Event.Kind != notify.KindProviderRestored {
+		t.Fatalf("delivery = %+v, found %v; want the provider answering again said once", restored, found)
+	}
+	if restored.Direct || restored.Tag {
+		t.Fatalf("delivery = %+v; want the end of an outage nobody had to end said in the channel alone", restored)
+	}
+}
+
+// Who an outage is sent to directly is the ownership registry's answer and
+// nothing this surface decides: a lapsed login is the operator's, and a
+// provider nobody can reach is not.
+func TestWhoAnOutageReachesDirectlyIsTheRegistrysAnswer(t *testing.T) {
+	t.Parallel()
+
+	for cause, want := range map[domain.ProviderOutageCause]bool{
+		domain.ProviderUnauthenticated: true,
+		domain.ProviderUnreachable:     false,
+	} {
+		if got := outageIsTheOperators(cause); got != want {
+			t.Fatalf("outageIsTheOperators(%q) = %v, want %v", cause, got, want)
+		}
+	}
+}

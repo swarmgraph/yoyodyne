@@ -1806,10 +1806,12 @@ had happened by asking, three days later.
 So the sink reads the product's own record of the provider answering nobody —
 written by whatever met it refusing, a dispatch, a run, a review, or a
 conversation turn, and cleared by the first thing it serves again — and says it
-**the moment it is seen, in the channel tagged to the operators by member id,
-and to each operator as a direct message**. A login is nobody else's to renew,
-and it stops every role, so a channel somebody chooses to look at is not
-enough: the direct message is what reaches them within minutes rather than
+**the moment it is seen, in the channel**. Whether the operators are told as
+well is the ownership registry's answer for the outage, not the sink's. A
+lapsed login is theirs — it is nobody else's to renew, and it stops every
+role — so it is **tagged to the operators by member id and sent to each of
+them as a direct message**: a channel somebody chooses to look at is not
+enough, and the direct message is what reaches them within minutes rather than
 after the stall alarm's hours. The message names the provider, the account,
 and, for a lapsed login, the exact command that logs that account in again —
 the command `yoyo doctor` prints for it, read from the same attention entry
@@ -1827,16 +1829,18 @@ the command `yoyo doctor` prints for it, read from the same attention entry
 > on the machine the harness runs on; the harness resumes on its own once it
 > answers, and nothing is released or restarted.
 
-The other cause reads *The provider cannot be reached*, and the move is the
-network's; its message names no command. While either stands it is **sent to
-the operators directly again at most once an hour**, without tagging the
-channel a second time: often enough that an operator who missed the first is
+The other cause reads *The provider cannot be reached*. It is nobody's to act
+on — the network coming back ends it — so it is said once in the channel,
+naming nobody as the owner, untagged and with no direct message, and the
+dashboard and `yoyo status` list it under "Waiting on nobody's move" while it
+stands. A lapsed login is **sent to the operators directly again at most once
+an hour** while it stands, without tagging the channel a second time: often enough that an operator who missed the first is
 reached before morning, and no more often, because a message repeated every
 pass is a reason to mute the app. The four lines carry it as their banner in
 between, and the stall alarm does not fire over it. When the provider answers
-again the operators are told **once more, directly, in a short note**, because
-they were told the line had stopped and are owed being told it carried on by
-itself:
+again a short note says so in the channel, and, after a lapsed login, the
+operators are told **once more, directly**, because they were told the line
+had stopped and are owed being told it carried on by itself:
 
 > The provider is answering again after 3 days: a provider that is not
 > authenticated; the operator must log in. Every run that was waiting has
