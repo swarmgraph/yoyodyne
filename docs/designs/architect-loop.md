@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-19T03:54:46.918009Z
       reason: 'Approved amendments 72766a9d and 2f99afd2: a pass runs in its own conversation beside the scheduler''s pull, one at a time in a conversation and several conversations at once up to a bound, replacing ''at most one firing per scheduler pull''. The schedule is the project''s, no longer ''daily''. Revisions and decisions on proposed changes are the architect''s own, confirmed under the kind''s approval policy, never recorded by the operator, which the autonomy goal requires. Invariant changes are held in the pass record until the architect can submit them. Adds what a pass starts from, as ruled on October 5 for bounded pass context (yoyodyne-ifd.430.47).'
+    - action: amended
+      by: architect
+      at: 2026-11-19T10:05:19.554207Z
+      reason: 'Carries approved amendment-0d2fe158: an architect item counts as landed only when each document it names by path or identifier has a revision opening with its identifier, now that the closing fix (yoyodyne-ifd.437.47) has landed; records that an invariant revision closes no item. Answers reviewer report-e7be3aa6: invariant changes are now sent as typed writes (yoyodyne-0bj landed Nov 5), so the pass no longer holds them. amendment-34e202fb was already carried.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -29,6 +33,11 @@ approvals:
       by: harness
       at: 2026-10-19T03:54:46.918009Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1250, for document-1250.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-19T10:05:19.554207Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3066, for document-3066.1 under the automatic approval policy
 ---
 # The architect loop: a windowed pass over what landed, reconciling decisions against documents first
 
@@ -43,6 +52,7 @@ A recurring task on the architect's own conversation, on the schedule the projec
 What a pass may change is what any architect turn may change, and nothing in it is put to the operator for approval:
 
 - a revision of an architect document is written whole as a typed document write, confirmed under that kind's approval policy, and landed through a reviewed run that changes only that file;
+- a new invariant, or a change to one, is written the same way, as a typed document write of kind `invariant`, confirmed under the same approval setting as the architect's designs and landed through its own reviewed run; retiring one is still `yoyo invariant retire`;
 - a proposed change to an architect document is decided by the architect, approved or declined with its reason, and the operator is told afterwards; an approval is followed by the revision that carries it;
 - work is put to the Lead Product Manager as a report she handles;
 - a change to a product document is an amendment proposal to its owner.
@@ -57,15 +67,15 @@ Each pass starts a fresh provider session from: the role contract, persona and r
 
 1. **Windowed.** A pass reads what landed since the previous pass — the runs integrated, the documents revised, the amendments decided — and never the corpus. The window is the pass record's own cursor over the run records and the artifact revision logs, the two the freshness measurement already reads.
 2. **Instances, not impressions.** Every finding names the concrete records it generalizes from: two files, two items, two revisions. A finding that names one instance is an observation and is left in the pass record; a finding that names none is not filed.
-3. **Through the gates.** A design revision is a typed document write; work is a report to the Lead Product Manager naming the goal it would serve; a product-document change is an amendment proposal; an invariant change is the architect's own act. Until the architect can submit an invariant change from the conversation as a typed write (the item for that, yoyodyne-0bj), the pass keeps the change landing-ready in its own record and holds it; it is not sent to the operator to approve. The pass admits nothing and directs nothing.
+3. **Through the gates.** A design revision is a typed document write; work is a report to the Lead Product Manager naming the goal it would serve; a product-document change is an amendment proposal; an invariant change is the architect's own act, sent as a typed document write in the same pass that decides it, never held in the pass record and never sent to the operator to approve. The pass admits nothing and directs nothing.
 4. **Silent when empty.** A pass that reconciled nothing and found nothing says so in its record and posts nothing.
 
 ## The first shipment: decided against landed
 
 Before any drift review, a pass reconciles the architect's own decisions against the governed documents, because that gap is cheap to check and has already cost the most. Two derivations, supplied by the harness rather than reconstructed by the role:
 
-- **Decided, not landed.** Every amendment against an architect-owned document decided as approved whose identifier appears in no later revision-log reason of that document. The pass writes the revision that carries it, or names the revision that already carries it under another wording.
-- **Ruled, not landed.** Every open work item carried by the architect's conversation whose notes or conversation record hold a ruling and whose owning document has no revision opening with the item's identifier, which is the convention the auto-close reads. The pass writes the revision or says what still blocks it.
+- **Decided, not landed.** Every amendment against an architect-owned document decided as approved whose identifier appears in no later reason in that document's revision log. The pass writes the revision that carries it, or names the revision that already carries it under another wording.
+- **Ruled, not landed.** Every open work item carried by the architect's conversation whose notes or conversation record hold a ruling, and for which a document the item names, by path or identifier, has no revision whose reason opens with the item's identifier. An item counts as landed, and the harness closes it, only when each document it names has such a revision. A revision of a document the item does not name, whatever its reason says, is written onto the item's notes as related and leaves the item open. An item that names no document closes on its first such revision, with a note saying no named document was checked. An invariant revision closes no item, because the closing reads design and decision files and not the invariants directory: the pass names such an item to the Lead Product Manager to close once the invariant lands. For each item listed, the pass writes the revision or says what still blocks it.
 
 Both are derived by the harness from the amendment log, the revision logs, and the tracker, delivered into the pass as a list, and carried in `yoyo amendment list --json` under `unlanded` so an operator can read the same answer without a turn. The pass never computes them from prose, per `surfaces-project-one-read-model`.
 
