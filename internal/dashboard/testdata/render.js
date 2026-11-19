@@ -360,6 +360,11 @@ const pages = [
   { name: "loading", token: "t", standing: pending, throughput: pending, spend: pending },
   { name: "quiet", token: "t", standing: ok(fixture("standing-quiet")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "busy", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
+  // Developer slots: a run in a slot that prefers a label, and two slots
+  // standing idle, one with preferred labels and one with none; then every
+  // slot idle, which still lists each slot with what it prefers.
+  { name: "slots", token: "t", standing: ok(fixture("standing-slots")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "slots-idle", token: "t", standing: ok(fixture("standing-slots-idle")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "held", token: "t", standing: ok(fixture("standing-held")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "roles", token: "t", standing: ok(fixture("standing-roles")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "degraded", token: "t", standing: ok(fixture("standing-degraded")), throughput: ok(fixture("throughput-degraded")), spend: ok(fixture("spend-busy")) },
@@ -426,6 +431,7 @@ const scenarios = pages.concat([
   // flight, read whole; one still being read; one the tracker holds nothing
   // under; one that could not be read.
   over("card", "busy", { items: items("yoyodyne-ifd.141.3"), open: [{ item: "yoyodyne-ifd.141.3" }] }),
+  over("grouping-slots", "slots", { open: [{ grouping: "running" }] }),
   over("card-loading", "busy", { items: { "/api/items/yoyodyne-ifd.201": pending }, open: [{ item: "yoyodyne-ifd.201" }] }),
   over("card-missing", "busy", { items: { "/api/items/yoyodyne-ifd.212": refused(404, "no work item is recorded under that id") }, open: [{ item: "yoyodyne-ifd.212" }] }),
   over("card-refused", "busy", { items: { "/api/items/yoyodyne-ifd.230": refused(503, "the work item could not be read: bd show failed with status failed and exit code 1: failed to open database: embeddeddolt: openat LOCK: operation not permitted") }, open: [{ item: "yoyodyne-ifd.230" }] }),

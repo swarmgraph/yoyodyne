@@ -59,6 +59,9 @@
       "started_at": "2026-09-19T13:53:00Z",
       "elapsed": 729000000000,
       "cost_usd": 3.41,
+      "developer_slot": 1,
+      "slot_prefers": ["reliability"],
+      "slot_says": "in developer slot 1, which prefers the reliability label",
       "stage": "developing"
     },
     {
@@ -73,6 +76,9 @@
       "elapsed": 189000000000,
       "cost_usd": 0,
       "unknown_cost": "its event log is gone",
+      "developer_slot": 2,
+      "slot_prefers": ["usability", "product", "performance"],
+      "slot_says": "in developer slot 2, which prefers the usability, product or performance labels",
       "stage": "reviewing"
     },
     {
@@ -88,6 +94,8 @@
       "started_at": "2026-09-19T11:20:00Z",
       "elapsed": 9909000000000,
       "cost_usd": 12.8,
+      "developer_slot": 3,
+      "slot_says": "in developer slot 3, which prefers no label",
       "stage": "integrating"
     },
     {
@@ -104,6 +112,11 @@
       "cost_usd": 5.1,
       "stage": "developing"
     }
+  ],
+  "developer_slots": [
+    {"number": 1, "preferred": ["reliability"], "run_id": "run-c07d6849e1f55fd7b982600b8f97a303", "work_item_id": "yoyodyne-ifd.141.3", "says": "developer slot 1, which prefers the reliability label"},
+    {"number": 2, "preferred": ["usability", "product", "performance"], "run_id": "run-49839de311bd6b4d06fbfb41f22abdf1", "work_item_id": "yoyodyne-ifd.201", "says": "developer slot 2, which prefers the usability, product or performance labels"},
+    {"number": 3, "run_id": "run-5035c832b1e04d7fa9c3e2b8d1f06a11", "work_item_id": "yoyodyne-ifd.212", "says": "developer slot 3, which prefers no label"}
   ],
   "working": [
     {

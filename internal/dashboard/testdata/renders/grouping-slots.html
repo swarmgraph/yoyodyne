@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the slots render, which is not repeated here.</p>
+    <div id="grouping" class="popup" role="dialog" aria-modal="true" aria-labelledby="grouping-heading" data-state="ready">
+      <div id="grouping-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="grouping-heading" class="popup-title">Running (1 item)</h2>
+            <p id="grouping-note" class="popup-note">the developer runs in flight, each with its phase</p>
+          </div>
+          <button type="button" id="grouping-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-ready">
+          <ol id="grouping-items" class="grouping-items">
+            <li class="grouping-item">
+              <button class="item-open grouping-title" type="button" data-item="yoyodyne-6u6">The dashboard shows each developer slot's preferred labels</button>
+              <span class="item-id">yoyodyne-6u6</span>
+              <span class="grouping-detail">developing, 15m elapsed, in developer slot 1, which prefers the reliability label</span>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
