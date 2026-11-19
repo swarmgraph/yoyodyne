@@ -173,6 +173,70 @@ func TestAHandedBackRevisionIsFollowedByANewRevisionThatOpensAFreshRun(t *testin
 	}
 }
 
+// A run's account of why it handed a document back can run past the bound its
+// reason is kept to. Cutting it to the bound and then adding a mark past it made
+// the reason longer than its limit, so recording the turn was refused, and the
+// architect's recurring pass, offered the same record each time, failed each
+// time. The turn is recorded with the reason cut to fit, saying it was cut, how
+// long the whole was, and which run's record keeps all of it.
+func TestATurnIsRecordedWhenAHandedBackReasonIsOverItsLimit(t *testing.T) {
+	t.Parallel()
+
+	// Words with no gap at the bound, as a check's output often has, which is
+	// what left the old cut over its limit.
+	account := "Document document-1.1 did not land in run run-1. " + strings.Repeat("checkoutput", runstate.MaxHandedBackReasonBytes/10)
+	whole := len(strings.Join(strings.Fields(account), " "))
+	if whole <= runstate.MaxHandedBackReasonBytes {
+		t.Fatalf("the account is %d bytes, want it over the %d-byte limit", whole, runstate.MaxHandedBackReasonBytes)
+	}
+	refused := confirmedRecord(t, "rules", "document-1.1", "# Rules", "")
+	session, _ := standingSession(t, map[string]runstate.DocumentStanding{"document-1.1": handedBack("run-1", account, true)}, refused)
+
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatalf("PublishDocuments() = %v, want the turn recorded", err)
+	}
+	recorded, err := session.options.Store.Load(session.options.identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recorded.HandedBack) != 1 {
+		t.Fatalf("handed back = %#v, want the one revision kept", recorded.HandedBack)
+	}
+	reason := recorded.HandedBack[0].Reason
+	if len(reason) > runstate.MaxHandedBackReasonBytes {
+		t.Fatalf("the kept reason is %d bytes, limit is %d", len(reason), runstate.MaxHandedBackReasonBytes)
+	}
+	said := fmt.Sprintf("[cut here: the whole was %d bytes, and the record of run run-1 keeps all of it]", whole)
+	if !strings.HasPrefix(reason, "Document document-1.1 did not land in run run-1. checkoutput") || !strings.HasSuffix(reason, said) {
+		t.Fatalf("the kept reason does not say it was cut and where the rest is:\n%s", reason)
+	}
+}
+
+// The record's last fit catches a reason written past its limit by any route,
+// so saving the record shortens it rather than refusing the turn.
+func TestRecordingFitsAStoredReasonThatIsOverItsLimit(t *testing.T) {
+	t.Parallel()
+
+	session, _ := standingSession(t, nil)
+	long := strings.Repeat("x", runstate.MaxHandedBackReasonBytes+2)
+	session.state.HandedBack = []runstate.HandedBackDocument{{ID: "document-0.1", Artifact: "rules-z", RunID: "run-0", Reason: long, At: session.state.StartedAt}}
+	session.state.RefusedBlock = &runstate.TrackerRefusal{Turn: 1, Problem: strings.Repeat("y", runstate.MaxTrackerRefusalProblemBytes+5), RefusedAt: session.state.StartedAt}
+
+	if err := session.record(); err != nil {
+		t.Fatalf("record() = %v, want the turn recorded", err)
+	}
+	recorded, err := session.options.Store.Load(session.options.identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason := recorded.HandedBack[0].Reason; len(reason) > runstate.MaxHandedBackReasonBytes || !strings.Contains(reason, fmt.Sprintf("the whole was %d bytes, and the record of run run-0 keeps all of it", len(long))) {
+		t.Fatalf("the kept reason is %d bytes and says:\n%s", len(reason), reason)
+	}
+	if problem := recorded.RefusedBlock.Problem; len(problem) > runstate.MaxTrackerRefusalProblemBytes || !strings.HasSuffix(problem, fmt.Sprintf("[cut here: the whole was %d bytes]", runstate.MaxTrackerRefusalProblemBytes+5)) {
+		t.Fatalf("the kept refusal is %d bytes and ends:\n%s", len(problem), problem[max(len(problem)-120, 0):])
+	}
+}
+
 func TestTheNinthWaitingDocumentIsRefusedWithTheReason(t *testing.T) {
 	t.Parallel()
 
