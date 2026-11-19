@@ -5,7 +5,8 @@ package chat
 // The tracker holds every item under a waiting parent back with it, and nothing
 // on the child's own links says so: a read of the child showed its own links and
 // nothing holding it, and roles read it as ready while the tracker offered it to
-// nobody. So a read walks the item's parents as the tracker holds them now and
+// nobody. So a read walks the item's parents as the tracker holds them (a parent
+// this session read in the last minute is reused: see ancestorreads.go) and
 // says, after the item, which of them waits and on what. It reports a state the
 // tracker already holds and changes nothing about readiness; where every parent
 // that waits is waiting on the item itself, it says the scheduler offers the
@@ -29,7 +30,7 @@ func (s *Session) renderInheritedBlocks(ctx context.Context, item beads.WorkItem
 	}
 	blocks, err := beads.InheritedBlocks(item,
 		func(id string) (beads.WorkItem, bool, error) {
-			ancestor, err := s.options.Tracker.Show(ctx, id)
+			ancestor, err := s.readAncestor(ctx, id)
 			if err != nil {
 				return beads.WorkItem{}, false, err
 			}
@@ -68,7 +69,7 @@ func (s *Session) renderInheritedBlocks(ctx context.Context, item beads.WorkItem
 // and the read must not say the scheduler offers an item the queue then holds.
 func (s *Session) queuedAncestor(ctx context.Context) func(id string) (beads.WorkItem, bool, error) {
 	return func(id string) (beads.WorkItem, bool, error) {
-		ancestor, err := s.options.Tracker.Show(ctx, id)
+		ancestor, err := s.readAncestor(ctx, id)
 		if err != nil {
 			return beads.WorkItem{}, false, err
 		}
