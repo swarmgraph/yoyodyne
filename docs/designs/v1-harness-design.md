@@ -134,6 +134,10 @@ revisions:
       by: architect
       at: 2026-11-20T19:12:25.753752Z
       reason: 'Work Execution and Integration section only, from main bdf3409f7. Steps 5 and 10 and the drift paragraph now agree with the Git Model section and the merge queue design: with execution.merge_queue on, no run branch is pushed or given a pull request, and the queue''s candidate is rebuilt, checked, reviewed again and merged under the promotion lease. With it off nothing changes. Second of three v1 sections for the promotion item yoyodyne-ifd.437.33; the Recovery and Idempotency section follows.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T19:58:47.73352Z
+      reason: 'yoyodyne-ifd.437.33: the reconciliation part, the last v1 section that item needs. Reconciliation now says what a finished run owes with the merge queue on (nothing queued at the forge; waiting entries and unconfirmed candidates are left to the queue) apart from the queue-off case, which is unchanged in substance. Also replaces ''the original gate ran'' with plain words for yoyodyne-ifd.437.21. Written from main 8bb0de3a.'
 approvals:
     - revision: 0
       by: operator
@@ -158,6 +162,11 @@ approvals:
       by: harness
       at: 2026-11-20T19:12:25.753752Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3208, for document-3208.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 32
+      by: harness
+      at: 2026-11-20T19:58:47.73352Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3221, for document-3221.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -605,7 +614,15 @@ It then resumes an eligible run, marks an external process outcome, or raises a 
 
 Which failures at a boundary are waited out, which are answers handed on at once, and which are ambiguous and re-read before anything is asked again — and what a retry may never do to a lease, a budget, or a promotion — is governed by [recoverable-and-terminal-failures](recoverable-and-terminal-failures.md).
 
-A merge the forge queued is the one thing a *finished* run can still owe, and it is settled the same way. Reconciliation asks the forge what became of it, and there are three answers. If the forge merged, the publication finishes exactly as it would have inside the run: the remote target is confirmed to carry the promotion, the merge commit is recorded, the local target is caught up onto it under the target branch's promotion lease, and the branch the merge consumed is deleted on both sides. If the forge is still holding the merge, nothing is decided and a later sweep asks again. If the forge dropped it, the harness never merges past what stopped it: administrator override is never used, and a requirement only a person can satisfy is never re-asked — that becomes an *outstanding publication* named on the work item, for a person. A drop whose cause was transient — a required check that never finished, an auto-merge race lost — is the one case where the merge request may be repeated: once per publication, under the development manager's triage, the identical already-authorized request is repeated — the same pull request by the same method, verified unchanged first, meaning the request's head is still the integrated commit and the remote target still passes the same pre-merge content check the original gate ran — with the durable once-per-publication counter incremented before the request is made. Repeating an identical request over a transient drop is not merging past a requirement, because the forge's requirement machinery runs again in full; a second drop is never repeated and is recorded as an escalation on the item. Reconciliation itself still only asks the forge about a pull request and has no way to merge one — repeating the request is the development manager's triage action, not reconciliation's. Reconciliation also converges local state as it settles: each target branch owed a catch-up is caught up under its lease, and settled runs' merged branches are removed.
+What a finished run can still owe the forge depends on the merge queue switch, `execution.merge_queue`, and the two cases are settled differently.
+
+**With the merge queue on**, a finished run never owes the forge a queued merge, because the harness never asks the forge to merge later: it merges a candidate directly, under the target branch's promotion lease, after reading that the target still stands at the candidate's base. What can still be outstanding after a restart is an approved change waiting in the queue, or a candidate sent to the forge whose landing is not yet confirmed. Reconciliation settles neither itself. It leaves both to the queue, which reads where the target stands before it acts: a candidate the forge reports merged has landed once the target holds its merge commit, and the local target is then caught up onto that commit under the promotion lease; a candidate whose target moved returns to draft and is rebuilt on the new target, with no repair attempt spent. What the queue does with each entry after a restart, and with an entry that cannot be rebuilt cleanly, is [the merge queue design](integration-through-a-merge-queue.md)'s to say.
+
+**With the merge queue off**, a merge the forge queued is the one thing a finished run can still owe, and it is settled the same way as the rest. Reconciliation asks the forge what became of it, and there are three answers. If the forge merged, the publication finishes exactly as it would have inside the run: the remote target is confirmed to carry the promotion, the merge commit is recorded, the local target is caught up onto it under the target branch's promotion lease, and the branch the merge consumed is deleted on both sides. If the forge is still holding the merge, nothing is decided and a later sweep asks again. If the forge dropped it, the harness never merges past what stopped it: administrator override is never used, and a requirement only a person can satisfy is never asked again — that becomes an *outstanding publication* named on the work item, for a person.
+
+A drop whose cause was temporary — a required check that never finished, a race lost while the forge was merging when ready — is the one case where the merge request may be repeated. It is repeated once for each publication, under the development manager's triage, as the identical request already authorized: the same pull request by the same method, checked unchanged first. Checked unchanged means the request's head is still the integrated commit, and the remote target still passes the same check of its content, before the merge, that the original merge request passed. The durable count of repeats for that publication is raised before the request is made. Repeating an identical request over a temporary drop is not merging past a requirement, because the forge checks every requirement again in full; a second drop is never repeated and is recorded as an escalation on the item. Reconciliation itself still only asks the forge about a pull request and has no way to merge one — repeating the request is the development manager's triage action, not reconciliation's.
+
+In both cases reconciliation also brings local state into line as it settles: each target branch owed a catch-up is caught up under its lease, and settled runs' merged branches are removed.
 
 ## CLI Surface
 
