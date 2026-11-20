@@ -94,7 +94,12 @@ from session running totals until the backfill is run.
 Three things it deliberately will not do. A run whose event log no longer
 survives is priced as unknown rather than as nothing — it is counted, left out
 of the total, and marked with `≥`, because a zero meaning "no record" would
-quietly understate every total it entered. An item the harness has never run
+quietly understate every total it entered. A run whose event log survives but
+holds a line that may say what an invocation cost and cannot be read is priced
+from the lines that can be: its figure is kept, the line says what is missing,
+and the total is marked `≥` the same way. `yoyo status --spend` reads the same
+log by the same rule, so it keeps that figure too, names the log, and marks its
+total `≥` rather than passing the unreadable line over. An item the harness has never run
 carries no price at all rather than a price of nothing. And what is priced *per
 item* is runs: the conversations that steer them cost money too and are recorded
 just as durably, but attributing a conversation that discussed five items to any

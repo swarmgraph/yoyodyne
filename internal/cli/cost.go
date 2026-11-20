@@ -758,6 +758,11 @@ func renderRunPrice(run runstate.RunPrice) string {
 	if !run.Known() {
 		return "unknown: " + run.Unknown
 	}
+	// A run priced from part of its evidence says it cost at least the figure,
+	// and what is missing, rather than a figure that reads as all of it.
+	if !run.Complete() {
+		return fmt.Sprintf("at least %s from %d invocation(s) that could be read; %s", run.Tokens.CostText(run.CostUSD), run.Invocations, run.Incomplete)
+	}
 	if !run.Status.Terminal() {
 		return fmt.Sprintf("%s so far from %d invocation(s)", run.Tokens.CostText(run.CostUSD), run.Invocations)
 	}

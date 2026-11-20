@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/cost/costevent"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -484,6 +485,11 @@ type streamScan struct {
 	// decoding every terminal's usage to print twenty rows would be a read nobody
 	// asked for.
 	invocations []Invocation
+	// missing says what cost evidence the log holds that could not be read, by
+	// the rule every reader of cost evidence shares (internal/cost/costevent),
+	// and is empty where all of it could. The invocations above are the ones
+	// that could be read.
+	missing string
 }
 
 // scanStreamLog reads an event log once. A log that is gone is empty rather than
@@ -514,6 +520,8 @@ func scanStreamLog(path string, kind StreamKind, priced bool) (streamScan, error
 	// session is the one the last terminal named, which a duplicate terminal
 	// recorded before it named its own is priced against.
 	session := ""
+	// evidence reads the cost lines, and counts the ones it could not read.
+	var evidence costevent.Reader
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), maxEncodedEventBytes)
 	for scanner.Scan() {
@@ -524,8 +532,13 @@ func scanStreamLog(path string, kind StreamKind, priced bool) (streamScan, error
 			Timestamp time.Time           `json:"timestamp"`
 		}
 		// A line that will not decode still happened, so it is counted; what it
-		// cannot do is say anything about when or what.
+		// cannot do is say anything about when or what. Where it may have said
+		// what an invocation cost, the evidence reader counts it as missing
+		// rather than letting it pass unremarked.
 		if err := json.Unmarshal(line, &read); err != nil {
+			if priced {
+				evidence.Read(line)
+			}
 			continue
 		}
 		if scanned.first.IsZero() {
@@ -534,14 +547,12 @@ func scanStreamLog(path string, kind StreamKind, priced bool) (streamScan, error
 		if read.Type == execution.EventReviewCompleted {
 			scanned.reviewed = true
 		}
-		// The cheap test over-matches and the decoded type rejects the rest, which
-		// is what keeps pricing a stream from decoding all of its own chatter.
-		if !priced || !carriesSpendEvidence(line) {
+		if !priced {
 			continue
 		}
-		var terminal pricedEvent
-		if err := json.Unmarshal(line, &terminal); err != nil {
-			return streamScan{}, fmt.Errorf("decode event log to price it: %w", err)
+		terminal, ok := evidence.Read(line)
+		if !ok {
+			continue
 		}
 		if terminal.Type == execution.EventReviewStarted {
 			reviewing = true
@@ -549,14 +560,14 @@ func scanStreamLog(path string, kind StreamKind, priced bool) (streamScan, error
 		}
 		// A second terminal to one invocation is more of that invocation's cost,
 		// by the ledger's rule and for the ledger's reason.
-		if terminal.duplicateTerminal() {
-			cost := costs.Own(terminal.session(session), terminal.Payload.TotalCostUSD)
+		if terminal.DuplicateTerminal() {
+			cost := costs.Own(terminal.Session(session), terminal.Payload.TotalCostUSD)
 			if last := len(scanned.invocations) - 1; last >= 0 {
 				scanned.invocations[last].CostUSD += cost
 			}
 			continue
 		}
-		if !terminal.priced() {
+		if !terminal.Terminal() {
 			continue
 		}
 		announced := reviewing
@@ -566,12 +577,13 @@ func scanStreamLog(path string, kind StreamKind, priced bool) (streamScan, error
 			At:      terminal.Timestamp,
 			Role:    invocationRole(kind, terminal, announced),
 			CostUSD: costs.Own(session, terminal.Payload.TotalCostUSD),
-			Usage:   terminal.tokens(),
+			Usage:   eventTokens(terminal),
 		})
 	}
 	if err := scanner.Err(); err != nil {
 		return streamScan{}, fmt.Errorf("read event log: %w", err)
 	}
+	scanned.missing = evidence.Missing()
 	return scanned, nil
 }
 
@@ -581,10 +593,10 @@ func scanStreamLog(path string, kind StreamKind, priced bool) (streamScan, error
 // else ever writes into one; a conversation's terminal that did not name its
 // role is nobody's, because the log does not say which role's conversation it
 // is and a guess here would be a guess about money.
-func invocationRole(kind StreamKind, terminal pricedEvent, announced bool) domain.AgentRole {
+func invocationRole(kind StreamKind, terminal costevent.Event, announced bool) domain.AgentRole {
 	switch kind {
 	case StreamRun:
-		return terminal.role(announced)
+		return terminal.Role(announced)
 	case StreamReview:
 		return domain.RoleReviewer
 	default:
@@ -740,6 +752,15 @@ type SpendReport struct {
 	// UnreadableReason is why the first of them could not be read, which says
 	// what kind of broken this is without enumerating every instance.
 	UnreadableReason string `json:"unreadable_reason,omitempty"`
+	// IncompleteStreams names the streams whose event log holds a line that may
+	// say what an invocation cost and could not be read. The calls that could be
+	// read are in the rows; what is missing is not, so every total they are in is
+	// a floor. It is the same rule the price of a run is held to
+	// (internal/cost/costevent), so a log is incomplete on every surface or on
+	// none.
+	IncompleteStreams []string `json:"incomplete_streams,omitempty"`
+	// IncompleteReason says what the first of them is missing.
+	IncompleteReason string `json:"incomplete_reason,omitempty"`
 	// Rolling is the same spend reckoned from SpendQuery.Since rather than from
 	// a day boundary — the window whole local days cannot express — and is nil
 	// where the query named no moment. RollingWindow() is what adds it up, by
@@ -765,7 +786,9 @@ func (r SpendReport) Empty() bool {
 
 // Floor reports a total that is a lower bound, because something it should
 // cover could not be read.
-func (r SpendReport) Floor() bool { return len(r.UnreadableExchanges) > 0 }
+func (r SpendReport) Floor() bool {
+	return len(r.UnreadableExchanges) > 0 || len(r.IncompleteStreams) > 0
+}
 
 // Since is the same report narrowed to the rows from one local day on, by the
 // rule the report's own window applies: a row is inside from that day on, and
@@ -981,7 +1004,16 @@ func (s *StreamStore) Spend(query SpendQuery) (SpendReport, error) {
 		if err != nil {
 			return SpendReport{}, err
 		}
-		if keepable(stream) {
+		// A stream whose cost evidence could not all be read is reported
+		// incomplete, and is read again by the next report rather than kept:
+		// what is kept holds the calls and not what they were missing.
+		if scanned.missing != "" {
+			report.IncompleteStreams = append(report.IncompleteStreams, entry.id)
+			if report.IncompleteReason == "" {
+				report.IncompleteReason = fmt.Sprintf("%s %s: %s", entry.kind, entry.id, scanned.missing)
+			}
+		}
+		if keepable(stream) && scanned.missing == "" {
 			if header, err := s.keep(entry, stream, scanned); err == nil {
 				kept.Streams[keptStreamKey(entry.kind, entry.id)] = header
 				keptChanged = true

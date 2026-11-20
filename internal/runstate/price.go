@@ -15,8 +15,6 @@ package runstate
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -25,24 +23,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/cost/costevent"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
-
-// pricedEvents are the events that carry what one provider invocation cost.
-// Both are terminal reports of a single invocation and both carry the cost, so a
-// run whose provider ended in an error is priced with the money that error spent
-// rather than as though it had been free.
-var pricedEvents = []execution.EventType{execution.EventRunCompleted, execution.EventRunFailed}
-
-// spendEvidenceEvents are every event the phase split is read from: the priced
-// terminals above, which say whose invocation they ended, and the review that
-// brackets one of them. A review announcing itself costs nothing and is decoded
-// anyway, because it is what says the next terminal is the reviewer's in a log
-// recorded before a terminal named its own role.
-var spendEvidenceEvents = append([]execution.EventType{execution.EventReviewStarted}, pricedEvents...)
 
 // PhaseCost is what one part of a run cost and how many provider invocations it
 // took. The count travels with the money because the money alone does not say
@@ -372,10 +358,19 @@ type RunPrice struct {
 	// was. A run carrying it is not a run that cost nothing: nothing survives to
 	// say what it cost, which is a different fact and is stated as itself.
 	Unknown string `json:"unknown,omitempty"`
+	// Incomplete says what a run priced from part of its evidence is missing:
+	// lines of its event log that may say what an invocation cost and could not
+	// be read. The figures above cover the invocations that could be, so the
+	// run cost at least that much. It is empty on a run priced from all of it.
+	Incomplete string `json:"incomplete,omitempty"`
 }
 
-// Known reports a run the recorded evidence could actually price.
+// Known reports a run the recorded evidence could actually price, in whole or
+// in part (see Incomplete).
 func (r RunPrice) Known() bool { return r.Unknown == "" }
+
+// Complete reports a run priced from every line of its evidence.
+func (r RunPrice) Complete() bool { return r.Known() && r.Incomplete == "" }
 
 // ItemPrice is what every recorded run of one work item cost. The total covers
 // the runs that could be priced, so an item with unknown runs is priced at a
@@ -392,8 +387,10 @@ type ItemPrice struct {
 	// be priced, which is where the cache-read share earns its keep: one run is a
 	// sample and a window of them is the measure.
 	Tokens TokenUsage `json:"tokens"`
-	// UnknownRuns counts the runs whose evidence is gone. While it is non-zero
-	// the total is a lower bound on what the item cost.
+	// UnknownRuns counts the runs that could not be priced from all of their
+	// evidence: the ones whose evidence is gone, and the ones priced from only
+	// the part of it that could be read. While it is non-zero the total is a
+	// lower bound on what the item cost.
 	UnknownRuns int `json:"unknown_runs,omitempty"`
 }
 
@@ -707,6 +704,11 @@ func (s *Store) price(workItemID string, states []State) ItemPrice {
 			price.UnknownRuns++
 			continue
 		}
+		// A run priced from part of its evidence adds what it can be priced at,
+		// and makes the item's total a floor exactly as a run with none does.
+		if !run.Complete() {
+			price.UnknownRuns++
+		}
 		price.TotalUSD += run.CostUSD
 		price.Tokens.Merge(run.Tokens)
 	}
@@ -741,24 +743,33 @@ func (s *Store) priceRun(state State) RunPrice {
 		run.Unknown = err.Error()
 		return run
 	}
-	spend, tokens, err := scanEventSpend(path)
+	scanned, err := scanEventSpend(path)
 	if err != nil {
 		run.Unknown = err.Error()
 		return run
 	}
+	spend := scanned.spend
 	// A run that recorded a provider session made at least one invocation, so a
 	// log with none in it is a log that lost them rather than a run that never
 	// spent anything. A run with no session recorded never got as far as invoking
 	// a provider, and costing nothing is the truth about it.
 	if spend.Invocations() == 0 && (strings.TrimSpace(state.ProviderSessionID) != "" || strings.TrimSpace(state.ReviewSessionID) != "") {
 		run.Unknown = "the run recorded a provider session but its event log holds no invocation to price"
+		if scanned.missing != "" {
+			run.Unknown += "; " + scanned.missing
+		}
 		return run
 	}
 	spend.Waits = waits
 	run.Phases = spend
-	run.Tokens = tokens
+	run.Tokens = scanned.tokens
 	run.CostUSD = spend.TotalUSD()
 	run.Invocations = spend.Invocations()
+	// A log with some of its cost evidence unreadable still prices the
+	// invocations it can read: they were spent, and the run's price is at least
+	// their sum. What is missing is said beside it, by the rule every reader of
+	// cost evidence shares (internal/cost/costevent).
+	run.Incomplete = scanned.missing
 	return run
 }
 
@@ -766,12 +777,25 @@ func (s *Store) priceRun(state State) RunPrice {
 // event log, without regard for which part of the run each served. It is what a
 // log with no phases in it is priced by -- a branch review is one reviewer and
 // nothing else -- and it is the split's own total said the short way.
-func scanEventCost(path string) (float64, int, error) {
-	spend, _, err := scanEventSpend(path)
+//
+// missing is what the total is missing, and empty where every line of cost
+// evidence could be read.
+func scanEventCost(path string) (cost float64, invocations int, missing string, err error) {
+	scanned, err := scanEventSpend(path)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, "", err
 	}
-	return spend.TotalUSD(), spend.Invocations(), nil
+	return scanned.spend.TotalUSD(), scanned.spend.Invocations(), scanned.missing, nil
+}
+
+// eventSpend is what one pass over a run's event log priced: the split, the
+// usage beside it, and what the two are missing.
+type eventSpend struct {
+	spend  PhaseSpend
+	tokens TokenUsage
+	// missing says what cost evidence the log holds that could not be read, and
+	// is empty where it all could. The figures above cover what could be read.
+	missing string
 }
 
 // scanEventSpend splits what the provider reported for every invocation in one
@@ -831,13 +855,13 @@ func scanEventCost(path string) (float64, int, error) {
 // sound for those runs is that the only two things that ever wrote into a run's
 // log were the developer's attempts and the reviewer, each announcing itself;
 // the role on the terminal is what stops that from having to stay true.
-func scanEventSpend(path string) (PhaseSpend, TokenUsage, error) {
+func scanEventSpend(path string) (eventSpend, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return PhaseSpend{}, TokenUsage{}, errors.New("the event log is no longer recorded, so what it cost cannot be read")
+		return eventSpend{}, errors.New("the event log is no longer recorded, so what it cost cannot be read")
 	}
 	if err != nil {
-		return PhaseSpend{}, TokenUsage{}, fmt.Errorf("open event log to price the run: %w", err)
+		return eventSpend{}, fmt.Errorf("open event log to price the run: %w", err)
 	}
 	defer file.Close()
 
@@ -869,17 +893,16 @@ func scanEventSpend(path string) (PhaseSpend, TokenUsage, error) {
 		// session it named, which is where a duplicate terminal after it belongs.
 		invoked *PhaseCost
 		session string
+		// evidence reads the cost lines by the rule every reader shares, and
+		// keeps the count of the ones it could not read.
+		evidence costevent.Reader
 	)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), maxEncodedEventBytes)
 	for scanner.Scan() {
-		line := scanner.Bytes()
-		if !carriesSpendEvidence(line) {
+		priced, ok := evidence.Read(scanner.Bytes())
+		if !ok {
 			continue
-		}
-		var priced pricedEvent
-		if err := json.Unmarshal(line, &priced); err != nil {
-			return PhaseSpend{}, TokenUsage{}, fmt.Errorf("decode event log to price the run: %w", err)
 		}
 		// The quick filter matches text anywhere in the line, so the decoded type
 		// is what decides: an agent quoting an event name is not an invocation and
@@ -892,18 +915,18 @@ func scanEventSpend(path string) (PhaseSpend, TokenUsage, error) {
 		// not another invocation, so it moves nothing the phase split counts: it is
 		// added to the phase its first terminal was placed in, priced against the
 		// session that terminal named.
-		if priced.duplicateTerminal() {
-			cost := costs.Own(priced.session(session), priced.Payload.TotalCostUSD)
+		if priced.DuplicateTerminal() {
+			cost := costs.Own(priced.Session(session), priced.Payload.TotalCostUSD)
 			if invoked == nil {
 				invoked = &spend.Unattributed
 			}
 			invoked.CostUSD += cost
 			continue
 		}
-		if !priced.priced() {
+		if !priced.Terminal() {
 			continue
 		}
-		usage := priced.tokens()
+		usage := eventTokens(priced)
 		tokens.Merge(usage)
 		// An open bracket is spent by the first terminal that arrives whatever that
 		// terminal turns out to be, because the review that opened it has by then
@@ -912,7 +935,7 @@ func scanEventSpend(path string) (PhaseSpend, TokenUsage, error) {
 		reviewing = false
 		session = priced.Payload.SessionID
 		cost := costs.Own(session, priced.Payload.TotalCostUSD)
-		switch priced.phase(announced) {
+		switch phaseOf(priced, announced) {
 		case phaseReview:
 			invoked = &spend.Review
 		case phaseDevelopment:
@@ -931,124 +954,35 @@ func scanEventSpend(path string) (PhaseSpend, TokenUsage, error) {
 		invoked.add(cost, usage)
 	}
 	if err := scanner.Err(); err != nil {
-		return PhaseSpend{}, TokenUsage{}, fmt.Errorf("read event log to price the run: %w", err)
+		return eventSpend{}, fmt.Errorf("read event log to price the run: %w", err)
 	}
-	return spend, tokens, nil
+	return eventSpend{spend: spend, tokens: tokens, missing: evidence.Missing()}, nil
 }
 
-// pricedEvent is the little of an event pricing needs: which event it is, whose
-// invocation it ended, what the provider said that invocation cost and read to
-// serve it, and the schema it was written at -- which is what says whether a
-// missing role is an omission or a field that did not exist yet.
-type pricedEvent struct {
-	SchemaVersion int                 `json:"schema_version"`
-	Type          execution.EventType `json:"type"`
-	// Timestamp is when the invocation ended, which is the day its money is
-	// counted on by the readers that group spend by day.
-	Timestamp time.Time `json:"timestamp"`
-	Payload   struct {
-		Role string `json:"role"`
-		// SessionID is the provider session the invocation ran in, and it is what
-		// says whether TotalCostUSD beside it is this invocation's cost or the
-		// session's running total: a provider asked to resume reports the latter.
-		// A terminal that named no session is priced at what it reported, which is
-		// what an invocation with no session to have resumed cost.
-		SessionID    string  `json:"session_id"`
-		TotalCostUSD float64 `json:"total_cost_usd"`
-		CostReported *bool   `json:"cost_reported"`
-		// Usage is the provider's own usage object, recorded verbatim on every
-		// terminal. It is a pointer so that a terminal carrying no usage at all is
-		// distinguishable from one that reported zeros: the first is an invocation
-		// nobody has a measurement for, the second is a measurement of nothing, and
-		// a share that treated them alike would be wrong by the first.
-		Usage *usageTokens `json:"usage"`
-		// Anomaly marks the process output a backend records for a terminal that
-		// arrived after the invocation's first, which carries a cost of its own.
-		Anomaly string `json:"anomaly"`
-	} `json:"payload"`
+// eventTokens is what one invocation read and wrote, or an invocation counted
+// as unmeasured where its terminal carried no usage object.
+func eventTokens(event costevent.Event) TokenUsage {
+	noCost := 0
+	if event.NoCost() {
+		noCost = 1
+	}
+	if event.Payload.Usage == nil {
+		return TokenUsage{Unreported: 1, NoCost: noCost, Priced: 1 - noCost}
+	}
+	tokens := measuredTokens(*event.Payload.Usage)
+	tokens.NoCost = noCost
+	tokens.Priced = 1 - noCost
+	return tokens
 }
 
-func (p *pricedEvent) UnmarshalJSON(data []byte) error {
-	type plain pricedEvent
-	if err := json.Unmarshal(data, (*plain)(p)); err != nil {
-		return err
-	}
-	var presence struct {
-		Payload map[string]json.RawMessage `json:"payload"`
-	}
-	if err := json.Unmarshal(data, &presence); err != nil {
-		return err
-	}
-	if p.Payload.CostReported == nil {
-		raw, exists := presence.Payload["total_cost_usd"]
-		reported := exists && string(raw) != "null"
-		p.Payload.CostReported = &reported
-	}
-	return nil
-}
-
-// duplicateTerminal reports the record of a second terminal to one invocation.
-// It is not a priced event, because it is not an invocation, but the provider
-// charged for the turn behind it and the readers add that to the invocation it
-// followed.
-func (p pricedEvent) duplicateTerminal() bool {
-	return p.Type == execution.EventProcessOutput && p.Payload.Anomaly == execution.DuplicateTerminalAnomaly
-}
-
-// session is the session a duplicate terminal's figure is a running total of.
-// It names its own from the time the backend recorded one on it; before that
-// it is the session of the terminal it followed, since both ended the same
-// invocation.
-func (p pricedEvent) session(previous string) string {
-	if session := strings.TrimSpace(p.Payload.SessionID); session != "" {
-		return session
-	}
-	return previous
-}
-
-// usageTokens is the part of the provider's usage object a share is computed
-// from. The field names are the provider's rather than the harness's, because
-// this decodes what the provider wrote: the backend records the object verbatim
-// under "usage" on the terminal's payload, and everything beside these four --
-// the nested cache_creation breakdown, the per-iteration array, the service tier
-// -- is left where it is rather than descended into.
-//
-// That this is where the writer actually puts it is not something this file can
-// state on its own, and a fixture written on this side would agree with itself
-// whatever the writer did. TestATerminalCarriesTheProvidersUsageWhereThePriceReaderLooksForIt
-// in internal/backend/claudecode is what holds the two together, from the side
-// that writes.
-type usageTokens struct {
-	InputTokens         int64 `json:"input_tokens"`
-	OutputTokens        int64 `json:"output_tokens"`
-	CacheReadTokens     int64 `json:"cache_read_input_tokens"`
-	CacheCreationTokens int64 `json:"cache_creation_input_tokens"`
-	// CacheCreation is the one nested object that is descended into: the
-	// provider's split of the write above by the lifetime it was written at,
-	// which is what a cost split needs because the two lifetimes carry different
-	// premiums. It is a pointer so a terminal recorded before the provider
-	// reported the split is told apart from one that reported a split of nothing.
-	CacheCreation *struct {
-		Ephemeral5m int64 `json:"ephemeral_5m_input_tokens"`
-		Ephemeral1h int64 `json:"ephemeral_1h_input_tokens"`
-	} `json:"cache_creation"`
-}
-
-// tokens is what this invocation read and wrote, or an invocation counted as
-// unmeasured where its terminal carried no usage object.
-func (p pricedEvent) tokens() TokenUsage {
-	usage := p.Payload.Usage
-	if usage == nil {
-		return TokenUsage{Unreported: 1, NoCost: p.noCost(), Priced: 1 - p.noCost()}
-	}
+// measuredTokens is one measured invocation's usage in the shape the totals sum.
+func measuredTokens(usage costevent.Usage) TokenUsage {
 	tokens := TokenUsage{
 		InputTokens:         usage.InputTokens,
 		CacheReadTokens:     usage.CacheReadTokens,
 		CacheCreationTokens: usage.CacheCreationTokens,
 		OutputTokens:        usage.OutputTokens,
 		Measured:            1,
-		NoCost:              p.noCost(),
-		Priced:              1 - p.noCost(),
 	}
 	if usage.CacheCreation != nil {
 		tokens.CacheWrite5mTokens = usage.CacheCreation.Ephemeral5m
@@ -1061,30 +995,11 @@ func (p pricedEvent) tokens() TokenUsage {
 // object it carries the way a terminal's is read above, or an invocation
 // counted as unmeasured where it carries none or one that does not decode.
 func (s Spend) Tokens() TokenUsage {
-	var usage usageTokens
-	if len(s.Usage) == 0 || json.Unmarshal(s.Usage, &usage) != nil {
+	usage, ok := costevent.DecodeUsage(s.Usage)
+	if !ok {
 		return TokenUsage{Unreported: 1}
 	}
-	tokens := TokenUsage{
-		InputTokens:         usage.InputTokens,
-		CacheReadTokens:     usage.CacheReadTokens,
-		CacheCreationTokens: usage.CacheCreationTokens,
-		OutputTokens:        usage.OutputTokens,
-		Measured:            1,
-	}
-	if usage.CacheCreation != nil {
-		tokens.CacheWrite5mTokens = usage.CacheCreation.Ephemeral5m
-		tokens.CacheWrite1hTokens = usage.CacheCreation.Ephemeral1h
-	}
-	return tokens
-}
-
-// noCost uses the explicit adapter flag; older events retain their recorded meaning.
-func (p pricedEvent) noCost() int {
-	if p.Payload.CostReported != nil && !*p.Payload.CostReported {
-		return 1
-	}
-	return 0
+	return measuredTokens(usage)
 }
 
 // CostText describes reported dollars and tokens without treating missing prices as free.
@@ -1109,23 +1024,6 @@ func (t TokenUsage) CostText(cost float64) string {
 	return fmt.Sprintf("$%.2f reported; %s; no cost reported for %d %s", cost, tokens, t.NoCost, turns)
 }
 
-// role is whose invocation this terminal ended, by the rule phase applies: a
-// terminal names its own role from TerminalRoleSchemaVersion on, and one
-// recorded before that is read the way it was written, with the review bracket
-// deciding between the only two roles that ever wrote into a run's log. A
-// terminal that could have named itself and did not is nobody's, which is what
-// the empty role says.
-func (p pricedEvent) role(announced bool) domain.AgentRole {
-	named := domain.AgentRole(strings.TrimSpace(p.Payload.Role))
-	if named != "" || p.SchemaVersion >= execution.TerminalRoleSchemaVersion {
-		return named
-	}
-	if announced {
-		return domain.RoleReviewer
-	}
-	return domain.RoleDeveloper
-}
-
 // invocationPhase is which part of a run one priced invocation served. Its zero
 // value is the unattributed one deliberately: a phase this reaches without
 // deciding on is money placed nowhere rather than money placed by default.
@@ -1137,7 +1035,7 @@ const (
 	phaseReview
 )
 
-// phase says which part of the run this invocation served, from the role it
+// phaseOf says which part of the run this invocation served, from the role it
 // recorded for itself.
 //
 // A terminal that named no role is the case the schema decides. Recorded at a
@@ -1149,8 +1047,8 @@ const (
 // way it was written, and announced -- whether a review had opened a bracket in
 // front of it -- is what decides. That fallback reaches nothing written since,
 // so it can never place a terminal that could have named itself and did not.
-func (p pricedEvent) phase(announced bool) invocationPhase {
-	switch p.role(announced) {
+func phaseOf(event costevent.Event, announced bool) invocationPhase {
+	switch event.Role(announced) {
 	case domain.RoleDeveloper:
 		return phaseDevelopment
 	case domain.RoleReviewer:
@@ -1160,37 +1058,14 @@ func (p pricedEvent) phase(announced bool) invocationPhase {
 	}
 }
 
-func (p pricedEvent) priced() bool {
-	for _, candidate := range pricedEvents {
-		if p.Type == candidate {
-			return true
-		}
-	}
-	return false
-}
-
-// carriesSpendEvidence is the cheap test that decides whether a line is worth
-// decoding. It over-matches deliberately: what it must never do is skip a line
-// that carries a cost or opens a review, and the decoded type rejects everything
-// else. A duplicate terminal carries a cost under an event type that everything
-// else is recorded under too, so it is matched by its anomaly instead.
-func carriesSpendEvidence(line []byte) bool {
-	for _, candidate := range spendEvidenceEvents {
-		if bytes.Contains(line, []byte(`"`+string(candidate)+`"`)) {
-			return true
-		}
-	}
-	return bytes.Contains(line, []byte(`"`+execution.DuplicateTerminalAnomaly+`"`))
-}
-
 func exchangeTokens(round exchange.Round) TokenUsage {
 	if round.CostReported == nil && len(round.Usage) == 0 {
 		return TokenUsage{Priced: 1}
 	}
-	var event pricedEvent
+	var event costevent.Event
 	event.Payload.CostReported = round.CostReported
-	if len(round.Usage) > 0 {
-		_ = json.Unmarshal(round.Usage, &event.Payload.Usage)
+	if usage, ok := costevent.DecodeUsage(round.Usage); ok {
+		event.Payload.Usage = &usage
 	}
-	return event.tokens()
+	return eventTokens(event)
 }

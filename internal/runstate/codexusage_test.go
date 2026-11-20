@@ -2,6 +2,7 @@ package runstate
 
 import (
 	"encoding/json"
+	"github.com/mason-bryant/yoyodyne/internal/cost/costevent"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"strings"
@@ -10,10 +11,10 @@ import (
 )
 
 func TestMissingPricesAndUsageSurviveTotals(t *testing.T) {
-	var unpriced, priced, absent pricedEvent
+	var unpriced, priced, absent costevent.Event
 	for _, sample := range []struct {
 		text string
-		into *pricedEvent
+		into *costevent.Event
 	}{
 		{`{"payload":{"usage":{"input_tokens":3120,"cache_read_input_tokens":13184,"output_tokens":5}}}`, &unpriced},
 		{`{"payload":{"total_cost_usd":2,"usage":{"input_tokens":10,"output_tokens":2}}}`, &priced},
@@ -23,26 +24,26 @@ func TestMissingPricesAndUsageSurviveTotals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	usage := unpriced.tokens()
+	usage := eventTokens(unpriced)
 	if usage.NoCost != 1 || usage.InputTotal() != 16304 || usage.Measured != 1 {
 		t.Fatal(usage)
 	}
 	if text := usage.CostText(0); strings.Contains(text, "$0") || !strings.Contains(text, "no cost reported for 1 turn") {
 		t.Fatal(text)
 	}
-	usage.Merge(priced.tokens())
+	usage.Merge(eventTokens(priced))
 	if text := usage.CostText(2); !strings.Contains(text, "$2.00 reported") || !strings.Contains(text, "no cost reported for 1 turn") {
 		t.Fatal(text)
 	}
-	if missing := absent.tokens(); missing.Measured != 0 || missing.Unreported != 1 || !strings.Contains(missing.CostText(0), "token usage not reported") {
+	if missing := eventTokens(absent); missing.Measured != 0 || missing.Unreported != 1 || !strings.Contains(missing.CostText(0), "token usage not reported") {
 		t.Fatal(missing)
 	}
-	var zero pricedEvent
+	var zero costevent.Event
 	if err := json.Unmarshal([]byte(`{"payload":{"total_cost_usd":0,"usage":{}}}`), &zero); err != nil {
 		t.Fatal(err)
 	}
-	if zero.tokens().Measured != 1 || zero.tokens().NoCost != 0 {
-		t.Fatal(zero.tokens())
+	if eventTokens(zero).Measured != 1 || eventTokens(zero).NoCost != 0 {
+		t.Fatal(eventTokens(zero))
 	}
 	totals := (SpendReport{Rows: []SpendRow{{Calls: 2, CostUSD: 2, Usage: &usage}}}).Totals()
 	if totals.Usage != usage || totals.CostUSD != 2 {
