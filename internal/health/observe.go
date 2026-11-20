@@ -790,6 +790,8 @@ func totals(all []Anomaly, services int) Totals {
 	for _, anomaly := range all {
 		if anomaly.Actionable {
 			t.Actionable++
+		} else if anomaly.Classification == ClassKeptCheckout {
+			t.Kept++
 		} else {
 			t.Waits++
 		}
@@ -801,6 +803,9 @@ func totals(all []Anomaly, services int) Totals {
 // is never said to be healthy, and never said to have found nothing.
 func verdict(o Observation) string {
 	found := fmt.Sprintf("%d condition(s): %d needing a decision or an action, and %d legitimate wait(s)", o.Totals.Conditions, o.Totals.Actionable, o.Totals.Waits)
+	if o.Totals.Kept > 0 {
+		found = fmt.Sprintf("%d condition(s): %d needing a decision or an action, %d legitimate wait(s), and %d finished run(s) whose checkout was kept", o.Totals.Conditions, o.Totals.Actionable, o.Totals.Waits, o.Totals.Kept)
+	}
 	if !o.Complete {
 		var names []string
 		for _, source := range o.Sources {

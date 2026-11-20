@@ -954,3 +954,21 @@ func TestAKeptCheckoutIsShownAndAsksNothing(t *testing.T) {
 		t.Fatalf("totals = %+v, want nothing actionable", observation.Totals)
 	}
 }
+
+// The summary sentence says a kept checkout in plain words and never counts it
+// as a wait.
+func TestTheSummaryDoesNotCountAKeptCheckoutAsAWait(t *testing.T) {
+	t.Parallel()
+
+	observer, _ := whole(t)
+	finished := run("run-kept2", "yoyodyne-kept2")
+	finished.KeptCheckout = "kept"
+	observer.Sources.Runs = keptRuns{kept: []runstate.State{finished}}
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	if observation.Totals.Waits != 0 || observation.Totals.Kept != 1 {
+		t.Fatalf("totals = %+v, want one kept checkout and no waits", observation.Totals)
+	}
+	if !strings.Contains(observation.Says, "0 legitimate wait(s)") || !strings.Contains(observation.Says, "1 finished run(s) whose checkout was kept") {
+		t.Fatalf("says = %q, want the kept checkout named apart from the waits", observation.Says)
+	}
+}
