@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -129,6 +130,10 @@ type Caller struct {
 	tools  map[string]config.MCPTool
 	limits Limits
 	spent  *spent
+	// repository is a developer run's own worktree, which its servers are
+	// handed in RepositoryVariable; empty for every other kind of caller,
+	// whose servers are handed the path's main checkout (Path.Repository).
+	repository string
 }
 
 type spent struct {
@@ -140,6 +145,10 @@ func (c Caller) Record() CallerRecord { return c.record }
 
 // Limits is the caller's limits.
 func (c Caller) Limits() Limits { return c.limits }
+
+// Repository is the worktree a developer run's servers are handed, and empty
+// for any other caller.
+func (c Caller) Repository() string { return c.repository }
 
 // Tools is every tool the caller may ask for, by name.
 func (c Caller) Tools() []config.MCPTool {
@@ -179,8 +188,12 @@ func ConversationCaller(cfg config.Config, agent, conversation string, turn int,
 
 // DeveloperCaller is a developer run asking. Its list is the agent's
 // mcp_tools, and only its read tools whatever the configuration says, because
-// an act taken during a run happens before review.
-func DeveloperCaller(cfg config.Config, agent, run string, attempt int) (Caller, error) {
+// an act taken during a run happens before review. worktree is the run's own
+// worktree, as the harness made it: every server the run's calls start is
+// handed it in RepositoryVariable, and never the main checkout, so a server
+// confined to that repository reads the run's own branch and refuses any
+// other path (RepositoryVariable).
+func DeveloperCaller(cfg config.Config, agent, run string, attempt int, worktree string) (Caller, error) {
 	configured, ok := cfg.Agents[agent]
 	if !ok {
 		return Caller{}, fmt.Errorf("there is no agent %q in the configuration to make MCP calls for", agent)
@@ -191,8 +204,13 @@ func DeveloperCaller(cfg config.Config, agent, run string, attempt int) (Caller,
 	if strings.TrimSpace(run) == "" {
 		return Caller{}, fmt.Errorf("an MCP call for developer agent %q names no run", agent)
 	}
-	return newCaller(CallerRecord{Kind: CallerDeveloper, Role: configured.Role, Agent: agent, Run: run, Attempt: attempt},
-		"run:"+run, agentTools(cfg, agent, configured.Role, true)), nil
+	if !filepath.IsAbs(worktree) {
+		return Caller{}, fmt.Errorf("an MCP call for developer run %q names no worktree of its own to read, so none is made", run)
+	}
+	caller := newCaller(CallerRecord{Kind: CallerDeveloper, Role: configured.Role, Agent: agent, Run: run, Attempt: attempt},
+		"run:"+run, agentTools(cfg, agent, configured.Role, true))
+	caller.repository = filepath.Clean(worktree)
+	return caller, nil
 }
 
 // ScheduledCaller is a recurring task asking, with the list declared with the
@@ -392,6 +410,10 @@ type Path struct {
 	Transport http.RoundTripper
 	// ClientVersion is the harness's version, given to a server.
 	ClientVersion string
+	// Repository is the main checkout, which a conversation's and a recurring
+	// task's servers are handed in RepositoryVariable. A developer run's are
+	// handed the run's own worktree instead (DeveloperCaller), never this.
+	Repository string
 	// Now is the clock; nil is the machine's.
 	Now func() time.Time
 	// Notes is where the harness files its note to the development manager
@@ -540,6 +562,15 @@ func (p *Path) Do(ctx context.Context, caller Caller, requests []Request) ([]Ans
 		run.answers[index] = answer
 	}
 	return run.answers, errors.Join(run.problems...)
+}
+
+// repositoryFor is the repository a caller's servers are handed: a developer
+// run's own worktree, and the main checkout for everyone else.
+func (p *Path) repositoryFor(caller Caller) string {
+	if caller.record.Kind == CallerDeveloper {
+		return caller.repository
+	}
+	return p.Repository
 }
 
 func (p *Path) held() (bool, error) {
@@ -758,7 +789,7 @@ func (d *doing) batch(server string, declared config.MCPServer, items []*pending
 	})
 	defer watchdog.Stop()
 	listing := ""
-	err := batch(ctx, Server{Name: server, Declared: declared}, Options{Stores: d.path.Stores, Transport: d.path.Transport, ClientVersion: d.path.ClientVersion}, func(session *Session) error {
+	err := batch(ctx, Server{Name: server, Declared: declared}, Options{Stores: d.path.Stores, Transport: d.path.Transport, ClientVersion: d.path.ClientVersion, Repository: d.path.repositoryFor(d.caller)}, func(session *Session) error {
 		watchdog.Reset(limit)
 		tools, err := session.ListTools(ctx)
 		if err != nil {

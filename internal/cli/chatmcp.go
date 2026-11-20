@@ -45,6 +45,10 @@ func conversationMCP(parts components, stderr io.Writer) chat.MCPCalls {
 		RedactValues:  parts.redactValues,
 		ClientVersion: buildinfo.Commit(),
 		Attribution:   passFailureAttribution(parts.config),
+		// The main checkout is what a conversation's and a recurring task's
+		// servers read; a developer run's read its own worktree, which its
+		// caller carries (mcpcall.RepositoryVariable).
+		Repository: parts.repository,
 	}
 	// A server whose tool listing changed since its last call is put to the
 	// development manager as one of the harness's own reports. The store is

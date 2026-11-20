@@ -112,7 +112,21 @@ type Options struct {
 	Transport http.RoundTripper
 	// ClientVersion is the harness's version, given in the opening exchange.
 	ClientVersion string
+	// Repository is the repository the caller works in, handed to a command
+	// server in RepositoryVariable; empty hands it none. It comes from the
+	// harness, never from what a caller asks.
+	Repository string
 }
+
+// RepositoryVariable is the environment variable a command server is started
+// with naming the repository its caller works in: a developer run's own
+// worktree, or the main checkout for a conversation or a recurring task. A
+// server confined to one repository names it from this variable in its
+// declared command, such as `--repository "$YOYODYNE_REPOSITORY"`, so a
+// developer run's server reads that run's branch and refuses every other
+// checkout, another run's worktree included. Every batch starts its own
+// server, so no server is shared between callers.
+const RepositoryVariable = "YOYODYNE_REPOSITORY"
 
 // Tool is one tool as a server lists it. Everything in it is the server's own
 // statement and untrusted: the class of a tool comes from the project's
@@ -202,7 +216,7 @@ func open(ctx context.Context, server Server, options Options) (*Session, error)
 	session := &Session{server: server, credential: credential}
 	var err error
 	if hasCommand {
-		session.transport, err = startCommand(ctx, server, options.Stores, credential)
+		session.transport, err = startCommand(ctx, server, options.Stores, options.Repository, credential)
 	} else {
 		session.transport, err = openURL(ctx, server, options, credential)
 	}

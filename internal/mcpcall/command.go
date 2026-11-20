@@ -20,9 +20,10 @@ import (
 
 // inheritedVariables are the only variables a command server is handed from
 // the harness's own environment, each only where the harness has it set. The
-// rest of what it gets is set here: its home, its working directory, and its
-// credential in the variable it names. Nothing else the harness's environment
-// holds — a provider's key, a token, a variable a test set — reaches it.
+// rest of what it gets is set here: its home, its working directory, the
+// caller's repository in RepositoryVariable, and its credential in the
+// variable it names. Nothing else the harness's environment holds — a
+// provider's key, a token, a variable a test set — reaches it.
 var inheritedVariables = []string{"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "USER", "LOGNAME", "TMPDIR"}
 
 // stopGrace is how long a command server is given to exit by itself once its
@@ -36,14 +37,17 @@ const stopGrace = 2 * time.Second
 const stderrTail = 4 << 10
 
 // commandEnvironment is the environment a command server starts with.
-func commandEnvironment(folder, credentialEnv, credential string) []string {
-	environment := make([]string, 0, len(inheritedVariables)+3)
+func commandEnvironment(folder, repository, credentialEnv, credential string) []string {
+	environment := make([]string, 0, len(inheritedVariables)+4)
 	for _, name := range inheritedVariables {
 		if value, ok := os.LookupEnv(name); ok {
 			environment = append(environment, name+"="+value)
 		}
 	}
 	environment = append(environment, "HOME="+folder, "PWD="+folder)
+	if repository != "" {
+		environment = append(environment, RepositoryVariable+"="+repository)
+	}
 	if credential != "" {
 		environment = append(environment, credentialEnv+"="+credential)
 	}
@@ -68,7 +72,7 @@ type commandTransport struct {
 // own folder, with the environment above. Output and error output come through
 // pipes the client owns rather than through exec's copying, so a process the
 // server left behind holding them cannot keep Wait from returning.
-func startCommand(ctx context.Context, server Server, stores mcpcredential.Stores, credential string) (transport, error) {
+func startCommand(ctx context.Context, server Server, stores mcpcredential.Stores, repository, credential string) (transport, error) {
 	if !groupSupported {
 		return nil, fmt.Errorf("%w: mcp server %q is a command, and this platform cannot give it a process group of its own", ErrRefused, server.Name)
 	}
@@ -89,7 +93,7 @@ func startCommand(ctx context.Context, server Server, stores mcpcredential.Store
 	declared := server.Declared
 	command := exec.CommandContext(ctx, declared.Command[0], declared.Command[1:]...)
 	command.Dir = folder
-	command.Env = commandEnvironment(folder, declared.CredentialEnv, credential)
+	command.Env = commandEnvironment(folder, repository, declared.CredentialEnv, credential)
 	configureGroup(command)
 
 	stdin, err := command.StdinPipe()

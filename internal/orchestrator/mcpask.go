@@ -66,12 +66,14 @@ type developerAsks struct {
 
 // newDeveloperAsks is this attempt's caller, or nil where the developer holds
 // no MCP tool: no path is wired, the developer agent names none, or none it
-// names is a read tool its role holds.
+// names is a read tool its role holds. The caller carries the run's own
+// worktree, which every server its calls start is handed as the repository
+// (mcpcall.RepositoryVariable).
 func (a *activeRun) newDeveloperAsks() *developerAsks {
 	if a.pipeline.MCP == nil {
 		return nil
 	}
-	caller, err := mcpcall.DeveloperCaller(a.pipeline.Config, a.pipeline.developerName(), a.state.RunID, a.state.RepairAttempts)
+	caller, err := mcpcall.DeveloperCaller(a.pipeline.Config, a.pipeline.developerName(), a.state.RunID, a.state.RepairAttempts, a.state.WorktreePath)
 	if err != nil || len(caller.Tools()) == 0 {
 		return nil
 	}
