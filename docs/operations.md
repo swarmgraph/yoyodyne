@@ -2707,11 +2707,13 @@ A provider that cannot be reached at all is nobody's to act on rather than the
 operator's: it is listed under "Waiting on nobody's move", and the network
 coming back ends it.
 
-Slack says it on its first pass after the record is written — it reads the records every fifteen seconds by default —
+Slack says a lapsed login on its first pass after the record is written — it reads the records every fifteen seconds by default —
 in the channel, tagged to the operators by member id, and to each operator as a
 direct message, naming the provider, the account, and the same command. While
 it stands it is sent to them directly again at most once an hour, and when the
-provider answers again a short message says so, directly as well: see
+provider answers again a short message says so, directly as well. A provider
+that cannot be reached is said once in the channel, untagged and sent to nobody
+directly, and its end is said there too: see
 [reporting](reporting.md#a-provider-nobody-can-reach). The stall alarm does not
 fire over it — a line of runs each waiting on the same login is not a machine
 that died.

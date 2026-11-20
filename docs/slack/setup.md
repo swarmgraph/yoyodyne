@@ -122,12 +122,13 @@ until the harness gave it back,
 and a line that has stopped over ready work —
 which is the one of them that is *asked* rather than reported, with the answers
 numbered and your reply in the thread as the decision; see *Deciding a stopped
-line from a direct message* below. The provider nobody is logged into or nobody
-can reach is sent directly the moment it is seen — naming the provider, the
-account, and, for a lapsed login, the exact command that logs it in again — and
-tagged to those same members by id in the channel the first time; it is sent
-directly again at most once an hour while it stands, and a short direct note
-says when the provider answers again. The second is **advisory-once** — a
+line from a direct message* below. The provider nobody is logged into is sent directly the
+moment it is seen — naming the provider, the account, and the exact command
+that logs it in again — and tagged to those same members by id in the channel
+the first time; it is sent directly again at most once an hour while it
+stands, and a short direct note says when the provider answers again. A
+provider nobody can reach is not yours to act on, so it is said once in the
+channel and sent to nobody directly. The second is **advisory-once** — a
 fact said exactly once and never repeated: a value the project's template has
 improved that this project never edited, and
 [a finding that needs your hand](../reporting.md#a-finding-that-needs-your-hand)
