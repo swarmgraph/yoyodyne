@@ -25,13 +25,12 @@ func TestARolesDecisionThatNeedsTheOperatorsHandKeepsTheRoleAsOwner(t *testing.T
 		{
 			// The shipped owners decide their own amendments, so the case is an
 			// owner the harness has not given the decision.
-			name:     "an amendment whose owner cannot decide it",
-			kind:     KindAmendment,
-			record:   Record{Role: domain.RoleDevelopmentManager, Command: "yoyo amendment approve|decline amendment-1 --reason \"<why>\""},
-			owner:    MoverDevelopmentManager,
-			need:     HandAmendmentDecision,
-			closedBy: "yoyodyne-ifd.437.14",
-			types:    "yoyo amendment approve|decline amendment-1",
+			name:   "an amendment whose owner cannot decide it",
+			kind:   KindAmendment,
+			record: Record{Role: domain.RoleDevelopmentManager, Command: "yoyo amendment approve|decline amendment-1 --reason \"<why>\""},
+			owner:  MoverDevelopmentManager,
+			need:   HandAmendmentDecision,
+			types:  "yoyo amendment approve|decline amendment-1",
 		},
 		{
 			name:     "an operational-configuration recommendation the Lead Product Manager handled",
