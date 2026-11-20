@@ -65,9 +65,9 @@ func TestFmtcheck(t *testing.T) {
 			t.Parallel()
 
 			root := writeFixture(t, map[string]string{"fixture.go": test.source})
-			command := exec.Command("make", "--no-print-directory", "-f", makefile, "fmtcheck", "VERSION=fmtcheck-test")
+			command := exec.Command(makeProgram(t), "--no-print-directory", "-f", makefile, "fmtcheck", "VERSION=fmtcheck-test")
 			command.Dir = root
-			command.Env = append(makeEnvironment(t), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0")
+			command.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0")
 			if test.formatter != "" {
 				tools := filepath.Join(root, "tools")
 				if err := os.Mkdir(tools, 0o755); err != nil {
@@ -104,44 +104,55 @@ func TestFmtcheck(t *testing.T) {
 	}
 }
 
-// makeEnvironment is the environment a make child runs in. On macOS /usr/bin/make
-// is a shim that asks xcrun where the real tool is, and xcrun writes a cache file
-// under the user's per-user temporary directory, which does not follow TMPDIR. A
-// sandbox that grants only TMPDIR refuses that write, and xcrun then prints a
-// diagnostic these cases read as the target's own. The shim skips xcrun when
-// DEVELOPER_DIR names the toolchain, so it is set here from xcode-select, which
-// only reads a link. A developer directory the caller already set is kept.
-func makeEnvironment(t *testing.T) []string {
+// makeProgram is the make these cases run. On macOS /usr/bin/make is a shim
+// that looks the real tool up through xcrun, which keeps its lookups in a cache
+// file under the user's per-user temporary directory (not TMPDIR) and writes it
+// whenever a lookup misses. A sandbox that grants only TMPDIR refuses that
+// write, and xcrun's diagnostic lands on stderr, where the formatted case
+// requires silence. Setting DEVELOPER_DIR does not avoid this, because the shim
+// still goes through the cache. So on macOS the real make inside the active
+// developer directory is run directly, which never calls xcrun. Anywhere else,
+// or when that file is missing, it is plain "make".
+func makeProgram(t *testing.T) string {
 	t.Helper()
 
-	environment := os.Environ()
-	if runtime.GOOS != "darwin" || os.Getenv("DEVELOPER_DIR") != "" {
-		return environment
+	if runtime.GOOS != "darwin" {
+		return "make"
 	}
 	out, err := exec.Command("xcode-select", "-p").Output()
 	if err != nil {
-		return environment
+		return "make"
 	}
-	if directory := strings.TrimSpace(string(out)); directory != "" {
-		environment = append(environment, "DEVELOPER_DIR="+directory)
+	real := filepath.Join(strings.TrimSpace(string(out)), "usr", "bin", "make")
+	if info, err := os.Stat(real); err != nil || info.IsDir() {
+		return "make"
 	}
-	return environment
+	return real
 }
 
-// A make child must not need xcrun's cache file, or the false failure this
-// guards against returns wherever the per-user temporary directory is refused.
-func TestMakeEnvironmentNamesTheToolchainOnMacOS(t *testing.T) {
+// The false failure comes back if make is run through the shim again. With
+// xcrun's own logging switched on, the shim says it is consulting its cache and
+// the real make says nothing, so any mention of xcrun in the output fails this.
+func TestMakeProgramDoesNotCallXcrunOnMacOS(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "darwin" {
 		t.Skip("the make shim that calls xcrun is macOS only")
 	}
 	requireTool(t, "xcode-select")
-	if os.Getenv("DEVELOPER_DIR") != "" {
-		t.Skip("DEVELOPER_DIR is already set by the caller")
+	program := makeProgram(t)
+	if program == "make" {
+		t.Skip("no real make in the active developer directory")
 	}
-	for _, entry := range makeEnvironment(t) {
-		if strings.HasPrefix(entry, "DEVELOPER_DIR=") && len(entry) > len("DEVELOPER_DIR=") {
-			return
-		}
+	root := writeFixture(t, map[string]string{"Makefile": "probe:\n\t@true\n"})
+	command := exec.Command(program, "probe")
+	command.Dir = root
+	command.Env = append(os.Environ(), "xcrun_log=1", "xcrun_verbose=1", "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s probe error = %v; output:\n%s", program, err, output)
 	}
-	t.Error("makeEnvironment does not set DEVELOPER_DIR, so make would call xcrun and write its cache file")
+	if strings.Contains(string(output), "xcrun") {
+		t.Errorf("%s consulted xcrun, whose cache file a sandbox may refuse to write; output:\n%s", program, output)
+	}
 }
