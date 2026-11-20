@@ -20,6 +20,12 @@ itself: it was written after `v0.3.0` was tagged and pushed, so the repository
 carries it but that release's published page does not. Every tag from `v0.3.1`
 on has its notes before it exists.
 
+[`v0.6.0.md`](v0.6.0.md) is the other exception: it names a tag that was never
+cut. Its notes landed on `main`, no `v0.6.0` tag followed, and everything they
+describe shipped in `v0.7.0`, whose notes, [`v0.7.0.md`](v0.7.0.md), carry it
+and cover everything from `v0.5.0`. The file stays as the record of what was
+prepared, and says at its top that it was never tagged.
+
 ## The shape
 
 Three sections, in this order, because it is the order a reader needs them in:
@@ -77,6 +83,8 @@ characters against the forge's 125,000. [`v0.6.0.md`](v0.6.0.md) therefore
 groups its items into entries by what they changed, each with a short
 account, the goals its items served, and every item's identifier, so nothing
 that shipped goes unnamed and the tracker still holds each item's own text.
+[`v0.7.0.md`](v0.7.0.md), from 804, does the same, carrying v0.6.0's entries
+and folding what merged since into them or beside them.
 
 A release the Lead Product Manager decides has a work item of its own, titled
 for its version, and drafting and curating its notes is that item's reviewed
