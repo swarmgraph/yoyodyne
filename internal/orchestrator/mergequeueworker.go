@@ -184,6 +184,11 @@ type MergeQueueVerification struct {
 	// as it stands, so no candidate could be built. It is a defect of the
 	// change, handed back by the promoter (HandBackConflict).
 	Conflict *gitworktree.QueueCandidateConflict
+	// UnreadableReview is why the entry is to be handed back because its
+	// reviewer answered maxMergeQueueUnreadableReviews times with no verdict that
+	// could be read, and empty otherwise. The driver hands it back
+	// (MergeQueuePromoter.HandBackUnreadableReview) and goes on to the next entry.
+	UnreadableReview string
 	// CheckoutRetries says each candidate checkout that failed outside the
 	// change and was removed and tried again within this call, in order.
 	CheckoutRetries []string
@@ -251,6 +256,11 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 		var conflict *gitworktree.QueueCandidateConflict
 		if errors.As(err, &conflict) {
 			outcome.Conflict = conflict
+			return outcome, nil
+		}
+		var unreadable mergeQueueUnreadableReview
+		if errors.As(err, &unreadable) {
+			outcome.UnreadableReview = unreadable.reason
 			return outcome, nil
 		}
 		if err != nil || outcome.Verified || outcome.Refusal != "" {
@@ -913,6 +923,9 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 // next attempt on the same generation runs only the others (keptQueueChecks).
 func setAside(generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage, started time.Time, problem string, found time.Time) runstate.MergeQueueGeneration {
 	interruption := runstate.MergeQueueInterruption{Stage: stage, StartedAt: started, FoundAt: found, Problem: problem}
+	if stage == runstate.MergeQueueStageReview && generation.Review != nil {
+		interruption.Unreadable = generation.Review.Unreadable
+	}
 	if stage == runstate.MergeQueueStageChecks && generation.CheckRun != nil {
 		interruption.Binding = generation.CheckRun.Binding
 		for _, result := range generation.CheckRun.Results {
@@ -1038,13 +1051,85 @@ func checksPassed(generation runstate.MergeQueueGeneration) bool {
 // reviewer's endpoint pair (mergequeuereviewrouting.go) — and it judges the candidate as a whole against the
 // item it was approved for: the original approval was of the head alone, and
 // it does not answer for what the head became on this target.
+//
+// A reply no verdict could be read from is recorded as such and asked for again
+// at once, in the reviewer's own session and told what was wrong with it
+// (review.Reask), rather than ending the pass: that review was never made, and
+// stopping on it held every entry behind this one. The asking is bounded by
+// maxMergeQueueUnreadableReviews on the candidate, and past it the entry is
+// handed back (mergeQueueUnreadableReview) so the queue goes on.
 func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, generation runstate.MergeQueueGeneration) (runstate.MergeQueueGeneration, bool, error) {
+	for {
+		var moved, again bool
+		var err error
+		generation, moved, again, err = w.reviewOnce(ctx, lease, key, entry, run, generation)
+		// Each asking again follows one more unreadable reply recorded on the
+		// generation, and the count stops it, so this ends.
+		if err != nil || !again {
+			return generation, moved, err
+		}
+	}
+}
+
+// maxMergeQueueUnreadableReviews is how many replies to one candidate's review
+// may come back with no verdict that can be read before the entry is handed
+// back: the first, and the one further review that is told what was wrong
+// with it. A reviewer that cannot write a readable verdict when told how is
+// not going to on a third asking, and every asking is paid for.
+const maxMergeQueueUnreadableReviews = 2
+
+// unreadableReplyProblem opens the problem recorded for a reply no verdict
+// could be read from, and is what is taken off it again when the reviewer is
+// told what was wrong.
+const unreadableReplyProblem = "the reviewer answered, but no verdict could be read from its reply: "
+
+// mergeQueueUnreadableReview is a candidate whose reviewer has answered
+// maxMergeQueueUnreadableReviews times with no verdict that could be read. It
+// is not a failure of the queue: the entry is handed back with the reason, its
+// change kept for the development manager, and the queue goes on to the next
+// entry (MergeQueuePromoter.HandBackUnreadableReview).
+type mergeQueueUnreadableReview struct{ reason string }
+
+func (e mergeQueueUnreadableReview) Error() string { return e.reason }
+
+// unreadableReviewReason says why an entry is handed back for its reviewer's
+// unreadable replies, ending on what the last of them was.
+func unreadableReviewReason(generation runstate.MergeQueueGeneration) mergeQueueUnreadableReview {
+	last := ""
+	if generation.Review != nil {
+		last = strings.TrimPrefix(generation.Review.Problem, unreadableReplyProblem)
+	}
+	return mergeQueueUnreadableReview{reason: fmt.Sprintf("the reviewer of generation %d's candidate answered %d times with no verdict that could be read, the last time after being told what was wrong, so the queue stopped asking; the last reply: %s",
+		generation.Number, generation.UnreadableReviews(), nonEmpty(last, "not recorded"))}
+}
+
+// reviewOnce asks for the review once, or once more where the provider would
+// not resume the reviewer's session for a second asking. It reports again where
+// the reply could not be read and the reviewer is to be asked again.
+func (w MergeQueueWorker) reviewOnce(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, generation runstate.MergeQueueGeneration) (runstate.MergeQueueGeneration, bool, bool, error) {
+	var reask *review.Reask
 	if generation.Review != nil && generation.Review.FinishedAt != nil {
 		if generation.Review.Problem == "" {
-			return w.moved(ctx, lease, key, generation)
+			generation, moved, err := w.moved(ctx, lease, key, generation)
+			return generation, moved, false, err
+		}
+		if generation.UnreadableReviews() >= maxMergeQueueUnreadableReviews {
+			return generation, false, false, unreadableReviewReason(generation)
+		}
+		if previous := generation.Review; previous.Unreadable {
+			reask = &review.Reask{SessionID: previous.SessionID, Problem: strings.TrimPrefix(previous.Problem, unreadableReplyProblem),
+				Backend: previous.Provider, AccountAlias: previous.AccountAlias}
 		}
 		generation = setAside(generation, runstate.MergeQueueStageReview, generation.Review.StartedAt, generation.Review.Problem, w.now())
 	}
+	generation, moved, err := w.ask(ctx, lease, key, entry, run, generation, reask)
+	again := err == nil && !moved && generation.Review != nil && generation.Review.Unreadable
+	return generation, moved, again, err
+}
+
+// ask makes one asking of the candidate's review, told what was wrong with the
+// reply before it where reask is set.
+func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, generation runstate.MergeQueueGeneration, reask *review.Reask) (runstate.MergeQueueGeneration, bool, error) {
 	p := w.Pipeline
 	if err := w.paused(runstate.MergeQueueStageReview); err != nil {
 		return generation, false, err
@@ -1109,10 +1194,6 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		return generation, false, fmt.Errorf("record that generation %d's review began: %w", generation.Number, err)
 	}
 	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageReview}
-	gate, err := launched.gate("")
-	if err != nil {
-		return generation, false, err
-	}
 	account := p.accountFor(run.AccountAlias)
 	reviewer, reviewBackend, reviewModel, billingAlias := p.Reviewer, p.reviewer().Backend, p.reviewer().Model, run.AccountAlias
 	if routed {
@@ -1123,40 +1204,67 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		reviewer, reviewBackend, reviewModel, billingAlias = built, endpoint.Provider, requestedModel(endpoint), endpoint.AccountAlias
 		account = p.accountFor(endpoint.AccountAlias)
 	}
-	result, reviewErr := reviewer.Review(ctx, review.Request{
-		RunID:      generation.EventStream(),
-		WorkItemID: entry.WorkItemID,
-		Context:    candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
-		Invariants: selected.Text(),
-		// A queued publication of the architect's own invariant is reviewed as
-		// one here too, said from the run's record.
-		ArchitectInvariant: architectInvariant(run),
-		WorktreePath:       generation.Checkout,
-		Changes:            change.Changes,
-		Repository:         reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
-		Checks:             candidateCheckResults(generation),
-		RedactValues:       p.RedactValues,
-		LastSequence:       generation.LastSequence,
-		EventSink:          w.Events,
-		Spend: spend.Attribution{
-			ProductID:      p.Config.Product.ID,
-			Agent:          p.agentNameForRole(domain.RoleReviewer),
-			Phase:          runstate.SpendPhaseReview,
-			AccountAlias:   billingAlias,
-			ConfigRevision: run.ConfigRevision,
-			Backend:        reviewBackend,
-			RunID:          entry.RunID,
-			WorkItemID:     entry.WorkItemID,
-			Billing:        p.Config.AccountBilling(billingAlias),
-		},
-		AccountAlias:     account.Alias,
-		AccountConfigDir: account.Directory,
-		LaunchGate:       gate,
-	})
-	if gate != nil && gate.Hold != nil {
-		// The gate closes its copy once the provider has started; one the
-		// provider never started is closed here, and closing twice is harmless.
-		_ = gate.Hold.Close()
+	// A reply recorded without a pair names no provider or account of its own:
+	// it was made on the configured reviewer under the run's account, which is
+	// where this asking is made too, so its session can be resumed here.
+	if reask != nil && reask.Backend == "" && !routed {
+		reask.Backend, reask.AccountAlias = reviewBackend, account.Alias
+	}
+	var result review.Result
+	var reviewErr error
+	for {
+		var gate *execution.LaunchGate
+		if gate, err = launched.gate(""); err != nil {
+			return generation, false, err
+		}
+		result, reviewErr = reviewer.Review(ctx, review.Request{
+			RunID:      generation.EventStream(),
+			WorkItemID: entry.WorkItemID,
+			Context:    candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
+			Invariants: selected.Text(),
+			// A queued publication of the architect's own invariant is reviewed as
+			// one here too, said from the run's record.
+			ArchitectInvariant: architectInvariant(run),
+			WorktreePath:       generation.Checkout,
+			Changes:            change.Changes,
+			Repository:         reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
+			Checks:             candidateCheckResults(generation),
+			RedactValues:       p.RedactValues,
+			LastSequence:       generation.LastSequence,
+			EventSink:          w.Events,
+			Spend: spend.Attribution{
+				ProductID:      p.Config.Product.ID,
+				Agent:          p.agentNameForRole(domain.RoleReviewer),
+				Phase:          runstate.SpendPhaseReview,
+				AccountAlias:   billingAlias,
+				ConfigRevision: run.ConfigRevision,
+				Backend:        reviewBackend,
+				RunID:          entry.RunID,
+				WorkItemID:     entry.WorkItemID,
+				Billing:        p.Config.AccountBilling(billingAlias),
+			},
+			AccountAlias:     account.Alias,
+			AccountConfigDir: account.Directory,
+			LaunchGate:       gate,
+			Reask:            reask,
+		})
+		if gate != nil && gate.Hold != nil {
+			// The gate closes its copy once the provider has started; one the
+			// provider never started is closed here, and closing twice is harmless.
+			_ = gate.Hold.Close()
+		}
+		// A second asking whose resume the provider refused got no reply from the
+		// reviewer at all, so it is made once more in a fresh reviewer session with
+		// the evidence given whole and the problem said after it, as a run's own
+		// second asking is (review.ResumeRefusedError).
+		var refused review.ResumeRefusedError
+		if reask != nil && reask.FreshBecause == "" && errors.As(reviewErr, &refused) {
+			fresh := *reask
+			fresh.FreshBecause = refused.Error()
+			reask = &fresh
+			continue
+		}
+		break
 	}
 	finished := w.now()
 	if result.LastSequence > generation.LastSequence {
@@ -1179,10 +1287,18 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		refusedOn, refusedModel = endpoint.AccountAlias, requestedModel(endpoint)
 	}
 	refusal := w.refusedReview(entry, result, reviewErr, refusedOn, refusedModel)
+	unreadable, isUnreadable := unsettledReply(reviewErr)
 	switch {
 	case refusal != "":
 		evidence.Decision = ""
 		evidence.Problem = boundedEvidence("the provider made no review: " + refusal)
+	case isUnreadable:
+		// The reviewer answered, and nothing in the answer settles a verdict. It
+		// is recorded as that, so the reviewer is asked again told what was wrong
+		// and the replies are counted (review), rather than ending the pass.
+		evidence.Decision = ""
+		evidence.Problem = boundedEvidence(unreadableReplyProblem + unreadable)
+		evidence.Unreadable = true
 	case reviewErr != nil:
 		evidence.Decision = ""
 		evidence.Problem = boundedEvidence("the review failed: " + reviewErr.Error())
@@ -1219,8 +1335,16 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		}
 		return generation, false, mergeQueueWait{reason: reason}
 	}
+	if isUnreadable {
+		// The provider answered, so it is serving; the caller asks again or hands
+		// the entry back.
+		if err := p.noticeProviderServedBy(reviewBackend); err != nil {
+			return generation, false, err
+		}
+		return generation, false, nil
+	}
 	if reviewErr != nil {
-		return generation, false, fmt.Errorf("review generation %d: %w", generation.Number, reviewErr)
+		return generation, false, fmt.Errorf("the review of generation %d did not finish: %w", generation.Number, reviewErr)
 	}
 	if err := p.noticeProviderServedBy(reviewBackend); err != nil {
 		return generation, false, err

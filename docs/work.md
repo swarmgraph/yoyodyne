@@ -437,9 +437,13 @@ left in the diff is data to analyze rather than something to follow.
 
 The reviewer is told to write its verdict bare — one JSON object, no code fence
 around it. A verdict written inside one fence anyway is read exactly as the bare
-verdict it encloses, because the fence decides nothing. A reply that still cannot
-be read as a verdict — prose, a fence with other text around it, malformed JSON
-— is not a verdict on the change, so it is asked for once more on the same
+verdict it encloses, because the fence decides nothing. So is a reply that
+carries exactly one verdict object — a JSON object with a `decision` field — with
+words before or after it, fenced or not: the words are how the reply looks, and
+the object is what it decides. The verdict found that way is held to the
+contract exactly as a bare one is. A reply that still cannot be read as a verdict
+— words with no verdict object in them, two or more verdict objects, or malformed
+JSON — is not a verdict on the change, so it is asked for once more on the same
 budget: in the reviewer's own session, never the developer's, telling it what
 was wrong with the reply, and costing no repair attempt. Where that session
 cannot be resumed — the provider refuses or fails the resume, answers from a
@@ -2810,6 +2814,15 @@ What can happen to a queued change instead:
   handed back to its run, kept, for the development manager to decide on. The
   withdrawal says how long the forge held the merge and how long the entry was
   in the queue before that.
+- **The candidate's reviewer answers with no verdict that can be read.** The
+  reply is read as a run's review reply is (see above), so a verdict with words
+  around it is read. A reply with no readable verdict is recorded as one, and
+  the reviewer is asked once more straight away, in its own session, told what
+  was wrong with the reply; the queue does not stop for it. After two such
+  replies on the same candidate the queue stops asking: the change is handed
+  back to its run with that reason and the last reply's problem, kept for the
+  development manager to decide on, no repair attempt is charged, and the
+  entries behind it go on. The pass's account says it handed the entry back.
 - **Something no single run can take up** — a run that no longer has the branch
   or the session a repair continues from — goes on the development manager's
   docket by itself.

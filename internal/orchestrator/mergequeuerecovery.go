@@ -954,6 +954,49 @@ func (p MergeQueuePromoter) HandBackConflict(ctx context.Context, key runstate.M
 	return recovered, q.handBack(ctx)
 }
 
+// HandBackUnreadableReview hands back an entry whose candidate's reviewer
+// answered maxMergeQueueUnreadableReviews times with no verdict that could be
+// read. Nothing about the change was judged, so it is not a defect of the
+// change and charges the run no repair: the entry leaves the queue so the
+// entries behind it go on, and its change is kept on its run for the
+// development manager, who decides whether to admit it again, as an entry the
+// remote refused is (handBackEntry).
+func (p MergeQueuePromoter) HandBackUnreadableReview(ctx context.Context, key runstate.MergeQueueKey, entryID, why string) (MergeQueueRecovery, error) {
+	if err := p.validate(); err != nil {
+		return MergeQueueRecovery{}, err
+	}
+	if strings.TrimSpace(why) == "" {
+		return MergeQueueRecovery{}, errors.New("a hand-back for unreadable reviews says why it is made")
+	}
+	worker, held, err := p.Queue.LeaseWorker(ctx, key)
+	if err != nil {
+		return MergeQueueRecovery{}, err
+	}
+	if !held {
+		return MergeQueueRecovery{}, ErrMergeQueueWorkerBusy
+	}
+	defer func() { _ = worker.Release() }()
+	entry, landing, err := p.entry(key, entryID)
+	if err != nil {
+		return MergeQueueRecovery{}, err
+	}
+	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
+	recovered := MergeQueueRecovery{Entry: entry}
+	if landing.Handback != nil {
+		recovered.Handback = landing.Handback
+		return recovered, q.handBack(ctx)
+	}
+	if landing.Completion != nil {
+		return recovered, fmt.Errorf("merge queue entry %d has landed and is not handed back", entry.Order)
+	}
+	if refusal := landing.HeadRewriteRefusal(); refusal != "" {
+		return recovered, fmt.Errorf("merge queue entry %d cannot be handed back: %s", entry.Order, refusal)
+	}
+	err = q.handBackEntry(ctx, why)
+	recovered.Handback = q.landing.Handback
+	return recovered, err
+}
+
 // MergeQueueRunHandback hands a defective candidate's run back the way a red
 // queued merge's change is handed back (handBackFailedChange): the failure is
 // recorded on the run as the check that failed, the work item is blocked on

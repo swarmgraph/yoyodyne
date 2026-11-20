@@ -251,14 +251,9 @@ func TestDecodeRejectsInvalidVerdicts(t *testing.T) {
 			wantErr: `disposition "trivial" must be "out_of_scope" or omitted`,
 		},
 		{
-			name:    "trailing json value",
+			name:    "a second verdict after the first",
 			input:   `{"decision":"approve","summary":"Fine."} {"decision":"repair"}`,
-			wantErr: "trailing content",
-		},
-		{
-			name:    "trailing garbage",
-			input:   `{"decision":"approve","summary":"Fine."} not-json`,
-			wantErr: "trailing content",
+			wantErr: "the reply holds 2 verdict objects",
 		},
 		{
 			name:    "invalid decision",
@@ -354,7 +349,8 @@ func TestDecodeReportsWhichRejectionsAreUnreadableReplies(t *testing.T) {
 		{name: "malformed json", input: `{"decision":"approve","summary":`, wantUnreadable: true},
 		{name: "not an object", input: `["approve"]`, wantUnreadable: true},
 		{name: "prose", input: `Sure! Here is my review.`, wantUnreadable: true},
-		{name: "trailing content", input: `{"decision":"approve","summary":"Fine."} Hope that helps!`, wantUnreadable: true},
+		{name: "two verdicts among words", input: `First {"decision":"approve","summary":"Fine."} then {"decision":"repair","summary":"No."}`, wantUnreadable: true},
+		{name: "an object that is not a verdict", input: `Notes: {"summary":"Fine."}`, wantUnreadable: true},
 		{name: "wrongly typed field", input: `{"decision":"approve","summary":["Fine."]}`, wantUnreadable: true},
 		{name: "unknown decision", input: `{"decision":"reject","summary":"Fine."}`},
 		{name: "unknown severity", input: `{"decision":"repair","summary":"Bad.","findings":[{"severity":"critical","message":"Fix."}]}`},
@@ -419,23 +415,73 @@ func TestDecodeReadsAVerdictWrittenInsideACodeFenceAsTheBareOne(t *testing.T) {
 	}
 }
 
-// Only a fence around the whole reply is lifted. Anything else about a fenced
-// reply still leaves it something other than one JSON document, and it is
-// refused as unreadable — which is what asks for it again — rather than guessed
-// at.
-func TestDecodeStillRefusesAFencedReplyThatIsNotOnlyTheVerdict(t *testing.T) {
+// A reply that is not one JSON document is read as the one verdict object it
+// carries: words before or after it, or a fence with words around it, are how
+// the reply looks. This is the shape of the replies that stopped the merge queue
+// on its first entry three times: an approval with a sentence before it.
+func TestDecodeReadsTheOneVerdictAmongWords(t *testing.T) {
+	t.Parallel()
+
+	bare := `{"decision":"approve","approves":"implementation","summary":"Fine {as} it is.","extra":1}`
+	want, wantUnknown, err := Decode([]byte(bare))
+	if err != nil {
+		t.Fatalf("Decode(bare) error = %v", err)
+	}
+	for name, input := range map[string]string{
+		"a sentence before it":                   "The change does what the item asks, and the checks passed.\n\n" + bare,
+		"words after it":                         bare + "\nHope that helps!",
+		"words on both sides":                    "Verdict follows. " + bare + " That is all.",
+		"prose before the fence":                 "Here is my verdict:\n```json\n" + bare + "\n```",
+		"prose after the fence":                  "```json\n" + bare + "\n```\nHope that helps.",
+		"another language":                       "```yaml\n" + bare + "\n```",
+		"unclosed fence":                         "```json\n" + bare,
+		"mismatched fence":                       "````json\n" + bare + "\n```",
+		"fence on one line":                      "```" + bare + "```",
+		"a stray brace before it":                "I checked {every file and " + bare,
+		"an object that is no verdict beside it": `Context: {"note":"read"} ` + bare,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, unknown, err := Decode([]byte(input))
+			if err != nil {
+				t.Fatalf("Decode() error = %v, want the one verdict read", err)
+			}
+			assertVerdictEqual(t, got, want)
+			if !reflect.DeepEqual(unknown, wantUnknown) {
+				t.Fatalf("Decode() unknown = %v, want %v as for the bare verdict", unknown, wantUnknown)
+			}
+		})
+	}
+}
+
+// The verdict found among words is held to the contract exactly as a bare one
+// is: one that breaks it is refused for that, not read as unreadable.
+func TestDecodeHoldsTheVerdictAmongWordsToTheContract(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := Decode([]byte(`My verdict: {"decision":"reject","summary":"Fine."}`))
+	if err == nil || !strings.Contains(err.Error(), `decision "reject"`) {
+		t.Fatalf("Decode() error = %v, want the unknown decision refused", err)
+	}
+	var undecodable UndecodableVerdictError
+	if errors.As(err, &undecodable) {
+		t.Fatalf("a verdict read from among words and then refused was reported as unreadable: %v", err)
+	}
+}
+
+// A reply carrying no verdict object, or more than one, is still unreadable:
+// which verdict the reviewer meant would be a guess.
+func TestDecodeStillRefusesAReplyWithoutExactlyOneVerdict(t *testing.T) {
 	t.Parallel()
 
 	bare := `{"decision":"approve","approves":"implementation","summary":"Fine."}`
 	for name, input := range map[string]string{
-		"prose before the fence": "Here is my verdict:\n```json\n" + bare + "\n```",
-		"prose after the fence":  "```json\n" + bare + "\n```\nHope that helps.",
-		"another language":       "```yaml\n" + bare + "\n```",
-		"unclosed fence":         "```json\n" + bare,
-		"mismatched fence":       "````json\n" + bare + "\n```",
-		"two fenced blocks":      "```json\n" + bare + "\n```\n```json\n" + bare + "\n```",
-		"fence on one line":      "```" + bare + "```",
-		"an empty fence":         "```json\n```",
+		"two fenced blocks":     "```json\n" + bare + "\n```\n```json\n" + bare + "\n```",
+		"an empty fence":        "```json\n```",
+		"only words":            "I approve this change.",
+		"a nested verdict only": `{"review":` + bare + `} and nothing else`,
+		"a broken verdict":      `Here: {"decision":"approve","summary":`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
