@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -232,11 +233,13 @@ func TestRecordsUnreachableRemoteIsNotARefusedLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if _, err := records.Fetch(ctx); err == nil || errors.Is(err, ErrRecordsLeaseRefused) {
-		t.Errorf("Fetch() error = %v, want a failure to reach the remote", err)
+	// Each failure says in plain words what could not be done and where, with
+	// Git's own reason after it.
+	if _, err := records.Fetch(ctx); err == nil || errors.Is(err, ErrRecordsLeaseRefused) || !strings.HasPrefix(err.Error(), `the shared records could not be fetched from the remote "origin": `) || !strings.Contains(err.Error(), "missing.git") {
+		t.Errorf("Fetch() error = %v, want a failure to reach the remote that says so", err)
 	}
-	if err := records.Push(ctx, commit, ""); err == nil || errors.Is(err, ErrRecordsLeaseRefused) {
-		t.Errorf("Push() error = %v, want a failure to reach the remote", err)
+	if err := records.Push(ctx, commit, ""); err == nil || errors.Is(err, ErrRecordsLeaseRefused) || !strings.HasPrefix(err.Error(), `the shared records could not be pushed to the remote "origin": `) || !strings.Contains(err.Error(), "missing.git") {
+		t.Errorf("Push() error = %v, want a failure to reach the remote that says so", err)
 	}
 }
 

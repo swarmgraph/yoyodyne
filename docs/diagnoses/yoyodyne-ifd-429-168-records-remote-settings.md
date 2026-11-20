@@ -7,6 +7,19 @@ own Git remote settings — a credential helper, a URL rewrite (`insteadOf`), an
 
 Read on November 12, 2026, against main at `c5c33342`.
 
+## Since fixed
+
+Sharing reports and directives between factories (yoyodyne-ifd.429.108) has
+landed, and the fix below was made on November 19, 2026, with one change from
+it: URL rewrites are not carried to the records repository, because
+`remoteURL` already applies them, and applying them a second time could
+rewrite a rewritten URL again. The credential, SSH (`core.sshCommand` and
+`ssh.*`) and `http.*` settings are carried. The tests are in
+`internal/gitworktree/recordsref_settings_test.go`. The credential helper test
+uses a local HTTP server running `git http-backend` and asking for a password,
+not a check of the options passed. What follows is the diagnosis as it was
+written.
+
 ## Why the item cannot be done yet
 
 `internal/gitworktree/recordsref.go` does not exist on main. It arrives with

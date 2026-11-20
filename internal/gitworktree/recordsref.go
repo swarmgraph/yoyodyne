@@ -89,6 +89,95 @@ func (r *RecordsRepository) Dir() string { return r.dir }
 // gitDir is the Git option every command here starts with.
 func (r *RecordsRepository) gitDir() []string { return []string{"--git-dir=" + r.dir} }
 
+// remoteSettingsPattern names the settings in the user's repository that decide
+// how a remote is reached: credential helpers and per-URL credentials, the SSH
+// command and its variant, and HTTP settings such as a proxy, extra headers or
+// a certificate file. URL rewrites (url.<base>.insteadOf and pushInsteadOf) are
+// left out on purpose: remoteURL asks the user's repository for the URL, which
+// already applies them, and applying them again in the records repository could
+// rewrite a rewritten URL a second time.
+const remoteSettingsPattern = `^(credential\..*|core\.sshcommand|ssh\..*|http\..*)$`
+
+// remoteGit is the Git options a records command that talks to the remote
+// starts with: the records repository, then the user's repository's own
+// settings for reaching remotes as -c options, so a credential helper or SSH
+// command the project relies on applies to the records as it does to claims and
+// pull requests, which run in the user's repository.
+//
+// The records repository is bare and in the machine's state directory, so Git
+// reads its config and the user's global and system config but not the user's
+// repository's. Only the settings remoteSettingsPattern names are carried: the
+// whole config would bring core.bare, core.worktree and hooks with it. They are
+// read from the repository's own config (with what it includes), because global
+// and system settings already apply, and carrying them again would ask a
+// credential helper twice. Each is carried in the order Git lists it, so a list
+// of credential helpers, and an empty one that clears those before it, keeps
+// its meaning; command-line settings come after global ones, as the
+// repository's own do.
+func (r *RecordsRepository) remoteGit(ctx context.Context) ([]string, error) {
+	settings, err := r.remoteSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options := r.gitDir()
+	for _, setting := range settings {
+		options = append(options, "-c", setting)
+	}
+	return options, nil
+}
+
+// remoteSettings is each setting remoteSettingsPattern names in the user's
+// repository's own config, as "key=value", or "key" alone for one set with no
+// value, in the order Git lists them.
+func (r *RecordsRepository) remoteSettings(ctx context.Context) ([]string, error) {
+	m := r.manager
+	var out bytes.Buffer
+	result, err := m.runner.Run(ctx, execution.Command{
+		Name: m.gitBinary,
+		Args: append(append([]string(nil), maintenanceOptions...),
+			"-C", m.repositoryRoot, "config", "--local", "--includes", "--null", "--get-regexp", remoteSettingsPattern),
+		Env:       execution.GitEnvironment(nil),
+		RawStdout: &out,
+		Timeout:   m.localTimeout(),
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run Git command: %w", err)
+	}
+	switch {
+	case result.ExitCode == 1:
+		// Git's answer for no setting matched.
+		return nil, nil
+	case result.Status != execution.ProcessSucceeded:
+		return nil, fmt.Errorf("read the settings for reaching the remote from %s failed with exit code %d: %s", m.repositoryRoot, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	return parseRemoteSettings(out.String()), nil
+}
+
+// parseRemoteSettings reads `git config --null --get-regexp` output: each entry
+// ends in a NUL, and is the key, then a newline and the value where it has one.
+func parseRemoteSettings(output string) []string {
+	var settings []string
+	for _, entry := range strings.Split(output, "\x00") {
+		if entry == "" {
+			continue
+		}
+		key, value, valued := strings.Cut(entry, "\n")
+		if valued {
+			settings = append(settings, key+"="+value)
+		} else {
+			settings = append(settings, key)
+		}
+	}
+	return settings
+}
+
+// recordsRemoteFailure says in plain words that the shared records could not be
+// fetched from or pushed to the remote, naming the remote, with Git's own reason
+// after it. what is "fetched from" or "pushed to".
+func (r *RecordsRepository) recordsRemoteFailure(what string, err error) error {
+	return fmt.Errorf("the shared records could not be %s the remote %q: %w", what, r.manager.remote, err)
+}
+
 // remoteURL is what to fetch from (push false) or push to (push true): the
 // URL the user's repository has configured for the manager's remote. A remote
 // that is not a configured name is already a URL or a path and is used as it
@@ -124,13 +213,17 @@ func (r *RecordsRepository) Fetch(ctx context.Context) (string, error) {
 	m := r.manager
 	url, err := r.remoteURL(ctx, false)
 	if err != nil {
-		return "", err
+		return "", r.recordsRemoteFailure("fetched from", err)
+	}
+	git, err := r.remoteGit(ctx)
+	if err != nil {
+		return "", r.recordsRemoteFailure("fetched from", err)
 	}
 	// The reference is read first because fetching one the remote does not hold
 	// fails like a remote that cannot be reached does.
-	remote, err := m.remoteRefAt(ctx, r.gitDir(), url, RecordsRef)
+	remote, err := m.remoteRefAt(ctx, git, url, RecordsRef)
 	if err != nil {
-		return "", err
+		return "", r.recordsRemoteFailure("fetched from", err)
 	}
 	if remote == "" {
 		dropped, err := m.run(ctx, append(r.gitDir(), "update-ref", "-d", fetchedRecordsRef)...)
@@ -142,15 +235,15 @@ func (r *RecordsRepository) Fetch(ctx context.Context) (string, error) {
 		}
 		return "", nil
 	}
-	fetched, err := m.runRemote(ctx, append(r.gitDir(),
+	fetched, err := m.runRemote(ctx, append(git,
 		"-c", "core.hooksPath="+os.DevNull,
 		"fetch", "--no-tags", "--no-write-fetch-head", url,
 		"+"+RecordsRef+":"+fetchedRecordsRef)...)
 	if err != nil {
-		return "", err
+		return "", r.recordsRemoteFailure("fetched from", err)
 	}
 	if fetched.Status != execution.ProcessSucceeded {
-		return "", fmt.Errorf("fetch the records from %s failed with exit code %d: %s", url, fetched.ExitCode, strings.TrimSpace(fetched.Stderr))
+		return "", r.recordsRemoteFailure("fetched from", fmt.Errorf("git fetch from %s failed with exit code %d: %s", url, fetched.ExitCode, strings.TrimSpace(fetched.Stderr)))
 	}
 	// The reference may have moved between reading it and fetching it, so the
 	// commit returned is the one that was fetched.
@@ -408,7 +501,15 @@ func (r *RecordsRepository) Push(ctx context.Context, commit, expected string) e
 	}
 	url, err := r.remoteURL(ctx, true)
 	if err != nil {
-		return err
+		return r.recordsRemoteFailure("pushed to", err)
 	}
-	return r.manager.pushLeased(ctx, leasedPush{git: r.gitDir(), url: url, lease: ErrRecordsLeaseRefused}, RecordsRef, commit, expected)
+	git, err := r.remoteGit(ctx)
+	if err != nil {
+		return r.recordsRemoteFailure("pushed to", err)
+	}
+	err = r.manager.pushLeased(ctx, leasedPush{git: git, url: url, lease: ErrRecordsLeaseRefused}, RecordsRef, commit, expected)
+	if err != nil && !errors.Is(err, ErrRecordsLeaseRefused) {
+		return r.recordsRemoteFailure("pushed to", err)
+	}
+	return err
 }

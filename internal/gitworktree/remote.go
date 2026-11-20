@@ -109,6 +109,10 @@ func remoteVerb(args []string) string {
 		case "-C", "-c":
 			index++
 		default:
+			// An option that carries its value in itself, such as --git-dir=<dir>.
+			if strings.HasPrefix(args[index], "--") && strings.Contains(args[index], "=") {
+				continue
+			}
 			return args[index]
 		}
 	}
