@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-16T22:14:57.606984Z
       reason: Section 2 said the link to a source message reaches the operator by direct message only, while section 7, as built, also allows the line listing what needs him where Slack is not in use, and never a channel. Section 2 now says the same. This is point 3 of bringing four designs into line with what was built (yoyodyne-n2t1); its last point waits for the held machine-home revision. Written from a read of the whole design at main 503cc285; nothing else in the section changes.
+    - action: amended
+      by: architect
+      at: 2026-11-20T05:52:59.215454Z
+      reason: 'amendment-1767cd23, approved November 19: a query names its rules document by its path in the repository, kept wherever the project chooses, rather than by id at one fixed place. Adds that a query naming a place the Lead Product Manager''s writes cannot reach is refused at load, so the rules stay hers. Section 1''s example line and the artifact contract bullet under Documents this changes follow in the next revision. Written from a read of the whole design at main 6678a924.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-16T22:14:57.606984Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2914, for document-2914.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-20T05:52:59.215454Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3157, for document-3157.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -191,7 +200,7 @@ A decision to start admits one item through the harness's ordinary admission. Th
 
 ## 6. The rules file
 
-The rules are a `rules` document at `docs/product/intake/intake-rules.md`, and a project may have more than one. A query names its document by id. For example:
+The rules are a `rules` document, and a project may have more than one. A query names its document by its path from the repository root, kept wherever the project chooses, for example `rules: docs/product/intake/intake-rules.md`. That path, inside the product home, is the one the setup guide suggests. The document carries the identity frontmatter of a `rules` document wherever it is filed. For example:
 
 ```markdown
 ## Rules
@@ -207,13 +216,15 @@ The rules are a `rules` document at `docs/product/intake/intake-rules.md`, and a
   - from: the direction this rule came from
 ```
 
-**Owner.** The Lead Product Manager, because deciding what work may enter the backlog is hers. Any other role proposes a change and waits for her decision. Mason said the rules are the agent's, and the reader does follow them, but it cannot change them. A reader that could change its own rules would be taken over by the first message that asked it to.
+**Owner.** The Lead Product Manager, because deciding what work may enter the backlog is hers. Its kind says who owns it, not the place it is filed. Any other role proposes a change and waits for her decision. Mason said the rules are the agent's, and the reader does follow them, but it cannot change them. A reader that could change its own rules would be taken over by the first message that asked it to.
+
+**Where it may be kept.** A query whose path names a place the Lead Product Manager's checked document writes cannot reach is refused when the configuration loads, naming the path, so the rules always stay hers to change without a person editing the file by hand. Which places those writes reach is the artifact contract's to say; this design did not read it, and the build piece reads it first.
 
 **How a change is reviewed.** It takes the document route in the artifact contract: the word and link checks, confirmation under the three cases for her documents, then a reviewed run changing only that file. A rule that names an existing goal does not change what the goals admit, so she can mark it consistent and the operator is not asked.
 
-**What the harness reads.** The file as the target branch holds it at the start of each query run, never the working tree. The commit is recorded on each message. A document that cannot be read as rules stops that query's readers and files one report for her. Messages wait and nothing is lost. A malformed rule refuses that rule and the others still apply.
+**What the harness reads.** The file at the query's path as the target branch holds it at the start of each query run, never the working tree. The commit is recorded on each message. A path that names no file at that commit, or a file that cannot be read as rules, stops that query's readers and files one report for her, naming the path. Messages wait and nothing is lost. A malformed rule refuses that rule and the others still apply.
 
-These rules are not read as instructions for every role, which is what the contract says of a rules document. Section 6 of this design is the exception, and the contract gains a sentence saying so.
+These rules are not read as instructions for every role, which is what the contract says of a rules document. Section 6 of this design is the exception, and the contract gains a sentence saying so for any rules document an intake query names.
 
 ## 7. Questions, and why the closed list does not grow
 
