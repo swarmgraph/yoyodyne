@@ -1,6 +1,7 @@
 package beads
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 )
@@ -19,9 +20,9 @@ import (
 // live store.
 
 // LoggedCall is one bd invocation, once it has ended, as the process's call log
-// keeps it.
+// keeps it, or one the harness never made because its turn did not come in time.
 type LoggedCall struct {
-	// At is when bd was started.
+	// At is when bd was started, or when a call never made asked.
 	At time.Time `json:"at"`
 	// For is who it was made for, where its context named somebody
 	// (OnBehalfOf), and empty where nothing did.
@@ -33,6 +34,36 @@ type LoggedCall struct {
 	// limit, or at its caller's deadline, without an answer.
 	Took           time.Duration `json:"took"`
 	StoppedAtLimit bool          `json:"stopped_at_limit,omitempty"`
+	// Waited is how long the call waited behind the harness's other tracker
+	// calls before bd was started (turns.go, listingshare.go), so that what
+	// its caller waited for its answer is Waited and Took together. A call that
+	// waited out its bound there and was never made is logged too, with At when
+	// it asked, no Took, and StoppedAtLimit set.
+	Waited time.Duration `json:"waited,omitempty"`
+}
+
+// Answered is how long the call's caller waited for its answer: the wait for
+// its turn and bd's own time together.
+func (c LoggedCall) Answered() time.Duration { return c.Waited + c.Took }
+
+type waitingSinceKey struct{}
+
+// withWaitingSince is ctx carrying when its call began to wait, where it does
+// not carry that already, so the earliest wait is the one counted.
+func withWaitingSince(ctx context.Context, since time.Time) context.Context {
+	if _, ok := ctx.Value(waitingSinceKey{}).(time.Time); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, waitingSinceKey{}, since)
+}
+
+// waitingSince is when the call made under ctx began to wait: the moment
+// withWaitingSince recorded, and now where none was.
+func waitingSince(ctx context.Context) time.Time {
+	if since, ok := ctx.Value(waitingSinceKey{}).(time.Time); ok {
+		return since
+	}
+	return time.Now()
 }
 
 // CallLog keeps every call a process makes. It is satisfied by

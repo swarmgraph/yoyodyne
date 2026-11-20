@@ -119,6 +119,26 @@ func TestATrackerPastItsLimitsWarnsTheDevelopmentManagerOnce(t *testing.T) {
 	}
 }
 
+// A listing is judged by what its caller waited for the answer: one bd
+// answered in a second after it waited 14 seconds for its turn is past the
+// bound, and so is one that never got its turn.
+func TestAListingsWaitForItsTurnCountsAgainstItsBound(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	withTrackerStore(t, f, &fakeStore{size: 500 * megabyte, after: 500 * megabyte, items: 900})
+	f.pass.TrackerLimits = config.TrackerLimits{StoreMegabytes: 1000, ListingSeconds: 10}
+	waited := listing(f.now.Add(-20*time.Minute), "yoyo watch", time.Second)
+	waited.Waited = 14 * time.Second
+	unmade := beads.LoggedCall{At: f.now.Add(-15 * time.Minute), Call: "listing the work items with status open", Verb: "list", Waited: 2 * time.Minute, StoppedAtLimit: true}
+	withCalls(t, f, waited, unmade, listing(f.now.Add(-10*time.Minute), "yoyo watch", 3*time.Second))
+
+	step := stepNamed(t, f.pass1(t), StepTrackerLimits)
+	want := "2 of the 3 listings of open or ready work the harness made in the hour before took longer than their bound of 10 seconds (services.maintenance.tracker_limits.listing_seconds); the slowest, listing the work items with status open for yoyo watch, took 2m0s"
+	if !strings.Contains(step.Detail, want) {
+		t.Errorf("limits step = %q\nwant %q in it", step.Detail, want)
+	}
+}
+
 // With no log of calls wired the size is still checked, and the step says the
 // listings were not.
 func TestTheLimitsAreCheckedWithoutACallLog(t *testing.T) {

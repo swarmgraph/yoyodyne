@@ -78,7 +78,7 @@ func (p *Pass) checkTrackerLimits() runstate.SweepStep {
 			passed = append(passed, limitListings)
 			past = append(past, timed.saysOver(limits, "bound"))
 		default:
-			within = append(within, fmt.Sprintf("every listing of open or ready work in the hour before (%d of them) took at most %d seconds, the slowest %s", timed.listings, limits.ListingSeconds, roundTook(timed.slowest.Took)))
+			within = append(within, fmt.Sprintf("every listing of open or ready work in the hour before (%d of them) took at most %d seconds, the slowest %s", timed.listings, limits.ListingSeconds, roundTook(timed.slowest.Answered())))
 		}
 	}
 
@@ -144,7 +144,9 @@ type timedListings struct {
 
 // liveListings reads the harness's listings of open and ready work over the
 // hour before now from its log of calls, counting those past the configured
-// listing bound or stopped at their own limit. It asks the store nothing. It
+// listing bound or stopped at their own limit. A listing's time is what its
+// caller waited for the answer, its wait for its turn behind the harness's
+// other calls included (beads.LoggedCall.Answered). It asks the store nothing. It
 // is used where p.Calls is wired.
 func (p *Pass) liveListings(now time.Time, limits config.TrackerLimits) (timedListings, error) {
 	records, _, err := p.Calls.Read(now.Add(-callWindow), now)
@@ -158,10 +160,10 @@ func (p *Pass) liveListings(now time.Time, limits config.TrackerLimits) (timedLi
 			continue
 		}
 		timed.listings++
-		if record.Took > bound || record.StoppedAtLimit {
+		if record.Answered() > bound || record.StoppedAtLimit {
 			timed.over++
 		}
-		if record.Took > timed.slowest.Took {
+		if record.Answered() > timed.slowest.Answered() {
 			timed.slowest = record
 		}
 	}
@@ -172,7 +174,7 @@ func (p *Pass) liveListings(now time.Time, limits config.TrackerLimits) (timedLi
 // the slowest, calling the bound by word.
 func (t timedListings) saysOver(limits config.TrackerLimits, word string) string {
 	return fmt.Sprintf("%d of the %d listings of open or ready work the harness made in the hour before took longer than their %s of %d seconds (services.maintenance.tracker_limits.listing_seconds); the slowest, %s for %s, took %s",
-		t.over, t.listings, word, limits.ListingSeconds, t.slowest.Call, t.slowest.Caller(), roundTook(t.slowest.Took))
+		t.over, t.listings, word, limits.ListingSeconds, t.slowest.Call, t.slowest.Caller(), roundTook(t.slowest.Answered()))
 }
 
 // openOrReadyListing reports a call that listed open or ready work, which is

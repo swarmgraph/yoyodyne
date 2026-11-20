@@ -2147,11 +2147,23 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 	if binary == "" {
 		binary = "bd"
 	}
+	asked := waitingSince(ctx)
 	unlockStore, err := c.lockStore(ctx, true)
 	if err != nil {
+		if errors.Is(err, ErrUnanswered) {
+			c.logUnmade(ctx, args, asked)
+		}
 		return nil, err
 	}
 	defer unlockStore()
+	endTurn, err := c.takeTurn(ctx)
+	if err != nil {
+		if errors.Is(err, ErrUnanswered) {
+			c.logUnmade(ctx, args, asked)
+		}
+		return nil, err
+	}
+	defer endTurn()
 	command := execution.Command{
 		Name:           binary,
 		Args:           args,
@@ -2176,7 +2188,7 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 	if c.Calls != nil {
 		c.Calls.ObserveCall(TrackerCall{Call: observedCall(args), Took: took, Limit: limit, StoppedAtLimit: stopped})
 	}
-	c.logCall(LoggedCall{At: started, For: Caller(ctx), Call: observedCall(args), Verb: args[0], Took: took, StoppedAtLimit: stopped})
+	c.logCall(LoggedCall{At: started, For: Caller(ctx), Call: observedCall(args), Verb: args[0], Took: took, Waited: started.Sub(asked), StoppedAtLimit: stopped})
 	if err != nil {
 		return nil, fmt.Errorf("run bd %s: %w", args[0], err)
 	}
@@ -2222,6 +2234,13 @@ func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...stri
 		return raw.Bytes(), nil
 	}
 	return []byte(result.Stdout), nil
+}
+
+// logUnmade logs a call that waited out its bound behind the harness's other
+// calls and was never made, so that its caller's wait is counted with the
+// calls that were made rather than lost from the record of them.
+func (c Client) logUnmade(ctx context.Context, args []string, asked time.Time) {
+	c.logCall(LoggedCall{At: asked, For: Caller(ctx), Call: observedCall(args), Verb: args[0], Waited: time.Since(asked), StoppedAtLimit: true})
 }
 
 // processFailure is bd having run and refused: the verb, how the process ended,

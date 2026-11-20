@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
@@ -102,9 +103,15 @@ func (c Client) runListing(ctx context.Context, args ...string) ([]byte, error) 
 
 // runLocked is one listing under the store's listing lock. Where no store is
 // found there is nothing to lock and bd is left to say so itself.
+// The wait for the listing lock is counted as part of the listing's wait for
+// its answer, as the wait for its turn is (turns.go).
 func (c Client) runLocked(ctx context.Context, args ...string) ([]byte, error) {
+	ctx = withWaitingSince(ctx, time.Now())
 	unlock, err := c.lockListings(ctx)
 	if err != nil {
+		if errors.Is(err, ErrUnanswered) {
+			c.logUnmade(ctx, args, waitingSince(ctx))
+		}
 		return nil, err
 	}
 	defer unlock()
