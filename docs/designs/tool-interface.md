@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-20T07:36:22.967144Z
       reason: 'Replacing the coined vocabulary in the governed documents, the tool interface design (part of yoyodyne-ifd.437.21). The retired word is replaced in five places: the descriptor''s bullet becomes standing checks; gate evidence becomes the evidence a change carries for its checks; the human gate, written with a space and so not an exempt stored name, becomes the record of a step only a person can take; the protected-path gate becomes the protected-path comparison, as the terms register words it. Two metaphors become plain words: load-bearing and one-off. Nothing else changes. Read whole at main b8562a78. The register''s row naming this document is left for the register''s owner; the terms check logs it as ready to remove and passes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T11:04:06.992199Z
+      reason: 'Answers the reviewer''s report-dec48893 and part of the Lead Product Manager''s report-43b00544: the MCP design said the command for a server comes from the operator''s own file, as research''s does, and this design did not say so. The section on research as the model now names MCP calls as the second tool of that shape and says where the command comes from and who may change it. The deferred line already excepts MCP since the November 7 revision. Read whole at main 49141b43; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -56,6 +60,11 @@ approvals:
       by: harness
       at: 2026-11-20T07:36:22.967144Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3162, for document-3162.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-20T11:04:06.992199Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3172, for document-3172.1 under the automatic approval policy
 ---
 # Tools: one interface for what the harness does on a role's behalf
 
@@ -97,6 +106,8 @@ The section of every role contract that describes the blocks the role may end a 
 ## Research is the model for an operator-supplied tool
 
 Research is a tool whose implementation configuration supplies: a command the operator wrote, run with the question on standard input. The descriptor supplies the shape, bounds, redaction, and audit; the configuration supplies a source and nothing else, and a role whose bundle lacks the grant gets nothing from a configured source. Any future tool that reaches outside the durable record takes this shape: configuration supplies where, never whether.
+
+Calls to MCP servers are the second tool of this shape, designed in [MCP tools through the harness](mcp-tools-through-the-harness.md). Their two descriptors, `mcp.read` and `mcp.act`, are held only through the role bundles in Go, and a role whose bundle lacks one gets nothing from any list. The project's `mcp` section supplies each server, either the command the harness starts or the address it calls, and `mcp_tools` under an agent names the tools that agent may ask for. Both are the operator's own, as research's source is: the typed configuration write refuses `mcp` and `mcp_tools`, a developer's change cannot touch `.yoyodyne/`, and where the configuration is kept under the project directory rather than committed, the command comes from that file, which no role writes. A list naming a tool whose class the agent's role does not hold is refused when the configuration loads. A server's command runs as the harness's user, outside every sandbox, with the same trust as a declared check or research source, which is why only the operator declares one.
 
 ## Migration of the existing blocks
 
