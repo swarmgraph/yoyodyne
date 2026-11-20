@@ -19,11 +19,10 @@ package runstate
 // grant it did not give rather than given one it did not record — the direction
 // that costs an unspent attempt rather than a duplicated one.
 //
-// It is one home per machine. Two collaborators running their own harnesses
-// against one repository each hold a full set of budgets for the same item,
-// which is a limit rather than a design: the coordination that would make them
-// one is the team-mode epic's, and `docs/team-mode-scope.md` states it where
-// that epic's designer will find it.
+// It is one home per machine. With team mode off that is the whole count. With
+// it on, every spend is also a record in the shared records reference, the count
+// a spend is held to is the count of those records across every factory, and
+// only the factory holding the item's claim spends (sharedspends.go).
 //
 // All four counters have callers. Every run records its review rounds here,
 // because a round is something the run itself produces, and the development
@@ -455,9 +454,10 @@ func (c *TriageCounters) releaseReservedRounds(rounds int) {
 	c.CommittedRounds -= rounds
 }
 
-// TriageCaps bounds each triage action for one work item. They are per item and
-// per machine, so they bound what one harness will spend on one piece of work
-// however many runs it takes.
+// TriageCaps bounds each triage action for one work item. They are per item, so
+// they bound what a harness will spend on one piece of work however many runs it
+// takes, and with team mode on, however many factories it takes: each factory
+// holds its own configured caps against the count across all of them.
 //
 // Every one of them is supplied rather than decided here: this is deliberately
 // not the place that invents a number, and a caller assembling them is where
@@ -709,6 +709,9 @@ func (d MergeRearmDecision) Rearms() int { return d.Counters.RearmsOf(d.Publicat
 type TriageStore struct {
 	root      string
 	productID domain.ProductID
+	// shared counts and records every spend through the team's shared records,
+	// and is nil with team mode off (sharedspends.go).
+	shared SharedSpends
 }
 
 func NewTriageStore(root string, productID domain.ProductID) (*TriageStore, error) {
@@ -732,6 +735,7 @@ func (s *Store) Triage() *TriageStore {
 	return &TriageStore{
 		root:      filepath.Join(filepath.Dir(s.root), "triage"),
 		productID: s.productID,
+		shared:    s.sharedSpends,
 	}
 }
 
@@ -810,6 +814,13 @@ func (s *TriageStore) RecordReviewRound(ctx context.Context, workItemID, attempt
 	return s.update(ctx, workItemID, at, func(counters *TriageCounters) error {
 		if counters.alreadyJudged(attemptID) {
 			return errNoTriageChange
+		}
+		// With team mode on the round is a record on the shared remote first, and a
+		// round that could not be recorded there is not charged: the caller waits and
+		// judges it again.
+		run, _, _ := strings.Cut(attemptID, "#")
+		if err := s.spendShared(ctx, workItemID, counters, SharedSpend{Budget: TriageReviewRoundBudget, Run: run, Key: attemptID}, nil); err != nil {
+			return err
 		}
 		counters.ReviewRounds++
 		counters.LastJudged = attemptID
@@ -965,6 +976,10 @@ func (s *TriageStore) ReturnReviewRound(ctx context.Context, workItemID, attempt
 			outcome.ChargedBy = counters.LastRoundCharger
 			return errNoTriageChange
 		}
+		run, _, _ := strings.Cut(attemptID, "#")
+		if err := s.spendShared(ctx, workItemID, counters, SharedSpend{Budget: TriageReviewRoundBudget, Run: run, Key: attemptID, Return: true}, nil); err != nil {
+			return err
+		}
 		counters.ReviewRounds--
 		// The head is cleared with the round it named, and its charger with it.
 		// Leaving either would leave the record saying a round was counted for an
@@ -1078,36 +1093,45 @@ func (s *TriageStore) GrantRepair(ctx context.Context, workItemID string, decisi
 		// that stopped before it was ever reviewed spent no round, and the round
 		// budget would hand that item back for ever — and because it is the order
 		// an operator reads the refusal in.
-		var refusals []TriageCapRefusal
-		if counters.RepairGrants >= permitted.RepairGrants {
-			refusals = append(refusals, TriageCapRefusal{
-				Budget: TriageRepairGrantBudget,
-				Spent:  triageBudgetSpend(*counters, TriageRepairGrantBudget),
-				Cap:    permitted.RepairGrants,
-			})
-		}
-		// The room is what the cap has beyond what the item stands committed to,
-		// rather than beyond what it has cost. A grant recorded and not yet carried
-		// out has already promised its rounds, and a second one truncated against
-		// the same room is how the rounds granted overshoot the cap without any
-		// single grant doing so.
-		remaining := counters.RoundsUncommitted(permitted.ReviewRounds)
-		if remaining == 0 {
-			refusals = append(refusals, TriageCapRefusal{
-				Budget: TriageReviewRoundBudget,
-				// What refused it is what it is committed to, so that is the figure
-				// reported: naming the rounds counted would leave a reader looking for
-				// room the cap does not have.
-				Spent: triageBudgetSpend(*counters, TriageReviewRoundBudget),
-				Cap:   permitted.ReviewRounds,
-			})
-		}
-		if len(refusals) > 0 {
-			return TriageCapError{
-				Action:     TriageRepairGrant,
-				WorkItemID: counters.WorkItemID,
-				Refusals:   refusals,
+		// The refusals are read against the record as the whole team has left it, and
+		// the spend is on the shared remote before it is written here.
+		var remaining int
+		check := func() error {
+			var refusals []TriageCapRefusal
+			if counters.RepairGrants >= permitted.RepairGrants {
+				refusals = append(refusals, TriageCapRefusal{
+					Budget: TriageRepairGrantBudget,
+					Spent:  triageBudgetSpend(*counters, TriageRepairGrantBudget),
+					Cap:    permitted.RepairGrants,
+				})
 			}
+			// The room is what the cap has beyond what the item stands committed to,
+			// rather than beyond what it has cost. A grant recorded and not yet carried
+			// out has already promised its rounds, and a second one truncated against
+			// the same room is how the rounds granted overshoot the cap without any
+			// single grant doing so.
+			remaining = counters.RoundsUncommitted(permitted.ReviewRounds)
+			if remaining == 0 {
+				refusals = append(refusals, TriageCapRefusal{
+					Budget: TriageReviewRoundBudget,
+					// What refused it is what it is committed to, so that is the figure
+					// reported: naming the rounds counted would leave a reader looking for
+					// room the cap does not have.
+					Spent: triageBudgetSpend(*counters, TriageReviewRoundBudget),
+					Cap:   permitted.ReviewRounds,
+				})
+			}
+			if len(refusals) > 0 {
+				return TriageCapError{
+					Action:     TriageRepairGrant,
+					WorkItemID: counters.WorkItemID,
+					Refusals:   refusals,
+				}
+			}
+			return nil
+		}
+		if err := s.spendShared(ctx, workItemID, counters, SharedSpend{Budget: TriageRepairGrantBudget, Run: decided.RunID}, check); err != nil {
+			return err
 		}
 		granted.Rounds = rounds
 		if granted.Rounds > remaining {
@@ -1187,30 +1211,36 @@ func (s *TriageStore) RecordRerun(ctx context.Context, workItemID string, decisi
 		// and for the same reason a grant's is: a re-run buys a whole fresh run and
 		// spends no round itself, so on an item whose runs keep stopping before
 		// review the round budget refuses nothing.
-		var refusals []TriageCapRefusal
-		if counters.Reruns >= permitted.Reruns {
-			refusals = append(refusals, TriageCapRefusal{
-				Budget: TriageRerunBudget,
-				Spent:  triageBudgetSpend(*counters, TriageRerunBudget),
-				Cap:    permitted.Reruns,
-			})
-		}
-		// Against what the item is committed to, for the reason a grant is: a re-run
-		// whose only remaining round is one an outstanding grant has already
-		// promised overshoots the cap exactly as a second grant would.
-		if counters.RoundsUncommitted(permitted.ReviewRounds) == 0 {
-			refusals = append(refusals, TriageCapRefusal{
-				Budget: TriageReviewRoundBudget,
-				Spent:  triageBudgetSpend(*counters, TriageReviewRoundBudget),
-				Cap:    permitted.ReviewRounds,
-			})
-		}
-		if len(refusals) > 0 {
-			return TriageCapError{
-				Action:     TriageRerun,
-				WorkItemID: counters.WorkItemID,
-				Refusals:   refusals,
+		check := func() error {
+			var refusals []TriageCapRefusal
+			if counters.Reruns >= permitted.Reruns {
+				refusals = append(refusals, TriageCapRefusal{
+					Budget: TriageRerunBudget,
+					Spent:  triageBudgetSpend(*counters, TriageRerunBudget),
+					Cap:    permitted.Reruns,
+				})
 			}
+			// Against what the item is committed to, for the reason a grant is: a re-run
+			// whose only remaining round is one an outstanding grant has already
+			// promised overshoots the cap exactly as a second grant would.
+			if counters.RoundsUncommitted(permitted.ReviewRounds) == 0 {
+				refusals = append(refusals, TriageCapRefusal{
+					Budget: TriageReviewRoundBudget,
+					Spent:  triageBudgetSpend(*counters, TriageReviewRoundBudget),
+					Cap:    permitted.ReviewRounds,
+				})
+			}
+			if len(refusals) > 0 {
+				return TriageCapError{
+					Action:     TriageRerun,
+					WorkItemID: counters.WorkItemID,
+					Refusals:   refusals,
+				}
+			}
+			return nil
+		}
+		if err := s.spendShared(ctx, workItemID, counters, SharedSpend{Budget: TriageRerunBudget, Run: decided.RunID}, check); err != nil {
+			return err
 		}
 		counters.Reruns++
 		return nil
@@ -1287,17 +1317,23 @@ func (s *TriageStore) recordMergeRearm(ctx context.Context, workItemID, publicat
 		// One budget, because a re-arm buys no round: there is no second bound for it
 		// to stand behind and nothing else to say in the same breath. It is the
 		// publication's rather than the item's, which the refusal says.
-		if spent := counters.RearmsOf(publication); spent >= permitted.MergeRearms {
-			return TriageCapError{
-				Action:      TriageMergeRearm,
-				WorkItemID:  counters.WorkItemID,
-				Publication: publication,
-				Refusals: []TriageCapRefusal{{
-					Budget: TriageMergeRearmBudget,
-					Spent:  spent,
-					Cap:    permitted.MergeRearms,
-				}},
+		check := func() error {
+			if spent := counters.RearmsOf(publication); spent >= permitted.MergeRearms {
+				return TriageCapError{
+					Action:      TriageMergeRearm,
+					WorkItemID:  counters.WorkItemID,
+					Publication: publication,
+					Refusals: []TriageCapRefusal{{
+						Budget: TriageMergeRearmBudget,
+						Spent:  spent,
+						Cap:    permitted.MergeRearms,
+					}},
+				}
 			}
+			return nil
+		}
+		if err := s.spendShared(ctx, workItemID, counters, SharedSpend{Budget: TriageMergeRearmBudget, Run: decided.RunID, Key: publication}, check); err != nil {
+			return err
 		}
 		if counters.RearmedPublications == nil {
 			counters.RearmedPublications = make(map[string]int, 1)
