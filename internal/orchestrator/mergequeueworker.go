@@ -6,7 +6,9 @@ package orchestrator
 // first entry still waiting in admission order, builds a candidate from the
 // target branch as it stands and the entry's approved head, records that as a
 // generation before anything judges it, and then runs the project's configured
-// checks and asks an independent reviewer about exactly that candidate.
+// checks and asks an independent reviewer about exactly that candidate, both
+// at once (checkAndReview): a failing check stops the review, and a refusing
+// review stops the checks.
 //
 // What it leaves is evidence and nothing else. It never takes the promotion
 // lease — the checks and the review are the long part of the queue, and the
@@ -59,6 +61,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/checks"
@@ -151,6 +154,11 @@ type MergeQueueWorker struct {
 	// ForgePoll is how often the forge's required checks are read while the
 	// candidate's review runs beside them; zero is defaultForgePoll.
 	ForgePoll time.Duration
+	// concurrent marks the copy of the worker one of two stages running at once
+	// (checkAndReview) uses: it leaves reading where the target stands to the
+	// caller, which does it once after both, since a generation invalidated by
+	// one stage would otherwise be written over by the other.
+	concurrent bool
 }
 
 // mergeQueueWait is a stage the worker did not start, and why: a process an
@@ -293,7 +301,15 @@ func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key
 	if w.CheckAhead && !forge && stagesLeft(generation) {
 		ahead.start(ctx, w, lease, key, entry, generation)
 	}
-	generation, moved, err := w.check(ctx, lease, key, generation)
+	var moved bool
+	if forge {
+		generation, moved, err = w.check(ctx, lease, key, generation)
+	} else {
+		generation, err = w.checkAndReview(ctx, lease, key, entry, run, generation)
+		if err == nil {
+			generation, moved, err = w.moved(ctx, lease, key, generation)
+		}
+	}
 	outcome.Generation = generation
 	// A base check that was interrupted, or ended without judging anything,
 	// earned nothing and is run again.
@@ -304,12 +320,8 @@ func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key
 		}
 	}
 	fellBack := false
-	if err == nil && !moved && generation.CheckRun != nil && checksPassed(generation) {
-		if forge {
-			generation, moved, fellBack, err = w.reviewBesideForge(ctx, lease, key, entry, run, generation)
-		} else {
-			generation, moved, err = w.review(ctx, lease, key, entry, run, generation)
-		}
+	if forge && err == nil && !moved && generation.CheckRun != nil && checksPassed(generation) {
+		generation, moved, fellBack, err = w.reviewBesideForge(ctx, lease, key, entry, run, generation)
 		outcome.Generation = generation
 	}
 	if fellBack && err == nil && !moved {
@@ -722,6 +734,9 @@ func (w MergeQueueWorker) invalidate(lease *runstate.Lease, key runstate.MergeQu
 // is already saved by then, so the evidence stays on the generation it was
 // earned on.
 func (w MergeQueueWorker) moved(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) (runstate.MergeQueueGeneration, bool, error) {
+	if w.concurrent {
+		return generation, false, nil
+	}
 	target, err := w.Candidates.TargetCommit(ctx, key.TargetBranch)
 	if err != nil {
 		return generation, false, fmt.Errorf("read where %s stands: %w", key.TargetBranch, err)
@@ -735,6 +750,252 @@ func (w MergeQueueWorker) moved(ctx context.Context, lease *runstate.Lease, key 
 	}
 	generation, err = w.invalidate(lease, key, generation, generation.MovedOffReason(), target)
 	return generation, err == nil, err
+}
+
+// checkAndReview takes a generation's checks and its independent review as
+// far as they go, both at once where both are still owed: they judge the same
+// candidate commit, so neither needs the other's answer first
+// (docs/designs/merge-queue-pace.md, decision 2). A check that fails ends the
+// candidate, so the review still going is stopped; a review that refuses ends
+// it the same way, so the checks still going are stopped. Each stopped stage
+// is written down as having judged nothing, and why, and a stopped review's
+// provider invocation is charged to the entry's run and item like any other
+// (spend.Metered writes its line however it ended).
+//
+// A stage already answered on the record is not run again: checks that failed
+// owe no review, and a review that refused owes no checks.
+func (w MergeQueueWorker) checkAndReview(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, generation runstate.MergeQueueGeneration) (runstate.MergeQueueGeneration, error) {
+	checksDue := !stageAnswered(generation.CheckRun != nil && generation.CheckRun.FinishedAt != nil, checkProblem(generation))
+	reviewDue := !stageAnswered(generation.Review != nil && generation.Review.FinishedAt != nil, reviewProblem(generation))
+	switch {
+	case failedCheck(generation) != "":
+		checksDue, reviewDue = false, false
+	case reviewRefused(generation):
+		checksDue, reviewDue = false, false
+	}
+	switch {
+	case !checksDue && !reviewDue:
+		return generation, nil
+	}
+
+	shared := &sharedGeneration{records: w.Queue, events: w.Events, latest: generation, sequence: generation.LastSequence}
+	checker, reviewer := w, w
+	checker.concurrent, reviewer.concurrent = true, true
+	checker.Queue = stageRecords{MergeQueueRecords: w.Queue, shared: shared, stage: runstate.MergeQueueStageChecks}
+	reviewer.Queue = stageRecords{MergeQueueRecords: w.Queue, shared: shared, stage: runstate.MergeQueueStageReview}
+	checker.Events, reviewer.Events = shared.event, shared.event
+
+	checkCtx, stopChecks := context.WithCancelCause(ctx)
+	defer stopChecks(nil)
+	reviewCtx, stopReview := context.WithCancelCause(ctx)
+	defer stopReview(nil)
+	var (
+		group               sync.WaitGroup
+		checked, reviewed   runstate.MergeQueueGeneration
+		checkErr, reviewErr error
+	)
+	group.Add(2)
+	go func() {
+		defer group.Done()
+		checked, _, checkErr = checker.check(checkCtx, lease, key, generation)
+		if failed := failedCheck(checked); checkErr == nil && failed != "" {
+			stopReview(stoppedStage{reason: fmt.Sprintf("stopped because %s failed on the candidate, which ends it whatever the review would say", failed)})
+		}
+	}()
+	go func() {
+		defer group.Done()
+		reviewed, _, reviewErr = reviewer.review(reviewCtx, lease, key, entry, run, generation)
+		if reviewErr == nil && reviewRefused(reviewed) {
+			stopChecks(stoppedStage{reason: fmt.Sprintf("stopped because the independent reviewer decided %q, which ends the candidate whatever the checks would say", reviewed.Review.Decision)})
+		}
+	}()
+	group.Wait()
+
+	latest := shared.generation()
+	// A stage the other one ended has nothing more to say: whatever it returned
+	// on its way out — a wait, a provider that stopped mid-answer — is not this
+	// candidate's outcome.
+	switch {
+	case failedCheck(latest) != "":
+		return latest, checkErr
+	case reviewRefused(latest):
+		return latest, reviewErr
+	}
+	var wait mergeQueueWait
+	for _, err := range []error{checkErr, reviewErr} {
+		if err != nil && !errors.As(err, &wait) {
+			return latest, err
+		}
+	}
+	for _, err := range []error{checkErr, reviewErr} {
+		if err != nil {
+			return latest, err
+		}
+	}
+	return latest, nil
+}
+
+// stageAnswered reports a stage that finished with a result, which is never
+// run again on the same generation.
+func stageAnswered(finished bool, problem string) bool {
+	return finished && problem == ""
+}
+
+func checkProblem(generation runstate.MergeQueueGeneration) string {
+	if generation.CheckRun == nil {
+		return ""
+	}
+	return generation.CheckRun.Problem
+}
+
+func reviewProblem(generation runstate.MergeQueueGeneration) string {
+	if generation.Review == nil {
+		return ""
+	}
+	return generation.Review.Problem
+}
+
+// reviewRefused reports a review of this generation that finished with a
+// verdict other than approval.
+func reviewRefused(generation runstate.MergeQueueGeneration) bool {
+	verdict := generation.Review
+	return verdict != nil && verdict.FinishedAt != nil && verdict.Problem == "" &&
+		verdict.Decision != "" && verdict.Decision != string(review.DecisionApprove)
+}
+
+// stoppedStage is why one stage was stopped by the other's answer, carried as
+// its context's cause.
+type stoppedStage struct{ reason string }
+
+func (s stoppedStage) Error() string { return s.reason }
+
+// stoppedByOtherStage is why the other stage's answer stopped this one, and empty where
+// it did not.
+func stoppedByOtherStage(ctx context.Context) string {
+	var stopped stoppedStage
+	if errors.As(context.Cause(ctx), &stopped) {
+		return stopped.reason
+	}
+	return ""
+}
+
+// sharedGeneration is the one generation record two stages running at once
+// both write. Each stage keeps its own copy and writes it whole, as it does
+// when it runs alone; what reaches the record is the latest saved generation
+// with only that stage's own evidence taken from its copy, so neither stage's
+// write undoes the other's.
+//
+// The two stages also share the generation's one event stream. Each numbers
+// its events from where the stream stood when it began, so the events are
+// numbered again here, in the order they arrive, and the generation records
+// the last number written.
+type sharedGeneration struct {
+	mu      sync.Mutex
+	records MergeQueueRecords
+	latest  runstate.MergeQueueGeneration
+
+	eventsMu sync.Mutex
+	events   func(execution.Event) error
+	sequence uint64
+}
+
+func (s *sharedGeneration) generation() runstate.MergeQueueGeneration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	latest := s.latest
+	if last := s.lastSequence(); last > latest.LastSequence {
+		latest.LastSequence = last
+	}
+	return latest
+}
+
+func (s *sharedGeneration) event(event execution.Event) error {
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	event.Sequence = s.sequence + 1
+	if err := s.events(event); err != nil {
+		return err
+	}
+	s.sequence = event.Sequence
+	return nil
+}
+
+func (s *sharedGeneration) lastSequence() uint64 {
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	return s.sequence
+}
+
+func (s *sharedGeneration) record(lease *runstate.Lease, key runstate.MergeQueueKey, stage runstate.MergeQueueStage, written runstate.MergeQueueGeneration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	merged := s.latest
+	switch stage {
+	case runstate.MergeQueueStageChecks:
+		merged.CheckRun = written.CheckRun
+		merged.Install = written.Install
+	case runstate.MergeQueueStageReview:
+		merged.Review = written.Review
+		merged.ReviewRouting = written.ReviewRouting
+	}
+	merged.Launches = withOwn(merged.Launches, written.Launches, func(launch runstate.MergeQueueLaunch) bool { return launch.Stage == stage })
+	merged.Interruptions = withOwn(merged.Interruptions, written.Interruptions, func(interruption runstate.MergeQueueInterruption) bool { return interruption.Stage == stage })
+	if last := s.lastSequence(); last > merged.LastSequence {
+		merged.LastSequence = last
+	}
+	if err := s.records.RecordGeneration(lease, key, merged); err != nil {
+		// A save that failed may still have landed, so what the record now
+		// says is read back: the other stage's next write is laid over what was
+		// saved, not over what this write hoped to save. Where the record cannot
+		// be read, the last known save stands, and the next write is checked
+		// against the record as always.
+		if generations, readErr := s.records.Generations(key, merged.EntryID); readErr == nil {
+			for _, recorded := range generations {
+				if recorded.Number == merged.Number {
+					s.latest = recorded
+				}
+			}
+		}
+		return err
+	}
+	s.latest = merged
+	return nil
+}
+
+// withOwn is recorded with whatever a stage's copy adds to its own entries:
+// each stage only ever appends its own, so the ones its copy holds past those
+// already recorded are the new ones.
+func withOwn[T any](recorded, written []T, own func(T) bool) []T {
+	have := 0
+	for _, item := range recorded {
+		if own(item) {
+			have++
+		}
+	}
+	merged := append([]T(nil), recorded...)
+	seen := 0
+	for _, item := range written {
+		if !own(item) {
+			continue
+		}
+		if seen >= have {
+			merged = append(merged, item)
+		}
+		seen++
+	}
+	return merged
+}
+
+// stageRecords is the queue's records as one of two stages running at once
+// writes them.
+type stageRecords struct {
+	MergeQueueRecords
+	shared *sharedGeneration
+	stage  runstate.MergeQueueStage
+}
+
+func (r stageRecords) RecordGeneration(lease *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) error {
+	return r.shared.record(lease, key, r.stage, generation)
 }
 
 // check runs the configured checks over the generation's candidate, unless
@@ -806,6 +1067,9 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	// they are not what its inputs ask for (mergequeueinstall.go). Where they
 	// cannot be, the checks never ran and earned nothing.
 	problem, err := w.installWhereDue(ctx, lease, key, &generation, generation.Checkout, "before the merge queue candidate's checks", launched.gate)
+	if stopped := stoppedByOtherStage(ctx); err != nil && stopped != "" {
+		problem, err = stopped, nil
+	}
 	if err != nil {
 		return generation, false, err
 	}
@@ -901,6 +1165,11 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	}
 	if runErr != nil {
 		evidence.Problem = boundedEvidence("the checks could not be run: " + runErr.Error())
+	}
+	// Checks that all ended before the review's refusal reached them keep their
+	// results; ones it cut short say why.
+	if stopped := stoppedByOtherStage(ctx); stopped != "" && (evidence.Problem != "" || runErr != nil) {
+		evidence.Problem, runErr = boundedEvidence(stopped), nil
 	}
 	// A record that judged the candidate answers its checks in their order and
 	// stops at the first without a result, which is what the gate and recovery
@@ -1160,6 +1429,11 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 		return generation, false, err
 	}
 	item, err := p.Tracker.Show(ctx, entry.WorkItemID)
+	if stoppedByOtherStage(ctx) != "" {
+		// A failing check ended the candidate before its reviewer was asked:
+		// nothing was started or spent, so nothing is written down.
+		return generation, false, nil
+	}
 	if err != nil {
 		return generation, false, fmt.Errorf("read work item %s for the candidate's review: %w", entry.WorkItemID, err)
 	}
@@ -1188,6 +1462,9 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 		return generation, false, err
 	}
 	defer hold.Close()
+	if stoppedByOtherStage(ctx) != "" {
+		return generation, false, nil
+	}
 	queueMoving(ctx, w.now())
 	generation.Review = &runstate.MergeQueueReviewEvidence{Binding: generation.Binding(), StartedAt: w.now()}
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
@@ -1220,7 +1497,7 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 		result, reviewErr = reviewer.Review(ctx, review.Request{
 			RunID:      generation.EventStream(),
 			WorkItemID: entry.WorkItemID,
-			Context:    candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
+			Context:    candidateReviewContext(entry, generation, checksPassed(generation), item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
 			Invariants: selected.Text(),
 			// A queued publication of the architect's own invariant is reviewed as
 			// one here too, said from the run's record.
@@ -1229,6 +1506,7 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 			Changes:            change.Changes,
 			Repository:         reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
 			Checks:             candidateCheckResults(generation),
+			ChecksBeside:       checksBeside(generation),
 			RedactValues:       p.RedactValues,
 			LastSequence:       generation.LastSequence,
 			EventSink:          w.Events,
@@ -1281,6 +1559,19 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 	}
 	if routed {
 		evidence.Provider, evidence.AccountAlias, evidence.Choice = endpoint.Provider, endpoint.AccountAlias, generation.ReviewRouting.Selected
+	}
+	// A review a failing check stopped part way judged nothing. Its provider
+	// invocation was still metered and charged to the entry's run and item,
+	// which is where its spend is read from; what it is not is a provider
+	// refusal or a failure of the review, so neither is recorded as one.
+	if stopped := stoppedByOtherStage(ctx); stopped != "" && (reviewErr != nil || !result.Decision.Valid()) {
+		evidence.Decision = ""
+		evidence.Problem = boundedEvidence(stopped)
+		generation.Review = &evidence
+		if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
+			return generation, false, fmt.Errorf("record generation %d's stopped review: %w", generation.Number, err)
+		}
+		return generation, false, nil
 	}
 	refusedOn, refusedModel := "", ""
 	if routed {
@@ -1378,14 +1669,18 @@ func (w MergeQueueWorker) refusedReview(entry runstate.MergeQueueEntry, result r
 
 // candidateReviewContext is what the harness knows about the candidate, and
 // the item as it was approved.
-func candidateReviewContext(entry runstate.MergeQueueEntry, generation runstate.MergeQueueGeneration, title, description, design, acceptance string) string {
+func candidateReviewContext(entry runstate.MergeQueueEntry, generation runstate.MergeQueueGeneration, checked bool, title, description, design, acceptance string) string {
+	checks := "The configured checks have already run on this candidate, and their results are below."
+	if !checked {
+		checks = "The configured checks are running on this same candidate while you review it, so you are not shown their results. A check that fails ends the candidate whatever you decide, and the candidate lands only with every check passed and your approval."
+	}
 	lines := []string{
 		fmt.Sprintf("# Merge queue candidate for %s: %s", entry.WorkItemID, title),
 		"",
 		fmt.Sprintf("The change for this work item was approved at head `%s` and admitted to the merge queue for `%s`. The candidate under review is commit `%s`: the target branch at `%s` with that head merged onto it. It is the exact revision that would land, and nothing else is.",
 			entry.ApprovedHead, generation.TargetBranch, generation.Candidate, generation.TargetBase),
 		"",
-		"The earlier approval was of the head on the base it was written against. It does not answer for this candidate: the target has other work in it now, and what you are asked is whether the change, combined with that work, still does what the item asks and breaks nothing. The configured checks have already run on this candidate, and their results are below.",
+		"The earlier approval was of the head on the base it was written against. It does not answer for this candidate: the target has other work in it now, and what you are asked is whether the change, combined with that work, still does what the item asks and breaks nothing. " + checks,
 	}
 	if ahead := generation.BuiltAhead; ahead != nil {
 		lines = append(lines, "",
@@ -1407,10 +1702,19 @@ func candidateReviewContext(entry runstate.MergeQueueEntry, generation runstate.
 	return strings.Join(lines, "\n") + "\n\n"
 }
 
+// checksBeside is what the reviewer is told in place of check results when the
+// checks are running beside the review, and empty once they have passed.
+func checksBeside(generation runstate.MergeQueueGeneration) string {
+	if checksPassed(generation) {
+		return ""
+	}
+	return "The configured checks are running on this same candidate beside this review, so no results are shown here. A check that fails ends the candidate whatever the review decides."
+}
+
 // candidateCheckResults is the generation's checks as the reviewer is shown
 // them. Only the outcome is kept on the generation, so the output is not.
 func candidateCheckResults(generation runstate.MergeQueueGeneration) []checks.Result {
-	if generation.CheckRun == nil {
+	if !checksPassed(generation) {
 		return nil
 	}
 	results := make([]checks.Result, 0, len(generation.CheckRun.Results))
