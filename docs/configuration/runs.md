@@ -1538,7 +1538,34 @@ information only. A repair of a landed item cannot yet be started from that
 feedback; where it calls for a change, the development manager asks the Lead
 Product Manager to admit a work item for it.
 `yoyo status` and the dashboard say which pull request carries each waiting
-item, or that none does yet. The reasoning is in
+item, or that none does yet.
+
+The target branch is also brought up to date with the team's branch. On each
+forge check the harness reads the team's branch and, where the target does not
+carry its tip, builds a merge of the team's branch into the target in a checkout
+of its own, runs the configured checks on exactly that commit, has an
+independent reviewer read it, and lands it the way the project lands any
+change: it moves the local target under its promotion turn, or, where the
+project publishes, opens a pull request and has the forge merge it with a merge
+commit. Where integration needs a person (`approvals.integration: human`), the
+pull request waits for them, and a project that does not publish leaves the
+checked and reviewed merge for a person to land, since it has no pull request to
+carry their approval. Immediately before it lands, under the promotion turn, it
+builds the merge again and lands only a commit whose whole content is what that
+merge gives, and it lands nothing while the operator's pause or a landing hold
+an outside tool placed on the target stands; the merge is kept, with its checks
+and review, until the hold ends. It never rebases or forces the target, because
+pull requests and other contributors point at its commits. A conflict is not
+resolved: the development manager is told once which files conflict and which
+items on the target touched them, work keeps landing, and the update is tried
+again when either branch moves. Checks that fail, or a reviewer who does not
+approve, are handled the same way. The update belongs to no work item, so no
+item's repair budget is charged. A project with no configured checks never
+lands an update, because a merge no check ran on has earned nothing. `yoyo status`
+and the dashboard show when the target was last brought up to date and
+any update that is waiting.
+
+The reasoning is in
 [integrating to a local branch](../designs/integrating-to-a-local-branch.md).
 
 ### When a configuration change takes effect

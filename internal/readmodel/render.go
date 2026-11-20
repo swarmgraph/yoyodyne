@@ -82,6 +82,7 @@ func (s Standing) RenderLines() string {
 	rendered.WriteString(s.renderPaused())
 	rendered.WriteString(s.renderWaitingForTeamMerge())
 	rendered.WriteString(s.renderRecordsNotShared())
+	rendered.WriteString(s.renderTeamBranchUpdates())
 	rendered.WriteString(s.renderWorking())
 	rendered.WriteString(s.renderNotStartable())
 	rendered.WriteString(s.renderNeedsHuman())
