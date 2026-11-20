@@ -1432,3 +1432,78 @@ func TestDocumentReturnsUnderDocumentChecksStillStopAtBound(t *testing.T) {
 		t.Fatalf("the full checks ran over a document: %v", err)
 	}
 }
+
+// Once automatic publication has stopped at the bound, a revision written
+// against the same copy of the document on the target branch as the last
+// returned run is still refused, while one written against a newer copy opens
+// a fresh run, starts the count of returned runs again from zero, and records
+// the two commits the copies were written against. A return after that is the
+// first of the new count.
+func TestARevisionWrittenAgainstANewerCopyStartsAFreshCountOfReturns(t *testing.T) {
+	t.Parallel()
+
+	repository, provider, pipeline, runs, written := contestedFixture(t)
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleArchitect {
+			turn := len(provider.RequestsForRole(domain.RoleArchitect))
+			return backend.RunResult{SessionID: "author", FinalText: fmt.Sprintf("Revised.\n%s\n{\"documents\":[{\"action\":\"revise\",\"id\":%q,\"body\":\"# Revision %d\",\"reason\":\"revised by the architect\"}]}\n```", artifact.WriteFence, contestedDesign, turn)}, nil
+		}
+		return backend.RunResult{SessionID: "independent", FinalText: `{"decision":"repair","summary":"revise the document","findings":[{"severity":"blocker","message":"state the missing decision"}]}`}, nil
+	}
+	options, store := publicationConversation(t, pipeline, provider)
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func() {
+		t.Helper()
+		if _, err := session.Send(context.Background(), "Revise it."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < runstate.MaxDocumentReturns; i++ {
+		send()
+	}
+	if got := len(documentRuns(t, runs)); got != runstate.MaxDocumentReturns {
+		t.Fatalf("runs = %d, want %d returned runs", got, runstate.MaxDocumentReturns)
+	}
+
+	// The same copy: refused, with the reason.
+	send()
+	if got := len(documentRuns(t, runs)); got != runstate.MaxDocumentReturns {
+		t.Fatalf("a revision against the same copy opened a run: %d runs", got)
+	}
+	saved := conversationRecord(t, store)
+	if !strings.Contains(saved.PendingTrackerResults, "automatic publication stopped after 3 returned runs") || !strings.Contains(saved.PendingTrackerResults, "same copy") {
+		t.Fatalf("told %q", saved.PendingTrackerResults)
+	}
+
+	// A newer copy lands on main: the next revision is written against it.
+	landLaterRevision(t, repository, pipeline, true)
+	now := strings.TrimSpace(publicationGit(t, repository, "rev-parse", "main"))
+	send()
+	recorded := documentRuns(t, runs)
+	if len(recorded) != runstate.MaxDocumentReturns+1 {
+		t.Fatalf("runs = %d, want a fresh run for the revision against the newer copy", len(recorded))
+	}
+	var fresh *runstate.State
+	for i := range recorded {
+		if recorded[i].Document.CountRestarted != nil {
+			fresh = &recorded[i]
+		}
+	}
+	if fresh == nil {
+		t.Fatal("no run records why the count restarted")
+	}
+	if err := fresh.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := fresh.Document.CountRestarted; got.PreviousCommit != written || got.NewCommit != now {
+		t.Fatalf("restart = %+v, want previous %s and new %s", got, written, now)
+	}
+	// The fourth return is the first of the new count.
+	saved = conversationRecord(t, store)
+	if saved.DocumentReturns[contestedDesign] != 1 {
+		t.Fatalf("returns = %v, want 1", saved.DocumentReturns)
+	}
+}

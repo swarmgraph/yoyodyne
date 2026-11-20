@@ -366,6 +366,55 @@ func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.Document
 	return resumable, judged, nil
 }
 
+// NewerDocumentCopy says whether a revision of a document is written against a
+// newer copy of it on the target branch than the copy the run that last
+// returned the document was written against. The copies are told apart by the
+// text each revision was written against; the commits that made them are looked
+// for in the document's recent history, and a commit that cannot be found is
+// left out of the record rather than losing it. It answers nil where that run
+// did not end without landing the document, or where both revisions were
+// written against the same copy, which is the same refusal as before.
+func (p Pipeline) NewerDocumentCopy(ctx context.Context, returnedRunID string, candidate artifact.ConfirmedDocument) (*runstate.DocumentCountRestart, error) {
+	returned, err := p.Store.Load(returnedRunID)
+	if err != nil {
+		return nil, err
+	}
+	if returned.Document == nil || returned.Document.Candidate.Artifact.ID != candidate.Artifact.ID || !returned.Status.Terminal() || returned.Status == runstate.StatusSucceeded {
+		return nil, nil
+	}
+	if returned.Document.Candidate.Before == candidate.Before {
+		return nil, nil
+	}
+	restart := &runstate.DocumentCountRestart{}
+	if returned.BaseCommit != "" {
+		restart.PreviousCommit = p.copyCommit(ctx, returned.BaseCommit, candidate.Artifact.Path, returned.Document.Candidate.Before)
+	}
+	if target, err := p.Worktrees.CurrentBranch(ctx); err == nil {
+		restart.NewCommit = p.copyCommit(ctx, target, candidate.Artifact.Path, candidate.Before)
+	}
+	return restart, nil
+}
+
+// copyCommit is the commit, among the recent changes of a document reachable
+// from a ref, that made the copy whose identity is given; empty where there is
+// none, the copy was never there, or the history cannot be read.
+func (p Pipeline) copyCommit(ctx context.Context, ref, path, identity string) string {
+	if identity == "" {
+		return ""
+	}
+	commits, err := p.Worktrees.CommitsChanging(ctx, ref, path, maxDocumentHistory)
+	if err != nil {
+		return ""
+	}
+	for _, commit := range commits {
+		copied, err := p.Worktrees.FileAtCommit(ctx, commit, path, maxDocumentHistoryBytes)
+		if err == nil && copied.Content != nil && artifact.DocumentIdentity(copied.Content) == identity {
+			return commit
+		}
+	}
+	return ""
+}
+
 // DocumentStanding reads where one handoff's runs stand without starting or
 // continuing any of them: no run recorded, the latest run still going, or the
 // latest run ended and how. Its owning conversation reads it to decide whether

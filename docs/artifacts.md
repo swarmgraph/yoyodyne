@@ -554,7 +554,12 @@ developer or operator is asked to repair it. A revised submission opens a fresh
 run for that content. After three such returned runs for the same document in
 that conversation, automatic publication stops. The owner receives that reason
 and must revise its plan; further submissions are saved as conversation
-events but open no more runs for that document in that conversation.
+events but open no more runs for that document in that conversation, with one
+exception. A revision written against a newer copy of the document on the
+target branch than the copy the last returned run was written against opens a
+fresh run and starts the count of returned runs again from zero; the run
+records the commit that made each of the two copies. A revision written against
+the same copy is still refused, and the reason says so.
 
 **A document whose linked documents changed returns to its owner before any
 run.** Before a publishing run starts, a confirmed document is compared with

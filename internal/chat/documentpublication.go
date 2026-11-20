@@ -33,6 +33,14 @@ type documentResumer interface {
 	ResumableDocuments(conversationID string) ([]runstate.DocumentPublication, map[string]int, error)
 }
 
+// documentCopyJudge is the part of the publisher that says whether a revision
+// was written against a newer target-branch copy of its document than the run
+// that last returned it was (orchestrator.Pipeline.NewerDocumentCopy). A publisher
+// without it never restarts the count of returned runs.
+type documentCopyJudge interface {
+	NewerDocumentCopy(ctx context.Context, returnedRunID string, candidate artifact.ConfirmedDocument) (*runstate.DocumentCountRestart, error)
+}
+
 type confirmationPreparer interface {
 	PrepareConfirmation(domain.AgentRole, artifact.Write, artifact.Policy, string, time.Time) (artifact.ConfirmedDocument, bool, error)
 }
@@ -261,11 +269,29 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 		}
 		return false, s.returnUnconfirmed(record, told.String()+"\n")
 	}
+	var restarted *runstate.DocumentCountRestart
+	if s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
+		// A revision written against a newer copy of the document on the target
+		// branch is not the text the three returns judged, so its count begins
+		// again. One written against the same copy is refused as before.
+		if judge, ok := s.options.DocumentPublisher.(documentCopyJudge); ok {
+			if last := s.state.DocumentLastReturn[candidate.Artifact.ID]; last != "" {
+				if newer, err := judge.NewerDocumentCopy(context.Background(), last, candidate); err == nil {
+					restarted = newer
+				}
+			}
+		}
+		if restarted != nil {
+			delete(s.state.DocumentReturns, candidate.Artifact.ID)
+			delete(s.state.DocumentLastReturn, candidate.Artifact.ID)
+		}
+	}
 	if s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
 		record.decided = true
-		return false, s.carryResults(fmt.Sprintf("Document %s (%s) was not published. The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation. No operator decision or developer run is requested.\n", record.pending.ID, candidate.Artifact.Title, s.state.Role.Title(), runstate.MaxDocumentReturns))
+		return false, s.carryResults(fmt.Sprintf("Document %s (%s) was not published. The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation, and this revision was written against the same copy of the document on the target branch as the last returned run. Write it again against the current copy to publish it. No operator decision or developer run is requested.\n", record.pending.ID, candidate.Artifact.Title, s.state.Role.Title(), runstate.MaxDocumentReturns))
 	}
 	record.pending.Publication = s.publicationFor(record, candidate)
+	record.pending.Publication.CountRestarted = restarted
 	if err := s.record(); err != nil {
 		return false, err
 	}
