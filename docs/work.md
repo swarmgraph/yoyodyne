@@ -769,6 +769,17 @@ this tracker held when the check was written, reading every clause would have
 refused a fifth of the backlog, and reading the done-conditions refuses ten,
 each of which names a document as something the work leaves in a state.
 
+**The configuration directory is read the same way, by path alone.** A
+done-condition that names a file under `.yoyodyne/` — `.yoyodyne/config.yaml`
+— is refused unless the item carries a `Protected-path grant:` line covering it
+(the file, or a directory around it), because a run's edit there is refused and
+reverted and every repair attempt goes on it. The fixes are the grant, where the
+change is already decided, or an executor naming the conversation of the role
+whose work the change is, which keeps the item from ever being selected for a run.
+Naming the directory itself or a folder inside it names no file and is not read,
+and the role definitions under `.yoyodyne/roles/` stay beyond every grant: they
+are refused exactly as before.
+
 **The run repeats the test on the item it is handed**, over the acceptance
 criteria as well as the description, before it claims the item: an item whose
 criteria were written with the tracker's own command, or admitted before the
