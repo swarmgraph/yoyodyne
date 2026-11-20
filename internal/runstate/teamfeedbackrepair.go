@@ -48,6 +48,11 @@ type TeamFeedbackRepair struct {
 	Conversation string    `json:"conversation"`
 	Turn         int       `json:"turn"`
 	DecidedAt    time.Time `json:"decided_at"`
+	// TakenAt is when the harness took the decision to carry it out, before the
+	// new run is reserved, so that no second pass carries it out while the first
+	// is running or after it was interrupted. It is cleared when the run was
+	// refused before it existed (TeamFeedbackRepairWithdrawn).
+	TakenAt *time.Time `json:"taken_at,omitempty"`
 	// StartedRunID is the new run the decision started, and StartedAt when. Both
 	// are empty until the harness carries the decision out.
 	StartedRunID string     `json:"started_run,omitempty"`
@@ -116,15 +121,27 @@ func (t TeamMerge) Repair(number int, feedbackID string) (TeamFeedbackRepair, bo
 	return TeamFeedbackRepair{}, false
 }
 
-// RepairsOwed lists the decisions recorded and not yet carried out.
+// RepairsOwed lists the decisions recorded that no pass has taken to carry out.
 func (t TeamMerge) RepairsOwed() []TeamFeedbackRepair {
 	var owed []TeamFeedbackRepair
 	for _, repair := range t.Repairs {
-		if !repair.Started() {
+		if !repair.Started() && repair.TakenAt == nil {
 			owed = append(owed, repair)
 		}
 	}
 	return owed
+}
+
+// RepairsTaken lists the decisions a pass took whose new run has not been
+// recorded: one still running, or one that was interrupted.
+func (t TeamMerge) RepairsTaken() []TeamFeedbackRepair {
+	var taken []TeamFeedbackRepair
+	for _, repair := range t.Repairs {
+		if !repair.Started() && repair.TakenAt != nil {
+			taken = append(taken, repair)
+		}
+	}
+	return taken
 }
 
 func validateTeamFeedbackRepairs(repairs []TeamFeedbackRepair) []error {
@@ -265,4 +282,73 @@ func (s *TriageStore) RecordFeedbackRepair(ctx context.Context, workItemID, runI
 		counters.Reruns++
 		return nil
 	})
+}
+
+// RepairMarker is the text a repair's new run carries in its selection reason,
+// by which an interrupted pass finds the run its decision started.
+func (r TeamFeedbackRepair) RepairMarker() string {
+	return fmt.Sprintf("[repair from %s on pull request #%d]", r.FeedbackID, r.PullRequest)
+}
+
+// TeamFeedbackRepairTaken records that a pass took the decision to carry it out.
+// It is refused when the decision is already taken or started, which is what
+// keeps two passes from starting two runs: it is made under the run's write lock.
+type TeamFeedbackRepairTaken struct {
+	LandingCommit string
+	PullRequest   int
+	FeedbackID    string
+	At            time.Time
+}
+
+func (u TeamFeedbackRepairTaken) apply(state *State) (bool, error) {
+	return changeRepair(state, u.LandingCommit, u.PullRequest, u.FeedbackID, u.At, func(repair *TeamFeedbackRepair) error {
+		if repair.Started() || repair.TakenAt != nil {
+			return fmt.Errorf("the repair answering %s on pull request #%d is already taken", u.FeedbackID, u.PullRequest)
+		}
+		at := u.At
+		repair.TakenAt = &at
+		return nil
+	})
+}
+
+// TeamFeedbackRepairWithdrawn gives a taken decision back where the new run was
+// refused before it existed, so a later pass carries it out.
+type TeamFeedbackRepairWithdrawn struct {
+	LandingCommit string
+	PullRequest   int
+	FeedbackID    string
+	At            time.Time
+}
+
+func (u TeamFeedbackRepairWithdrawn) apply(state *State) (bool, error) {
+	return changeRepair(state, u.LandingCommit, u.PullRequest, u.FeedbackID, u.At, func(repair *TeamFeedbackRepair) error {
+		if repair.Started() {
+			return fmt.Errorf("the repair answering %s on pull request #%d already started run %s", u.FeedbackID, u.PullRequest, repair.StartedRunID)
+		}
+		repair.TakenAt = nil
+		return nil
+	})
+}
+
+func changeRepair(state *State, landing string, number int, feedbackID string, at time.Time, change func(*TeamFeedbackRepair) error) (bool, error) {
+	if state.TeamMerge == nil || state.TeamMerge.LandingCommit != landing {
+		return false, fmt.Errorf("run %s did not land %s, so no repair of it is recorded on it", state.RunID, landing)
+	}
+	wait := *state.TeamMerge
+	wait.Repairs = append([]TeamFeedbackRepair(nil), wait.Repairs...)
+	for index := range wait.Repairs {
+		if wait.Repairs[index].PullRequest != number || wait.Repairs[index].FeedbackID != feedbackID {
+			continue
+		}
+		if err := change(&wait.Repairs[index]); err != nil {
+			return false, err
+		}
+		if err := wait.Validate(); err != nil {
+			return false, err
+		}
+		state.TeamMerge = &wait
+		state.UpdatedAt = at
+		return true, nil
+	}
+	return false, fmt.Errorf("run %s holds no repair answering %s on pull request #%d", state.RunID, feedbackID, number)
 }

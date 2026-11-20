@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/humangate"
@@ -52,6 +53,7 @@ import (
 // writes. It is satisfied by *runstate.Store.
 type TeamFeedbackRepairRuns interface {
 	RerunRuns
+	Recorded() ([]runstate.State, error)
 	WaitingForTeamMerge() ([]runstate.State, error)
 	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
 }
@@ -227,6 +229,14 @@ func (r TeamFeedbackRepairer) CarryOut(ctx context.Context) ([]TeamFeedbackRepai
 	}
 	var done []TeamFeedbackRepairCarried
 	for _, state := range waiting {
+		for _, repair := range state.TeamMerge.RepairsTaken() {
+			if err := ctx.Err(); err != nil {
+				return done, err
+			}
+			if settled, ok := r.settleTaken(ctx, state, repair); ok {
+				done = append(done, settled)
+			}
+		}
 		for _, repair := range state.TeamMerge.RepairsOwed() {
 			if err := ctx.Err(); err != nil {
 				return done, err
@@ -295,19 +305,47 @@ func (r TeamFeedbackRepairer) carry(ctx context.Context, landed runstate.State, 
 			return result
 		}
 	}
+	// The decision is taken before anything is given back or started, under the
+	// landed run's write lock, so a second pass, or one after this process dies,
+	// never starts a second run for it.
+	identity := runstate.TeamFeedbackRepairTaken{LandingCommit: landed.TeamMerge.LandingCommit, PullRequest: repair.PullRequest, FeedbackID: repair.FeedbackID, At: r.now().UTC()}
+	if _, err := r.Runs.Update(ctx, landed.RunID, identity); err != nil {
+		return wait("another pass has taken this decision, or its record could not be written (%v); it is not started twice", err)
+	}
+	withdraw := func() {
+		_, _ = r.Runs.Update(ctx, landed.RunID, runstate.TeamFeedbackRepairWithdrawn{LandingCommit: identity.LandingCommit, PullRequest: identity.PullRequest, FeedbackID: identity.FeedbackID, At: r.now().UTC()})
+	}
 	// A claim the landed run left on the item is given back so the new run can
 	// take it, as a re-run does; the landed run is over and nothing is in flight.
+	released := false
 	if item.Status == claimedItemStatus {
 		note := fmt.Sprintf("The harness released this item's in_progress claim to carry out the development manager's repair from feedback on pull request #%d (%s): run %s landed the change and ended as integrated, and no run of this item is in flight. The new run claims the item again as it starts, and the item stays waiting for the team's merge.", repair.PullRequest, repair.Cite(), landed.RunID)
 		if _, err := r.Items.Release(ctx, repair.WorkItemID, note); err != nil {
+			withdraw()
 			result.Failure = fmt.Sprintf("give back the claim run %s left on %s: %v", landed.RunID, repair.WorkItemID, err)
 			return result
 		}
+		released = true
 	}
-	reason := fmt.Sprintf("Repair of %s from feedback %s on pull request #%d into %s, decided by the development manager (%s): %s",
+	reason := repair.RepairMarker() + fmt.Sprintf(" Repair of %s from feedback %s on pull request #%d into %s, decided by the development manager (%s): %s",
 		repair.WorkItemID, repair.FeedbackID, repair.PullRequest, landed.TeamMerge.UpstreamBranch, repair.Cite(), strings.TrimSpace(repair.Reason))
 	outcome, runErr := r.Start(ctx, repair.WorkItemID, runstate.Selection{By: runstate.SelectedByDevelopmentManager, Reason: oneline.Bound(reason, runstate.MaxTriageDecisionReasonBytes), At: r.now()})
 	if refusedBeforeStarting(outcome, runErr) || pausedBeforeStarting(outcome) {
+		// No run exists, so the decision is given back and the item's claim put
+		// back, which is all that keeps an item waiting for the team's merge away
+		// from the ordinary scheduler.
+		withdraw()
+		if released {
+			if claimer, ok := r.Items.(interface {
+				Claim(context.Context, string) (beads.WorkItem, *beads.StaleBlockClear, error)
+			}); ok {
+				if _, _, err := claimer.Claim(ctx, repair.WorkItemID); err != nil {
+					result.Failure = fmt.Sprintf("put back the claim on %s: %v", repair.WorkItemID, err)
+				}
+			} else {
+				result.Failure = fmt.Sprintf("%s was given back open and its claim could not be put back from here", repair.WorkItemID)
+			}
+		}
 		if runErr != nil {
 			return wait("the new run was refused before it started (%v); the decision stands", runErr)
 		}
@@ -324,6 +362,47 @@ func (r TeamFeedbackRepairer) carry(ctx context.Context, landed runstate.State, 
 		result.Failure = fmt.Sprintf("run %s ended with an error: %v", outcome.RunID, runErr)
 	}
 	return result
+}
+
+// takenRepairGrace is how long a taken decision with no run is left before it is
+// given back: a pass in another process may be between taking it and reserving
+// the run.
+const takenRepairGrace = 10 * time.Minute
+
+// settleTaken finishes what an earlier pass left: a decision it took whose run
+// exists is recorded as started, and one whose run never came to exist, with
+// nothing of the item in flight, is given back after a grace period.
+func (r TeamFeedbackRepairer) settleTaken(ctx context.Context, landed runstate.State, repair runstate.TeamFeedbackRepair) (TeamFeedbackRepairCarried, bool) {
+	result := TeamFeedbackRepairCarried{RunID: landed.RunID, WorkItemID: repair.WorkItemID, PullRequest: repair.PullRequest, FeedbackID: repair.FeedbackID}
+	recorded, err := r.Runs.Recorded()
+	if err != nil {
+		result.Failure = fmt.Sprintf("read the runs recorded: %v", err)
+		return result, true
+	}
+	for _, run := range recorded {
+		if run.WorkItemID != repair.WorkItemID || run.Selection == nil || !strings.Contains(run.Selection.Reason, repair.RepairMarker()) {
+			continue
+		}
+		if _, err := r.Runs.Update(ctx, landed.RunID, runstate.TeamFeedbackRepairStarted{
+			LandingCommit: landed.TeamMerge.LandingCommit, PullRequest: repair.PullRequest, FeedbackID: repair.FeedbackID, RunID: run.RunID, At: r.now().UTC(),
+		}); err != nil {
+			result.Failure = fmt.Sprintf("record that run %s carried out the decision: %v", run.RunID, err)
+			return result, true
+		}
+		result.Started, result.NewRunID = true, run.RunID
+		return result, true
+	}
+	if r.now().Sub(*repair.TakenAt) < takenRepairGrace || noRunInFlight(r.Runs, repair.WorkItemID) != nil {
+		return result, false
+	}
+	if _, err := r.Runs.Update(ctx, landed.RunID, runstate.TeamFeedbackRepairWithdrawn{
+		LandingCommit: landed.TeamMerge.LandingCommit, PullRequest: repair.PullRequest, FeedbackID: repair.FeedbackID, At: r.now().UTC(),
+	}); err != nil {
+		result.Failure = fmt.Sprintf("give back the decision a pass took and never ran: %v", err)
+		return result, true
+	}
+	result.Waiting = "an earlier pass took this decision and no run came of it, so it is given back and carried out again"
+	return result, true
 }
 
 func feedbackRepairHeadline(repair runstate.TeamFeedbackRepair) string {

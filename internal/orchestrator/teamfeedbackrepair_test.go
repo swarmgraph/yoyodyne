@@ -26,6 +26,16 @@ func (r *repairItems) Release(_ context.Context, id, reason string) (beads.WorkI
 	return *r.items[id], nil
 }
 
+func (r *repairItems) Claim(_ context.Context, id string) (beads.WorkItem, *beads.StaleBlockClear, error) {
+	r.items[id].Status = "in_progress"
+	return *r.items[id], nil, nil
+}
+
+// hourLaterClock is the real time an hour on.
+type hourLaterClock struct{ by time.Duration }
+
+func (c hourLaterClock) Now() time.Time { return time.Now().UTC().Add(c.by) }
+
 type fakeFeedbackBudget struct {
 	spent   []string
 	refuses error
@@ -230,5 +240,87 @@ func TestAnEarlierLandedChangeReachingTheTeamDoesNotCloseAnItemWithALaterRepairW
 	}
 	if _, ok := laterWaitOfItem([]runstate.State{earlier, later, other}, later); ok {
 		t.Fatal("laterWaitOfItem(later) found a later run, want none")
+	}
+}
+
+func TestARefusedStartPutsTheClaimBackAndLeavesTheDecisionOwed(t *testing.T) {
+	t.Parallel()
+	f, items, _, starts, repairer := repairFixture(t)
+	if _, err := repairer.Decide(context.Background(), decideRequest("yoyodyne-a", "line-comment-21")); err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	good := repairer.Start
+	repairer.Start = func(context.Context, string, runstate.Selection) (Outcome, error) {
+		return Outcome{}, errors.New("refused before the run was reserved")
+	}
+	carried, err := repairer.CarryOut(context.Background())
+	if err != nil || len(carried) != 1 || carried[0].Started || carried[0].Waiting == "" || carried[0].Failure != "" {
+		t.Fatalf("CarryOut() = %#v, %v; want it waiting with nothing started", carried, err)
+	}
+	if status := items.items["yoyodyne-a"].Status; status != "in_progress" {
+		t.Fatalf("status = %q, want the claim put back so the scheduler does not pull the item", status)
+	}
+	if owed := f.load(t, "yoyodyne-a").TeamMerge.RepairsOwed(); len(owed) != 1 {
+		t.Fatalf("owed = %#v, want the decision given back", owed)
+	}
+	repairer.Start = good
+	if again, err := repairer.CarryOut(context.Background()); err != nil || len(again) != 1 || !again[0].Started || len(*starts) != 1 {
+		t.Fatalf("later CarryOut() = %#v, %v with %d starts; want exactly one run", again, err, len(*starts))
+	}
+}
+
+func TestADecisionIsNotCarriedOutTwiceWhileItsRunIsUnfinished(t *testing.T) {
+	t.Parallel()
+	_, _, _, starts, repairer := repairFixture(t)
+	if _, err := repairer.Decide(context.Background(), decideRequest("yoyodyne-a", "line-comment-21")); err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	inner := repairer.Start
+	var overlapping []TeamFeedbackRepairCarried
+	repairer.Start = func(ctx context.Context, item string, selection runstate.Selection) (Outcome, error) {
+		// A second pass runs while the first run has not finished.
+		overlapping, _ = repairer.CarryOut(ctx)
+		return inner(ctx, item, selection)
+	}
+	if _, err := repairer.CarryOut(context.Background()); err != nil {
+		t.Fatalf("CarryOut() error = %v", err)
+	}
+	if len(*starts) != 1 || len(overlapping) != 0 {
+		t.Fatalf("starts = %d, overlapping = %#v; want one run and nothing for the second pass", len(*starts), overlapping)
+	}
+}
+
+func TestAnInterruptedPassIsSettledByTheRunItStartedOrGivenBackWhenNoneCame(t *testing.T) {
+	t.Parallel()
+	f, _, _, starts, repairer := repairFixture(t)
+	if _, err := repairer.Decide(context.Background(), decideRequest("yoyodyne-a", "line-comment-21")); err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	landed := f.load(t, "yoyodyne-a")
+	repair := landed.TeamMerge.Repairs[0]
+	taken := time.Now().UTC()
+	repairer.Clock = hourLaterClock{time.Hour}
+	if _, err := f.store.Update(context.Background(), landed.RunID, runstate.TeamFeedbackRepairTaken{LandingCommit: landed.TeamMerge.LandingCommit, PullRequest: 7, FeedbackID: repair.FeedbackID, At: taken}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if carried, err := repairer.CarryOut(context.Background()); err != nil || len(carried) != 1 || carried[0].Started || len(*starts) != 0 {
+		t.Fatalf("CarryOut() = %#v, %v; want the decision given back, no run started yet", carried, err)
+	}
+	if owed := f.load(t, "yoyodyne-a").TeamMerge.RepairsOwed(); len(owed) != 1 {
+		t.Fatalf("owed = %#v, want it owed again", owed)
+	}
+	// Taken again, and this time its run exists: it is recorded, not repeated.
+	if _, err := f.store.Update(context.Background(), landed.RunID, runstate.TeamFeedbackRepairTaken{LandingCommit: landed.TeamMerge.LandingCommit, PullRequest: 7, FeedbackID: repair.FeedbackID, At: taken}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	run := f.load(t, "yoyodyne-first")
+	run.RunID, _ = runstate.NewRunID()
+	run.WorkItemID, run.TeamMerge = "yoyodyne-a", nil
+	run.Selection = &runstate.Selection{By: runstate.SelectedByDevelopmentManager, Reason: repair.RepairMarker() + " later", At: time.Now().UTC()}
+	if err := f.store.Create(run); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if carried, err := repairer.CarryOut(context.Background()); err != nil || len(carried) != 1 || !carried[0].Started || carried[0].NewRunID != run.RunID || len(*starts) != 0 {
+		t.Fatalf("CarryOut() = %#v, %v; want the existing run recorded and none started", carried, err)
 	}
 }
