@@ -43,6 +43,10 @@ revisions:
       by: architect
       at: 2026-11-19T21:13:18.114339Z
       reason: 'yoyodyne-ifd.429.241: adds a subsection ruling how a candidate already sent to GitHub is kept from landing unchecked when main moves by another merge: the merge is asked for directly, never by merging when ready, under the promotion lease and only after reading main at the recorded base; every pushed, unlanded candidate whose base is no longer main''s tip returns to draft and is rebuilt with no repair charged; GitHub''s refusal for a branch not up to date counts as a moved main; the up-to-date requirement on main is a setting only a person can change, reported by yoyo doctor whatever the switch says, and the queue does not stop without it. Names two build pieces. The rest of the section is copied unchanged from main 0b641fc8a, read whole before revising.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T21:58:49.478348Z
+      reason: 'yoyodyne-ifd.429.255: resent whole after the reviewer returned run-84eb0419 for a contradiction. Order: waiting documents land together (at most eight, within the review size limit, no shared files, split on failure), a document candidate never lands twice in a row while ordinary code waits, no document beside priority 0 code, age rule four hours. The verification list now points to the order section''s reviewer list, the placement checks are restored, the trial wording and build pieces follow, and the drafts subsection records the CI workflow already read. Read whole at 596bbfe1409e.'
 approvals:
     - revision: 0
       by: operator
@@ -88,10 +92,15 @@ approvals:
       by: harness
       at: 2026-11-19T21:13:18.114339Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3136, for document-3136.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-20T21:58:49.478348Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3240, for document-3240.1 under the automatic approval policy
 ---
 # Purpose
 
-This design serves the goal to isolate implementation in harness-managed worktrees and integrate successful work automatically, and the milestone goal that measures useful software per hour of the owner's attention ([milestone goals](../product/milestone-goals.md)): a queue that holds urgent code behind documents, or checks one change twice, spends developer time and his. It records integration through a merge queue (yoyodyne-ifd.429.22), the order the queue takes waiting entries in (yoyodyne-ifd.429.154), and when GitHub's required checks on a candidate stand as the queue's full check (yoyodyne-ifd.429.160). The queue prevents the target moving between a change's final checks and its landing from invalidating that work.
+This design serves the goal to isolate implementation in harness-managed worktrees and integrate successful work automatically, and the milestone goal that measures useful software per hour of the owner's attention ([milestone goals](../product/milestone-goals.md)): a queue that holds urgent code behind documents, or checks one change twice, spends developer time and his. It records integration through a merge queue (yoyodyne-ifd.429.22), the order the queue takes waiting entries in (yoyodyne-ifd.429.154, revised for yoyodyne-ifd.429.255), and when GitHub's required checks on a candidate stand as the queue's full check (yoyodyne-ifd.429.160). The queue prevents the target moving between a change's final checks and its landing from invalidating that work.
 
 # Decision
 
@@ -109,30 +118,68 @@ Queue waiting alone does not occupy a developer slot. Any developer or reviewer 
 
 # The order the queue takes entries in
 
-The operator directed that priority 0 code goes ahead of documents. The queue chooses its next entry each time it builds a candidate, never at admission, so a priority changed after admission counts. It chooses by these rules, the first that applies deciding:
+The operator directed that priority 0 code goes ahead of documents. On November 20, 2026 ordinary code waited a median of 7.9 hours in the queue, and four of the five entries handed back that day were conflicts found only after that wait (yoyodyne-ifd.429.255). The rules were being applied as written. The cause was that every document took a whole landing of its own and every document went ahead of ordinary code: that day documents and priority 0 code together arrived about as fast as the queue lands one candidate, about one every 22 minutes, so ordinary code moved only when the age rule took it. The order below lands waiting documents together and makes them take turns with ordinary code.
 
-1. An entry waiting eight hours or more since admission goes first, oldest first, whatever its priority, so no entry waits without limit.
-2. Then priority 0 code entries, together with the architect's oldest waiting document entry. A design or decision record is what the development manager's next decomposition waits on, so one of them travels with the most urgent code instead of behind all of it.
-3. Then the other document entries, in admission order.
+The queue chooses its next candidate each time it builds one, never at admission, so a priority changed after admission counts. It chooses by these rules, the first that applies deciding:
+
+1. An entry waiting four hours or more since admission goes first, oldest first, whatever its priority, so no entry waits without limit. A document entry chosen this way goes as the first entry of a document batch, as the next subsection says.
+2. Then priority 0 code entries.
+3. Then the waiting document entries, landed together as one candidate, as the next subsection says. When the last candidate to land was a document candidate and an entry under rule 4 or rule 5 is waiting, this rule is passed over for that one choice, so a document candidate never lands twice in a row while ordinary code waits.
 4. Then the other code entries, by priority.
 5. Last, code entries whose work item's priority cannot be read, in admission order.
 
 Within rule 2, and within each priority under rule 4, an entry whose work item the Lead Product Manager placed first goes ahead of the others, earliest placement first, as [placing an item first](placing-an-item-first.md) records that placement; the rest follow in admission order. The placement is read from the tracker at the moment of choosing, like the priority, so placing an item first after its entry was admitted counts at the next choice. Placement never lifts an entry past rule 1 or into a higher rule, and never stops a candidate already being checked.
 
-An entry is a document entry when every path its candidate changes against its recorded base lies under `docs/product`, `docs/designs` or `docs/decisions` or their directory indexes: the same test that chooses its checks below. It is the architect's when those paths lie only under `docs/designs` or `docs/decisions`. Every other entry is a code entry. The recorded kind of an entry never decides which it is.
+An entry is a document entry when every path its candidate changes against its recorded base lies under `docs/product`, `docs/designs` or `docs/decisions` or their directory indexes: the same test that chooses its checks below. Every other entry is a code entry. The recorded kind of an entry never decides which it is, and no document entry has a place beside priority 0 code, whoever wrote it.
+
+## Waiting documents land together
+
+A document candidate carries the waiting document entries together, not one at a time:
+
+- it takes at most eight entries: an entry rule 1 chose first, then entries whose items were placed first, earliest placement first, then the rest in admission order;
+- it stops before the entry whose addition would take the candidate past the reviewer's size limit on a change, as [review size limits](../decisions/review-size-limits.md) records that limit;
+- no two entries in one candidate change the same file; the later one waits for the next document candidate;
+- the entries are applied in that order on the target as it stands; an entry that conflicts with the target is handed back exactly as it would be alone;
+- the candidate changes only document paths, so it runs the declared document checks once, as the section on the harness-run queue below says, and one independent review judges the candidate, each entry against its own work item;
+- if a check fails or the reviewer refuses, each entry is then tried as a candidate of its own, in the same order, and only an entry that fails alone is handed back; the others are charged no repair;
+- one landing records every entry in it, each entry's run and item are confirmed landed by that merge, and the cost of the checks and the review is charged to the entries in equal shares;
+- where landing goes through a pull request, the candidate's pull request names each entry and its work item.
+
+This is separate from the batched pull request route for a team branch in [integrating to a local branch](integrating-to-a-local-branch.md). That route lands through people's review, on another branch, at people's pace; tying the two together would make this queue wait on people.
+
+## What the order costs
+
+With code arriving at no more than about two entries an hour, ordinary code waits a median of about one to two hours, and at worst about four and a half: the four hour age rule plus the candidate already being checked. Above that rate no order helps, because the age rule turns the queue into oldest first; the answer then is the queue's pace, as [merge queue pace](merge-queue-pace.md) describes, not its order.
+
+## Further rules
 
 Four further rules hold whatever the order says:
 
 - nothing already being checked or reviewed is stopped for a later entry that ranks higher; the order chooses only the next candidate;
 - an entry whose work item depends on another admitted entry's work item waits until that one lands, wherever it ranks;
-- checking one entry ahead, below, takes the next entry in this same order;
+- checking one entry ahead, below, takes the next candidate in this same order;
 - when the tracker cannot be read at the moment of choosing, that choice is made in admission order, and the record says the tracker could not be read.
 
-Each choice is recorded: the entry chosen, the rule that chose it, whether a placement decided it, and the entries it passed over. yoyo status and the dashboard show the waiting entries in this order, with the rule that put the first one first.
+Each choice is recorded: the candidate chosen and every entry in it, the rule that chose it, whether a placement decided it, whether rule 3 was passed over because the last landing was a document candidate, and the entries it passed over. yoyo status and the dashboard show the waiting entries in this order, with the rule that put the first one first. Each day the queue's own records give the median and longest wait from admission to landing for each kind of entry: priority 0 code, other code, and documents.
 
-Verification of the order also covers placement: within priority 0 code, an entry whose item was placed first is chosen ahead of an older unplaced one; two placed entries go in the order they were placed; a placement made after admission changes the next choice; and a placed entry never goes ahead of an entry waiting eight hours or more.
+A reviewer can check:
 
-Alternatives rejected: fixing the order at admission, because a priority raised while an entry waits would be ignored; strict priority with no age rule, because a document or low priority change could wait without limit; a separate queue for documents, because two queues landing on one target would need two promotions at once, which [one promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) forbids; a command that moves a queue entry forward, because the order the work is pulled in is already the Lead Product Manager's to set by placing an item first, and a second way to move an entry would let the queue order and the backlog order disagree.
+- a priority 0 code entry admitted after waiting document entries is chosen before them, and no document entry is chosen with the priority 0 code;
+- an entry waiting four hours or more is chosen before any priority 0 code;
+- waiting document entries land as one candidate of at most eight, within the review size limit, with no two changing the same file;
+- a document candidate that fails a check or review is split, each entry is tried alone, and only an entry that fails alone is handed back, with no repair charged to the rest;
+- after a document candidate lands, the next choice takes ordinary code where any waits, unless rule 1 or rule 2 applies;
+- a priority raised after admission changes the next choice;
+- within priority 0 code, an entry whose item was placed first is chosen ahead of an older unplaced one; two placed entries go in the order they were placed; a placement made after admission changes the next choice; and a placed entry never goes ahead of an entry waiting four hours or more;
+- a candidate already being checked is not stopped when a higher entry arrives;
+- an entry whose item depends on another admitted entry's item waits for it;
+- an entry whose item's priority cannot be read goes last among code; a tracker that cannot be read gives admission order, recorded as such;
+- every choice is recorded with its rule, every entry in it and the entries passed over, and status and the dashboard show the same order;
+- the daily wait figures for each kind of entry are read from the queue's records, not estimated.
+
+Build work: three pieces, each built and checked on its own, listed as pieces 8, 9 and 10 under the pieces of work below.
+
+Alternatives rejected: fixing the order at admission, because a priority raised while an entry waits would be ignored; strict priority with no age rule, because a document or low priority change could wait without limit; only lowering the age rule, because it adds no landings and so moves the wait from one entry to another; making documents take turns with code without landing them together, because documents are what the development manager's decompositions wait on, so making each wait longer costs as much as it saves; keeping a place for the architect's oldest document beside priority 0 code, because documents now land at least every other turn; landing code entries together as well, for now, because each code candidate runs the full checks and a failed combined candidate would cost one full check per entry when split, which is worth weighing only once the queue's pace work has measured how often candidates fail; a separate queue for documents, because two queues landing on one target would need two promotions at once, which [one promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) forbids; a command that moves a queue entry forward, because the order the work is pulled in is already the Lead Product Manager's to set by placing an item first, and a second way to move an entry would let the queue order and the backlog order disagree.
 
 # Harness-run queue
 
@@ -169,7 +216,7 @@ On November 18, 2026 the reviewer reported that a candidate's pull request was o
 - **It goes back to draft before anything changes.** Before the harness pushes a new generation to a candidate's pull request, and when it withdraws an entry, it first returns the pull request to draft and confirms GitHub shows it as a draft. Withdrawal also disables merging when ready and removes the entry from the queue, as before. An approval therefore never covers a commit it did not judge.
 - **A person's merge.** A person with merge rights may merge a candidate the harness has marked ready. The harness follows that landing exactly as it follows its own: it confirms the merge commit's first parent and files as the section below says, follows the result locally, and records the landing as merged by a person. If a candidate is merged when the harness had not marked it ready, it files a critical report naming the merge and whoever GitHub says merged it, because the landed revision may not be the one that was approved.
 
-This repository's CI jobs must run on draft pull requests and must not start again on the same commit when it is marked ready. A job that skips drafts would leave a required check never started, which the section below treats as a check to ask for once more and then replace with the full local checks. The workflow files were not read for this revision; the build piece below confirms both before it lands.
+This repository's CI jobs must run on draft pull requests and must not start again on the same commit when it is marked ready. A job that skips drafts would leave a required check never started, which the section below treats as a check to ask for once more and then replace with the full local checks. At main e4c9aa75, `.github/workflows/ci.yml` starts its jobs on GitHub's default pull request events, which include drafts and do not include being marked ready, so both already hold; the build piece below keeps them so.
 
 Alternatives rejected: a label, because a label alone stops nobody merging; a branch protection rule, or a required status the harness posts, because each needs a repository setting that only a person can change, and the queue would stall on every candidate if that setting were missing or wrong; marking the pull request ready when review approves and then merging later, because a pull request ready while its checks still run could be merged before they pass.
 
@@ -285,7 +332,7 @@ The `race` check is the same on both: each runs `make race` with no package list
 
 **When it switches back.** At once on a break on `main` that the full local check would have caught, including one in a test named above as a known gap; or when fewer than 11 changes land a day for two days running. Switching back is one configuration change, the setting off again, made by the operator's assistant on his direction. Nothing else changes back, because every other rule of the queue stays as it was.
 
-**The entries already waiting.** They stay in the queue in the order [the order the queue takes entries in](#the-order-the-queue-takes-entries-in) gives, and from the switch onward go through the new path; most have waited past eight hours, so they go oldest first under its first rule. An entry whose candidate is being checked when the switch happens finishes in the way it started.
+**The entries already waiting.** They stay in the queue in the order [the order the queue takes entries in](#the-order-the-queue-takes-entries-in) gives, and from the switch onward go through the new path; those waiting four hours or more go oldest first under its first rule. An entry whose candidate is being checked when the switch happens finishes in the way it started.
 
 Build work: one piece, built and checked on its own. GitHub's `test` job installs the pinned `bd` the `adoption` job installs, and the piece records from one `test` job's output whether the dashboard render test passed or skipped, adding a step that installs Node where it skipped.
 
@@ -350,15 +397,7 @@ The target promotion lease and shared build cache are reused. Post-landing check
 
 Verification must cover two concurrent admissions, competing workers, target movement during checks and review, candidate or configuration changes, restart before and after each remote mutation, uncertain saves, partial tracker/run writes, confirmed withdrawal, queue drops and timeouts, target failures, exhausted budgets, protected targets, grouped forge candidates, and disable/drain/transfer behavior. Assert that the landed revision is the checked and reviewed candidate, no stale verdict authorizes a new generation, and neither duplicate execution nor lost preserved work follows a restart.
 
-Verification must also cover the order:
-
-- a priority 0 code entry admitted after a waiting document entry is chosen first, and the architect's oldest waiting document is chosen with the priority 0 code, ahead of other documents;
-- an entry waiting eight hours or more is chosen before any priority 0 code;
-- a priority raised after admission changes the next choice;
-- a candidate already being checked is not stopped when a higher entry arrives;
-- an entry whose item depends on another admitted entry's item waits for it;
-- an entry whose item's priority cannot be read goes last among code; a tracker that cannot be read gives admission order, recorded as such;
-- every choice is recorded with its rule and the entries passed over, and status and the dashboard show the same order.
+Verification must also cover the order: every point in the list a reviewer can check under [the order the queue takes entries in](#the-order-the-queue-takes-entries-in), which is the one statement of what the order must do.
 
 And the running of checks:
 
@@ -388,14 +427,17 @@ And GitHub's own merge queue and the switch off:
 
 The development manager owns decomposition and the Lead Product Manager owns admission and order; this document creates no work items. These are pieces each of which can be built and checked on its own:
 
-1. The order: choosing the next entry by the five rules and four further rules, with the tracker read at choosing time.
+1. The order's first form: choosing the next entry by priority and age, with the tracker read at choosing time.
 2. Recording each choice, and showing the waiting order and the rule for the first entry on yoyo status and the dashboard.
 3. Reading GitHub's required checks for the exact candidate commit, with the workflow file digests and the base recorded, and counting them as the full check only when every condition above holds.
 4. Under checks on CI, the local run dropping to the quick checks, the review running beside the wait, and a failing required check stopping the review.
 5. A required check never started, cancelled or skipped: one request to run it again, then the full local checks, with the reason recorded and no repair spent.
 6. After a merge, confirming the first parent and the files, and the critical report when either differs.
 7. This repository's CI workflow: each job's first step passing at once for a pull request that changes only documents, with no path filter.
+8. Document entries landing together: one candidate of at most eight document entries within the review size limit, no two changing the same file, the document checks and one review run once, a failed candidate split so each entry is tried alone and only the one at fault handed back, and the landing recorded on every entry with its cost shared.
+9. The order's revised rules: the four hour age rule, priority 0 code with no document beside it, rule 3 passed over after a document landing while ordinary code waits, and each choice recording every entry in it and whether rule 3 was passed over.
+10. The daily figures of median and longest wait from admission to landing for priority 0 code, other code and documents, read from the queue's own records and shown on yoyo status and the dashboard.
 
 # Evidence and publication limits
 
-Inspected queuedchecks.go, integrationresume.go and internal/publish/checks.go in full at 1c880b64631b. The existing forge check reader queries pull-request-head checks and is not a check reader for a native queue's candidate. Existing withdrawal disables auto-merge and dequeues. This document was read whole at 69141ebffb2d before this revision. The code that chooses queue mode (yoyodyne-ifd.429.59.3), the doctor and status checks, the code that reads GitHub's checks today and this repository's workflow files under .github were not read for this revision, so how much of the reading of required checks already exists is not established. V1's relevant integration sections were cut short in supplied reads, so their companion revisions (yoyodyne-ifd.437.33) remain to reconcile and publish. This design does not claim implementation, successful checks or completion of the parent work item.
+Inspected queuedchecks.go, integrationresume.go and internal/publish/checks.go in full at 1c880b64631b. The existing forge check reader queries pull-request-head checks and is not a check reader for a native queue's candidate. Existing withdrawal disables auto-merge and dequeues. For the order's revision (yoyodyne-ifd.429.255), internal/orchestrator/mergequeueorder.go was read at d581db8fb016 and applies the earlier five rules as written; this document was read whole at 596bbfe1409e before this revision. The code that chooses queue mode (yoyodyne-ifd.429.59.3), the doctor and status checks and the code that reads GitHub's checks today were not read for this revision, so how much of the reading of required checks already exists is not established. V1's relevant integration sections are reconciled under yoyodyne-ifd.437.33. This design does not claim implementation, successful checks or completion of the parent work item.
