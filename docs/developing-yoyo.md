@@ -267,15 +267,18 @@ file and not the others, while an ordinary comment names none and no run starts
 (step 17).
 
 Step 18, the development manager's decision to repair an item whose run has
-ended, is reported as not yet built, naming the work it waits on, and counted as
-neither passed nor failed: the harness does not have that decision yet. When it
-lands, its case is written in `scripts/teambranch` and the line naming what it
-waits on goes. The script exits non-zero when any step fails or is not run, and
+ended, tracks an item to a pull request, puts a line comment on it, records her
+decision against that entry, and carries it out: a new run of the item, whose
+selection names the decision and the entry, lands on the target branch, the
+earlier run stays ended as integrated, the item stays waiting for the team's
+merge, and the tracked pull request picks the new landing commit up; asking for
+the same entry again is refused as already answered and spends nothing. A step
+whose piece has not landed is reported as not yet built, naming the work it
+waits on, and counted as neither passed nor failed; none is at present. The script exits non-zero when any step fails or is not run, and
 zero otherwise. Run any other way, the Go test skips, so `make test` keeps it
 compiling without running it. It stays out of `check` because it takes from half
 a minute to two minutes, depending on the machine's load, and vouches for the
-work on the team's branch only, and CI does not run it yet. Its last result, on 2026-11-19, was seventeen steps passed and one not
-yet built.
+work on the team's branch only, and CI does not run it yet. Its last result, on 2026-11-20, was eighteen steps passed.
 
 ## What a document landing runs: `make doccheck`
 

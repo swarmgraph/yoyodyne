@@ -120,6 +120,10 @@ func (m *trackers) RecordOutcome(ctx context.Context, id, notes string) (beads.W
 	return m.items[id].RecordOutcome(ctx, id, notes)
 }
 
+func (m *trackers) Release(ctx context.Context, id, reason string) (beads.WorkItem, error) {
+	return m.items[id].Release(ctx, id, reason)
+}
+
 func (m *trackers) Complete(ctx context.Context, id, reason string) (beads.WorkItem, error) {
 	return m.items[id].Complete(ctx, id, reason)
 }
@@ -351,7 +355,7 @@ var steps = []step{
 	{name: "15 a conflict while bringing the target branch up to date reaches the development manager's list, and landing carries on", own: caseConflict},
 	{name: "16 with a landing hold set nothing lands, checks and reviews carry on, and the hold ends at its expiry", own: caseHold},
 	{name: "17 a comment on a line of a file reaches the development manager's list naming the items whose landed commits touched that file and no others, and an ordinary comment names none", own: caseLineComment},
-	{name: "18 the development manager's decision to repair an item whose run has ended starts a new run bound to the feedback entry", waitsOn: "the decision to repair an item whose run has ended, from feedback on a tracked pull request (build item 3 of docs/designs/integrating-to-a-local-branch.md, designed under yoyodyne-ifd.429.176 and ruled under yoyodyne-ifd.429.198; no work item to build it is admitted yet)"},
+	{name: "18 the development manager's decision to repair an item whose run has ended starts a new run bound to the feedback entry, which lands on the target branch and leaves the item waiting for the team's merge", own: caseFeedbackRepair},
 }
 
 // TestTeamBranchFlow runs every step.
@@ -967,4 +971,118 @@ func caseLineComment(t *testing.T) {
 	if after, err := f.store.Recorded(); err != nil || len(after) != len(before) {
 		t.Fatalf("there were %d runs and now there are %d (error %v); expected the feedback to start none", len(before), len(after), err)
 	}
+}
+
+// attemptBudget is the item's attempt budget as the decision spends it, counting
+// what is spent so the step can say one attempt went.
+type attemptBudget struct{ spent []string }
+
+func (b *attemptBudget) RecordFeedbackRepair(_ context.Context, item, runID string, _ time.Time) (runstate.TriageCounters, error) {
+	b.spent = append(b.spent, item+"@"+runID)
+	return runstate.TriageCounters{}, nil
+}
+
+type noHold struct{}
+
+func (noHold) Held() (runstate.IntakeHold, bool, error) { return runstate.IntakeHold{}, false, nil }
+func (noHold) DischargedGates() (map[string][]string, error) {
+	return nil, nil
+}
+
+// caseFeedbackRepair is step 18.
+func caseFeedbackRepair(t *testing.T) {
+	f := newFlow(t)
+	const id = "repair-item"
+	pipeline, tracker := f.pipelineFor(t, id)
+	outcome, err := pipeline.Run(context.Background(), id)
+	if err != nil || outcome.Integration == nil {
+		t.Fatalf("running %s gave %#v, error %v; expected its change landed", id, outcome, err)
+	}
+	landed := testharness.LoadRun(t, f.store, outcome.RunID)
+	f.opens(landed.TeamMerge.LandingCommit)
+	if _, err := f.track(t, false, id); err != nil {
+		t.Fatalf("recording the pull request failed: %v", err)
+	}
+	at := landed.TeamMerge.Since.Add(10 * time.Minute).UTC().Truncate(time.Second)
+	f.forge.set(func(g *forge) {
+		g.feedback = publish.FeedbackReading{
+			LineComments: []publish.FeedbackComment{{ID: 21, Author: "grace", Body: "This leaks a file handle.", At: at, Path: id + ".txt", Line: 1}},
+		}
+	})
+	if settled, err := f.reconciler(t).TakeUpTeamFeedback(context.Background()); err != nil || len(settled) != 1 || settled[0].Requested != 1 || settled[0].Failure != "" {
+		t.Fatalf("reading feedback gave %#v (error %v); expected the line comment listed", settled, err)
+	}
+
+	// The decision is recorded against the entry, and spends one attempt.
+	budget := &attemptBudget{}
+	var selections []runstate.Selection
+	repaired := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, id+".txt"), []byte("repaired "+id+"\n"), 0o600)
+	}, approve)
+	second := testharness.Automatic(pipeline, repaired)
+	second.Tracker, second.Backend = tracker, repaired
+	repairer := orchestrator.TeamFeedbackRepairer{
+		Runs: f.store, Items: f.trackers, Feedback: f.forge, Budget: budget, Intake: noHold{}, Gates: noHold{}, Capacity: 1,
+		Start: func(ctx context.Context, item string, selection runstate.Selection) (orchestrator.Outcome, error) {
+			selections = append(selections, selection)
+			second.Selection = selection
+			return second.Run(ctx, item)
+		},
+	}
+	decided, err := repairer.Decide(context.Background(), orchestrator.TeamFeedbackRepairRequest{
+		PullRequest: requestNumber, FeedbackID: "line-comment-21", WorkItemID: id, Reason: "the handle leak is a real defect",
+		DecidedBy: "Development Manager", Conversation: "chat-dm", Turn: 1,
+	})
+	if err != nil || decided.RunID != landed.RunID || len(budget.spent) != 1 {
+		t.Fatalf("deciding gave %#v (error %v) and spent %v; expected the decision on run %s and one attempt spent", decided, err, budget.spent, landed.RunID)
+	}
+	// An entry is answered once.
+	if _, err := repairer.Decide(context.Background(), orchestrator.TeamFeedbackRepairRequest{
+		PullRequest: requestNumber, FeedbackID: "line-comment-21", WorkItemID: id, Reason: "again", DecidedBy: "Development Manager", Conversation: "chat-dm", Turn: 2,
+	}); err == nil || !strings.Contains(err.Error(), "already answered") || len(budget.spent) != 1 {
+		t.Fatalf("a second decision on the same entry gave error %v and spent %v; expected it refused as already answered, spending nothing", err, budget.spent)
+	}
+
+	before := testharness.PublishedCommit(t, f.repository, target)
+	carried, err := repairer.CarryOut(context.Background())
+	if err != nil || len(carried) != 1 || !carried[0].Started || carried[0].Failure != "" || carried[0].Outcome == nil || carried[0].Outcome.Integration == nil {
+		t.Fatalf("carrying out gave %#v (error %v); expected one new run started and landed", carried, err)
+	}
+	if len(selections) != 1 || !strings.Contains(selections[0].Reason, "line-comment-21") || !strings.Contains(selections[0].Reason, "#41") {
+		t.Fatalf("the new run's selection is %#v; expected it to name the entry it answers", selections)
+	}
+	if carried[0].NewRunID == landed.RunID {
+		t.Fatalf("the new run is the run that landed the item; expected a run of its own")
+	}
+	if after := testharness.LoadRun(t, f.store, landed.RunID); after.Integration == nil || after.TeamMerge == nil {
+		t.Fatalf("the earlier run is now %#v; expected it left ended as integrated", after)
+	}
+	landing := testharness.PublishedCommit(t, f.repository, target)
+	if landing == before {
+		t.Fatalf("%s is still at %s; expected the repair landed on it", target, before)
+	}
+	if got := testharness.GitLine(t, f.repository, "show", landing+":"+id+".txt"); got != "repaired "+id {
+		t.Fatalf("%s.txt on %s holds %q; expected the repair", id, target, got)
+	}
+	// The tracked pull request picks the new landing commit up, and the item
+	// stays waiting for the team's merge.
+	newRun := testharness.LoadRun(t, f.store, carried[0].NewRunID)
+	if !newRun.WaitingForTeamMerge() || newRun.TeamMerge == nil {
+		t.Fatalf("the new run's wait is %#v; expected it waiting for the team's merge", newRun.TeamMerge)
+	}
+	if tracker.Closed {
+		t.Fatal("the item closed when its repair landed; expected it to stay open, waiting for the team's merge")
+	}
+	f.opens(landed.TeamMerge.LandingCommit, newRun.TeamMerge.LandingCommit)
+	settled := f.settle(t)
+	if len(settled) != 1 || settled[0].Found != orchestrator.TeamPullRequestOpen || settled[0].Failure != "" {
+		t.Fatalf("settling the open pull request gave %#v; expected it open", settled)
+	}
+	if pull := testharness.LoadRun(t, f.store, carried[0].NewRunID).TeamMerge.PullRequest; pull == nil || pull.Number != requestNumber {
+		t.Fatalf("the new run's record of the pull request is %#v; expected #%d to have picked the new landing commit up", pull, requestNumber)
+	}
+	if tracker.Closed {
+		t.Fatal("the item closed while its pull request is open; expected it still waiting for the team's merge")
+	}
+
 }
