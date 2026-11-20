@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-18T15:52:07.594856Z
       reason: 'yoyodyne-ifd.428.160 and yoyodyne-ifd.428.99.26: step 1 now states plainly that a stop with an unrecognised reason and the harness''s own failures charge no repair attempt, are listed at once with the change kept, and count toward the hold on new work, read from the specific cause rather than the three-way cause (reviewer reports 297c50db and 94a66ddb). A new subsection rules that the two stored logs, docket.jsonl and docket-closed.jsonl, are retired in steps rather than kept as a rebuilt copy, and that slice 2 comes before slice 3 (reports dfabb4ae and 316cac33). Read at commit 11ccc6a1. No other section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T01:15:47.787501Z
+      reason: 'amendment-bfea6bc6, approved Nov 19, from the slice 2 developer (yoyodyne-ifd.428.99.3): the Nov 18 subsection wrongly said escalations and failed starts have no stop on a run record. Every entry whose run has a run record (stopped runs, failed starts, escalations, stuck publications, merge disagreements) is now worked out from it; the code that builds entries moves next to the one listing function; the latest decision on a stop is the one shown. Read at commit 8c492930. No other section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -97,6 +101,11 @@ approvals:
       by: harness
       at: 2026-11-18T15:52:07.594856Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3007, for document-3007.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-20T01:15:47.787501Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3145, for document-3145.1 under the automatic approval policy
 ---
 # Stopped run recovery: every step from the stop to the run going on, and what each step may never do
 
@@ -168,17 +177,27 @@ Must never: count a check stopped by its time limit as a failing check; charge a
 
 Ruled on November 18 for the item asking what becomes of the two stored logs (yoyodyne-ifd.428.99.26), answering the developer's report dfabb4ae and the development manager's report 316cac33. Read at commit 11ccc6a1: `internal/runstate/docket.go`. As built, the development manager's list is kept per product in the state directory in two logs: `docket.jsonl`, one line for each stop, and `docket-closed.jsonl`, one line for each decision or wait recorded about a stop, joined to the stops by their key when the list is read. A third file, `docket-window.json`, records where the development manager's last reading of the list stopped.
 
+Revised on November 19, approving the developer's proposed change amendment-bfea6bc6 from slice 2 (yoyodyne-ifd.428.99.3, run a4572183). The November 18 text said an escalation and a run that never started have no stop on a run record. That was wrong, and the parts below that depended on it are replaced. Read at commit 8c492930: this design. Not read: `internal/orchestrator/triage.go` and `runstop.go`; what this revision says of them rests on the developer's account of the code, and a slice that finds otherwise stops and asks.
+
 The two logs are retired, not kept as a copy rebuilt from run records, in three steps:
 
-1. **Slice 2** writes each stop only on its run record and works the list out from run records, as rule 1 says. It writes nothing new to `docket.jsonl`. Lines already there are still read, so a stop recorded before the slice landed is not lost, but only where no run record carries that stop, so no stop is shown twice. Decisions and waits stay in `docket-closed.jsonl` for this slice, joined to a stop by its key and its time exactly as `DocketStore.List` joins them today.
+1. **Slice 2** works the list out from run records, as rule 1 says, and writes nothing new to `docket.jsonl`. Lines already there are still read, so an entry recorded before the slice landed is not lost, but only where no run record carries that entry, so nothing is shown twice. Decisions and waits stay in `docket-closed.jsonl` for this slice, joined to an entry by its key and its time exactly as `DocketStore.List` joins them today.
 2. **Slice 3** writes each decision and wait on the run record, bound to the stop it answers, as step 3 says, and writes nothing new to `docket-closed.jsonl`. Lines already there are still read for stops recorded before the slice landed.
-3. **Once no stop on the list is read from either log,** the development manager admits one small item that stops reading them. The files are left in place, unchanged, as the history they are.
+3. **Once no entry on the list is read from either log,** the development manager admits one small item that stops reading them. The files are left in place, unchanged, as the history they are.
 
-Every reader keeps one way in: the one function that lists stops with their decisions, which `DocketStore.List` is today. The slices change what it reads, not what its callers call, so neither slice has to change every file that reads the list. `docket-window.json` stays: it records where a reading stopped, not any stop. From slice 2 on, the position it holds is the stop's identity, its run, attempt and stop time.
+**Which entries are worked out from run records.** Slice 1 writes a stop on every run that ends with a stop reason, including a run that failed before it took its item and a run that escalated. The list as built makes five kinds of entry from a run record: a stopped run, a run that failed to start, an escalation, a stuck publication, and a merge whose run record and the target branch disagree. From slice 2:
 
-Entries that are not a stop of a run, such as an escalation or a run that never started, have no stop on a run record to be worked out from. They keep their lines in the two logs until a design says where they go. A slice that finds such an entry whose run has a run record stops and asks.
+- Every entry whose run has a run record is worked out from that record, whatever its kind. A failed start and an escalation are worked out from the stop slice 1 writes on their record. A stuck publication and a merge disagreement are worked out from what the run record says about the publication or the merge, as the code that builds those entries does today.
+- None of these kinds writes a new line to `docket.jsonl`.
+- An entry with no run record at all is still read from its log line. None is expected after slice 2, because every run that slice 1 sees has a run record; a slice that finds a new entry written without one stops and asks.
 
-This rests on a run record being kept while a stop on it is undecided. The code's own comment says a run's files may be cleaned up while its stop is still listed, and the architect has not read what that clean-up removes. Slice 2 confirms the run record itself is kept while a stop on it is undecided, and stops and asks if it is not.
+**Where entries are built.** One function lists the entries with their decisions, and it builds each entry itself from the run records; no caller builds one. As built, the list is read through `DocketStore.List` in `internal/runstate`, which is opened in five places, while the code that makes an entry from a run record is in `internal/orchestrator`. Slice 2 moves that code next to the listing function, so the five callers keep calling one function and change nothing of their own. Where the code needs something only `internal/orchestrator` holds, the slice either passes it in as plain data the listing function reads, or moves the listing function and the code that builds entries together into a package that the five callers and `internal/orchestrator` can all import. Which of the two is the developer's choice inside the slice, as long as there is one function and no caller builds an entry.
+
+Nothing about a reading of the list is written on the run record. Writing it would move the record's revision, and the run's own next save would be refused as out of date. `docket-window.json` stays: it records where a reading stopped, not any entry. From slice 2 on, the position it holds is the entry's identity: for a stop, its run, attempt and stop time.
+
+**When one stop carries more than one decision or wait.** The latest one recorded is the one the entry shows and the one the harness acts on. A later wait on the same stop replaces an earlier wait, and the earlier wait's follow-up is closed with that as its reason, as step 2 already says for a decision carried out. As built, recording a second wait while an earlier one still holds records nothing unless the earlier one's rule allows it, so the second never replaces the first. That fault is traced to the fix for a provider endpoint whose capacity is spent (yoyodyne-ifd.435.10, report e8d01592), and slice 2's test that a later decision stands depends on it.
+
+This rests on a run record being kept while a stop on it is undecided. The slice 2 developer reports that run records are never deleted, and only other files of a run are cleaned up. Slice 2 carries a test that an entry whose run's other files were cleaned up is still listed.
 
 **Slice 2 comes before slice 3.** Slice 2 needs nothing from slice 3: the decisions it shows are read from where they are kept today. Slice 3 needs slice 2, because a decision is bound to the stop it answers as the list names it, and until slice 2 the list names stops by the log's key, which all the stops of one run share. So stopped-run recovery slice 2 (yoyodyne-ifd.428.99.3) waits on neither of the pair, and slice 3 (yoyodyne-ifd.428.99.4) waits on slice 2. This is the order the Slices section already gives.
 
@@ -187,10 +206,12 @@ Why retired and not kept as a copy: a copy rebuilt from run records is a second 
 Alternatives rejected:
 
 - **Keeping the logs as a copy rebuilt from run records,** for the reason above.
-- **Retiring both logs in one slice.** It would change where every stop is read and every decision is written in one change too large to review, and leave no slice that can land on its own.
+- **Retiring both logs in one slice.** It would change where every entry is read and every decision is written in one change too large to review, and leave no slice that can land on its own.
 - **Moving the existing lines into run records.** A run record may already be settled, and the lines are history nobody decides on again; reading them where they are costs nothing.
+- **Keeping failed starts, escalations, stuck publications and merge disagreements in the logs** although their runs have run records. That keeps two records of one entry, which rule 1 forbids; the November 18 text allowed it only because it wrongly assumed those runs had no stop recorded.
+- **Giving each of the five callers its own source of stops.** Five ways in is how two of them would come to disagree about what the list holds.
 
-Must never: write a new stop of a run to `docket.jsonl` once slice 2 has landed; write a new decision or wait about a stop of a run to `docket-closed.jsonl` once slice 3 has landed; show one stop twice because it is in a log and on a run record; delete or rewrite either log.
+Must never: write a new line to `docket.jsonl` for any entry whose run has a run record once slice 2 has landed; write a new decision or wait about a stop of a run to `docket-closed.jsonl` once slice 3 has landed; build an entry anywhere but in the one listing function; show one entry twice because it is in a log and on a run record; show an earlier decision on a stop in place of a later one; write anything about a reading of the list on a run record; delete or rewrite either log.
 
 ## Step 2: the development manager's list
 
