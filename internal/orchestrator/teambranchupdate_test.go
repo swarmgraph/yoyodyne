@@ -490,8 +490,17 @@ func TestAMergeWhoseContentIsNotWhatItsParentsMergeToIsNotLanded(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	outcome, err := f.updater.Update(ctx)
-	if err == nil || !strings.Contains(err.Error(), "does not hold what merging") {
+	if err != nil || outcome.Landed != "" || !strings.Contains(outcome.Waiting, "does not hold what merging") {
 		t.Fatalf("Update() = %#v, %v, want the merge refused for content that is not what its parents merge to", outcome, err)
+	}
+	for range 2 {
+		if _, err := f.updater.Update(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	told := f.toldTheDevelopmentManager()
+	if len(told) != 1 || !strings.Contains(told[0].Message, "staging") || !strings.Contains(told[0].Message, "does not hold what merging") {
+		t.Fatalf("%d reports after three checks (%v), want one naming the branches and the difference", len(told), told)
 	}
 	if f.local("staging") != staging {
 		t.Fatalf("staging moved to %s, want it untouched", f.local("staging"))
@@ -511,8 +520,17 @@ func TestAMergeWhoseContentChangesBeforeTheForgeIsAskedIsNeverAskedFor(t *testin
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	outcome, err := f.updater.Update(ctx)
-	if err == nil || !strings.Contains(err.Error(), "does not hold what merging") {
+	if err != nil || outcome.Landed != "" || !strings.Contains(outcome.Waiting, "does not hold what merging") {
 		t.Fatalf("Update() = %#v, %v, want the merge refused for content that is not what its parents merge to", outcome, err)
+	}
+	for range 2 {
+		if _, err := f.updater.Update(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	told := f.toldTheDevelopmentManager()
+	if len(told) != 1 || !strings.Contains(told[0].Message, "staging") || !strings.Contains(told[0].Message, "does not hold what merging") {
+		t.Fatalf("%d reports after three checks (%v), want one naming the branches and the difference", len(told), told)
 	}
 	if len(f.forge.Merges) != 0 || gitLine(t, f.remote, "rev-parse", "refs/heads/staging") != remote {
 		t.Fatalf("the forge was asked for %d merge(s) or the remote target moved", len(f.forge.Merges))

@@ -271,7 +271,7 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 	// is read about what the target carries, because a merged one carries the
 	// team's tip and still has to be recorded as landed.
 	if pending := r.pending(); pending != nil && pending.PullRequest != 0 {
-		return r.followPullRequest(ctx)
+		return r.settle(r.followPullRequest(ctx))
 	}
 
 	carried, err := r.carries(ctx, tip)
@@ -312,7 +312,7 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 	if pending := r.pending(); pending.Conflict != nil || pending.Refused != "" {
 		return r.stillWaiting()
 	}
-	return r.work(ctx)
+	return r.settle(r.work(ctx))
 }
 
 // carries reports whether the target already holds the team's tip. A project
@@ -490,21 +490,28 @@ func (r *teamBranchRun) checkout(ctx context.Context) (string, bool, error) {
 	return candidate.Path, true, nil
 }
 
+// mergeDiffers says a commit is not the merge the harness built. It is not a
+// failure of the call: the update is refused and the development manager told.
+type mergeDiffers struct{ reason string }
+
+func (e *mergeDiffers) Error() string { return e.reason }
+
 // exactMerge checks the commit is the merge the harness built: two parents, the
 // target it was built on first and the team's tip second, and a whole tree equal
 // to the one a merge of those two built again now gives. The merge is rebuilt
 // here, under the promotion lease and immediately before the guarded change, so
 // a commit whose parents are right but whose content differs from what the
 // merge of its parents produces is never landed; this comparison stands in for
-// the protected-path check on the team's merge.
+// the protected-path check on the team's merge. A difference comes back as a
+// *mergeDiffers, which settle turns into a refusal told once.
 func (r *teamBranchRun) exactMerge(ctx context.Context, candidate, base, tip string) error {
 	parents, err := r.u.Git.CommitParents(ctx, candidate)
 	if err != nil {
 		return fmt.Errorf("read the parents of the merge %s: %w", candidate, err)
 	}
 	if len(parents) != 2 || parents[0] != base || parents[1] != tip {
-		return fmt.Errorf("commit %s is not the merge of %s at %s into %s at %s (its parents are %s), so it is not landed",
-			candidate, r.upstream, tip, r.target, base, strings.Join(parents, ", "))
+		return &mergeDiffers{fmt.Sprintf("commit %s is not the merge of %s at %s into %s at %s (its parents are %s). A person can look at that commit and, if it should stand, merge %s into %s by hand",
+			shortCommit(candidate), r.upstream, shortCommit(tip), r.target, shortCommit(base), shortCommits(parents), r.upstream, r.target)}
 	}
 	rebuilt, err := r.u.Git.MergeTree(ctx, base, tip)
 	if err != nil {
@@ -515,10 +522,29 @@ func (r *teamBranchRun) exactMerge(ctx context.Context, candidate, base, tip str
 		return fmt.Errorf("read the content of the merge %s: %w", candidate, err)
 	}
 	if rebuilt != content {
-		return fmt.Errorf("commit %s does not hold what merging %s at %s into %s at %s gives (its tree is %s and the merge built again is %s), so it is not landed",
-			candidate, r.upstream, tip, r.target, base, content, rebuilt)
+		return &mergeDiffers{fmt.Sprintf("commit %s does not hold what merging %s at %s into %s at %s gives (its files are %s and the merge built again gives %s). A person can compare the two with git diff and, if the commit should stand, merge %s into %s by hand",
+			shortCommit(candidate), r.upstream, shortCommit(tip), r.target, shortCommit(base), shortCommit(content), shortCommit(rebuilt), r.upstream, r.target)}
 	}
 	return nil
+}
+
+// settle turns a merge that differs from what the harness built into a
+// refusal, which tells the development manager once, and leaves any other error
+// as it was.
+func (r *teamBranchRun) settle(err error) error {
+	var differs *mergeDiffers
+	if errors.As(err, &differs) && r.pending() != nil {
+		return r.refuse(differs.reason)
+	}
+	return err
+}
+
+func shortCommits(commits []string) string {
+	short := make([]string, 0, len(commits))
+	for _, c := range commits {
+		short = append(short, shortCommit(c))
+	}
+	return strings.Join(short, ", ")
 }
 
 // conflicted records a merge that will not go in, names what it conflicts with,
@@ -796,11 +822,15 @@ func (r *teamBranchRun) reviewContext(attempt runstate.TeamBranchUpdateAttempt) 
 func (r *teamBranchRun) refuse(reason string) error {
 	pending := r.pending()
 	at := r.now()
+	told := pending.Refused == reason && pending.ReportedAt != nil
 	pending.Refused, pending.RefusedAt = reason, &at
 	if err := r.save(); err != nil {
 		return err
 	}
 	r.wait("%s; it is tried again when either branch moves", strings.TrimRight(strings.TrimSpace(reason), "."))
+	if told {
+		return nil
+	}
 	if prior := r.prior; prior != nil && prior.Refused == reason {
 		return r.alreadyTold(prior)
 	}
