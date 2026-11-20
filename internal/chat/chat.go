@@ -334,6 +334,12 @@ type Options struct {
 	// conversation without one records a decision unchecked, and decomposes
 	// ungated, rather than appearing to have done either.
 	Stoppages Stoppages
+	// FeedbackRepairs is where her decision to repair an item whose run has ended,
+	// from feedback on a pull request the harness tracks, is recorded
+	// (feedbackrepair.go). It is wired into her conversation and no other, and a
+	// conversation without one refuses the decision rather than appearing to
+	// have recorded it.
+	FeedbackRepairs FeedbackRepairs
 	// Stops is how a stop the development manager decides reaches the run in
 	// flight it names: the same request the operator's stop writes, made on her
 	// behalf. It is wired into her conversation and no other, and a conversation

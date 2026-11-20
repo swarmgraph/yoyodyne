@@ -1541,9 +1541,20 @@ starts a run by itself: a review that requests changes, or a comment on a line,
 goes on the development manager's list naming the items whose landed changes
 touched that file (every item, for a review that names no file); an ordinary
 comment goes on her list naming no item; and an approval is noted on each item as
-information only. A repair of a landed item cannot yet be started from that
-feedback; where it calls for a change, the development manager asks the Lead
-Product Manager to admit a work item for it.
+information only. Where the feedback calls for a change, the development
+manager records a repair of one item from that entry, naming the pull request,
+the feedback and the item. It is refused, with its reason, once the item has
+closed, when the entry already has a decision, when the item is not waiting for
+the team's merge on that pull request, and when the item has no attempts left.
+Otherwise it spends one of the item's attempts, and the next forge check starts
+a new run of the item from the target branch, with the feedback given to the
+developer as evidence on the item's notes. The run goes through the configured
+checks and an independent review and lands on the target branch; the earlier
+run stays recorded as integrated, the item stays waiting for the team's merge,
+and the tracked pull request picks up the new landing commit. The team's merge
+of the earlier change does not close the item while the repair's landing is
+still waiting. A repair of an item waiting on a pull request the harness opened
+is not built yet.
 `yoyo status` and the dashboard say which pull request carries each waiting
 item, or that none does yet.
 
