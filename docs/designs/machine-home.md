@@ -58,6 +58,10 @@ revisions:
       by: architect
       at: 2026-11-19T15:50:06.910392Z
       reason: 'yoyodyne-n2t1 point 5, with yoyodyne-ifd.437.69: validation check 7 now describes what scripts/validate-machine-home.sh runs (init with an intent repository, the intent checks, a landing through the harness''s document route, and a record naming both commits) and names the four parts it prints as not taken or not proved for want of a provider or the tracker. Answers report-a85fffa8 and report-48784e0f. Sent again after the earlier run was withdrawn when an unrelated GitHub test failed on its pull request. Read whole at main cc341fff; no other section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T13:55:58.765375Z
+      reason: 'yoyodyne-n2t1, with yoyodyne-ifd.437.69: the Validation section now says which of its seven checks each of the seven checks in scripts/validate-machine-home.sh covers, read whole at main eec873b23fff. It names what the script does not run yet: parts of check 5, which are script work under the validation project (yoyodyne-ifd.434.14), and the supervisor''s own move in check 6, which waits on yoyodyne-ifd.434.29. It also says the script''s list for the top of the home has to name machine-identity.json. The section''s existing text is unchanged, and no requirement changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -119,6 +123,11 @@ approvals:
       by: harness
       at: 2026-11-19T15:50:06.910392Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3084, for document-3084.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-11-20T13:55:58.765375Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3180, for document-3180.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -650,6 +659,55 @@ on, and never as passed. Evidence is kept with the validation project's record.
 
    Any other part whose build has not landed is recorded as not taken, naming
    that build, as for every check.
+
+**What the script runs today.** `scripts/validate-machine-home.sh` numbers
+its own seven checks, and they do not match the seven above one for one. The
+list above is what the validation must prove; the script is today's proof of
+part of it. Its checks cover the list above as follows:
+
+- the script's check 1, home layout, covers checks 1 and 2: the home, the
+  settings that name another home in their order, and the refusal of an
+  unsafe `product.id`;
+- its check 2, first start, covers check 3;
+- its check 3, second clone, covers the first two cases of check 4, and from
+  check 5 `yoyo project rename` where the id is committed and already reads
+  the new name;
+- its check 4, moved clone, covers the third case of check 4, and from check 5
+  `yoyo project bind` rebinding a moved clone, recording the act, and refusing
+  while a run is in flight;
+- its check 5, old home only, covers the first part of check 6: nothing moves,
+  and each command warns once on standard error and in `yoyo doctor`. Its
+  warning names `yoyo home migrate`, which is what the build says until the
+  product moves its own state; once that lands, the warning names the next
+  attempt or why the last one could not go ahead, as The migration says, and
+  the script's check follows it;
+- its check 6, migration, covers check 6 as `yoyo home migrate` carries it
+  out: the refusal while a run is in flight, a move interrupted and finished by
+  running it again, the moved worktree repaired, the run record's migration
+  note, the marker in the old home, and an older build refused;
+- its check 7 is check 7.
+
+What the script does not run yet is recorded as not taken, never as passed:
+
+- From check 5: binding without `--replace` while the recorded repository
+  still exists; `--replace` unbinding the earlier repository and removing its
+  state-root marker; the refusal while `worktrees/` holds a kept worktree of
+  the clone it would unbind, and binding once that worktree is removed; and
+  `yoyo project rename` where the configuration is under the project
+  directory, and where a committed id does not read the new name. Adding
+  these to the script is build work under the validation project
+  (yoyodyne-ifd.434.14) and needs no further design.
+- From check 6: everything the supervisor does when it moves the state
+  itself: `moving.json`, starting no new work, a message kept and answered
+  after the move, the drain limit and giving up, a supervisor killed before
+  and during the move, and undoing a step that keeps failing. These wait on
+  the product moving its own state to the new home (yoyodyne-ifd.434.29), and
+  are added to the script as that build lands.
+
+The script's list of what may sit at the top of the home leaves out
+`machine-identity.json`, which One home puts there. Where a start makes that
+file, the script's check 1 would fail for a file this design allows, so the
+script's list names it too, as part of the same validation project work.
 
 The validation also records three measurements of first use, with no target set
 for any of them:
