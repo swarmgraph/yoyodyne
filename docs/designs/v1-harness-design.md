@@ -130,6 +130,10 @@ revisions:
       by: architect
       at: 2026-11-20T18:28:39.178807Z
       reason: 'Git Model section only, resent from main 5aaceb26 after the first send was refused for an overlong reason. It brings the section into line with the merge queue design under execution.merge_queue: with the switch on, no pull request is opened for the run branch, the candidate opens as a draft and is merged directly under the promotion lease after reading the target, a moved target sends it back to be rebuilt, and the landing is confirmed on the target; with it off nothing changes. It replaces the eight uses of the retired word for a required check and names the Lead Product Manager. Part of the v1 promotion item yoyodyne-ifd.437.33 and the vocabulary item yoyodyne-ifd.437.21; two more v1 sections follow before the promotion item closes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T19:12:25.753752Z
+      reason: 'Work Execution and Integration section only, from main bdf3409f7. Steps 5 and 10 and the drift paragraph now agree with the Git Model section and the merge queue design: with execution.merge_queue on, no run branch is pushed or given a pull request, and the queue''s candidate is rebuilt, checked, reviewed again and merged under the promotion lease. With it off nothing changes. Second of three v1 sections for the promotion item yoyodyne-ifd.437.33; the Recovery and Idempotency section follows.'
 approvals:
     - revision: 0
       by: operator
@@ -149,6 +153,11 @@ approvals:
       by: harness
       at: 2026-11-20T18:28:39.178807Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3200, for document-3200.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 31
+      by: harness
+      at: 2026-11-20T19:12:25.753752Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3208, for document-3208.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -478,16 +487,16 @@ For each ready development item, the harness:
 2. Reserves the item and creates a uniquely named branch and worktree outside the primary checkout.
 3. Builds the developer's bounded context and starts the selected backend.
 4. Streams normalized events and persists enough state to diagnose or recover an interrupted run.
-5. Publishes the attempt when the project enabled publishing: commits it, pushes the run branch, and opens or updates its pull request.
+5. Commits whatever each developer invocation left in the worktree, under the harness identity. When the project enabled publishing and the merge queue is off, it also pushes the run branch and opens or updates its pull request. With the merge queue on, it pushes nothing and opens no pull request for the run branch, as [remotes and pull requests](#remotes-and-pull-requests) says.
 6. Runs configured deterministic checks in the worktree.
 7. Runs an independent reviewer with the work item, design, directives, diff, and check results.
 8. On repair, returns findings to the same developer for up to two attempts by default.
 9. After the retry limit, returns control to the development manager to replan or reassign.
-10. On success, revalidates the target branch, integrates automatically, publishes the promotion, records the outcome, and cleans up the worktree.
+10. On success, with the merge queue off, revalidates the target branch, integrates automatically, publishes the promotion, records the outcome, and cleans up the worktree. With the merge queue on, the approved change waits in the queue instead: the queue builds a candidate on the target as it stands, checks it and has it reviewed again, and merges it under the target branch's promotion lease, and the outcome is recorded once the landing is confirmed on the target.
 
 The harness performs Git lifecycle operations directly; agents do not create, assign, merge, or remove their own worktrees. Before any cleanup, the harness resolves and validates the exact recorded path and refuses broad or unresolved targets.
 
-If integration encounters drift or conflicts, the change is not force-merged. The development manager receives a new reconciliation decision with the current target state. Failed or interrupted worktrees remain discoverable until safely resumed or explicitly retired.
+If integration encounters drift or conflicts, the change is not force-merged. With the merge queue off, the development manager receives a new reconciliation decision with the current target state. With it on, a target that moved sends the candidate back to be rebuilt on the new target, with no repair attempt spent, and what becomes of a candidate that cannot be rebuilt cleanly is [the merge queue design](integration-through-a-merge-queue.md)'s to say. Failed or interrupted worktrees remain discoverable until safely resumed or explicitly retired.
 
 ## Git Model
 
