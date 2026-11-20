@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-11-19T11:15:00.948433Z
       reason: 'Records the ruling on report 98a3d4ec, from the developer working on yoyodyne-ifd.437.53: an approval given from the command line stays recorded as the operator''s for whoever ran it, never resolved to a person or checked against a grant, because a terminal carries no identity to check and permissions between users are out of v1; the dashboard keeps tying a tab to a person by token and refusing anyone without the grant to approve the owner''s own intent. The earlier team-mode draft''s wider rule is named as considered and not adopted. Only the last bullet of section 5 changes; the rest of the section is copied unchanged from main at 347843ab.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T19:49:03.838185Z
+      reason: 'Answers the last point of the developer''s report 98a3d4ec: section 2 now points to the local-branch design''s decision for repairing an item whose run has ended or whose checkout is gone, for a pull request the harness opened and a person merges. Only section 2 changes; the rest of it is copied unchanged from main b25a89f9.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -88,6 +92,11 @@ approvals:
       by: harness
       at: 2026-11-19T11:15:00.948433Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3060, for document-3060.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-20T19:49:03.838185Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3216, for document-3216.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
@@ -135,6 +144,8 @@ Where the harness publishes under the owner's own account, GitHub does not let t
 A project may instead publish under an account of its own. That changes only what the forge lets the owner do: the owner can then approve and request changes on the forge, and readers of the pull request see the owner's words under the owner's name. It does not change what the harness ignores, which is still only what is marked or on the list, so a person signed in as the publishing account is still read. A separate account is never required. Where a project wants one, the account and its credential are the operator's to supply, and nothing in the harness asks for one.
 
 When the run's repair budget is spent, the run stops in the ordinary way and goes to the development manager, as [stopped-run recovery](fresh-factory-health-and-preserved-run-recovery.md) rules.
+
+A run that has ended, or whose checkout has been cleared, cannot take a repair round. Feedback on a pull request carried by such a run is put on the development manager's list, and her decision to repair the item is recorded and run as [deciding a repair of an item whose run has ended](integrating-to-a-local-branch.md#deciding-a-repair-of-an-item-whose-run-has-ended) rules: a decision bound to the list entry it answers, refused once the item has closed, starting a new run from the head of the pull request's kept branch, updating the same pull request rather than opening another, and spending one of the item's attempts.
 
 ## 3. Merges by other contributors
 
