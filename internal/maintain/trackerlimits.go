@@ -177,13 +177,15 @@ func (t timedListings) saysOver(limits config.TrackerLimits, word string) string
 
 // openOrReadyListing reports a call that listed open or ready work, which is
 // what the listing bound holds: every listing but one of closed work or of
-// every status.
+// every status, and but a `bd list` narrowed to named items, which is a read of
+// those items and is logged as one (beads.Client.ShowMany).
 func openOrReadyListing(record runstate.TrackerCallRecord) bool {
 	switch record.Verb {
 	case "ready":
 		return true
 	case "list":
-		return !strings.HasSuffix(record.Call, " of every status") && !strings.HasSuffix(record.Call, " with status closed")
+		return !strings.HasPrefix(record.Call, "reading ") &&
+			!strings.HasSuffix(record.Call, " of every status") && !strings.HasSuffix(record.Call, " with status closed")
 	}
 	return false
 }

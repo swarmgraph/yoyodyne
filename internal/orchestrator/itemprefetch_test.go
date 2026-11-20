@@ -23,7 +23,9 @@ import (
 
 // busyStoreBD stands in for bd over a store so busy that a listing of every
 // work item runs past its limit. It answers a `bd show` of any number of the
-// items it holds and a note appended to one, and keeps every command it was
+// items it holds, a `bd list` narrowed to named items (how beads.Client.ShowMany
+// reads several, which holds the store about as long as a read of one), and a
+// note appended to one, and keeps every command it was
 // given so a test can say which reads a sweep made. It also closes an item, the
 // one write settling a merge makes besides notes.
 type busyStoreBD struct {
@@ -36,6 +38,13 @@ func (b *busyStoreBD) Run(_ context.Context, command execution.Command, _ execut
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.commands = append(b.commands, append([]string(nil), command.Args...))
+	if named := readAheadIDs(command.Args); named != nil {
+		result, err := b.answer(named)
+		if result.Status != execution.ProcessSucceeded {
+			result = execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "[]"}
+		}
+		return result, err
+	}
 	switch command.Args[0] {
 	case "list", "ready", "export":
 		return execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1, Stderr: "stopped at its limit"}, nil
@@ -78,6 +87,26 @@ func (b *busyStoreBD) answer(ids []string) (execution.ProcessResult, error) {
 	}
 }
 
+// readAhead is the one call beads.Client.ShowMany makes to read the items
+// named together.
+func readAhead(ids ...string) []string {
+	return []string{"list", "--json", "--limit=0", "--all", "--id=" + strings.Join(ids, ",")}
+}
+
+// readAheadIDs is the items a `bd list` narrowed to named items reads, and nil
+// for any other command.
+func readAheadIDs(args []string) []string {
+	if len(args) == 0 || args[0] != "list" {
+		return nil
+	}
+	for _, arg := range args[1:] {
+		if named, narrowed := strings.CutPrefix(arg, "--id="); narrowed {
+			return strings.Split(named, ",")
+		}
+	}
+	return nil
+}
+
 // forget drops the commands kept so far.
 func (b *busyStoreBD) forget() {
 	b.mu.Lock()
@@ -98,11 +127,14 @@ func (b *busyStoreBD) item(id string) beads.WorkItem {
 func assertOneReadAheadAndNoListing(t *testing.T, bd *busyStoreBD, ids ...string) {
 	t.Helper()
 	asked := bd.asked()
-	want := append(append([]string{"show"}, ids...), "--json")
+	want := readAhead(ids...)
 	if len(asked) == 0 || !slices.Equal(asked[0], want) {
 		t.Fatalf("the sweep asked bd %v, want it to begin with %v", asked, want)
 	}
 	for _, command := range asked {
+		if readAheadIDs(command) != nil {
+			continue
+		}
 		switch command[0] {
 		case "list", "ready", "export":
 			t.Fatalf("the sweep listed the tracker (%v) among %v", command, asked)
@@ -215,7 +247,7 @@ func TestReconcileReadsItsRunsItemsInOneCallAndListsNothing(t *testing.T) {
 	if results[0].RunID != pipelineRunID {
 		ids[0], ids[1] = ids[1], ids[0]
 	}
-	want := [][]string{{"show", ids[0], ids[1], "--json"}}
+	want := [][]string{readAhead(ids[0], ids[1])}
 	if asked := bd.asked(); !slices.EqualFunc(asked, want, slices.Equal) {
 		t.Fatalf("the sweep asked bd %v, want only the one read of its runs' items", asked)
 	}

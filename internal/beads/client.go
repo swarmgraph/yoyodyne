@@ -2333,7 +2333,7 @@ func describeCall(args []string) string {
 		target = args[1]
 	}
 	switch verb := args[0]; {
-	case verb == "show" && describeShow(args) != "":
+	case (verb == "show" || verb == "list") && describeShow(args) != "":
 		return describeShow(args)
 	case verb == "list" || verb == "ready":
 		return "listing the work items"

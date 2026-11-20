@@ -20,8 +20,9 @@ func itemsJSON(ids ...string) string {
 	return "[" + strings.Join(rows, ",") + "]"
 }
 
-// Several items are read in one bd command, and an item bd does not hold is
-// absent from the answer rather than a failure.
+// Several items are read in one bd command, a listing narrowed to them rather
+// than a show of each, and an item bd does not hold is absent from the answer
+// rather than a failure.
 func TestShowManyReadsSeveralItemsInOneCall(t *testing.T) {
 	t.Parallel()
 
@@ -33,7 +34,7 @@ func TestShowManyReadsSeveralItemsInOneCall(t *testing.T) {
 	if len(runner.args) != 1 {
 		t.Fatalf("ShowMany() ran %d bd commands, want 1: %v", len(runner.args), runner.args)
 	}
-	want := []string{"show", "yoyodyne-1", "yoyodyne-2", "yoyodyne-3", "--json"}
+	want := []string{"list", "--json", "--limit=0", "--all", "--id=yoyodyne-1,yoyodyne-2,yoyodyne-3"}
 	if !slices.Equal(runner.args[0], want) {
 		t.Fatalf("ShowMany() ran %v, want %v (each id once)", runner.args[0], want)
 	}
@@ -45,15 +46,76 @@ func TestShowManyReadsSeveralItemsInOneCall(t *testing.T) {
 	}
 }
 
-// bd exits non-zero when it holds none of the items named; that is an empty
-// answer, not the tracker failing. A refusal that is the tracker failing, and
-// a timeout, are still failures.
+// ShowMany never asks `bd show` for several items. bd holds its store for each
+// item a show names, so a show of twenty held every other tracker call, the
+// listings of open and ready work among them, for over ten seconds; a listing
+// narrowed to the same items holds it once
+// (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md).
+func TestShowManyNeverShowsSeveralItems(t *testing.T) {
+	t.Parallel()
+
+	ids := make([]string, 20)
+	for index := range ids {
+		ids[index] = fmt.Sprintf("yoyodyne-%d", index+1)
+	}
+	runner := &fakeRunner{responses: []string{itemsJSON(ids...)}}
+	if _, err := (Client{Runner: runner}).ShowMany(context.Background(), ids); err != nil {
+		t.Fatalf("ShowMany() error = %v", err)
+	}
+	for _, args := range runner.args {
+		if args[0] == "show" {
+			t.Fatalf("ShowMany() ran bd show: %v", args)
+		}
+	}
+	if len(runner.args) != 1 {
+		t.Fatalf("ShowMany() of 20 items ran %d bd commands, want 1: %v", len(runner.args), runner.args)
+	}
+}
+
+// A listing names each link's item but not its status or title, which `bd
+// show` gives. ShowMany reads the linked items it did not already read in one
+// more call and gives each link what a show gives it; an edge the listing
+// carried for another item is not this item's link, and a link to an item
+// neither call found keeps its id.
+func TestShowManyGivesLinksWhatAShowGivesThem(t *testing.T) {
+	t.Parallel()
+
+	listed := `[
+ {"id":"yoyodyne-1","title":"One","status":"open","priority":1,"issue_type":"task","dependencies":[
+  {"issue_id":"yoyodyne-1","depends_on_id":"yoyodyne-9","type":"parent-child","created_at":"2026-11-19T10:00:00Z"},
+  {"issue_id":"yoyodyne-1","depends_on_id":"yoyodyne-2","type":"blocks","created_at":"2026-11-19T10:00:00Z"},
+  {"issue_id":"yoyodyne-1","depends_on_id":"yoyodyne-77","type":"blocks","created_at":"2026-11-19T10:00:00Z"},
+  {"issue_id":"yoyodyne-5","depends_on_id":"yoyodyne-1","type":"blocks","created_at":"2026-11-19T10:00:00Z"}]},
+ {"id":"yoyodyne-2","title":"Two","status":"closed","priority":1,"issue_type":"task"}]`
+	linked := `[{"id":"yoyodyne-9","title":"Parent","status":"open","priority":1,"issue_type":"epic"}]`
+	runner := &fakeRunner{responses: []string{listed, linked}}
+	read, err := (Client{Runner: runner}).ShowMany(context.Background(), []string{"yoyodyne-1", "yoyodyne-2"})
+	if err != nil {
+		t.Fatalf("ShowMany() error = %v", err)
+	}
+	if len(runner.args) != 2 || !slices.Equal(runner.args[1], []string{"list", "--json", "--limit=0", "--all", "--id=yoyodyne-9,yoyodyne-77"}) {
+		t.Fatalf("ShowMany() ran %v, want the linked items not already read in one more listing", runner.args)
+	}
+	want := []Dependency{
+		{ID: "yoyodyne-9", Type: "parent-child", Status: "open", Title: "Parent"},
+		{ID: "yoyodyne-2", Type: "blocks", Status: "closed", Title: "Two"},
+		{ID: "yoyodyne-77", Type: "blocks"},
+	}
+	if got := read["yoyodyne-1"].Dependencies; !slices.Equal(got, want) {
+		t.Fatalf("links = %+v, want %+v", got, want)
+	}
+	if read["yoyodyne-1"].DecomposedFrom() != "yoyodyne-9" {
+		t.Fatalf("parent = %q", read["yoyodyne-1"].DecomposedFrom())
+	}
+}
+
+// bd answers a listing narrowed to ids it holds none of with an empty list.
+// A refusal that is the tracker failing, and a timeout, are failures, and a
+// timeout is not asked again.
 func TestShowManyTellsNoItemsFromATrackerThatFailed(t *testing.T) {
 	t.Parallel()
 
-	none := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessFailed, ExitCode: 1,
-		Stderr: `Error fetching yoyodyne-8: no issue found matching "yoyodyne-8"` + "\n",
-		Stdout: `{"error":"no issues found matching the provided IDs","schema_version":1}`}}}
+	none := &fakeRunner{responses: []string{"[]"}}
 	read, err := (Client{Runner: none}).ShowMany(context.Background(), []string{"yoyodyne-8"})
 	if err != nil || len(read) != 0 {
 		t.Fatalf("ShowMany() of items bd does not hold = %v, %v; want an empty answer", read, err)
@@ -199,6 +261,13 @@ func TestABatchedReadIsDescribedAsOne(t *testing.T) {
 	if got := describeCall([]string{"show", "yoyodyne-1", "--json"}); got != "reading work item yoyodyne-1" {
 		t.Fatalf("describeCall() of a read of one item = %q", got)
 	}
+	byID := []string{"list", "--json", "--limit=0", "--all", "--id=yoyodyne-1,yoyodyne-2"}
+	if got := observedCall(byID); got != "reading 2 work items in one call, yoyodyne-1 first" {
+		t.Fatalf("observedCall() of a listing narrowed to items = %q, want it named as a read of them", got)
+	}
+	if got := observedCall([]string{"list", "--json", "--limit=0", "--status=open"}); got != "listing the work items with status open" {
+		t.Fatalf("observedCall() of a listing of open work = %q", got)
+	}
 }
 
 // bd answers several ids in one show, each exactly as a show of it alone, and
@@ -208,7 +277,11 @@ func TestShowManyConformance(t *testing.T) {
 	project := newTracker(t)
 	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
 	ctx := context.Background()
-	first, err := client.Create(ctx, NewWorkItem{Title: "First", Description: "d", Type: "task"})
+	parent, err := client.Create(ctx, NewWorkItem{Title: "Parent", Description: "d", Type: "epic"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	first, err := client.Create(ctx, NewWorkItem{Title: "First", Description: "d", Type: "task", Parent: parent.ID})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -216,23 +289,43 @@ func TestShowManyConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
+	blocker, err := client.Create(ctx, NewWorkItem{Title: "Blocker", Description: "d", Type: "task"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
 	if _, err := client.RecordOutcome(ctx, first.ID, "A note on the first."); err != nil {
 		t.Fatalf("RecordOutcome() error = %v", err)
 	}
+	if err := client.AddBlocker(ctx, first.ID, second.ID); err != nil {
+		t.Fatalf("AddBlocker() error = %v", err)
+	}
+	if err := client.AddBlocker(ctx, first.ID, blocker.ID); err != nil {
+		t.Fatalf("AddBlocker() error = %v", err)
+	}
+	if _, err := client.run(ctx, "close", blocker.ID, "--reason=done", "--json"); err != nil {
+		t.Fatalf("close the blocker: %v", err)
+	}
 	missing := filepath.Base(project) + "-zzzz9"
-	read, err := client.ShowMany(ctx, []string{first.ID, missing, second.ID})
+	read, err := client.ShowMany(ctx, []string{first.ID, missing, second.ID, blocker.ID})
 	if err != nil {
 		t.Fatalf("ShowMany() error = %v", err)
 	}
-	if len(read) != 2 {
-		t.Fatalf("ShowMany() read %d items, want the 2 bd holds: %+v", len(read), read)
+	if len(read) != 3 {
+		t.Fatalf("ShowMany() read %d items, want the 3 bd holds: %+v", len(read), read)
 	}
-	alone, err := client.Show(ctx, first.ID)
-	if err != nil {
-		t.Fatalf("Show() error = %v", err)
+	// The first item links to its parent, which was not asked for, to an item
+	// read with it, and to a closed one; each is answered as a show of it alone.
+	for _, id := range []string{first.ID, second.ID, blocker.ID} {
+		alone, err := client.Show(ctx, id)
+		if err != nil {
+			t.Fatalf("Show() error = %v", err)
+		}
+		if fmt.Sprintf("%+v", read[id]) != fmt.Sprintf("%+v", alone) {
+			t.Fatalf("an item read with others = %+v, read alone = %+v", read[id], alone)
+		}
 	}
-	if fmt.Sprintf("%+v", read[first.ID]) != fmt.Sprintf("%+v", alone) {
-		t.Fatalf("an item read with others = %+v, read alone = %+v", read[first.ID], alone)
+	if len(read[first.ID].Dependencies) != 3 {
+		t.Fatalf("the first item's links = %+v, want its parent and two blockers", read[first.ID].Dependencies)
 	}
 	none, err := client.ShowMany(ctx, []string{missing})
 	if err != nil || len(none) != 0 {

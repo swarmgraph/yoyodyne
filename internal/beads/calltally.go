@@ -110,7 +110,7 @@ func (t *CallTally) Describe() string {
 // open work are different reads.
 func observedCall(args []string) string {
 	call := describeCall(args)
-	if args[0] != "list" && args[0] != "ready" {
+	if args[0] != "list" && args[0] != "ready" || describeShow(args) != "" {
 		return call
 	}
 	if args[0] == "ready" {
