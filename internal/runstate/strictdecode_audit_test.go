@@ -79,6 +79,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/trackerlisting.go:(*TrackerListingStore).read":                {strictDoor, "Failed and Answered are strict because they rewrite what they read; Read, which the read model reads, is tolerant"},
 	"internal/runstate/mergequeue.go:(*MergeQueueStore).decode":                      {strictDoor, "Admit and its readback are strict because they rewrite and settle what they read; Entries is tolerant"},
 	"internal/runstate/mergequeuegeneration.go:(*MergeQueueStore).decodeGenerations": {strictDoor, "RecordGeneration is strict because it rewrites what it reads; Generations and VerifiedGeneration are tolerant"},
+	"internal/runstate/teambranchupdate.go:decodeTeamBranchUpdate":                   {strictDoor, "Save rewrites the whole record from what Load read, so Load is strict; the update worker is the record's only writer"},
 	"internal/runstate/mergequeuelanding.go:(*MergeQueueStore).decodeLanding":        {strictDoor, "RecordLanding is strict because it extends what it reads; Landing is tolerant"},
 	"internal/runstate/heavycheck.go:readHeavyCheckRecord":                           {strictDoor, "every change to the places is strict, under the record's lock, because it rewrites what it read; Record, which surfaces read, is tolerant"},
 	"internal/runstate/heavycheckmeasure.go:readHeavyCheckMeasurements":              {strictDoor, "a launch's measurement is strict because it rewrites what it read, and is set aside rather than failing the check; Measurements, which surfaces read, is tolerant"},

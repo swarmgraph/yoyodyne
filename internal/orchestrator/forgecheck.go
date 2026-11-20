@@ -20,11 +20,14 @@ import (
 // that it reads each pull request into the team's branch that an outside tool
 // carries those changes in, closing the items of one merged, giving back those of
 // one closed without merging, and adding to an open one the items it carries but
-// nobody named (SettleTeamPullRequests). Last, it reads the reviews and
+// nobody named (SettleTeamPullRequests). Next, it reads the reviews and
 // comments on each of those still open and puts what asks for something on the
-// development manager's list, starting nothing (TakeUpTeamFeedback). The claim,
-// team pause and records references the design adds with team mode are not
-// read: team mode does not exist yet, and the check covers them once it does.
+// development manager's list, starting nothing (TakeUpTeamFeedback). The command
+// also hosts bringing the target branch up to date with the team's branch
+// (TeamBranchUpdater, teambranchupdate.go), which runs checks and a review and
+// so is not part of CheckForge. The claim, team pause and records references the
+// design adds with team mode are not read: team mode does not exist yet, and the
+// check covers them once it does.
 //
 // Two rules make a check safe to repeat and safe to fail:
 //

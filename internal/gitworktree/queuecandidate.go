@@ -206,6 +206,57 @@ func (m *Manager) HoldsCommit(ctx context.Context, commit string) (bool, error) 
 	return result.Status == execution.ProcessSucceeded, nil
 }
 
+// CommitParents lists a commit's parents, the first parent first. A merge the
+// harness built is told by them: the base it was built on, then the head merged
+// onto it.
+func (m *Manager) CommitParents(ctx context.Context, commit string) ([]string, error) {
+	if !commitPattern.MatchString(commit) {
+		return nil, fmt.Errorf("%q is not a full commit id", commit)
+	}
+	return m.parentsOf(ctx, commit)
+}
+
+// MergeTree builds, in memory and without touching any checkout or ref, the
+// content of merging head onto base, and answers its tree. A merge that
+// conflicts answers a *QueueCandidateConflict. A landing builds the merge again
+// this way and compares its tree with the commit about to land, so a commit
+// whose parents are right but whose content was altered is told apart.
+func (m *Manager) MergeTree(ctx context.Context, base, head string) (string, error) {
+	for _, commit := range []string{base, head} {
+		if !commitPattern.MatchString(commit) {
+			return "", fmt.Errorf("%q is not a full commit id", commit)
+		}
+	}
+	merged, err := m.run(ctx, "-C", m.repositoryRoot, "merge-tree", "--write-tree", "--name-only", base, head)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case merged.ExitCode == 1:
+		lines := strings.Fields(merged.Stdout)
+		var paths []string
+		if len(lines) > 1 {
+			paths = lines[1:]
+		}
+		return "", &QueueCandidateConflict{BaseCommit: base, Head: head, Paths: paths, Err: fmt.Errorf("merge %s onto %s conflicts", head, base)}
+	case merged.Status != execution.ProcessSucceeded:
+		return "", fmt.Errorf("merge %s onto %s in memory failed with exit code %d: %s", head, base, merged.ExitCode, strings.TrimSpace(merged.Stderr))
+	}
+	lines := strings.Fields(merged.Stdout)
+	if len(lines) == 0 || !commitPattern.MatchString(lines[0]) {
+		return "", fmt.Errorf("merge %s onto %s in memory answered %q", head, base, strings.TrimSpace(merged.Stdout))
+	}
+	return lines[0], nil
+}
+
+// CommitTree answers the tree of a commit: its whole content.
+func (m *Manager) CommitTree(ctx context.Context, commit string) (string, error) {
+	if !commitPattern.MatchString(commit) {
+		return "", fmt.Errorf("%q is not a full commit id", commit)
+	}
+	return m.resolveCommit(ctx, commit+"^{tree}")
+}
+
 // CandidateChanges describes what a candidate adds to the base it was built
 // on, as one bounded change for its reviewer.
 func (m *Manager) CandidateChanges(ctx context.Context, baseCommit, candidate string, limits DiffLimits) (BranchChange, error) {
