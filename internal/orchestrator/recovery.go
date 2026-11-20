@@ -101,6 +101,12 @@ func recoveringValue[T any](ctx context.Context, a *activeRun, boundary string, 
 func recoveringTrackerWrite[T any](ctx context.Context, a *activeRun, landed func(context.Context) (T, bool, error), attempt func(context.Context) (T, error)) (T, error) {
 	attempted := false
 	ask := func(ctx context.Context) (T, error) {
+		// A tracker call already made is let finish when the run is stopped under
+		// it, as for a restart onto a new build: a `bd` killed part-way is a write
+		// nobody can say landed, and a run ended on it is ended on the restart's
+		// account rather than the tracker's (finishingStep).
+		ctx, finished := finishingStep(ctx, startedTrackerCallGrace)
+		defer finished()
 		if attempted {
 			value, found, err := landed(ctx)
 			if err != nil {

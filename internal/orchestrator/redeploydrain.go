@@ -68,12 +68,55 @@ func drainedForRedeploy(ctx context.Context) (RedeployDrain, bool) {
 	return RedeployDrain{}, false
 }
 
-// redeployCommitTimeout bounds the commit a developer attempt stopped for a
-// redeploy is given of what it left in the worktree. The commit is made under
-// a context the stop did not cancel, so it needs a bound of its own; a commit
-// that does not finish inside it is not lost, because the worktree still holds
-// the change and the continuation's own attempt commits it.
+// redeployCommitTimeout bounds how long the commit of what a developer attempt
+// left in the worktree is given to finish once its run is stopped, for a
+// redeploy or otherwise (commitAttempt). The commit is made under a context the
+// stop does not cancel at once, so it needs a bound of its own; a commit that
+// does not finish inside it is not lost, because the worktree still holds the
+// change and the continuation's own attempt commits it.
 const redeployCommitTimeout = time.Minute
+
+// startedTrackerCallGrace is how long a tracker call a run has made is given to
+// finish once the run is stopped under it. It is well inside the two minutes a
+// process asked to stop gives itself (shutdown.Grace), so the call ends and the
+// stop is recorded before the process does.
+const startedTrackerCallGrace = time.Minute
+
+// finishingStep is the context a step the harness has started runs under when
+// stopping it part-way would cost more than letting it end: the commit of what
+// a developer attempt left in the worktree (commitAttempt), and a run's tracker
+// write (recoveringTrackerWrite). A stop of ctx — a restart onto a new build, or
+// the process being asked to stop — does not reach the step's commands at once.
+// They are given grace from that moment to finish, and only then cancelled, with
+// ctx's cause; a step begun after the stop is given the same grace from its
+// start. A step whose ctx is never stopped runs as it would have under ctx. What
+// the run does next meets the stop as it always did, so the run is still
+// stopped, between steps rather than inside one. The returned function is owed
+// once the step returns.
+func finishingStep(ctx context.Context, grace time.Duration) (context.Context, context.CancelFunc) {
+	step, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	var mu sync.Mutex
+	var overdue *time.Timer
+	release := context.AfterFunc(ctx, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if step.Err() != nil {
+			return
+		}
+		overdue = time.AfterFunc(grace, func() {
+			cancel(fmt.Errorf("the step was given %s to finish after it was asked to stop, and had not: %w", grace, context.Cause(ctx)))
+		})
+	})
+	return step, func() {
+		release()
+		mu.Lock()
+		defer mu.Unlock()
+		if overdue != nil {
+			overdue.Stop()
+		}
+		cancel(context.Canceled)
+	}
+}
 
 // landingNoticeKey is the context key a hosting session's landing notice
 // travels under.
@@ -107,13 +150,76 @@ type hostedLandings struct {
 	mu      sync.Mutex
 	landing map[int]bool
 	yields  map[int]*checkYield
+	// move is the session's move onto a new build, once it has found one to
+	// move onto, and clock what dates a stop made for it. A session asked to
+	// stop while it is moving — the supervisor restarting a scheduler that has
+	// gone past its limit for the move — stops its runs for the move rather
+	// than as cancelled (stopCause).
+	move  *RedeployDrain
+	clock func() time.Time
+}
+
+// moving records that the session is moving onto a new build, under bound,
+// so that its own stop from here is the move's (stopCause). It is called again
+// whenever the bound is read, so a lengthened bound is the one recorded.
+func (h *hostedLandings) moving(bound time.Duration, sessionID string, clock func() time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.move = &RedeployDrain{Bound: bound, SessionID: sessionID}
+	h.clock = clock
+}
+
+// stopCause is what a hosted run is stopped with when the session's own
+// context ends: the session's own cause, unless the session was moving onto a
+// new build, in which case the stop is the move's. The supervisor restarts a
+// scheduler whose move has gone on past its limit by asking it to stop, and a
+// run stopped by that is stopped by the harness's own restart exactly as one
+// the drain bound stopped is, so it is recorded and taken up again the same
+// way rather than ended as cancelled.
+func (h *hostedLandings) stopCause(session context.Context) (error, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.move == nil {
+		return context.Cause(session), false
+	}
+	stop := *h.move
+	stop.At = time.Now()
+	if h.clock != nil {
+		stop.At = h.clock()
+	}
+	return stop, true
 }
 
 // hostedContext is the context a session hosts one run under: one of its own,
 // so the drain bound can stop it without stopping the session, carrying the
 // landing notice and the check yield the bound reaches the run through.
+//
+// The run's context carries the session's values and deadline but not its
+// cancellation directly: when the session's context ends, the run is stopped
+// with stopCause, so a session asked to stop while it moves onto a new build
+// stops its runs for the move.
 func hostedContext(ctx context.Context, index int, landings *hostedLandings) (context.Context, context.CancelCauseFunc) {
-	runCtx, cancel := context.WithCancelCause(ctx)
+	base := context.WithoutCancel(ctx)
+	endDeadline := context.CancelFunc(func() {})
+	if deadline, bounded := ctx.Deadline(); bounded {
+		base, endDeadline = context.WithDeadline(base, deadline)
+	}
+	runCtx, cancelRun := context.WithCancelCause(base)
+	release := context.AfterFunc(ctx, func() {
+		cause, moving := landings.stopCause(ctx)
+		// A session that ran out of its own deadline, and is not moving, leaves
+		// the run to the same deadline, which it carries, so the run ends timed
+		// out as it always did.
+		if !moving && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return
+		}
+		cancelRun(cause)
+	})
+	cancel := context.CancelCauseFunc(func(cause error) {
+		release()
+		cancelRun(cause)
+		endDeadline()
+	})
 	runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
 	runCtx, yield := withCheckYield(runCtx, cancel)
 	landings.mu.Lock()
@@ -287,12 +393,18 @@ func (p *passPublications) active() int {
 // is ended as cancelled with its branch and worktree preserved and its reason
 // naming the redeploy — never left in flight with a marker nothing can act on,
 // and never silently held.
-func (a *activeRun) pauseForRedeploy(drained RedeployDrain) (Outcome, error) {
+//
+// cause is what the run's step ended on. Where it is the stop itself, the run
+// stopped between steps or let the step it was in finish; anything else is a
+// step the stop cut off part-way, which is recorded in its own words
+// (redeployCutOff) and treated as the restart's, never as that step failing.
+func (a *activeRun) pauseForRedeploy(drained RedeployDrain, cause error) (Outcome, error) {
 	stopped := runstate.RedeployStop{
 		At:           a.pipeline.clock().Now(),
 		Phase:        a.state.Phase,
 		BoundSeconds: int64(drained.Bound / time.Second),
 		SessionID:    drained.SessionID,
+		CutOff:       redeployCutOff(cause),
 	}
 	if a.state.Phase == runstate.PhaseChecking {
 		stopped.Checks = stoppedChecks(drained, a.outcome.Checks)
@@ -332,6 +444,32 @@ func (a *activeRun) pauseForRedeploy(drained RedeployDrain) (Outcome, error) {
 		return a.outcome, PauseNoteError{What: "the redeploy stop", Err: err}
 	}
 	return a.outcome, nil
+}
+
+// redeployCutOff is the step a stop for a restart cut off, in the words it
+// failed with, or empty where the run ended on the stop itself.
+// A cause that joins the stop to a step's failure — a commit the stop's grace
+// ran out on — names that step. A developer or reviewer invocation the stop
+// ended is not a harness step and is not named: the run is owed that
+// invocation again, as it always was, and the provider's words for being
+// stopped say nothing about it.
+func redeployCutOff(cause error) string {
+	causes := []error{cause}
+	if joined, ok := cause.(interface{ Unwrap() []error }); ok {
+		causes = joined.Unwrap()
+	}
+	var cut []string
+	for _, each := range causes {
+		var drained RedeployDrain
+		if each == nil || errors.As(each, &drained) {
+			continue
+		}
+		if class, classified := recordedStopIn(each); classified && class == runstate.StopProvider {
+			continue
+		}
+		cut = append(cut, each.Error())
+	}
+	return oneline.Fold(strings.Join(cut, "; "), runstate.MaxRedeployCutOffBytes/2)
 }
 
 // stoppedChecks is what a stop at a run's checks did to them: the check the
@@ -390,8 +528,18 @@ func stoppedForRedeployIsResumable(state runstate.State) bool {
 // describeRedeployStop is the stop as one clause, for the reconcile listing and
 // the schedule that re-adopts the run.
 func describeRedeployStop(stopped runstate.RedeployStop) string {
-	return fmt.Sprintf("the watch session hosting it stopped it at its %s phase at %s to restart into the build deployed over it, after draining for its bound of %s",
-		stopped.Phase, stopped.At.UTC().Format(time.RFC3339), stopped.Bound())
+	return fmt.Sprintf("the watch session hosting it stopped it at its %s phase at %s to restart into the build deployed over it, after draining for its bound of %s; %s",
+		stopped.Phase, stopped.At.UTC().Format(time.RFC3339), stopped.Bound(), redeployStepSays(stopped))
+}
+
+// redeployStepSays is what became of the step the run was in when the restart
+// stopped it, in plain words: let finish, or cut off and counted as the
+// restart's own stop rather than as that step failing.
+func redeployStepSays(stopped runstate.RedeployStop) string {
+	if stopped.CutOff == "" {
+		return "no step the harness had started was cut off: the run stopped between steps, or once the step it was in had finished"
+	}
+	return "the restart cut off a step the harness had started (" + strings.TrimSuffix(stopped.CutOff, ".") + "), which counts as the harness's own restart and not as that step failing, so nothing is charged and the run is taken up again"
 }
 
 // renderRedeployStopNotes describes a run its hosting session stopped for a
@@ -413,6 +561,9 @@ func renderRedeployStopNotes(outcome Outcome) string {
 		default:
 			said += " No check was running when the run stopped, so none was cut short."
 		}
+	}
+	if stopped.CutOff != "" {
+		said += fmt.Sprintf(" The restart cut off a step the harness had started (%s). That is the harness's own restart, not that step failing.", strings.TrimSuffix(stopped.CutOff, "."))
 	}
 	said += fmt.Sprintf(" This run is waiting to resume on the new build from its %s step; no repair attempt or re-run is spent on it.", stopped.Phase)
 	if outcome.ProviderSessionID == "" && stopped.Phase == runstate.PhaseDeveloping {
