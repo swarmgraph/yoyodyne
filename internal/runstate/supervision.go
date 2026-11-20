@@ -135,6 +135,16 @@ type SupervisedChild struct {
 	// that the restart waits out, or that the child restarts itself.
 	RestartingInto string `json:"restarting_into,omitempty"`
 	Redeploy       string `json:"redeploy,omitempty"`
+	// MoveDue is when a child that moves onto a deployed build on a schedule
+	// of its own — the scheduler, under execution.build_move_interval — is due
+	// to move, for as long as it is behind and has not begun the move; MoveBy
+	// is when the supervisor restarts it into the deployed build if it has not
+	// begun by then, and MoveHeld what holds that restart, where something
+	// does. All three are empty for a child on the deployed build or already
+	// winding down for its move.
+	MoveDue  time.Time `json:"move_due,omitempty"`
+	MoveBy   time.Time `json:"move_by,omitempty"`
+	MoveHeld string    `json:"move_held,omitempty"`
 	// Restarts is how many times the supervisor has moved the child onto a
 	// deployed build, and RestartedAt when it last did. They are counted apart
 	// from Failures on purpose: a restart into a deployed build is not a death,

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/supervise"
 )
@@ -292,4 +293,65 @@ func shortRevision(revision string) string {
 		return revision[:12]
 	}
 	return revision
+}
+
+// SchedulerMove is where the scheduler's move onto the deployed build stands,
+// as the supervisor's record has it: the build the scheduler runs, the build
+// the rest of the product is on, when the move falls due under the least time
+// between moves (execution.build_move_interval), when the supervisor restarts
+// it if it has not begun by then, and what holds that restart. It is the one
+// derivation every surface reads, so a scheduler waiting out the time between
+// moves and one left behind past its move are told apart in one place.
+type SchedulerMove struct {
+	Build    string
+	Deployed string
+	Due      time.Time
+	By       time.Time
+	Held     string
+	// Waiting is a scheduler still inside the time between moves: behind, and
+	// correctly so. Overdue is one whose move has fallen due and not begun.
+	Waiting bool
+	Overdue bool
+}
+
+// SchedulerMove reads the scheduler's move from the record, and false where
+// the record says nothing about one: the scheduler is on the deployed build,
+// is already winding down for its move, or was recorded by a supervisor from
+// before the record carried it.
+func (s *Services) SchedulerMove(now time.Time) (SchedulerMove, bool) {
+	if s == nil || !s.Recorded {
+		return SchedulerMove{}, false
+	}
+	for _, child := range s.Record.Children {
+		if child.Service != config.ServiceScheduler || child.State != runstate.ChildRunning || child.MoveDue.IsZero() {
+			continue
+		}
+		move := SchedulerMove{Build: child.Build, Deployed: s.Record.Deployed, Due: child.MoveDue, By: child.MoveBy, Held: child.MoveHeld}
+		move.Waiting = now.Before(child.MoveDue)
+		move.Overdue = !move.Waiting
+		return move, true
+	}
+	return SchedulerMove{}, false
+}
+
+// Says is the scheduler left behind past its move, in plain words: the build
+// it is on, the build the rest of the product is on, when the move was due,
+// and what happens next.
+func (m SchedulerMove) Says() string {
+	said := fmt.Sprintf("the scheduler cannot move onto a new build when due: it runs build %s while the rest of the product is on the deployed build %s, and its move was due at %s and has not begun",
+		shortBuild(m.Build), shortBuild(m.Deployed), localMoment(m.Due))
+	switch {
+	case m.Held != "":
+		said += "; the supervisor does not restart it while " + m.Held
+	case !m.By.IsZero():
+		said += "; the supervisor restarts it into the deployed build at " + localMoment(m.By) + " if it has not moved by then"
+	}
+	return said
+}
+
+func shortBuild(build string) string {
+	if len(build) > 12 {
+		return build[:12]
+	}
+	return build
 }

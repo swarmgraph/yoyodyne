@@ -1030,3 +1030,55 @@ func TestStartThroughTheInstalledAgentWhereThisShellCannotVerify(t *testing.T) {
 		}
 	}
 }
+
+// The scheduler says when its next move onto a new build falls due, from the
+// watch log by the supervisor's own reading of it, so a scheduler on a build
+// from before a fix to when it moves is still moved when due. The move is
+// counted from a session that began on a new build without writing a restart
+// line, which is how a move the supervisor made shows, and the grace past the
+// due moment is the wind-down limit and the five minutes after it.
+func TestTheSchedulerSaysWhenItsMoveFallsDue(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	watch, err := runstate.NewWatchStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewWatchStore() error = %v", err)
+	}
+	const session = "watch-0123456789abcdef0123456789abcdef"
+	lease, taken, err := watch.Lease(session)
+	if err != nil || !taken {
+		t.Fatalf("Lease() = %t, %v, want the watch taken", taken, err)
+	}
+	defer lease.Release()
+	scheduler := schedulerChild{watch: watch, moveEvery: 3 * time.Hour, drainLimit: 15 * time.Minute}
+	var child supervise.Child = scheduler
+	if _, ok := child.(supervise.ScheduledMove); !ok {
+		t.Fatal("the scheduler cannot say when its move falls due, so a scheduler that never begins one would hold the product on its build")
+	}
+	if grace := scheduler.MoveGrace(); grace != 20*time.Minute {
+		t.Fatalf("MoveGrace() = %s, want the wind-down limit and five minutes", grace)
+	}
+
+	cancelledAt := time.Now().Add(-time.Hour).Truncate(time.Second)
+	record := func(transition runstate.WatchTransition) {
+		t.Helper()
+		transition.SchemaVersion, transition.ProductID = runstate.WatchSchemaVersion, "yoyodyne"
+		if err := watch.Record(transition); err != nil {
+			t.Fatalf("Record() error = %v", err)
+		}
+	}
+	record(runstate.WatchTransition{SessionID: "watch-00000000000000000000000000000000", State: runstate.WatchWatching, At: cancelledAt.Add(-4 * time.Hour), Build: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Reason: "watching the backlog until stopped"})
+	record(runstate.WatchTransition{SessionID: "watch-00000000000000000000000000000000", State: runstate.WatchStopped, At: cancelledAt, Build: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Reason: "the scheduler was cancelled"})
+	record(runstate.WatchTransition{SessionID: session, State: runstate.WatchWatching, At: cancelledAt.Add(time.Minute), Build: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Reason: "watching the backlog until stopped"})
+	next, windingDown, err := scheduler.NextMove(context.Background())
+	if err != nil || windingDown || !next.Equal(cancelledAt.Add(time.Minute+3*time.Hour)) {
+		t.Fatalf("NextMove() = %s, %t, %v; want three hours after the session on the new build began, %s, and no wind-down", next, windingDown, err, cancelledAt.Add(time.Minute+3*time.Hour))
+	}
+
+	record(runstate.WatchTransition{SessionID: session, State: runstate.WatchWatching, At: cancelledAt.Add(2 * time.Minute), Build: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Reason: "draining",
+		Draining: &runstate.WatchDrain{Since: cancelledAt.Add(2 * time.Minute), BoundSeconds: 900, Until: cancelledAt.Add(17 * time.Minute), Hosting: 1}})
+	if _, windingDown, err := scheduler.NextMove(context.Background()); err != nil || !windingDown {
+		t.Fatalf("NextMove() winding down = %t, %v; want the session's wind-down read", windingDown, err)
+	}
+}

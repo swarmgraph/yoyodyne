@@ -482,6 +482,11 @@ func (o Observer) readServices(r *reading, standing readmodel.Standing) {
 	for _, reader := range readers {
 		counts[reader.Service]++
 	}
+	// The scheduler moves onto a new build at most once every
+	// execution.build_move_interval, so its copy being on an old build is
+	// either it waiting that out, which is not a problem, or it left behind
+	// past its move, which is said with when the move was due.
+	move, moveKnown := services.SchedulerMove(r.now)
 	for _, reader := range readers {
 		found := service(reader.Service)
 		copied := Copy{PID: reader.PID, Build: reader.Build, StartedAt: reader.StartedAt, ConfigFile: reader.ConfigPath,
@@ -496,8 +501,18 @@ func (o Observer) readServices(r *reading, standing readmodel.Standing) {
 		}
 		copyName := fmt.Sprintf("pid-%d-%d", reader.PID, reader.StartedAt.Unix())
 		who := fmt.Sprintf("the %s copy with pid %d, started %s", reader.Service, reader.PID, reader.StartedAt.Local().Format("2006-01-02 15:04 MST"))
+		scheduler := reader.Service == string(config.ServiceScheduler) && copied.Supervised && moveKnown
 		if len(r.restricted) == 0 {
 			switch {
+			case copied.BuildIs == "old" && scheduler && move.Waiting:
+				// Waiting out the time between moves, as it should.
+			case copied.BuildIs == "old" && scheduler && move.Overdue:
+				needs := "the supervisor restarts the scheduler into the deployed build once its move is past its grace"
+				if move.Held != "" {
+					needs = "the supervisor restarts the scheduler into the deployed build once what holds restarts clears"
+				}
+				r.add(Anomaly{Classification: ClassOldBuild, Identity: Identity{Condition: "scheduler-move-overdue:" + move.Deployed},
+					Says: move.Says(), Owner: ownership.MoverDevelopmentManager, Needs: needs})
 			case copied.BuildIs == "old":
 				needs := "the supervisor moves the copy it runs onto the build on disk when it restarts it"
 				if !copied.Supervised {

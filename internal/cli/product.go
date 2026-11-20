@@ -1087,6 +1087,8 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				environ:    p.environ,
 				logRoot:    p.stateRoot,
 				log:        home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + schedulerLogFile,
+				moveEvery:  p.resolved.Config.Execution.BuildMoveEvery(),
+				drainLimit: p.resolved.Config.Execution.RedeployDrainLimit.Duration(),
 			})
 		case config.ServiceDashboard:
 			// `yoyo dashboard` on the configured port, started and confirmed ready
@@ -1251,6 +1253,12 @@ type schedulerChild struct {
 	environ    []string
 	logRoot    string
 	log        string
+	// moveEvery and drainLimit are execution.build_move_interval and
+	// execution.redeploy_drain_limit as the supervisor read them: when a move
+	// onto a new build falls due, and how long past that the scheduler is left
+	// to have made it (NextMove, MoveGrace).
+	moveEvery  time.Duration
+	drainLimit time.Duration
 }
 
 func (schedulerChild) Name() config.ServiceName { return config.ServiceScheduler }
@@ -1316,7 +1324,7 @@ func (schedulerChild) Busy(context.Context) (string, error) { return "", nil }
 // started from replaced, stops pulling, waits out the runs it hosts, and
 // re-executes in place. Stopping it instead would cancel those runs.
 func (schedulerChild) RestartsItself() string {
-	return "the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit"
+	return "the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit, or has not begun its move that long after the move fell due"
 }
 
 // RestartOverdue is the watching session having been past its wind-down limit
@@ -1339,6 +1347,51 @@ func (c schedulerChild) RestartOverdue(_ context.Context, now time.Time) (string
 	}
 	return fmt.Sprintf("has been past its limit for winding down to move onto a new build for %s, since %s, without restarting itself",
 		due.Past.Round(time.Second), due.Limit.Local().Format("15:04 MST")), nil
+}
+
+// NextMove is the earliest the watching session may next move onto a new
+// build, counted from its last move in the watch log the way the session
+// counts it (runstate.LastBuildMove), and whether the session holding the
+// watch lease has already begun winding down for a move. It is read here, by
+// the supervisor's build, so a scheduler on a build from before a fix to when
+// it moves is still moved when its move is due.
+func (c schedulerChild) NextMove(context.Context) (time.Time, bool, error) {
+	holder, found, err := c.watch.Holder()
+	if err != nil || !found {
+		return time.Time{}, false, err
+	}
+	sessions, err := c.watch.List()
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	windingDown := false
+	for _, live := range readmodel.Live(sessions) {
+		if live.SessionID == holder.SessionID {
+			windingDown = live.Draining != nil && !live.Draining.Until.IsZero()
+			break
+		}
+	}
+	last := runstate.LastBuildMove(sessions, "", time.Time{})
+	if last.IsZero() {
+		return time.Time{}, windingDown, nil
+	}
+	every := c.moveEvery
+	if every <= 0 {
+		every = config.DefaultBuildMoveInterval.Duration()
+	}
+	return last.Add(every), windingDown, nil
+}
+
+// MoveGrace is the scheduler's wind-down limit and the five minutes past it
+// the supervisor waits before restarting a session stuck winding down: a
+// session that has not even begun its move that long after it fell due is
+// given no longer than one that began on time.
+func (c schedulerChild) MoveGrace() time.Duration {
+	drain := c.drainLimit
+	if drain <= 0 {
+		drain = config.DefaultRedeployDrainLimit()
+	}
+	return drain + readmodel.DrainRestartAfter
 }
 
 func (c schedulerChild) Stop(ctx context.Context) (supervise.Stopped, error) {

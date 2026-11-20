@@ -2123,6 +2123,14 @@ found, and a missing configuration file are each a condition. So is each
 maintenance pass failure since your last pass that no finding has carried to a
 role yet; the ones a finding carries are listed as delivered.
 
+The scheduler is the one exception about old builds. It moves onto a new build
+at most once every `execution.build_move_interval`, so while the supervisor's
+record says its move is not yet due, its copy on an old build is not a
+condition. Once the move has fallen due and not begun, it is a condition that
+says the build the scheduler runs, the build the rest of the product is on,
+when the move was due, and when the supervisor restarts it, or what holds that
+restart.
+
 A developer slot the scheduler left empty while ready work waited is a
 condition too, needing an action: it carries the reason the scheduler recorded
 — a hold on new work and who placed it, a rule keeping work out and which item
