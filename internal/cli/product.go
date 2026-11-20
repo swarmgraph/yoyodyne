@@ -787,6 +787,7 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	}
 	pass := &maintain.Pass{
 		RunIndex:   runIndex,
+		Runs:       runIndex,
 		Product:    productID,
 		Every:      maintenance.Every.Duration(),
 		Program:    p.program,

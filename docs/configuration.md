@@ -7977,10 +7977,11 @@ agents:
   provider home made there, are nowhere the server checks, and the folder is
   removed with the run's worktree
   ([the ruling](decisions/developer-run-scratch-outside-git.md)). Scratch
-  folders that runs from before this were given under `.git` stay until they
-  are removed by hand or with their worktree; after each developer turn the
-  harness still clears links leading outside `.git` from the current run's old
-  folder, should it have one.
+  folders that runs from before this were given under `.git` are removed by
+  the supervisor's maintenance pass, in its `scratch` step, once each
+  folder's run has ended
+  ([the maintenance pass](operations.md#the-supervisors-maintenance-pass)); a folder whose run is still going
+  is left until it ends.
 - `yoyo config show` reports each agent's MCP tools beside its other tools, and
   `yoyo doctor` reports each server whose credential is missing, naming the
   server and the command to run. A missing credential stops nothing else.
