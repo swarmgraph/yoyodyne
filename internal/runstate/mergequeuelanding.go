@@ -520,7 +520,8 @@ const (
 	// something other than a defect — its head to be rewritten, or the entry to
 	// move to the other queue mode — and that leaves the queue for whatever asked
 	// for the withdrawal to admit again; or an entry whose candidate the remote
-	// refused to take, or that a person handed back (`yoyo queue hand-back`),
+	// refused to take, whose reviewer answered too many times with no verdict
+	// that could be read, or that a person handed back (`yoyo queue hand-back`),
 	// which leaves the queue with its change kept for the development manager.
 	// It names no failed candidate and charges nothing.
 	MergeQueueReleased MergeQueueContinuation = "released"

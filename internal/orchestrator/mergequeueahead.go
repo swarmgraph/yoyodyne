@@ -233,9 +233,14 @@ func (w MergeQueueWorker) checkAhead(ctx context.Context, lease *runstate.Lease,
 		outcome.Generation = generation
 	}
 	var wait mergeQueueWait
+	var unreadable mergeQueueUnreadableReview
 	switch {
 	case errors.As(err, &wait):
 		return skip(wait.reason)
+	case errors.As(err, &unreadable):
+		// Nothing is handed back for a candidate checked ahead; the entry is handed
+		// back when it is the one worked, from the same count on its record.
+		return skip(unreadable.reason + "; the entry is handed back when the queue reaches it")
 	case err != nil:
 		return stopped(err)
 	case moved:

@@ -206,10 +206,16 @@ func undecodable(cause error) error {
 // A verdict written inside one Markdown code fence is read as the bare verdict
 // it encloses, for the same reason: the fence is formatting around the document
 // rather than a different document, and the contract's ban on it is about how
-// the reply should look, not about what it decides. Only a fence around the
-// whole reply is lifted — prose beside a fenced verdict is still not a single
-// JSON document — so nothing this accepts was ambiguous about what the
-// reviewer decided.
+// the reply should look, not about what it decides.
+//
+// A reply that is not one JSON document is read as the one verdict object it
+// carries, where it carries exactly one: words before or after the verdict, or
+// a fence with words around it, are how the reply looks, and the object is what
+// it decides. A verdict object is a JSON object with a "decision" field; one
+// nested inside another JSON object is not counted. A reply with none, or with
+// more than one, is unreadable, because which verdict the reviewer meant would
+// be a guess, so nothing this accepts was ambiguous about what the reviewer
+// decided.
 func Decode(data []byte) (Verdict, []string, error) {
 	if len(data) == 0 {
 		return Verdict{}, nil, undecodable(errors.New("input is empty"))
@@ -217,15 +223,23 @@ func Decode(data []byte) (Verdict, []string, error) {
 	if len(data) > MaxVerdictBytes {
 		return Verdict{}, nil, undecodable(fmt.Errorf("input is %d bytes, limit is %d", len(data), MaxVerdictBytes))
 	}
+	reply := data
 	data = unfence(data)
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	var verdict Verdict
-	if err := decoder.Decode(&verdict); err != nil {
-		return Verdict{}, nil, undecodable(err)
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return Verdict{}, nil, undecodable(errors.New("unexpected trailing content after the verdict"))
+	verdict, err := decodeDocument(data)
+	if err != nil {
+		objects := verdictObjects(reply)
+		switch len(objects) {
+		case 0:
+			return Verdict{}, nil, undecodable(err)
+		case 1:
+			data = objects[0]
+			if verdict, err = decodeDocument(data); err != nil {
+				return Verdict{}, nil, undecodable(err)
+			}
+		default:
+			return Verdict{}, nil, undecodable(fmt.Errorf("the reply holds %d verdict objects, so which one is the verdict cannot be told", len(objects)))
+		}
 	}
 	// The drift is reported whatever becomes of the verdict beside it: a reviewer
 	// that embellished the schema did so whether or not what it decided survives
@@ -237,11 +251,53 @@ func Decode(data []byte) (Verdict, []string, error) {
 	return verdict, unknown, nil
 }
 
+// decodeDocument decodes data as exactly one JSON document in the verdict's
+// shape, refusing anything after it.
+func decodeDocument(data []byte) (Verdict, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	var verdict Verdict
+	if err := decoder.Decode(&verdict); err != nil {
+		return Verdict{}, err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return Verdict{}, errors.New("unexpected trailing content after the verdict")
+	}
+	return verdict, nil
+}
+
+// verdictObjects returns each JSON object in the reply that carries a
+// "decision" field, in order, reading the reply from each opening brace that is
+// not inside an object already found. Any whole JSON object is passed over as
+// one piece, so a verdict nested inside another object is not counted, and an
+// opening brace that begins no JSON object is passed over alone.
+func verdictObjects(reply []byte) [][]byte {
+	var found [][]byte
+	for at := 0; at < len(reply); {
+		open := bytes.IndexByte(reply[at:], '{')
+		if open < 0 {
+			break
+		}
+		start := at + open
+		decoder := json.NewDecoder(bytes.NewReader(reply[start:]))
+		var object map[string]json.RawMessage
+		if err := decoder.Decode(&object); err != nil {
+			at = start + 1
+			continue
+		}
+		end := start + int(decoder.InputOffset())
+		if _, ok := object["decision"]; ok {
+			found = append(found, reply[start:end])
+		}
+		at = end
+	}
+	return found
+}
+
 // unfence returns what one code fence around the whole reply encloses, and the
 // reply unchanged where it is not exactly that. The opening line is three or
 // more backticks followed by nothing or by "json", in any case, and the closing
 // line is backticks alone; anything outside the pair leaves the reply as it
-// was, so the decoder refuses it as it always has.
+// was, and Decode looks for the one verdict object in it instead.
 func unfence(data []byte) []byte {
 	trimmed := bytes.TrimSpace(data)
 	opening, body, found := bytes.Cut(trimmed, []byte("\n"))

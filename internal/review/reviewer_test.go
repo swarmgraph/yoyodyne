@@ -922,6 +922,22 @@ func TestReviewDoesNotAdvanceSequenceWhenCompletionEventIsRejected(t *testing.T)
 	}
 }
 
+// An approval the reviewer prefaced with a sentence is the approval: the words
+// are how the reply looks, and the one verdict object in it is what it decides.
+func TestReviewReadsAnApprovalWithASentenceBeforeIt(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: "The change does what the item asks and the checks passed.\n\n" +
+		`{"decision":"approve","approves":"implementation","summary":"fine"}`}
+	result, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), newRequest(nil))
+	if err != nil {
+		t.Fatalf("Review() error = %v, want the approval read", err)
+	}
+	if result.Decision != DecisionApprove || result.Verdict.Summary != "fine" {
+		t.Fatalf("Review() = %#v, want the approval after the sentence", result)
+	}
+}
+
 func TestReviewRejectsUnusableProviderOutput(t *testing.T) {
 	t.Parallel()
 
@@ -936,9 +952,9 @@ func TestReviewRejectsUnusableProviderOutput(t *testing.T) {
 			want:     "decode review verdict",
 		},
 		{
-			name:     "trailing prose",
-			provider: &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"} Hope that helps!`},
-			want:     "trailing content",
+			name:     "two verdicts among prose",
+			provider: &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"} or perhaps {"decision":"escalate","summary":"unsure"}`},
+			want:     "the reply holds 2 verdict objects",
 		},
 		{
 			name:     "oversized",
