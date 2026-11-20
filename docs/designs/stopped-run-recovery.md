@@ -54,6 +54,10 @@ revisions:
       by: architect
       at: 2026-11-20T16:30:17.009052Z
       reason: 'amendment-7727641a, approved Nov 19, from the developer of the extra-attempts build (yoyodyne-ifd.432.25.13): the paragraph saying the operator types a raise past the development manager''s five until the build lands is replaced by one saying the harness carries out the Lead Product Manager''s raise, tells the operator afterwards and refuses a raise past ten, so it is no longer a case for the operator''s hand. Read at commit bba1815a. Held until that build closes; the ownership design''s matching revision (document-3150.1) is held the same way. No other text in the subsection or the design changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T18:08:30.003049Z
+      reason: 'Part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): step 4''s list of what it reads used the retired word for a required check, and now says required checks. Read whole at commit 5d0520ed. No other text in the section or the design changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -115,6 +119,11 @@ approvals:
       by: harness
       at: 2026-11-20T16:30:17.009052Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3153, for document-3153.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-11-20T18:08:30.003049Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3195, for document-3195.1 under the automatic approval policy
 ---
 # Stopped run recovery: every step from the stop to the run going on, and what each step may never do
 
@@ -287,7 +296,7 @@ Must never: decide on an entry whose stop a later stop has replaced (refused as 
 
 ## Step 4: carrying out the decision
 
-Reads: the decision, the run under its lease, and the current dependencies, holds and gates that apply.
+Reads: the decision, the run under its lease, and the current dependencies, holds and required checks that apply.
 
 Writes: the act, recorded before it is taken and its result after, then a check of the outcome with `run.verify`. The decision is carried out when the check reports met. Until then the entry stays listed with the decision shown as being carried out.
 
