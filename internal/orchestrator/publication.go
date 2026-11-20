@@ -875,6 +875,7 @@ func (r Reconciler) finishPublication(ctx context.Context, answers forgeAnswers,
 	published.MergeCommit = confirmed
 	state.PullRequest = &published
 	settlement.MergeCommit = confirmed
+	r.Landings.ConfirmRun(ctx, r.Worktrees, state, published.Number, confirmed)
 	// The merge is confirmed on the remote, so the local branch may be behind it
 	// by the forge's merge commit. Catching it up is idempotent and takes the
 	// branch's promotion lease, and a held catch-up is a fact to report rather

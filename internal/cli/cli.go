@@ -114,6 +114,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return reportCosts(ctx, args[1:], stdout, stderr)
 	case "reconcile":
 		return reconcileRuns(ctx, args[1:], stdout, stderr)
+	case "merge-check":
+		return mergeCheck(ctx, args[1:], stdout, stderr)
 	case "forge-check":
 		return checkForge(ctx, args[1:], stdout, stderr)
 	case "pull-request":
@@ -952,6 +954,7 @@ Commands:
   review            review what a branch accumulated over a base, as one change
   cost              price work items from the runs made for them, and record it
   reconcile         settle interrupted runs, then converge local state on the forge
+  merge-check       check landings through pull requests since a time against the candidates that were checked
   forge-check       read the pull requests waiting for a person, and act on what changed
   pull-request      record which pull request into the team's branch carries items waiting for the team's merge
   tracker export    export the tracker into this checkout, as a commit carrying the export needs

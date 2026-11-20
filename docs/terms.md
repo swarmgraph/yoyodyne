@@ -261,7 +261,7 @@ for.
 `grep-resistant` `hand-edit` `hand-written` `heavy-checks` `high-judgment` `high-risk`
 `highest-priority` `html-comment` `img-src` `input-token` `intra-document`
 `intra-file` `local-timezone` `long-running` `long-term` `low-cost` `lower-case`
-`lowest-cost` `ls-tree` `machine-readably` `merge-queue` `minute-long`
+`lowest-cost` `ls-tree` `machine-readably` `merge-check` `merge-queue` `minute-long`
 `mirror-image` `mis-selection` `month-old` `near-autonomous` `near-misses`
 `near-term` `nearly-every` `network-bind` `network-inbound` `network-outbound`
 `newly-available` `operating-system` `opt-in`

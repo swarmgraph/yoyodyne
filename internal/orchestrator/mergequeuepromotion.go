@@ -73,6 +73,9 @@ type MergeQueueLander interface {
 	ConfirmRemoteTarget(ctx context.Context, integration gitworktree.Integration, mergeCommit string) (string, error)
 	CatchUpTarget(ctx context.Context, targetBranch string) (gitworktree.Catchup, error)
 	CandidatePaths(ctx context.Context, base, candidate string) ([]string, error)
+	// CheckMergeCommit compares a landed merge with the candidate it merged
+	// (mergequeueconfirm.go).
+	CheckMergeCommit(ctx context.Context, mergeCommit, recordedBase, candidate string) (gitworktree.MergeCheck, error)
 }
 
 // MergeQueueLandingRecords is the queue's durable half a promotion works
@@ -176,6 +179,10 @@ type MergeQueuePromotion struct {
 	// up: Promote goes on to the entry behind it, and the next call tries the
 	// work item again (recordCompletion).
 	Unrecorded string
+	// Unreported is a difference found between the landed merge and the candidate
+	// that was checked, or a check that could not be made, whose report could not
+	// be kept. It holds nothing up: the merge has landed.
+	Unreported string
 	// ForgeHeldSince is when the forge took the merge it holds queued, set
 	// beside Waiting on such a merge; Dropped is a merge the forge stopped
 	// holding without making, set beside Unresolved. Both are what the driver
@@ -1133,6 +1140,16 @@ func (q *queuePromotion) confirmWith(ctx context.Context, mergeCommit string, me
 		q.outcome.Unresolved = fmt.Sprintf("the remote %s holds the change from pull request %d, and nothing names the combined commit the forge's merge queue landed it in; the landing is recorded once that commit is known",
 			q.key.TargetBranch, attempt.PullRequest)
 		return nil
+	}
+	if attempt.Path.ThroughForge() && attempt.Path != runstate.MergeQueueLandThroughForgeQueue && attempt.Landed == nil {
+		// The merge is the one this attempt's candidate landed in; where the
+		// forge left the candidate itself as the target's tip there is no
+		// separate merge commit and the candidate is what is compared.
+		merge := nonEmpty(remoteMerge, attempt.Candidate)
+		_, _, filed := q.p.Pipeline.confirmMergeCommit(ctx, q.p.Lander, q.entry.WorkItemID, merge, attempt.TargetBase, attempt.Candidate, attempt.PullRequest)
+		if filed != nil {
+			q.outcome.Unreported = filed.Error()
+		}
 	}
 	return q.land(remoteMerge, mergedAt)
 }

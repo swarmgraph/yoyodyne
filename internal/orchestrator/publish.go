@@ -572,6 +572,7 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 	}
 	published.Merged = true
 	published.MergeCommit = remoteTarget
+	a.pipeline.landingReporter().ConfirmRun(ctx, a.pipeline.Worktrees, a.state, published.Number, remoteTarget)
 	// The merge left the remote one commit ahead of the local target, so the
 	// branch a person reads is now behind the forge by the commit the forge made
 	// of this very promotion. Catching it up is the last step of the promotion
