@@ -1008,6 +1008,9 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		ConfigFiles:     parts.worktrees,
 		ConfigReaders:   landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
 		Publisher:       forge,
+		// A merge of a run's pull request that is not the revision its review
+		// judged is filed as a critical report.
+		Landings: orchestrator.LandingReporter{Reports: parts.reports, Build: buildinfo.Commit(), ProductID: parts.config.Product.ID, RepositoryID: string(parts.config.Product.RepositoryID)},
 		// A run whose approved change waits in the harness's merge queue is read
 		// against the queue, so it is left waiting while its entry stands.
 		MergeQueues: mergeQueuesOf(parts),

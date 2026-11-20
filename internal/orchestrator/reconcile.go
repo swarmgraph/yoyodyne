@@ -196,6 +196,10 @@ type Reconciler struct {
 	// converges exactly as it did and lifts nothing.
 	Divergences ReconcileDivergences
 	Clock       execution.Clock
+	// Landings files the report on a merge of a run's pull request that is not
+	// the revision the run's review judged (mergequeueconfirm.go). The zero
+	// value has nowhere to keep one; a sweep wired without it checks nothing.
+	Landings LandingReporter
 	// Sleep is the wait between two attempts at a boundary that failed on
 	// something a later attempt may survive. It is here for the reason the
 	// pipeline's is: a test must be able to take the backoff without taking the
@@ -1778,6 +1782,7 @@ func (r Reconciler) confirmQueuedPublication(ctx context.Context, state runstate
 		return fmt.Errorf("confirm the queued merge reached %s: %w", state.Integration.TargetBranch, err)
 	}
 	published.MergeCommit = remoteTarget
+	r.Landings.ConfirmRun(ctx, r.Worktrees, state, published.Number, remoteTarget)
 	return nil
 }
 

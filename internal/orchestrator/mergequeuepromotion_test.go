@@ -8,6 +8,8 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/queuemode"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -414,6 +417,57 @@ func TestAProtectedTargetLandsThroughThePullRequestAndFollowsOnlyAfterConfirmati
 	if completion.Path != runstate.MergeQueueLandThroughPullRequest || completion.RemoteMerge != remote || completion.PullRequest == "" {
 		t.Fatalf("completion = %#v, want the pull-request path and the forge's merge named", completion)
 	}
+}
+
+// A candidate the forge merges onto a target that moved since it was checked
+// is not the revision that was checked, and the landing files one critical
+// report naming the merge. One merged on the base it was checked on files none.
+func TestALandingThroughAPullRequestIsConfirmedAgainstTheCheckedBase(t *testing.T) {
+	t.Parallel()
+	for _, moved := range []bool{false, true} {
+		name := "on the recorded base"
+		if moved {
+			name = "after the target moved"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newPromotionFixture(t, landProtected)
+			reports := &keptMergeReports{}
+			f.promoter.Pipeline.Reports = reports
+			f.verify()
+			f.forge.QueueMerge = true
+			if waiting, err := f.promote(); err != nil || waiting.Waiting == "" {
+				t.Fatalf("Promote() = %#v, %v; want the queued merge waited for", waiting, err)
+			}
+			if moved {
+				pushUnrelatedCommit(t, f.remote)
+			}
+			f.forge.PerformQueuedMerge(t)
+			if landed, err := f.promote(); err != nil || !landed.Landed {
+				t.Fatalf("Promote() after the merge = %#v, %v; want it landed", landed, err)
+			}
+			merge := gitLine(t, f.remote, "rev-parse", "main")
+			switch {
+			case !moved && len(reports.kept) != 0:
+				t.Fatalf("reports = %#v, want none for a merge on the recorded base", reports.kept)
+			case moved && (len(reports.kept) != 1 || reports.kept[0].Severity != report.SeverityCritical || !strings.Contains(reports.kept[0].Message, merge)):
+				t.Fatalf("reports = %#v, want one critical report naming the merge %s", reports.kept, merge)
+			}
+		})
+	}
+}
+
+// pushUnrelatedCommit moves the remote's main with a commit nobody checked.
+func pushUnrelatedCommit(t *testing.T, remote string) {
+	t.Helper()
+	clone := filepath.Join(t.TempDir(), "elsewhere")
+	runPipelineGit(t, remote, "clone", "-q", remote, clone)
+	if err := os.WriteFile(filepath.Join(clone, "elsewhere.txt"), []byte("somebody else's change\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runPipelineGit(t, clone, "add", ".")
+	runPipelineGit(t, clone, "-c", "user.name=Else", "-c", "user.email=else@example.invalid", "commit", "-q", "-m", "elsewhere")
+	runPipelineGit(t, clone, "push", "-q", "origin", "HEAD:refs/heads/main")
 }
 
 // A change already admitted when its target comes to require the forge's own
@@ -1140,4 +1194,44 @@ func stopAround(when string, do func() error) error {
 		return errStopped
 	}
 	return do()
+}
+
+// A run's own pull request that the forge merges after the target moved is not
+// the revision the run's review judged, and the settlement that confirms the
+// merge files one critical report naming it. One merged on the base the run
+// was reviewed on files none.
+func TestTheSettlementOfARunsPullRequestChecksTheMergeAgainstItsReview(t *testing.T) {
+	t.Parallel()
+	for _, moved := range []bool{false, true} {
+		name := "merged on the reviewed base"
+		if moved {
+			name = "merged after the target moved"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newQueuedFixture(t)
+			protectBranch(t, fixture.remote, "main")
+			fixture.forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "branch protection"})
+			reports := &keptMergeReports{}
+			fixture.landings = LandingReporter{Reports: reports, ProductID: "example", RepositoryID: "example"}
+			fixture.run(t)
+			if moved {
+				// Written into the remote directly, as a person's merge on the
+				// forge is, because the remote's rule refuses a push.
+				tip := gitLine(t, fixture.remote, "rev-parse", "refs/heads/main")
+				next := gitLine(t, fixture.remote, "-c", "user.name=Else", "-c", "user.email=else@example.invalid",
+					"commit-tree", tip+"^{tree}", "-p", tip, "-m", "somebody else's merge")
+				runPipelineGit(t, fixture.remote, "update-ref", "refs/heads/main", next, tip)
+			}
+			fixture.forge.PerformQueuedMerge(t)
+			fixture.reconcile(t)
+			merge := gitLine(t, fixture.remote, "rev-parse", "main")
+			switch {
+			case !moved && len(reports.kept) != 0:
+				t.Fatalf("reports = %#v, want none for a merge on the reviewed base", reports.kept)
+			case moved && (len(reports.kept) != 1 || reports.kept[0].Severity != report.SeverityCritical || !strings.Contains(reports.kept[0].Message, merge)):
+				t.Fatalf("reports = %#v, want one critical report naming the merge %s", reports.kept, merge)
+			}
+		})
+	}
 }

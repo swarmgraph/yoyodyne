@@ -949,6 +949,28 @@ change and acts on it again without writing a second note. Neither stops a run
 or holds back other work. Run `yoyo forge-check` yourself to check the forge
 now; it is safe to run beside the supervisor's own checks.
 
+### Confirming what a pull request landed
+
+The target branch does not require a pull request to be up to date with it, so
+GitHub can merge a change onto a base nobody checked. After every landing through
+a pull request the harness reads the merge commit and checks two things: that its
+first parent is the base the change was checked and reviewed on, and that the
+merge changed exactly the files the change changed, with the same content. For a
+merge queue candidate the base is the one the queue recorded; for a run's own
+pull request it is the base and head the run's review recorded. If either
+differs, the harness files one critical report naming the merge and what
+differed, because the revision that landed is not the one that was reviewed and
+checked. A check that could not be made files a warning instead, and never holds
+the landing up: the merge has already happened.
+
+`yoyo merge-check --since <time>` makes the same check over the landings already
+on the target branch since a time written as RFC 3339 with its zone, prints each
+one and how it came out, and files each difference the same way. A landing the
+harness recorded no review for, such as a pull request a person opened, is listed
+as not checked, with the reason. It reads Git in this repository, so run
+`git fetch` first to include landings the local copy of the remote does not yet
+have.
+
 ## Setting up with `yoyo setup`
 
 `yoyo setup` walks a project to an installation that can run work, as
