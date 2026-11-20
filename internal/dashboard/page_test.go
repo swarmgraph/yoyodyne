@@ -1,6 +1,6 @@
 package dashboard
 
-// These tests are the evidence for the page: its nine sections, each with an
+// These tests are the evidence for the page: its eight sections, each with an
 // empty, a loading, and an error state beside its ready one, and the merge
 // queues shown only where there are any, rendered from the read model and from
 // nothing else.
@@ -42,11 +42,11 @@ import (
 
 var updateRenders = flag.Bool("update-renders", false, "rewrite the rendered pages under testdata/renders from the fixtures")
 
-// sections are the nine the page carries, by the id each carries in the
+// sections are the eight the page carries, by the id each carries in the
 // shell: the owner summary that opens it, the five the design names, the spend
-// box above Running now, and the factory problems and program managers under
-// Provider capacity.
-var sections = []string{"summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"}
+// box above Running now, and the program managers under the problems section,
+// into which provider capacity is folded.
+var sections = []string{"summary", "band", "spend", "live", "pipeline", "throughput", "factory", "managers"}
 
 // shownWhenPresent are the sections the page shows only where the product has
 // what they list, and hides otherwise, so a page without them is the page it
@@ -88,7 +88,7 @@ func strict(t *testing.T, name string, body []byte, into any) {
 	}
 }
 
-// The shell carries the nine sections and the hidden merge queues and MCP calls sections,
+// The shell carries the eight sections and the hidden merge queues and MCP calls sections,
 // and each of them carries its four states with the lines the script fills, so
 // a section the script has not reached yet says it is reading rather than
 // being blank.
@@ -777,7 +777,7 @@ func TestARenderWithoutNodeFailsUnlessDeclaredUnavailable(t *testing.T) {
 
 // The page's script draws every section in every state from the fixtures, and
 // what it draws is what the renders under testdata/renders hold. Each of the
-// nine sections reaches each of its four states in at least one scenario, the
+// eight sections reaches each of its four states in at least one scenario, the
 // merge queues are hidden, ready, and unreadable in at least one each, each
 // of the three pop-ups reaches each of its four and is closed in another, the
 // page reaches its own four, and no scenario sets a style or sends the token
@@ -894,7 +894,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		return string(body)
 	}
 	for scenario, expectations := range map[string][]string{
-		"pass-failures":            {"Factory problems", "maintenance has failed 5 times", "factory-flow program manager factory-flow-pm", "development manager resolves the cause"},
+		"pass-failures":            {"Problems: broken, stalled, blocked, or degraded", "Broken (1): the harness failed at its own doing", `<span class="held-state">broken</span>`, "maintenance has failed 5 times", "2026-10-04 12:00 UTC; latest 2026-10-04 12:20 UTC", "5 runs spent on it", "none admitted yet", "factory-flow program manager factory-flow-pm", "development manager resolves the cause"},
 		"pass-failures-unreadable": {"product pass failures could not be read whole: permission denied"},
 		// Each queued change by identifier and title, in the read model's words
 		// for where it stands: a change verified but not landed, and one whose
@@ -967,9 +967,18 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"operator-stop: 3, provider-idle: 1, repair-budget: 9, unknown: 4",
 			"at least $1,232.58 from 452 invocations",
 			"1 exchange record could not be read, so the cost is at least this much",
-			`<span class="held-state">capacity-blocked</span>`,
-			"What to do: nothing needs doing",
-			"no reset named, and nothing probes: the run stopped",
+			// What is broken, stalled, blocked, or degraded, one heading per
+			// kind with how many are under it; provider capacity listed as
+			// degraded, each run and conversation with the registry's owner;
+			// and the one entry that is the operator's marked as his in words.
+			"Stalled (1): nothing is moving that should",
+			"Blocked (8): a decision somebody owes is unmade",
+			"Degraded (3): running, but worse; work held on provider capacity is here",
+			`<span class="held-state">blocked, yours</span>`,
+			"the harness's — nothing needs doing: the run asks the provider again by itself",
+			"the development manager's — the run stopped and its item is back with the development manager",
+			"2 waiting behind it; stood 8d05h; money not recorded",
+			"none admitted yet",
 		},
 		// Each run names its developer slot and what that slot prefers, a slot
 		// with no preference says so, and an idle slot is still listed.
@@ -985,7 +994,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"no developer run is in flight, and no conversation has a turn in flight.",
 		},
 		"grouping-slots": {"developing, 15m elapsed, in developer slot 1, which prefers the reliability label"},
-		"quiet":          {"The harness is idle", "Nothing is running, and no conversation has a turn in flight.", "The backlog is empty", "Nothing ran in the last 7 days", "Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.", "No run or conversation is waiting on provider capacity", `<p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>`},
+		"quiet":          {"The harness is idle", "Nothing is running, and no conversation has a turn in flight.", "The backlog is empty", "Nothing ran in the last 7 days", "Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.", "Nothing is broken, stalled, blocked, or degraded: nothing waits on anybody, and no work is held on provider capacity.", `<p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>`},
 		"degraded":       {`<span class="figure">—</span>`, `<li class="stage stage-unreadable">`, "Could not be read: the admitted work could not be read", `<button class="grouping-open pile-label" type="button" data-grouping="stage:developing">developing</button>`},
 		"unreadable":     {"Could not be read: the recorded runs could not be read: open runs: input/output error", "Could not be read: the spend could not be read: open streams: input/output error", "yoyo doctor says whether bd answers in this checkout"},
 		// Nothing waits on the operator and everything waits on a role or the
@@ -998,7 +1007,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 		},
 		"held": {
-			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
+			`<p id="banner" class="banner" role="status">Every role is paused`, "Degraded (4): running, but worse; work held on provider capacity is here", "every role is held by the provider's usage limit, since 2026-09-19T12:02:00Z, until 2026-09-19T18:50:00Z", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
 			// One thing waiting, the provider holding every role, and it is the
 			// harness's rather than the operator's: the registry gives it to the
 			// harness, which resumes the roles when the limit resets.
@@ -1371,12 +1380,16 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	if strings.Contains(page("held"), "the harness pulls next") {
 		t.Errorf("the held render offers items the harness pulls next under a banner saying it is choosing nothing")
 	}
-	// A run the harness stopped is never told it asks again.
+	// A run the harness stopped is never told it asks again, and there is no
+	// section of provider capacity apart from the problems.
 	for _, scenario := range []string{"busy", "held"} {
-		for _, entry := range strings.Split(page(scenario), `<li class="held `)[1:] {
-			if strings.HasPrefix(entry, "held-capacity-blocked") && strings.Contains(entry, "it asks again at the probe interval") {
-				t.Errorf("the %s render tells a capacity-blocked run it asks again", scenario)
+		for _, entry := range strings.Split(page(scenario), `<li class="held problem problem-degraded`)[1:] {
+			if strings.Contains(entry, " stopped on ") && strings.Contains(entry, "asks the provider again by itself") {
+				t.Errorf("the %s render tells a stopped run it asks again", scenario)
 			}
+		}
+		if strings.Contains(page(scenario), "Provider capacity") || strings.Contains(page(scenario), `id="capacity"`) {
+			t.Errorf("the %s render still carries a provider capacity section", scenario)
 		}
 	}
 	// Every render is a document a browser opens as the page: the doctype, the

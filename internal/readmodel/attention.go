@@ -73,6 +73,7 @@ const (
 	AttentionLaneHumanBlock    = ownership.KindLaneHumanBlock
 	AttentionDocumentApproval  = ownership.KindDocumentApproval
 	AttentionUnreadableRun     = ownership.KindUnreadableRun
+	AttentionCapacityBlocked   = ownership.KindCapacityBlocked
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -131,6 +132,7 @@ func (a Attention) Label() string {
 		AttentionLaneHumanBlock:    "blocked on a human",
 		AttentionDocumentApproval:  "document waiting for approval",
 		AttentionUnreadableRun:     "unreadable run",
+		AttentionCapacityBlocked:   "held on provider capacity",
 	}[a.Kind]
 }
 
@@ -341,6 +343,10 @@ type Attention struct {
 	// UnreadableRun is the run record that would not read, its file, and what
 	// refused it, on an AttentionUnreadableRun entry; the run is the ID.
 	UnreadableRun *UnreadableRun `json:"unreadable_run,omitempty"`
+	// CapacityBlocked is the run or the conversation parked or held on the
+	// provider's capacity, on an AttentionCapacityBlocked entry; the run or the
+	// conversation is the ID, and a run's item is WorkItemID.
+	CapacityBlocked *CapacityBlockedEntry `json:"capacity_blocked,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -756,6 +762,10 @@ func (a Attention) What() string {
 		if a.UnreadableRun != nil {
 			return a.UnreadableRun.Says()
 		}
+	case AttentionCapacityBlocked:
+		if a.CapacityBlocked != nil {
+			return a.CapacityBlocked.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -956,6 +966,10 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — " + unreadableRunWhose
 	case AttentionCapacityDegraded:
 		return a.Mover.Possessive() + " — the limit lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
+	case AttentionCapacityBlocked:
+		if a.CapacityBlocked != nil {
+			return a.Mover.Possessive() + " — " + a.CapacityBlocked.Remedy()
+		}
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }
@@ -1426,6 +1440,10 @@ func (a Attention) ownershipRecord() ownership.Record {
 		if a.DocumentApproval != nil {
 			record.Role, record.FundamentalIntent = a.DocumentApproval.Owner, a.DocumentApproval.ProductIntent
 			record.Command = a.DocumentApproval.approveCommand()
+		}
+	case AttentionCapacityBlocked:
+		if a.CapacityBlocked != nil {
+			record.Capacity = a.CapacityBlocked.Stand()
 		}
 	}
 	return record

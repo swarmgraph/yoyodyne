@@ -757,11 +757,12 @@ func printDashboardUsage(writer io.Writer) {
 
 Serves the read model -- the same four lines and capacity state `+"`yoyo status`"+`
 reads, what the harness is spending, and what landed -- to a browser on this
-machine, at a loopback port, until stopped, as a page of nine sections: the
+machine, at a loopback port, until stopped, as a page of eight sections: the
 summary of what landed, what is moving, what is blocked, what needs you, and
 what it cost; the status band, what the harness is spending, the runs and conversations in
-flight, where admitted work stands in the pipeline, throughput, provider
-capacity, factory problems, and the program managers, with a tenth, the merge
+flight, where admitted work stands in the pipeline, throughput, the
+problems -- what is broken, stalled, blocked, or degraded, with work held on
+provider capacity among them -- and the program managers, with a ninth, the merge
 queues, shown only where the product has a merge queue record. It prints the URL and, beside it,
 where the token every request for the read model has to carry as
 `+"`Authorization: Bearer <token>`"+` comes from: with services.dashboard.token at its

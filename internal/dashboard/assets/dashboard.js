@@ -1,7 +1,7 @@
 // The page's own script: hold the token, fetch the read model with it, and
-// draw the nine sections, the summary first, and the merge queues where there are any, from what
+// draw the eight sections, the summary first, and the merge queues where there are any, from what
 // comes back. A page served without the summary (services.dashboard.hide_summary)
-// draws the other eight and never asks for it. It is served from this origin
+// draws the other seven and never asks for it. It is served from this origin
 // because the policy allows script from nowhere else.
 //
 // The token lives in localStorage and nowhere else. Local storage is scoped to
@@ -1325,87 +1325,6 @@ var standingWarningAgeSeconds = 5 * 60;
     section("throughput", "ready");
   }
 
-  // ---- section 6: provider capacity --------------------------------------
-
-  function heldEntry(kind, title, state, facts, remedyText) {
-    var entry = el("li", "held held-" + state);
-    var head = el("div", "held-head");
-    head.appendChild(el("span", "held-kind", kind));
-    head.appendChild(el("span", "held-state", state));
-    entry.appendChild(head);
-    entry.appendChild(el("h3", "held-title", title));
-    var list = el("dl", "held-facts");
-    facts.forEach(function (fact) {
-      if (fact[1] === null || fact[1] === undefined || fact[1] === "") {
-        return;
-      }
-      list.appendChild(figureRow(fact[0], fact[1]));
-    });
-    entry.appendChild(list);
-    entry.appendChild(el("p", "held-remedy", "What to do: " + remedyText));
-    return entry;
-  }
-
-  function renderCapacity() {
-    var standing = model.standing;
-    if (!standing) {
-      section("capacity", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
-      return;
-    }
-    var blocked = standing.capacity_blocked || { runs: [], conversations: [] };
-    if (blocked.runs_problem && blocked.conversations_problem) {
-      section("capacity", "error", blocked.runs_problem + "; " + blocked.conversations_problem, whatToDoAboutTheStanding());
-      return;
-    }
-    var runs = blocked.runs_problem ? [] : (blocked.runs || []);
-    var conversations = blocked.conversations_problem ? [] : (blocked.conversations || []);
-    var hold = standing.capacity_hold && standing.capacity_hold.holding ? standing.capacity_hold : null;
-    if (!hold && runs.length === 0 && conversations.length === 0 && !blocked.runs_problem && !blocked.conversations_problem) {
-      section("capacity", "empty", "No run or conversation is waiting on provider capacity, and no provider usage limit is holding every role.");
-      return;
-    }
-
-    var holdLine = document.getElementById("capacity-hold");
-    if (hold) {
-      var until = named(hold.resets_at) ? "until " + dayAndClock(hold.resets_at) : "and the provider named no reset";
-      holdLine.textContent = "Every role is held: " + count(hold.agents ? hold.agents.length : 0, "agent") + " on " + (hold.models || []).join(", ") +
-        (hold.alternates && hold.alternates.length ? ", failing over to " + hold.alternates.join(", ") : ", and none names an alternate") +
-        "; " + count(hold.refusals || 0, "turn") + " refused since " + dayAndClock(hold.since) + ", " + until + ".";
-      setHidden(holdLine, false);
-    } else {
-      holdLine.textContent = "";
-      setHidden(holdLine, true);
-    }
-    listProblems("capacity-problems", [blocked.runs_problem, blocked.conversations_problem]);
-
-    var runList = document.getElementById("capacity-runs");
-    clear(runList);
-    runs.forEach(function (run) {
-      runList.appendChild(heldEntry("run", run.work_item_id, run.state, [
-        ["Refused by", run.refused_by],
-        ["Phase", run.phase],
-        ["Since", dayAndClock(run.since)],
-        ["Resets", named(run.resets_at) ? dayAndClock(run.resets_at) : (run.state === "waiting" ? "no reset named; it asks again at the probe interval" : "no reset named, and nothing probes: the run stopped")],
-        ["Waited", age((run.waited_seconds || 0) * 1e9) + " of the pause budget"],
-        ["Change", run.preserved ? "preserved" : "not preserved"],
-        ["Run", run.run_id]
-      ], run.remedy));
-    });
-    var turnList = document.getElementById("capacity-conversations");
-    clear(turnList);
-    conversations.forEach(function (turn) {
-      turnList.appendChild(heldEntry("conversation", turn.waiting, turn.state, [
-        ["Refused by", turn.refused_by],
-        ["Model", turn.model],
-        ["Since", dayAndClock(turn.since)],
-        ["Resets", named(turn.resets_at) ? dayAndClock(turn.resets_at) : "no reset named; the next turn finds out"],
-        ["Refusals", count(turn.refusals || 0, "turn") + " stopped and still refused"],
-        ["Conversation", turn.conversation_id]
-      ], turn.remedy));
-    });
-    section("capacity", "ready");
-  }
-
   // ---- section 7: the program managers ------------------------------------
 
   // managerStatuses is the read model's word for an instance's status, each
@@ -1655,28 +1574,97 @@ var standingWarningAgeSeconds = 5 * 60;
     section("mcp", "ready");
   }
 
+  // ---- the problems: broken, stalled, blocked, or degraded -------------------
+
+  // problemKinds is the read model's four kinds of problem, in the order the
+  // section lists them, each with the heading and the line it is introduced
+  // by. A test holds this list to the model's.
+  var problemKinds = [
+    { kind: "broken", heading: "Broken", says: "the harness failed at its own doing" },
+    { kind: "stalled", heading: "Stalled", says: "nothing is moving that should" },
+    { kind: "blocked", heading: "Blocked", says: "a decision somebody owes is unmade" },
+    { kind: "degraded", heading: "Degraded", says: "running, but worse; work held on provider capacity is here" }
+  ];
+
+  // problemCostSays is what one problem has cost, every figure the record does
+  // not hold said as not recorded rather than left out or shown as nothing.
+  function problemCostSays(cost) {
+    var parts = [];
+    if (cost.runs) {
+      parts.push(count(cost.runs, "run") + " spent on it");
+    }
+    if (cost.waiting) {
+      parts.push(cost.waiting + " waiting behind it");
+    }
+    parts.push(cost.stood_seconds !== undefined && cost.stood_seconds !== null ? "stood " + age(cost.stood_seconds * 1e9) : "how long it has stood is not recorded");
+    parts.push("money " + (cost.money || "not recorded"));
+    return parts.join("; ");
+  }
+
+  function problemSinceSays(problem) {
+    if (!named(problem.since)) {
+      return "not recorded";
+    }
+    return localMoment(problem.since) + (named(problem.latest) ? "; latest " + localMoment(problem.latest) : "");
+  }
+
+  function problemRow(problem) {
+    var entry = problem.entry;
+    var yours = entry.mover === "operator";
+    var row = el("li", "held problem problem-" + problem.kind + (yours ? " problem-yours" : ""));
+    var head = el("div", "held-head");
+    head.appendChild(el("span", "held-kind", entry.label || entry.kind));
+    head.appendChild(el("span", "held-state", yours ? problem.kind + ", yours" : problem.kind));
+    row.appendChild(head);
+    row.appendChild(el("h3", "held-title", saidWhat(entry)));
+    var facts = el("dl", "held-facts");
+    facts.appendChild(figureRow("Since", problemSinceSays(problem)));
+    facts.appendChild(figureRow("Covers", String(problem.count)));
+    facts.appendChild(figureRow("Cost so far", problemCostSays(problem.cost || {})));
+    facts.appendChild(figureRow("Who acts next", saidWhose(entry)));
+    var fix = el("div", "figure-row");
+    fix.appendChild(el("dt", null, "Fixed by"));
+    var fixedBy = el("dd");
+    if (problem.fixed_by) {
+      fixedBy.appendChild(itemOpener(problem.fixed_by, problem.fixed_by_says || itemName(problem.fixed_by, "")));
+    } else {
+      fixedBy.textContent = "none admitted yet";
+    }
+    fix.appendChild(fixedBy);
+    facts.appendChild(fix);
+    row.appendChild(facts);
+    return row;
+  }
+
   function renderFactory() {
     var standing = model.standing;
     if (!standing) {
       section("factory", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
       return;
     }
-    if (standing.factory_problems_problem) {
-      section("factory", "error", standing.factory_problems_problem, whatToDoAboutTheStanding());
+    var problems = standing.problems || [];
+    if (problems.length === 0 && standing.problems_problem) {
+      section("factory", "error", standing.problems_problem, whatToDoAboutTheStanding());
       return;
     }
-    var entries = standing.factory_problems || [];
-    if (entries.length === 0) {
-      section("factory", "empty", "No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.");
+    if (problems.length === 0) {
+      section("factory", "empty", "Nothing is broken, stalled, blocked, or degraded: nothing waits on anybody, and no work is held on provider capacity.");
       return;
     }
-    var list = document.getElementById("factory-list");
-    clear(list);
-    entries.forEach(function (entry) {
-      var row = el("li", "held");
-      row.appendChild(el("h3", "held-title", saidWhat(entry)));
-      row.appendChild(el("p", "held-reason", saidWhose(entry)));
-      list.appendChild(row);
+    listProblems("factory-problems", [standing.problems_problem]);
+    var kinds = document.getElementById("factory-kinds");
+    clear(kinds);
+    problemKinds.forEach(function (named) {
+      var ofKind = problems.filter(function (problem) { return problem.kind === named.kind; });
+      if (ofKind.length === 0) {
+        return;
+      }
+      var group = el("div", "problem-kind problem-kind-" + named.kind);
+      group.appendChild(el("h3", "problem-kind-heading", named.heading + " (" + ofKind.length + "): " + named.says));
+      var list = el("ul", "held-list");
+      ofKind.forEach(function (problem) { list.appendChild(problemRow(problem)); });
+      group.appendChild(list);
+      kinds.appendChild(group);
     });
     section("factory", "ready");
   }
@@ -3320,7 +3308,6 @@ var standingWarningAgeSeconds = 5 * 60;
     renderLive();
     renderPipeline();
     renderThroughput();
-    renderCapacity();
     renderFactory();
     renderManagers();
     renderQueues();

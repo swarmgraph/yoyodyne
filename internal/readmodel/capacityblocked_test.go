@@ -91,7 +91,7 @@ func conversationRefusal(at time.Time, conversationID string, resetsAt *time.Tim
 	return stopped
 }
 
-// The shape is a contract: a script and the capacity panel read these keys, so
+// The shape is a contract: a script and the dashboard's problems section read these keys, so
 // they are pinned as text against the three fixtures the work item names — one
 // run parked on a reset, one conversation the provider is refusing, and
 // nothing at all — rather than asserted field by field, where a renamed key

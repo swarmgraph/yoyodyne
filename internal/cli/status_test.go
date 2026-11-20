@@ -1751,8 +1751,8 @@ func TestStatusCarriesTheFourLinesInJSON(t *testing.T) {
 }
 
 // What is parked or held on provider capacity is carried under the standing
-// too, read from the same run records and refusal log, so the capacity panel
-// and a script read one derivation of it. Nothing held is two empty lists
+// too, read from the same run records and refusal log, so the dashboard's problems
+// section and a script read one derivation of it. Nothing held is two empty lists
 // rather than an absent key, and a run asleep on a reset is listed as waiting
 // while it still counts as running.
 func TestStatusCarriesTheCapacityBlockedStateInJSON(t *testing.T) {

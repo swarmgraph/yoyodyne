@@ -18,5 +18,6 @@
   "startable": 0,
   "admitted_items": [],
   "startable_items": [],
-  "merge_queues_problem": "the merge queues could not all be listed: decode the merge queue 7d2f0c41: unexpected end of JSON input"
+  "merge_queues_problem": "the merge queues could not all be listed: decode the merge queue 7d2f0c41: unexpected end of JSON input",
+  "problems": []
 }

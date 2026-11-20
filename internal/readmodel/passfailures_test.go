@@ -70,6 +70,19 @@ func TestAPassFailureNamesTheOperatorOnlyForARecordedPersonOnlyStep(t *testing.T
 	if count != 1 {
 		t.Fatalf("finding appeared %d times: %+v", count, standing.NeedsHuman)
 	}
+	// The failing pass is one broken problem however many times it failed,
+	// with how many times in a row, since when, and the person's owner; and
+	// the operator's problems are the line's operator entries, no more.
+	var failing []Problem
+	for _, problem := range standing.Problems {
+		if problem.Entry.Kind == AttentionFailingTask {
+			failing = append(failing, problem)
+		}
+	}
+	if len(failing) != 1 || failing[0].Kind != ProblemBroken || failing[0].Count != 3 || failing[0].Since == nil || !failing[0].Since.Equal(start) || !failing[0].OperatorsMove() {
+		t.Fatalf("the failing pass among the problems = %+v", failing)
+	}
+	assertOperatorSliceIsTheLine(t, standing)
 	if !strings.Contains(RenderPassFailures(sources, domain.RoleProgramManager, "factory-watch"), step) {
 		t.Fatal("watcher was not told the person's step")
 	}

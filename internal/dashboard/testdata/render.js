@@ -347,6 +347,8 @@ function over(name, beneath, steps) {
 const failingPasses = fixture("standing-pass-failures");
 failingPasses.factory_problems[0].what = "the product pass maintenance has failed 5 times in a row since 2026-10-04 12:00 UTC; latest: reconcile: last error";
 failingPasses.factory_problems[0].whose = "the program manager's — the factory-flow program manager factory-flow-pm watches and must answer this finding; the development manager resolves the cause; the affected pass succeeding clears this finding";
+failingPasses.problems[0].entry.what = failingPasses.factory_problems[0].what;
+failingPasses.problems[0].entry.whose = failingPasses.factory_problems[0].whose;
 
 const pages = [
   { name: "pass-failures", token: "t", standing: ok(failingPasses), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
@@ -720,7 +722,7 @@ async function run(scenario, shared) {
   // A section the server left out of the page — the summary, where
   // services.dashboard.hide_summary is set — is absent from the matrix's
   // account of it and from the render.
-  const sections = ["summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"].filter((id) => {
+  const sections = ["summary", "band", "spend", "live", "pipeline", "throughput", "factory", "managers"].filter((id) => {
     if (document.getElementById(id) === null) {
       matrix.sections[id] = "absent";
       return false;
@@ -905,12 +907,12 @@ async function main() {
       await checkStandingWarning(scenario, rendered.standingWarningAgeSeconds);
     }
     // A page served without the summary carries no panel, heading, or control
-    // of it, never asks for it, and keeps the other eight sections in their
+    // of it, never asks for it, and keeps the other seven sections in their
     // order; the same page served with it opens on it.
     if (scenario.name === "summary-hidden" || scenario.name === "busy") {
       const hidden = scenario.name === "summary-hidden";
       const order = Array.from(rendered.html.matchAll(/<section id="([a-z]+)" class="panel /g), (found) => found[1]);
-      const expected = ["summary", "band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"].filter((id) => !(hidden && id === "summary"));
+      const expected = ["summary", "band", "spend", "live", "pipeline", "throughput", "factory", "managers"].filter((id) => !(hidden && id === "summary"));
       assert.deepStrictEqual(order, expected, `${scenario.name} draws its sections in the order ${order.join(", ")}`);
       for (const words of ['id="summary', ">Summary<", "summary-today", "summary-week"]) {
         assert.strictEqual(rendered.html.includes(words), !hidden, `${scenario.name} ${hidden ? "carries" : "lacks"} ${words}`);

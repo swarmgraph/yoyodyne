@@ -127,7 +127,7 @@ func describeThroughput(reading Throughput) string {
 // CapacityStanding is what the harness has to run work on: its developer slots
 // and what fills them, and everything the provider is holding. It is the
 // standing's own capacity fields gathered into one query, so the pass and the
-// dashboard's capacity panel read one derivation.
+// dashboard's problems section read one derivation.
 type CapacityStanding struct {
 	ObservedAt time.Time `json:"observed_at"`
 	// DeveloperSlots is execution.max_concurrent_developers, and Running how many

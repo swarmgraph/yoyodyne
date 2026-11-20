@@ -18,5 +18,6 @@
   "startable": 0,
   "admitted_items": [],
   "startable_items": [],
-  "mcp_calls_problem": "the record of MCP calls could not be read: read the MCP call record 20260919-4242.jsonl: permission denied"
+  "mcp_calls_problem": "the record of MCP calls could not be read: read the MCP call record 20260919-4242.jsonl: permission denied",
+  "problems": []
 }

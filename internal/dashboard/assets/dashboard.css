@@ -848,7 +848,7 @@ input:focus-visible {
   font-weight: 600;
 }
 
-/* ---- section 6: capacity ------------------------------------------------------ */
+/* ---- the problems, and the held lists other sections share ----------------------- */
 
 .hold {
   border: 1px solid var(--held);
@@ -940,6 +940,29 @@ input:focus-visible {
   font-size: 0.9rem;
   border-top: 1px solid var(--rule);
   padding-top: 0.4rem;
+}
+
+/* The problems section lists its entries under one heading per kind, broken
+   first. An entry the operator has to act on says "yours" in its badge, and
+   beside the word carries a doubled rule, so the distinction survives a screen
+   that shows no color. */
+.problem-kind + .problem-kind {
+  margin-top: 1rem;
+}
+
+.problem-kind-heading {
+  font-size: 0.92rem;
+  margin: 0 0 0.5rem;
+}
+
+.problem-broken,
+.problem-stalled {
+  border-left-color: var(--attention);
+}
+
+.problem-yours {
+  border-left-style: double;
+  border-left-width: 6px;
 }
 
 /* ---- section 7: the program managers ------------------------------------------- */

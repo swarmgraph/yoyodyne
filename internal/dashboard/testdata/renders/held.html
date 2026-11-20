@@ -492,137 +492,136 @@
             </div>
           </div>
         </section>
-        <section id="capacity" class="panel capacity" data-state="ready" aria-labelledby="capacity-heading">
+        <section id="factory" class="panel factory" data-state="ready" aria-labelledby="factory-heading">
           <div class="panel-head">
-            <h2 id="capacity-heading">Provider capacity</h2>
-            <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
+            <h2 id="factory-heading">Problems: broken, stalled, blocked, or degraded</h2>
+            <p class="panel-note">everything the harness is not doing that it should, where nothing in the ordinary flow fixes it by itself, broken first; each with how long it has stood, what it has cost, who has to act next, the work item that fixes it, and how many it covers. Work held on provider capacity is listed here as degraded. The entries marked yours are the ones Needs a human counts.</p>
           </div>
           <div class="section-ready">
-            <p id="capacity-hold" class="hold">Every role is held: 5 agents on opus, and none names an alternate; 7 turns refused since 2026-09-19 12:02:00, until 2026-09-19 18:50:00.</p>
-            <ul id="capacity-problems" class="degraded" hidden></ul>
-            <ul id="capacity-runs" class="held-list">
-              <li class="held held-waiting">
-                <div class="held-head">
-                  <span class="held-kind">run</span>
-                  <span class="held-state">waiting</span>
-                </div>
-                <h3 class="held-title">yoyodyne-ifd.230</h3>
-                <dl class="held-facts">
-                  <div class="figure-row">
-                    <dt>Refused by</dt>
-                    <dd>an exhausted usage limit (seven_day)</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Phase</dt>
-                    <dd>developing</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Since</dt>
-                    <dd>2026-09-19 13:40:00</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Resets</dt>
-                    <dd>2026-09-19 18:50:00</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Waited</dt>
-                    <dd>25m of the pause budget</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Change</dt>
-                    <dd>preserved</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Run</dt>
-                    <dd>run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90</dd>
-                  </div>
-                </dl>
-                <p class="held-remedy">What to do: nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe</p>
-              </li>
-              <li class="held held-capacity-blocked">
-                <div class="held-head">
-                  <span class="held-kind">run</span>
-                  <span class="held-state">capacity-blocked</span>
-                </div>
-                <h3 class="held-title">yoyodyne-ifd.150</h3>
-                <dl class="held-facts">
-                  <div class="figure-row">
-                    <dt>Refused by</dt>
-                    <dd>an exhausted usage limit (five_hour)</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Phase</dt>
-                    <dd>reviewing</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Since</dt>
-                    <dd>2026-09-18 22:12:00</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Resets</dt>
-                    <dd>no reset named, and nothing probes: the run stopped</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Waited</dt>
-                    <dd>4h00m of the pause budget</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Change</dt>
-                    <dd>preserved</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Run</dt>
-                    <dd>run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44</dd>
-                  </div>
-                </dl>
-                <p class="held-remedy">What to do: the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan</p>
-              </li>
-            </ul>
-            <ul id="capacity-conversations" class="held-list">
-              <li class="held held-capacity-blocked">
-                <div class="held-head">
-                  <span class="held-kind">conversation</span>
-                  <span class="held-state">capacity-blocked</span>
-                </div>
-                <h3 class="held-title">the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider</h3>
-                <dl class="held-facts">
-                  <div class="figure-row">
-                    <dt>Refused by</dt>
-                    <dd>an exhausted usage limit (seven_day)</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Model</dt>
-                    <dd>claude-opus-5</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Since</dt>
-                    <dd>2026-09-19 12:02:00</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Resets</dt>
-                    <dd>2026-09-19 18:50:00</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Refusals</dt>
-                    <dd>3 turns stopped and still refused</dd>
-                  </div>
-                  <div class="figure-row">
-                    <dt>Conversation</dt>
-                    <dd>chat-91253e0e070c17b0663651cc48602122</dd>
-                  </div>
-                </dl>
-                <p class="held-remedy">What to do: nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then</p>
-              </li>
-            </ul>
-          </div>
-        </section>
-        <section id="factory" class="panel factory" data-state="empty" aria-labelledby="factory-heading">
-          <div class="panel-head">
-            <h2 id="factory-heading">Factory problems</h2>
-            <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
-          </div>
-          <div class="section-empty">
-            <p id="factory-empty" class="empty">No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.</p>
+            <ul id="factory-problems" class="degraded" hidden></ul>
+            <div id="factory-kinds" class="problem-kinds">
+              <div class="problem-kind problem-kind-degraded">
+                <h3 class="problem-kind-heading">Degraded (4): running, but worse; work held on provider capacity is here</h3>
+                <ul class="held-list">
+                  <li class="held problem problem-degraded">
+                    <div class="held-head">
+                      <span class="held-kind">held on provider capacity</span>
+                      <span class="held-state">degraded</span>
+                    </div>
+                    <h3 class="held-title">the run run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44 for yoyodyne-ifd.150 stopped on an exhausted usage limit (five_hour), since 2026-09-18T22:12:00Z; the provider named no reset</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>2026-09-18 22:12 UTC</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>1</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>1 run spent on it; stood 15h53m; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the development manager's — the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                  <li class="held problem problem-degraded">
+                    <div class="held-head">
+                      <span class="held-kind">held on provider capacity</span>
+                      <span class="held-state">degraded</span>
+                    </div>
+                    <h3 class="held-title">the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider: 3 turn(s) refused on an exhausted usage limit (seven_day) since 2026-09-19T12:02:00Z; it resets at 2026-09-19T18:50:00Z</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>2026-09-19 12:02 UTC</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>3</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>stood 2h03m; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>nobody's — nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                  <li class="held problem problem-degraded">
+                    <div class="held-head">
+                      <span class="held-kind">work paused</span>
+                      <span class="held-state">degraded</span>
+                    </div>
+                    <h3 class="held-title">every role is held by the provider's usage limit, since 2026-09-19T12:02:00Z, until 2026-09-19T18:50:00Z</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>2026-09-19 12:02 UTC</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>7</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>stood 2h03m; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the harness's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                  <li class="held problem problem-degraded">
+                    <div class="held-head">
+                      <span class="held-kind">held on provider capacity</span>
+                      <span class="held-state">degraded</span>
+                    </div>
+                    <h3 class="held-title">the run run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90 for yoyodyne-ifd.230 is waiting on an exhausted usage limit (seven_day), since 2026-09-19T13:40:00Z; it resets at 2026-09-19T18:50:00Z</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>2026-09-19 13:40 UTC</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>1</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>1 run spent on it; stood 25m; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the harness's — nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </section>
         <section id="managers" class="panel managers" data-state="empty" aria-labelledby="managers-heading">

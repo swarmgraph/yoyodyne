@@ -48,5 +48,51 @@
         "product_pass": true
       }
     }
+  ],
+  "problems": [
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 5,
+        "waiting": 0
+      },
+      "count": 5,
+      "entry": {
+        "failing_task": {
+          "cause": "",
+          "failures": 5,
+          "first_at": "2026-10-04T12:00:00Z",
+          "latest_at": "2026-10-04T12:20:00Z",
+          "ownership": {
+            "agent": "factory-flow-pm",
+            "mover": "program-manager",
+            "resolver": "development-manager",
+            "watcher": "program-manager"
+          },
+          "problem": "reconcile: last error",
+          "product_pass": true,
+          "raised_at": "2026-10-04T12:20:00Z",
+          "report_id": "report-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "role": "",
+          "task": "maintenance"
+        },
+        "id": "maintenance",
+        "kind": "failing-task",
+        "label": "scheduled task failing",
+        "mover": "program-manager",
+        "ownership": {
+          "capability": "triage decision",
+          "owner": "program-manager",
+          "remedy": "find and fix why the pass keeps failing"
+        }
+      },
+      "identity": "broken:failing-task:maintenance:",
+      "kind": "broken",
+      "latest": "2026-10-04T12:20:00Z",
+      "since": "2026-10-04T12:00:00Z",
+      "sources": [
+        "maintenance"
+      ]
+    }
   ]
 }
