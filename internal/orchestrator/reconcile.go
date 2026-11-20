@@ -150,7 +150,13 @@ type ReconcileReleases interface {
 // run's own promotion, through the Continue the sweep verb wires, and never a
 // second developer.
 type Reconciler struct {
-	Tracker   WorkTracker
+	Tracker WorkTracker
+	// Children lists the unfinished items broken out of an item, which the sweep
+	// reads to put back on the development manager's docket a wait on an item
+	// that still has open work under it (EndNeverEndingWaits). Optional: a sweep
+	// wired without it reads no children and ends only the waits on an item's own
+	// parent or above.
+	Children  ReconcileChildren
 	Worktrees ReconcileWorktrees
 	// IntentWorktrees is the companion intent repository's manager, which holds
 	// the branch and checkout of a run recorded in that repository

@@ -198,6 +198,10 @@ type Tracker interface {
 	// backlog's order is the one that can least afford to decide it from a picture
 	// that has stopped moving.
 	List(ctx context.Context, status string) ([]beads.WorkItem, error)
+	// UnfinishedChildren reports the items broken out of parent that are not
+	// closed. A wait is refused on an item that has any, because that item
+	// closes only once all of its work is done (refuseFinishedWaitsOn).
+	UnfinishedChildren(ctx context.Context, parent string) ([]beads.WorkItem, error)
 	Create(ctx context.Context, item beads.NewWorkItem) (beads.WorkItem, error)
 	Update(ctx context.Context, id string, change beads.WorkItemChange) (beads.WorkItem, error)
 	// Block records a durable blocker on an item, which is how an escalation

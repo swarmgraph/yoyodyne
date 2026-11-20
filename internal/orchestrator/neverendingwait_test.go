@@ -12,7 +12,9 @@ import (
 // A wait recorded on the stopped item's own parent, or an item above it, before
 // such waits were refused can never end, so the sweep puts its entry back on the
 // development manager's docket as undecided, saying why. A wait on unrelated
-// work is left standing (yoyodyne-ifd.428.99.27).
+// work is left standing (yoyodyne-ifd.428.99.27). So is a wait on any other item
+// that still has open child items, which ends only once that whole area is done,
+// while one on an item whose children have all closed stands (yoyodyne-ifd.428.99.30).
 func TestAWaitOnTheStoppedItemsParentOrAboveIsPutBackOnTheDocket(t *testing.T) {
 	t.Parallel()
 
@@ -21,16 +23,37 @@ func TestAWaitOnTheStoppedItemsParentOrAboveIsPutBackOnTheDocket(t *testing.T) {
 		"yoyodyne-area.7": {ID: "yoyodyne-area.7", Status: "open", Parent: "yoyodyne-area"},
 		"yoyodyne-area":   {ID: "yoyodyne-area", Status: "open"},
 		"yoyodyne-other":  {ID: "yoyodyne-other", Status: "open"},
+		// An area unrelated to the stopped item that still has open work under it,
+		// and one whose only child has closed.
+		"yoyodyne-busy":       {ID: "yoyodyne-busy", Status: "open"},
+		"yoyodyne-busy.1":     {ID: "yoyodyne-busy.1", Status: "in_progress", Parent: "yoyodyne-busy"},
+		"yoyodyne-busy.2":     {ID: "yoyodyne-busy.2", Status: "closed", Parent: "yoyodyne-busy"},
+		"yoyodyne-finished":   {ID: "yoyodyne-finished", Status: "open"},
+		"yoyodyne-finished.1": {ID: "yoyodyne-finished.1", Status: "closed", Parent: "yoyodyne-finished"},
+	}
+	childrenOf := func(listed map[string]int) func(id string) ([]beads.WorkItem, error) {
+		return func(id string) ([]beads.WorkItem, error) {
+			listed[id]++
+			var open []beads.WorkItem
+			for _, item := range tree {
+				if item.Parent == id && item.Status != "closed" {
+					open = append(open, item)
+				}
+			}
+			return open, nil
+		}
 	}
 	for _, test := range []struct {
-		name     string
-		waitsOn  string
-		putBack  bool
-		ancestry string
+		name    string
+		waitsOn string
+		putBack bool
+		why     string
 	}{
-		{name: "parent", waitsOn: "yoyodyne-area.7", putBack: true, ancestry: docketedItem + " is under yoyodyne-area.7"},
-		{name: "grandparent", waitsOn: "yoyodyne-area", putBack: true, ancestry: docketedItem + " is under yoyodyne-area.7, which is under yoyodyne-area"},
+		{name: "parent", waitsOn: "yoyodyne-area.7", putBack: true, why: docketedItem + " is under yoyodyne-area.7"},
+		{name: "grandparent", waitsOn: "yoyodyne-area", putBack: true, why: docketedItem + " is under yoyodyne-area.7, which is under yoyodyne-area"},
 		{name: "unrelated", waitsOn: "yoyodyne-other", putBack: false},
+		{name: "unrelated area with open children", waitsOn: "yoyodyne-busy", putBack: true, why: "yoyodyne-busy still has 1 open child item(s): yoyodyne-busy.1"},
+		{name: "unrelated item whose children are all closed", waitsOn: "yoyodyne-finished", putBack: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -70,14 +93,19 @@ func TestAWaitOnTheStoppedItemsParentOrAboveIsPutBackOnTheDocket(t *testing.T) {
 				t.Fatalf("Close(wait) = %t, %v", took, err)
 			}
 
-			reads := map[string]int{}
+			reads, listed := map[string]int{}, map[string]int{}
 			ended, err := docketer.EndWaitsOnAncestors(func(id string) (beads.WorkItem, bool, error) {
 				reads[id]++
 				item, found := tree[id]
 				return item, found, nil
-			})
+			}, childrenOf(listed))
 			if err != nil {
 				t.Fatalf("EndWaitsOnAncestors() error = %v", err)
+			}
+			for id, count := range listed {
+				if count > 1 {
+					t.Fatalf("children of %s listed %d times, want each listed once", id, count)
+				}
 			}
 			for id, count := range reads {
 				if count > 1 {
@@ -101,7 +129,11 @@ func TestAWaitOnTheStoppedItemsParentOrAboveIsPutBackOnTheDocket(t *testing.T) {
 			if !entries[0].Undecided(docketedNow) {
 				t.Fatalf("entry = %#v, want it undecided, back on the development manager's docket", entries[0])
 			}
-			for _, says := range []string{test.ancestry, "can never end", "nothing to do until that closes", "needs a new decision"} {
+			ending := "can never end"
+			if test.why != "" && !strings.Contains(test.why, " is under ") {
+				ending = "closes only when all of its work is done"
+			}
+			for _, says := range []string{test.why, ending, "nothing to do until that closes", "needs a new decision"} {
 				if !strings.Contains(closure.Reason, says) {
 					t.Fatalf("reason = %q, want it to say %q", closure.Reason, says)
 				}
@@ -110,7 +142,7 @@ func TestAWaitOnTheStoppedItemsParentOrAboveIsPutBackOnTheDocket(t *testing.T) {
 			if again, err := docketer.EndWaitsOnAncestors(func(id string) (beads.WorkItem, bool, error) {
 				item, found := tree[id]
 				return item, found, nil
-			}); err != nil || again != 0 {
+			}, childrenOf(map[string]int{})); err != nil || again != 0 {
 				t.Fatalf("EndWaitsOnAncestors() again = %d, %v, want nothing put back twice", again, err)
 			}
 		})

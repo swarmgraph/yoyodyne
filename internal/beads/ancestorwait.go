@@ -1,6 +1,7 @@
 package beads
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -55,6 +56,53 @@ func DescribeAncestry(item string, chain []string) string {
 	described := strings.TrimSpace(item) + " is under " + chain[0]
 	for _, above := range chain[1:] {
 		described += ", which is under " + above
+	}
+	return described
+}
+
+// UnfinishedChildren reports the items broken out of parent that are not
+// closed, as `bd list --parent` reads them: one listing, asked again after the
+// waits any listing takes, and recorded the same way.
+//
+// An item with work under it still open closes only once all of that work is
+// done, so a decision to wait on it waits for the whole area rather than for
+// the one piece of work it meant (chat's refuseFinishedWaitsOn). bd leaves
+// closed work out of a listing given no status; anything closed it returns all
+// the same is left out here too.
+func (c Client) UnfinishedChildren(ctx context.Context, parent string) ([]WorkItem, error) {
+	if err := validateIssueID(parent); err != nil {
+		return nil, err
+	}
+	items, err := c.listPatiently(ctx, []string{"--parent=" + strings.TrimSpace(parent)})
+	c.recordListing(ctx, err)
+	if err != nil {
+		return nil, err
+	}
+	var unfinished []WorkItem
+	for _, item := range items {
+		if strings.TrimSpace(item.Status) == statusClosed || strings.TrimSpace(item.ID) == strings.TrimSpace(parent) {
+			continue
+		}
+		unfinished = append(unfinished, item)
+	}
+	return unfinished, nil
+}
+
+// DescribeOpenChildren names an item's unfinished children in the words a
+// refusal or a docket closure says them with: how many, and the first few by
+// identifier.
+func DescribeOpenChildren(children []WorkItem) string {
+	const named = 3
+	ids := make([]string, 0, named)
+	for _, child := range children {
+		if len(ids) == named {
+			break
+		}
+		ids = append(ids, strings.TrimSpace(child.ID))
+	}
+	described := fmt.Sprintf("%d open child item(s), among them %s", len(children), strings.Join(ids, ", "))
+	if len(children) <= named {
+		described = fmt.Sprintf("%d open child item(s): %s", len(children), strings.Join(ids, ", "))
 	}
 	return described
 }
