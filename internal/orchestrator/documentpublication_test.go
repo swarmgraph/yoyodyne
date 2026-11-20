@@ -1507,3 +1507,59 @@ func TestARevisionWrittenAgainstANewerCopyStartsAFreshCountOfReturns(t *testing.
 		t.Fatalf("returns = %v, want 1", saved.DocumentReturns)
 	}
 }
+
+// A conversation saved before the last returned run was kept has the count of
+// three and no run. The run store still holds the run, so a revision against a
+// newer copy opens a fresh run all the same.
+func TestARevisionAgainstANewerCopyRestartsACountSavedWithoutItsLastReturnedRun(t *testing.T) {
+	t.Parallel()
+
+	repository, provider, pipeline, runs, written := contestedFixture(t)
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleArchitect {
+			turn := len(provider.RequestsForRole(domain.RoleArchitect))
+			return backend.RunResult{SessionID: "author", FinalText: fmt.Sprintf("Revised.\n%s\n{\"documents\":[{\"action\":\"revise\",\"id\":%q,\"body\":\"# Revision %d\",\"reason\":\"revised by the architect\"}]}\n```", artifact.WriteFence, contestedDesign, turn)}, nil
+		}
+		return backend.RunResult{SessionID: "independent", FinalText: `{"decision":"repair","summary":"revise the document","findings":[{"severity":"blocker","message":"state the missing decision"}]}`}, nil
+	}
+	options, store := publicationConversation(t, pipeline, provider)
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < runstate.MaxDocumentReturns; i++ {
+		if _, err := session.Send(context.Background(), "Revise it."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saved := conversationRecord(t, store)
+	saved.DocumentLastReturn = nil
+	if err := store.Save(saved); err != nil {
+		t.Fatal(err)
+	}
+	landLaterRevision(t, repository, pipeline, true)
+	now := strings.TrimSpace(publicationGit(t, repository, "rev-parse", "main"))
+	session, err = chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Revise it."); err != nil {
+		t.Fatal(err)
+	}
+	recorded := documentRuns(t, runs)
+	if len(recorded) != runstate.MaxDocumentReturns+1 {
+		t.Fatalf("runs = %d, want a fresh run", len(recorded))
+	}
+	var restart *runstate.DocumentCountRestart
+	for _, state := range recorded {
+		if state.Document.CountRestarted != nil {
+			restart = state.Document.CountRestarted
+		}
+	}
+	if restart == nil || restart.PreviousCommit != written || restart.NewCommit != now {
+		t.Fatalf("restart = %+v, want previous %s and new %s", restart, written, now)
+	}
+	if got := conversationRecord(t, store).DocumentReturns[contestedDesign]; got != 1 {
+		t.Fatalf("returns = %d, want 1", got)
+	}
+}

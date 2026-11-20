@@ -342,17 +342,26 @@ func (p Pipeline) tellAuthorLinksRevised(ctx context.Context, document runstate.
 // to the development manager: a document a build that returned every stop to
 // its owner may have stopped publishing over nothing, and which PublishDocument
 // continues from its stored text.
-func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.DocumentPublication, map[string]int, error) {
+func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.DocumentPublication, map[string]int, map[string]string, error) {
 	recorded, err := p.Store.Recorded()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	last := documentHandoffEnds(recorded, func(state runstate.State) bool { return state.Document.ConversationID == conversationID })
 	judged := map[string]int{}
+	latestJudged := map[string]runstate.State{}
 	for _, state := range last {
 		if state.Status.Terminal() && state.Status != runstate.StatusSucceeded && state.DocumentJudged() {
-			judged[state.Document.Candidate.Artifact.ID]++
+			id := state.Document.Candidate.Artifact.ID
+			judged[id]++
+			if seen, ok := latestJudged[id]; !ok || state.Document.Turn > seen.Document.Turn || (state.Document.Turn == seen.Document.Turn && state.Document.WriteID > seen.Document.WriteID) {
+				latestJudged[id] = state
+			}
 		}
+	}
+	lastReturn := map[string]string{}
+	for id, state := range latestJudged {
+		lastReturn[id] = state.RunID
 	}
 	var resumable []runstate.DocumentPublication
 	for _, state := range latestDocumentHandoffs(last) {
@@ -363,7 +372,7 @@ func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.Document
 		}
 	}
 	slices.SortFunc(resumable, func(a, b runstate.DocumentPublication) int { return strings.Compare(a.WriteID, b.WriteID) })
-	return resumable, judged, nil
+	return resumable, judged, lastReturn, nil
 }
 
 // NewerDocumentCopy says whether a revision of a document is written against a

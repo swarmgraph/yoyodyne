@@ -152,7 +152,7 @@ func TestADocumentWhoseCopyOnMainChangedIsStoppedOnceAndHeldForTheDevelopmentMan
 	if waits, err := runs.DocumentWaits(); err != nil || len(waits) != 0 {
 		t.Fatalf("waits = %+v, %v, want nothing waiting to start it", waits, err)
 	}
-	if resumable, _, err := pipeline.ResumableDocuments(stopped.Document.ConversationID); err != nil || len(resumable) != 0 {
+	if resumable, _, _, err := pipeline.ResumableDocuments(stopped.Document.ConversationID); err != nil || len(resumable) != 0 {
 		t.Fatalf("resumable = %+v, %v", resumable, err)
 	}
 
