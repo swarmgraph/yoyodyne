@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-10-18T15:48:54.367086Z
       reason: 'approved amendment-386bbb56 from the developer on yoyodyne-ifd.68.20 and amendment-6e9f6b10 from the developer on yoyodyne-ifd.168: the app manifest''s permissions gain opening and reading a direct message, the section on where messages go says a message the direct-message classes admit goes to a person and its replies are held to the same operator list, and the reply to an inbound message is one of four kinds, with a carried-out operational directive never reported as resolved; nothing else in the design changed'
+    - action: amended
+      by: architect
+      at: 2026-11-20T11:57:41.639888Z
+      reason: 'Replacing coined vocabulary in the governed documents (part of yoyodyne-ifd.437.21), with approved amendment-9edf8903 from October 18. The retired word ''gate'' is replaced in its three places in the body: decision 3''s title, the direct-message rule, and the inbound section''s pausing of work. The sentence saying an exchange closing unresolved at its round limit escalates to the operator now says it ends with a warning report the Lead Product Manager handles, and that the operator is asked to act only for a reason on the operator''s closed list. Written from a read of the whole design at main efd26b880edb; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 9
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-10-18T15:48:54.367086Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1225, for document-1225.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-20T11:57:41.639888Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3174, for document-3174.1 under the automatic approval policy
 ---
 # Slack reporting: events out, directives in, one thread per topic
 
@@ -78,7 +87,7 @@ Work the harness runs on its own is acceptable only while it is visible, and tod
 
 **2. The sink is one separate, long-running process.** A single operator-started process (verb to be settled at implementation; I propose `yoyo slack`) holds the Socket Mode connection, tails the durable streams from per-stream cursors, owns the thread map, and posts. Rejected: posting from each run process. Runs are ephemeral and concurrent; N processes posting means N racing writers to one thread map and a token in every run's environment. The credential boundary is two mechanisms, and each holds a different half. The reporter is a separate process, and every agent invocation receives a named, allowlist-constructed environment with the token pair removed — so no agent process ever holds a Slack token, by construction. The harness's own processes are only as clean as the shell that launched them: an operator who exports the pair into that shell gives it to the harness, whose agent children still never see it. Setup therefore teaches the per-project secret store rather than shell export, and the residue is a trusted process holding a secret, not an agent holding one.
 
-**3. Reporting is observation, never a gate.** Slack being down, slow, or misconfigured changes nothing about any run: no wait, no failure, no park. The sink catches up from its cursors when it returns, so messages arrive late rather than never. At-least-once delivery is accepted: a crash between a post and its cursor advance may duplicate a message, and a rare duplicate is chosen over a lost one because the durable record, not Slack, is authoritative.
+**3. Reporting only observes; no run waits on it.** Slack being down, slow, or misconfigured changes nothing about any run: no wait, no failure, no park. The sink catches up from its cursors when it returns, so messages arrive late rather than never. At-least-once delivery is accepted: a crash between a post and its cursor advance may duplicate a message, and a rare duplicate is chosen over a lost one because the durable record, not Slack, is authoritative.
 
 A sink starting with no cursor for a stream initializes that cursor at now and reports forward: history is never replayed into Slack, because a product with hundreds of recorded runs would otherwise open hundreds of threads the moment reporting is switched on. The cutoff is when reporting was switched on, not when a message happens to be posted — a stream that begins after the sink is running is reported from its own beginning, so a run started under a live sink is reported whole even if the sink falls behind, and only the pre-Slack past stays where it already is, in the durable records `yoyo-status` reads.
 
@@ -117,7 +126,7 @@ Nothing else must land first. The ruling on roles' voices (yoyodyne-ifd.68.25.1)
 
 *What a reviewer checks.* No code path in the sink starts a role or calls a provider. A thread reply naming a role produces a turn in that role's conversation, not the Lead Product Manager's. Nothing is posted under a role's name that its conversation's record does not hold. The token test covers every supported provider and fails when a token is passed through.
 
-**What may arrive as a direct message.** A direct message is admitted only by naming its class, and a state fitting neither class does not DM — that is the gate a developer must not widen silently, stated here rather than in `heartbeat.go`:
+**What may arrive as a direct message.** A direct message is admitted only by naming its class, and a state fitting neither class does not DM — that is the rule a developer must not widen silently, stated here rather than in `heartbeat.go`:
 
 - **Degraded** — the system is stopped, stale, or choosing nothing over ready work: something only a human fixes. Which states ship in this class is the operator guide's to list, because the list moves with every state admitted; what does not move is the admitting rule, and a state that fits neither class does not DM.
 - **Advisory-once** — a fact addressed to a person that speaks exactly once per fact, deduplicated durably, never repeated, never urgent in presentation. The bundle-improvement notice is its first member: one DM per newly-available improvement, the dedup key recorded durably so restarts cannot re-announce.
@@ -161,7 +170,7 @@ The rule comes first and the table applies it, so a new event kind is attributed
 
 Run-started deserves its line of reasoning, because it is the one place the speaker varies. The event carries the recorded selection reason, so the speaker follows the recorded selector: the development manager when it chose, and the harness when the operator named the item — the operator is not a persona, and a persona must not narrate selections it never made.
 
-The initial reportable set is deliberately the milestones the conversation's activity line already reports, plus what has no terminal surface at night: run claimed and started — **carrying the recorded selection reason**, so the fact the `selected-work-passes-intake-and-records-why` invariant makes durable is also the fact an operator sees; checks passed or failed; the reviewer's verdict; promotion; publication, queued merge, and merge; a run parking (usage limit, overload, operator pause, unresolved directive) and continuing; a blocker recorded; a report filed, at its severity; a proposal raised; an ask-exchange turn, and an exchange closing — including closing unresolved at its round cap, which escalates to the operator and is exactly the kind of message this channel exists to carry. Each transition is said once; a thread is a narrative, not an event log scrolling sideways.
+The initial reportable set is deliberately the milestones the conversation's activity line already reports, plus what has no terminal surface at night: run claimed and started — **carrying the recorded selection reason**, so the fact the `selected-work-passes-intake-and-records-why` invariant makes durable is also the fact an operator sees; checks passed or failed; the reviewer's verdict; promotion; publication, queued merge, and merge; a run parking (usage limit, overload, operator pause, unresolved directive) and continuing; a blocker recorded; a report filed, at its severity; a proposal raised; an ask-exchange turn, and an exchange closing — including closing unresolved at its round cap. An exchange that closes unresolved ends with a warning report the Lead Product Manager handles. The operator sees the exchange closed, and is asked to act on it only where its reason is on the operator's closed list in [who owns what, and when it reaches the operator](ownership-and-the-operator.md); that closing is exactly the kind of message this channel exists to carry. Each transition is said once; a thread is a narrative, not an event log scrolling sideways.
 
 The set is versioned in the envelope and extensible: a new producer adds kinds without the sink, the threading, or the inbound half changing. The **notifier interface (68.2) takes `(topic, speaker, event)` and assumes nothing about the producer** — runs are the first producer, conversations and branch reviews are the same shape, and ifd.99's ask exchanges are a recorded second consumer arriving later with `exchange:` topics and per-exchange cost beside its rounds.
 
@@ -188,7 +197,7 @@ Every inbound message gets an in-thread acknowledgment that is itself an outboun
 - **carried out** — an operational directive carried out. It paused nothing, so it is never reported as resolved: that would tell the person who asked that work resumed when nothing had stopped;
 - **refused** — the refusal, with its reason.
 
-A directive recorded from a thread is indistinguishable, downstream, from one recorded by `yoyo directive` — same record, same pause gate, same discoverability — which is what "enforceable regardless of which agent received it" costs and all it costs.
+A directive recorded from a thread is indistinguishable, downstream, from one recorded by `yoyo directive` — same record, same pausing of the work it names, same discoverability — which is what "enforceable regardless of which agent received it" costs and all it costs.
 
 **Authorization is allow-listed and defaults closed.** Inbound messages act only when their Slack user id is in the configured operator list; the list lives in `.yoyodyne` because user ids are identity, not secrets. The same rule governs a reply in a direct message the sink opened. An unlisted user's reply is acknowledged as not acted on — visibly, because a channel that silently ignores some people looks broken rather than closed. The default list is empty, so shipping 68.4 changes nothing for any workspace until an operator names themselves. Rejected for now: operator *commands* (`/stop`, `/hold`) from Slack — directives move intent and commands move the machine, and widening the machine's control surface to a chat workspace is a separate decision; the inbound transport already exists, so adding it later needs no redesign, which is the standard this design is held to.
 
