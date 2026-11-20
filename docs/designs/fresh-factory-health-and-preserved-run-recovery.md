@@ -39,6 +39,10 @@ revisions:
       by: architect
       at: 2026-11-20T05:11:51.845998Z
       reason: 'Rewords the section on recovering a preserved run in plain words, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the word the operator retired on November 8 becomes the checks a change must still pass, and joined terms become ordinary phrases. What the section requires is unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T06:58:51.978699Z
+      reason: 'Answers the reviewer''s report on the run index (report-593493eb) with the ruling of November 15, 2026: a run record that cannot be parsed keeps counting as possibly running, and every health observation now shows it as a problem the development manager owns, naming the file, with no reader changing the file. Also replaces two joined terms in this section with plain words. Written from a read of the design at main 329c6023; the rest of the document is unchanged.'
 approvals:
     - revision: 0
       by: operator
@@ -79,6 +83,11 @@ approvals:
       by: harness
       at: 2026-11-20T05:11:51.845998Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3155, for document-3155.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-20T06:58:51.978699Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3159, for document-3159.1 under the automatic approval policy
 ---
 # Purpose and scope
 
@@ -154,11 +163,21 @@ The observation also reports what [forward progress](forward-progress.md) asks o
 - whether each management role is unavailable, since when and why, by the test in point 4 of forward progress;
 - a difference between an item's tracker copy of in progress or its assignee and its run records, as a problem the harness owns and repairs.
 
+## A run record that cannot be read
+
+A file in the run records that cannot be parsed as a run record at all is reported on every observation as a problem the development manager owns, naming the file, its size, when it last changed, and the read error. It keeps counting as a run that may still be running wherever the harness decides whether to start new work or give out a developer slot, because the harness cannot tell what the record held, and refusing while unsure is the safe answer. The report is what keeps that refusal from being silent: a fresh start refused because of such a file names the file in its reason.
+
+No reader rewrites, moves or deletes the file. Mending it is the development manager's decision, taken through work she admits for that file, because what the run held, and whether a change it made is still somewhere, can only be judged by reading what is left. The problem stays listed on every pass until the file reads as a run record again or is gone, and its first observation is kept across conversations like any other problem.
+
+This was decided on November 15, 2026 in answer to the reviewer's report on the run index (report-593493eb). Rejected: treating an unparsable record as not running, which could start a second run of work that is still going; and leaving it counted with nothing shown, which refuses every fresh start with no reason anyone can see.
+
+## How problems are given and kept
+
 Give the pass an observation identifier and observation time, source coverage, individual read failures and every actionable anomaly. Bound rendering without silently dropping anomalies: include exact totals and omitted identities through a supported bounded follow-up read. Missing, stale or partial evidence must never be rendered as an empty healthy set.
 
-An anomaly identity is based on product, run and condition; it must distinguish a newer run from an older stoppage on the same item. An anomaly about an item rather than a run, such as an item in no state, uses the item in place of the run. Retain first observation, latest observation, recurrence, resolution and reopening through existing durable pass/report records. First observation does not reset when a manager starts a new conversation. A reopened condition is recorded explicitly. No separate anomaly database is introduced.
+An anomaly identity is based on product, run and condition; it must distinguish a newer run from an older stoppage on the same item. An anomaly about an item rather than a run, such as an item in no state, uses the item in place of the run. An unreadable run record uses its file name in place of the run. Retain first observation, latest observation, recurrence, resolution and reopening through the existing durable pass and report records. First observation does not reset when a manager starts a new conversation. A reopened condition is recorded explicitly. No separate anomaly database is introduced.
 
-Health observation is read-only. Program managers retain their existing authority: they may identify patterns and work within their lane, but cannot stop runs, release claims, alter capacity or decide triage. The development manager remains accountable for recovery decisions within her authority; the harness performs supported operations, and takes the bounded acts of its own that the section below on who acts allows.
+Health observation only reads; it changes nothing. Program managers retain their existing authority: they may identify patterns and work within their lane, but cannot stop runs, release claims, alter capacity or decide triage. The development manager remains accountable for recovery decisions within her authority; the harness performs supported operations, and takes the bounded acts of its own that the section below on who acts allows.
 
 # Accountable pass completion
 
