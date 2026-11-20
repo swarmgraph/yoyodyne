@@ -19,7 +19,9 @@ type MainCheckRecord interface {
 
 // MainChecks is where the branch stands with its checks.
 type MainChecks struct {
-	// LastPassed is the latest run that passed, and nil where none has.
+	// LastPassed is the latest run that passed on its first run, and nil where
+	// none has: a run that passed only when its failing tests were run once
+	// more is not a clean run (runstate.MainCheckStanding).
 	LastPassed *runstate.MainCheckRun `json:"last_passed,omitempty"`
 	// Latest is the latest run, whatever it came to.
 	Latest runstate.MainCheckRun `json:"latest"`
@@ -58,10 +60,20 @@ func (s Standing) RenderMainChecks() string {
 	if passed := checks.LastPassed; passed != nil {
 		fmt.Fprintf(&text, "\nChecks on main: last passed on %s at %s, in the run started at %s\n", passed.Branch, shortCommit(passed.Commit), runstate.LocalStamp(passed.StartedAt))
 	} else {
-		fmt.Fprintf(&text, "\nChecks on main: no run has passed yet\n")
+		fmt.Fprintf(&text, "\nChecks on main: no run has passed on its first try yet\n")
 	}
 	latest := checks.Latest
 	if latest.Outcome == runstate.MainCheckPassed {
+		var underLoad []string
+		for _, check := range latest.Checks {
+			if check.FirstRun != nil {
+				underLoad = append(underLoad, check.Command+" ("+strings.Join(check.FirstRun.FailingTests, ", ")+")")
+			}
+		}
+		if len(underLoad) > 0 {
+			fmt.Fprintf(&text, "  Latest run, on %s at %s, passed only when its failing tests were run once more, so it is not counted as a clean run and they fail under load: %s\n",
+				shortCommit(latest.Commit), runstate.LocalStamp(latest.StartedAt), strings.Join(underLoad, "; "))
+		}
 		return text.String()
 	}
 	on := ""

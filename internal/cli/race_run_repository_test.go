@@ -28,3 +28,26 @@ func TestTheRaceCheckRunsEveryOrchestratorTestOnceWhenSplit(t *testing.T) {
 		t.Fatalf("%s did not pass (%v):\n%s", raceRunTestPath, err, report)
 	}
 }
+
+// rerunFailingTestPath is the suite for scripts/rerun-failing.sh, which `make
+// race` runs when the checks on main run it a second time, told only the
+// tests that failed the first time.
+const rerunFailingTestPath = "../../scripts/rerun-failing-test.sh"
+
+// TestTheRaceCheckRunOnceMoreRunsOnlyTheFailingTests runs that suite. The
+// narrowing is shell, so without this nothing in `make check` would execute
+// it, and a second run that skipped a failing test would report it passing
+// under load.
+func TestTheRaceCheckRunOnceMoreRunsOnlyTheFailingTests(t *testing.T) {
+	t.Parallel()
+
+	for _, tool := range []string{"bash", "go"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s needs %s, which is not on PATH", rerunFailingTestPath, tool)
+		}
+	}
+	report, err := shellSuite(t, rerunFailingTestPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s did not pass (%v):\n%s", rerunFailingTestPath, err, report)
+	}
+}
