@@ -53,7 +53,7 @@ import (
 // writes. It is satisfied by *runstate.Store.
 type TeamFeedbackRepairRuns interface {
 	RerunRuns
-	Recorded() ([]runstate.State, error)
+	Runs(workItemID string) ([]runstate.State, error)
 	WaitingForTeamMerge() ([]runstate.State, error)
 	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
 }
@@ -312,8 +312,12 @@ func (r TeamFeedbackRepairer) carry(ctx context.Context, landed runstate.State, 
 	if _, err := r.Runs.Update(ctx, landed.RunID, identity); err != nil {
 		return wait("another pass has taken this decision, or its record could not be written (%v); it is not started twice", err)
 	}
+	// A withdrawal that cannot be written leaves the decision taken, which the
+	// next pass settles after its grace period, so it is said and not lost.
 	withdraw := func() {
-		_, _ = r.Runs.Update(ctx, landed.RunID, runstate.TeamFeedbackRepairWithdrawn{LandingCommit: identity.LandingCommit, PullRequest: identity.PullRequest, FeedbackID: identity.FeedbackID, At: r.now().UTC()})
+		if _, err := r.Runs.Update(ctx, landed.RunID, runstate.TeamFeedbackRepairWithdrawn{LandingCommit: identity.LandingCommit, PullRequest: identity.PullRequest, FeedbackID: identity.FeedbackID, At: r.now().UTC()}); err != nil {
+			result.Failure = fmt.Sprintf("give the decision back: %v; a later pass gives it back once it has stood untaken for %s", err, takenRepairGrace)
+		}
 	}
 	// A claim the landed run left on the item is given back so the new run can
 	// take it, as a re-run does; the landed run is over and nothing is in flight.
@@ -374,7 +378,7 @@ const takenRepairGrace = 10 * time.Minute
 // nothing of the item in flight, is given back after a grace period.
 func (r TeamFeedbackRepairer) settleTaken(ctx context.Context, landed runstate.State, repair runstate.TeamFeedbackRepair) (TeamFeedbackRepairCarried, bool) {
 	result := TeamFeedbackRepairCarried{RunID: landed.RunID, WorkItemID: repair.WorkItemID, PullRequest: repair.PullRequest, FeedbackID: repair.FeedbackID}
-	recorded, err := r.Runs.Recorded()
+	recorded, err := r.Runs.Runs(repair.WorkItemID)
 	if err != nil {
 		result.Failure = fmt.Sprintf("read the runs recorded: %v", err)
 		return result, true
