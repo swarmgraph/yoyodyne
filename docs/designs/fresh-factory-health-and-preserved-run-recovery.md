@@ -43,6 +43,10 @@ revisions:
       by: architect
       at: 2026-11-20T06:58:51.978699Z
       reason: 'Answers the reviewer''s report on the run index (report-593493eb) with the ruling of November 15, 2026: a run record that cannot be parsed keeps counting as possibly running, and every health observation now shows it as a problem the development manager owns, naming the file, with no reader changing the file. Also replaces two joined terms in this section with plain words. Written from a read of the design at main 329c6023; the rest of the document is unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T09:31:17.155022Z
+      reason: 'Rewords this section in plain words, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the word the operator retired on November 8 becomes the checks the change must still pass, as in the preserved-run recovery section, and the shorthand for the observed steps, finished and unfinished records, in-flight runs and the record format becomes ordinary words. What the section requires is unchanged. Written from a read of the whole design at main 00f2a55a.'
 approvals:
     - revision: 0
       by: operator
@@ -88,6 +92,11 @@ approvals:
       by: harness
       at: 2026-11-20T06:58:51.978699Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3159, for document-3159.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-20T09:31:17.155022Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3167, for document-3167.1 under the automatic approval policy
 ---
 # Purpose and scope
 
@@ -139,15 +148,15 @@ A run taken up again must look at its artifacts, and at any change it already at
 
 # Workflow observation and checkpoints
 
-The inspected declarative delivery path observes the Go pipeline and does not perform its actions. The run record owns delivery facts; the workflow instance owns observed topology. Recovery must preserve that division.
+The declarative delivery path the harness inspected observes the Go pipeline and does not perform its actions. The run record owns the facts of delivery; the workflow instance owns the steps it observed. Recovery must preserve that division.
 
-Classify redeploy interruption as a pause before recording an ordinary stopped outcome. Preserve the observation at the last truthful boundary. Reload the run and its observation before resuming; report a missing, unreadable, terminal or divergent observation explicitly.
+Classify an interruption by a move onto a new build as a pause before recording an ordinary stopped outcome. Keep the observation at the last boundary it recorded truthfully. Reload the run and its observation before resuming; report a missing, unreadable, finished or divergent observation explicitly.
 
-A terminal observation is not authority to cancel a nonterminal, recoverable delivery run. Preserve its terminal history and record the disagreement on the run. Continue through the supported delivery path when the run's ownership, artifacts, phase and gates establish that continuation is safe; do not fabricate graph transitions or reopen a terminal observation. Where those delivery facts cannot be established, record a wait that keeps the stop listed for the development manager.
+An observation that has finished is not authority to cancel a delivery run that has not finished and can still be recovered. Keep the observation's history as it is and record the disagreement on the run. Continue through the supported delivery path when the run's ownership, artifacts, phase and the checks the change must still pass establish that continuation is safe; do not invent steps the workflow did not take, and do not reopen a finished observation. Where those delivery facts cannot be established, record a wait that keeps the stop listed for the development manager.
 
-Do not migrate an in-flight run to the current project definition. A changed or unavailable definition is explicit evidence of observation failure. A mismatch must not be reported as a clean workflow trace.
+Do not move a run that is in flight onto the project's current workflow definition. A changed or unavailable definition is explicit evidence that observation failed. A mismatch must not be reported as a clean account of the workflow.
 
-Run and observation writes are separate durable operations. Crash reconciliation must inspect both and distinguish a missing write from a completed transition. Validation remains strict for mutation. No requirement here authorizes weakening validation, resetting counters or silently deleting incompatible markers. Any necessary schema extension must preserve old record readability and make unsupported mutation fail explicitly; strict writers must be upgraded before they encounter fields they cannot preserve.
+Writing the run and writing its observation are separate durable operations. After a crash, reconciliation must inspect both and tell a missing write apart from a completed step. Validation stays strict for every change to a record. Nothing here allows weakening validation, resetting counters or silently deleting markers a reader does not understand. Any change needed to the record format must keep old records readable and make a change the reader cannot support fail explicitly; strict writers must be upgraded before they meet fields they cannot keep.
 
 # Fresh health delivery
 
