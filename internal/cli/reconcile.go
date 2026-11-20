@@ -70,7 +70,9 @@ type reconcileOutput struct {
 	ClosedWithItem int `json:"closed_with_item"`
 	// NeverEndingWaits is how many docket entries this sweep put back in front of
 	// the development manager because the wait standing over each named its own
-	// item's parent or an item above it, which cannot close while it is open.
+	// item's parent or an item above it, which cannot close while it is open, or
+	// another item that still has open child items, which closes only once that
+	// whole area of work is done.
 	NeverEndingWaits int `json:"never_ending_waits,omitempty"`
 	// ListingCut says, in plain words, that the tracker's listing of closed
 	// work stopped at bd's default limit, and that the items it left out were
@@ -152,7 +154,8 @@ type reconcileSweep struct {
 	// ClosedWithItem is how many docket entries the sweep closed with their item.
 	ClosedWithItem int
 	// NeverEndingWaits is how many entries the sweep put back on the docket
-	// because their wait named an item above their own.
+	// because their wait named an item above their own or an item with open
+	// child items.
 	NeverEndingWaits int
 	// ListingCut says the tracker's listing of closed work was cut, and what the
 	// sweep did about it.
@@ -334,9 +337,11 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	escalationsEnded, escalationsErr := reconciler.EndEscalations(ctx)
 	err = errors.Join(err, escalationsErr)
 	// A wait standing on a stopped item's own parent, or an item above it, can
-	// never end, since that item cannot close while the stopped one is open. A
-	// new one is refused as it is decided; one recorded before that is put back
-	// on the development manager's docket here as needing a new decision.
+	// never end, since that item cannot close while the stopped one is open, and
+	// one on any other item that still has open child items ends only once that
+	// whole area of work is done. A new one of either is refused as it is
+	// decided; one recorded before that is put back on the development manager's
+	// docket here as needing a new decision.
 	neverEndingWaits, neverEndingErr := reconciler.EndNeverEndingWaits(ctx)
 	err = errors.Join(err, neverEndingErr)
 	// The exchanges the roles have put to each other are recovered here for the
@@ -862,7 +867,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			fmt.Fprintf(stdout, "%d triage docket entry(s) closed because the tracker holds their item as closed\n", sweep.ClosedWithItem)
 		}
 		if sweep.NeverEndingWaits > 0 {
-			fmt.Fprintf(stdout, "%d stopped run(s) put back on the development manager's list, because each waited on its own item's parent or an item above it, which cannot close while it is open\n", sweep.NeverEndingWaits)
+			fmt.Fprintf(stdout, "%d stopped run(s) put back on the development manager's list, because each waited on its own item's parent or an item above it, which cannot close while it is open, or on an item that still has open child items, which closes only when all of its work is done\n", sweep.NeverEndingWaits)
 		}
 		if sweep.ListingCut != "" {
 			fmt.Fprintf(stderr, "closing the docket entries of closed work: %s\n", sweep.ListingCut)

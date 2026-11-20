@@ -993,9 +993,11 @@ const WaitLandedDecision = "waited-work-landed"
 const EscalationReturnedDecision = "escalation-returned"
 
 // WaitNeverEndsDecision is the word on the closure that ends a wait on named
-// work that can never end: the item waited on is the stopped item's own parent
-// or an item above it, which cannot close while the stopped item is open. It is
-// the harness's, not a triage decision, and like the closure ending a wait on
+// work that does not end on the work it meant: the item waited on is the
+// stopped item's own parent or an item above it, which cannot close while the
+// stopped item is open, or another item that still has open child items, which
+// closes only once that whole area of work is done. It is the harness's, not a
+// triage decision, and like the closure ending a wait on
 // landed work it holds nothing, so the stoppage is a question on the
 // development manager's docket again.
 const WaitNeverEndsDecision = "wait-never-ends"

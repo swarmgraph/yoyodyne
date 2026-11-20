@@ -1000,6 +1000,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 	}
 	return orchestrator.Reconciler{
 		Tracker:         parts.tracker(),
+		Children:        parts.tracker(),
 		Worktrees:       parts.worktrees,
 		IntentWorktrees: reconcileIntentWorktreesOf(parts),
 		Store:           parts.store,

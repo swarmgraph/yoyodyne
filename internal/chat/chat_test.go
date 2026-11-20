@@ -7,6 +7,7 @@ import (
 	"io"
 	"reflect"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -1482,6 +1483,9 @@ type fakeTracker struct {
 	all     []beads.WorkItem
 	listed  []string
 	listErr error
+	// childrenErr is what a listing of an item's unfinished children answers
+	// with in place of the children the items above hold.
+	childrenErr error
 	// shown is every item it was asked to read, in order, so a turn that looks
 	// the same item up twice is visible rather than merely slow.
 	shown   []string
@@ -1554,6 +1558,22 @@ func (f *fakeTracker) List(_ context.Context, status string) ([]beads.WorkItem, 
 	default:
 		return f.open, nil
 	}
+}
+
+// UnfinishedChildren answers from the items it holds: every one broken out of
+// parent that is not closed, in identifier order.
+func (f *fakeTracker) UnfinishedChildren(_ context.Context, parent string) ([]beads.WorkItem, error) {
+	if f.childrenErr != nil {
+		return nil, f.childrenErr
+	}
+	var children []beads.WorkItem
+	for _, item := range f.items {
+		if item.DecomposedFrom() == parent && item.Status != "closed" {
+			children = append(children, item)
+		}
+	}
+	sort.Slice(children, func(i, j int) bool { return children[i].ID < children[j].ID })
+	return children, nil
 }
 
 func (f *fakeTracker) Create(_ context.Context, item beads.NewWorkItem) (beads.WorkItem, error) {

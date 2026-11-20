@@ -63,6 +63,11 @@ func (t *ParkingTracker) AddBlocker(_ context.Context, _, _ string) error { retu
 
 func (t *ParkingTracker) RemoveBlocker(_ context.Context, _, _ string) error { return nil }
 
+// UnfinishedChildren answers that no item has work broken out of it.
+func (t *ParkingTracker) UnfinishedChildren(context.Context, string) ([]beads.WorkItem, error) {
+	return nil, nil
+}
+
 func (t *ParkingTracker) Complete(_ context.Context, id, _ string) (beads.WorkItem, error) {
 	return beads.WorkItem{ID: id, Status: "closed"}, nil
 }
