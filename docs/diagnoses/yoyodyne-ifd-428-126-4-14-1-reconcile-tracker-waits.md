@@ -162,7 +162,11 @@ limit's wait. Runs that publish a document or bring in a file are settled
 against a stand-in for their item and are not read. `bd show` was kept rather
 than `bd list --id`, which is faster, because `bd show` answers each item
 exactly as it answers it alone (TestShowManyConformance) and every settling
-step was written against that answer.
+step was written against that answer. Since yoyodyne-ifd.428.126.4.24 the
+batch is a `bd list --id=…` whose links are given the form `bd show` gives
+them, which TestShowManyConformance holds to the same answer, because a `bd
+show` of many items held the store for each one
+(docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md).
 
 `TestReconcileReadsItsRunsItemsInOneCallAndListsNothing` in
 `internal/orchestrator` holds the sweep to this: over a stand-in for bd that
