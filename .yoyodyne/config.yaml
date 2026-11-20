@@ -431,6 +431,22 @@ checks:
   - make build
   - make test-macos
 
+# How the Go checks name their failing tests, so a failed check's record lists
+# each failing test with its file (yoyodyne-ifd.429.87.1). go test prints
+# "--- FAIL: TestName" for each failing test (a subtest under its test), then
+# lines such as "    name_test.go:12: ..." naming the file it failed in, then
+# "FAIL<tab>import/path" for the package; the module path is taken off that to
+# give the package's directory. A failure naming no test, such as a package that
+# did not build or a test binary that timed out, cannot be read this way, and
+# the record says so. docs/configuration.md, "Naming a failed check's failing
+# tests", says how a reading is written.
+failing_tests:
+  - checks: [make test, make race, make test-macos]
+    test: '^\s*--- FAIL: (?P<test>[^\s/]+)'
+    file: '^\s+(?P<file>[^\s/:]+_test\.go):[0-9]+: '
+    group: '^FAIL\s+(?P<directory>\S+)'
+    strip_prefix: github.com/mason-bryant/yoyodyne
+
 # The whole race check, run on main's head every execution.main_check_interval
 # (four hours by default) when main has moved, so the race check can come off
 # each merge-queue candidate (yoyodyne-ifd.429.142) without losing it. Decided by

@@ -4148,6 +4148,7 @@ func (a *activeRun) recordCheckFailure(result checks.Result) {
 		Command:      result.Command,
 		ExitCode:     result.Process.ExitCode,
 		Output:       boundedCheckOutput(result),
+		FailingTests: result.FailingTests,
 		ReviewBefore: before,
 	}
 }
