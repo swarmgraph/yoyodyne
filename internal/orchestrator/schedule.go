@@ -926,7 +926,11 @@ type Pull struct {
 	// MergeQueues is the merge queues the session works beside its pulls, each
 	// in a goroutine of its own (mergequeuedriver.go). Nil works none.
 	MergeQueues ScheduleMergeQueues
-	Build       string
+	// IntakeQueries is the project's scheduled intake queries, each run in a
+	// goroutine of its own beside the pull and holding no developer slot
+	// (intakequeries.go). Nil runs none.
+	IntakeQueries ScheduleIntake
+	Build         string
 	// RedeployDrainLimit is execution.redeploy_drain_limit as this pull read it:
 	// how long a session that has found a build deployed over it waits out the
 	// runs it hosts before restarting anyway, with those runs stopped and
@@ -1482,6 +1486,11 @@ type Schedule struct {
 	// QueueProblem what stopped the latest of them where something did.
 	QueuePasses  []ScheduledQueuePass `json:"merge_queue_passes,omitempty"`
 	QueueProblem string               `json:"merge_queue_problem,omitempty"`
+	// IntakeRuns is how many intake query runs this session started, and
+	// IntakeProblem what went wrong with the latest where something did
+	// (intakequeries.go).
+	IntakeRuns    int    `json:"intake_runs,omitempty"`
+	IntakeProblem string `json:"intake_problem,omitempty"`
 	// QueueHeld is the latest look at the approved changes the merge queue
 	// held out, where it found any.
 	QueueHeld *MergeQueueHeldPass `json:"merge_queue_held,omitempty"`
@@ -1721,6 +1730,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	queuePasses := newMergeQueuePasses(session.passingBeside(ctx))
 	queuePasses.again = s.MergeQueueAgain
 	defer queuePasses.cancel()
+	// intakeRuns is the intake query runs in flight, at most one per query,
+	// worked beside the pull as the queue passes are and collected the same way.
+	intakeRuns := newIntakeRuns(session.passingBeside(ctx))
+	defer intakeRuns.cancel()
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
 	// reading: nothing is ever removed, because a run that ends without moving the
@@ -2437,6 +2450,7 @@ pulling:
 		// still hosts anything.
 		s.collectFirings(&schedule, firings, &cadence, false)
 		s.collectQueuePasses(&schedule, queuePasses, false)
+		collectIntakeRuns(&schedule, intakeRuns, false)
 		if s.Limit > 0 && schedule.Chosen() >= s.Limit {
 			schedule.Stopped = ScheduleLimitReached
 			break
@@ -2697,6 +2711,14 @@ pulling:
 			if s.startQueuePasses(&schedule, pull.MergeQueues, queuePasses) {
 				drain.paused(s.now())
 			}
+		}
+		// The intake queries are run here for the same reason: a query run
+		// chooses no work, starts no run and holds no developer slot, so neither
+		// the brake nor the intake hold stops it; it reads the operator's pause
+		// itself before it spends anything. A session draining to restart starts
+		// none, and the session that comes back runs whatever fell due.
+		if pull.IntakeQueries != nil && !drain.active {
+			s.startIntakeRuns(&schedule, pull.IntakeQueries, intakeRuns)
 		}
 		// And a role whose tracker block the harness refused is woken here, last of
 		// the three. It is placed after the other two because it is the cheapest to
@@ -4230,6 +4252,9 @@ collecting:
 	// going round for as long as its queue waits.
 	queuePasses.settle()
 	s.collectQueuePasses(&schedule, queuePasses, true)
+	// An intake query run makes at most a handful of calls, each bounded by the
+	// call path's own time limit, so the session waits for those in flight.
+	collectIntakeRuns(&schedule, intakeRuns, true)
 	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
 	// restarted into the build deployed over it is waiting on nothing and nobody,

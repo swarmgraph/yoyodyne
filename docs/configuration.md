@@ -8054,10 +8054,12 @@ agents:
 A project can declare queries the harness will run on a schedule, reading new
 messages from a source such as a Slack channel so that a matching message can
 start work under a written rule
-([the design](designs/scheduled-message-intake.md)). **In this build the
-section loads, is checked, and is shown by `yoyo config show`; nothing runs a
-query yet.** A project that says nothing has no queries, and its configuration
-and its revision are exactly what they were before the key existed.
+([the design](designs/scheduled-message-intake.md)). **In this build a
+watching session runs each query on its schedule and writes down every message
+it returns; nothing reads a message with a model, starts work from one, or asks
+anybody about one yet.** A project that says nothing has no queries, and its
+configuration and its revision are exactly what they were before the key
+existed.
 
 ```yaml
 intake:
@@ -8101,6 +8103,53 @@ in the effective configuration below it wherever it is set. The whole section
 is yours alone: a role's write to the configuration is refused for `intake` and
 everything under it.
 
+### How a query runs
+
+A `yoyo work` session runs each query once for every `every` of its schedule,
+beside its pulls and in a goroutine of its own: a query run holds no developer
+slot, and a run that falls due while the query's previous run is still working
+is skipped. The intake hold does not stop a query; your `yoyo pause` does, and a
+paused run spends nothing.
+
+- **The first run reads nothing.** It records the moment the query was
+  switched on, and every later run reads only messages sent after it, so
+  switching a query on never reads old messages.
+- **A run reads one time window to a call**, from the time the query has read
+  up to and never closer than ten minutes to now. The harness fills
+  `since_argument` and `until_argument` with the window's start and end, as
+  times in RFC 3339, in UTC, to the second (`2026-11-19T09:00:00Z`).
+- **An answer that is cut** — more than the 32 KiB one call may return, or
+  `more_field` true — writes nothing down and halves the window. **An answer
+  that fits** has every message in it written down, then moves the time read up
+  to on, and the next window is twice as long. A run makes at most five calls,
+  and the next run carries on from where it stopped.
+- **A minute still too large to read** is recorded as skipped, the query moves
+  past it, and one warning goes to the development manager. The messages in
+  that minute are not read; `yoyo status` counts the minutes skipped.
+- **A message from a sender not on `senders`** is recorded as ignored, with its
+  identifier and sender and none of its text, link or digest.
+- **Each message is recorded once**, under the server's name and the source's
+  own identifier for it, with a short number made from that key; a message two
+  queries return, or one returned again after a restart, is still one record.
+  A message's text is kept up to `text_bytes`.
+- **A call that fails** is tried once more by the MCP call path; if it still
+  fails, or the answer does not hold `items` and `fields` as declared, the run
+  fails and the time read up to does not move, so the next run asks again and
+  nothing is lost. After three failed runs in a row one warning is filed, and
+  no other until a run succeeds: to the development manager where calls fail,
+  and opening with `protected-file` where the answer has the wrong shape,
+  because only a change to the query's `items` or `fields` in this section can
+  mend that.
+
+The record of messages is kept on this machine under the product's state
+directory, in `intake/`, and is only ever added to. The MCP call record keeps a
+query's calls with the size and digest of each answer and whether it was cut,
+and never the answer itself, so `yoyo mcp calls` shows a query's calls with no
+content and the intake record is the only copy of any message. `yoyo status`
+prints one line for each query: how far it has read, how many messages it has
+recorded and ignored, the minutes it skipped, and how many of its last runs
+failed.
+
 ### The rules document
 
 `rules` names the Markdown document a query's messages are judged by, by its
@@ -8142,8 +8191,9 @@ document that cannot be read as rules at all — missing on the target branch, n
 and is reported once to the Lead Product Manager; its messages wait, and none
 is lost. A rules document a query names is read by the message reader and is
 not given to every role as product intent, even when it is kept under the
-product's specification home. **In this build the document is read and checked
-by the code that a query run will use; nothing runs a query yet.**
+product's specification home. **In this build queries run and record the
+messages they return, but nothing judges a message against the rules document
+yet; that waits for the message reader.**
 
 ## Slack review threads
 
