@@ -234,6 +234,11 @@ const (
 	ClassMissingConfig Classification = "configuration file missing"
 	// A maintenance pass failure no finding has carried to a role yet.
 	ClassUndeliveredMaintenance Classification = "maintenance failure no role was told of"
+	// A finished run whose checkout the harness kept because it holds files
+	// nothing else has. Nothing is owed: it is listed so it is not mistaken
+	// for a checkout the harness forgot, and a person decides what becomes of
+	// the files.
+	ClassKeptCheckout Classification = "finished run's checkout kept"
 	// A factory problem the read model raised.
 	ClassFactoryProblem Classification = "factory problem"
 	// A developer slot the scheduler left empty while ready work waited, with
@@ -244,7 +249,7 @@ const (
 // Actionable is whether the classification asks a role for a decision or an
 // action. A wait is not: it names what releases it and what revisits it.
 func (c Classification) Actionable() bool {
-	return c != ClassDependencyWait && c != ClassWait
+	return c != ClassDependencyWait && c != ClassWait && c != ClassKeptCheckout
 }
 
 // Identity is what a condition is known by from one observation to the next:

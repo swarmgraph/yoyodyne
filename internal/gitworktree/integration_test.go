@@ -1946,3 +1946,67 @@ func TestManagerCleanupKeepsAWorktreeHoldingAnotherFile(t *testing.T) {
 		t.Fatalf("unsaved.txt = %q, want it untouched", content)
 	}
 }
+
+// A file Git calls deleted that is still on the disk is not known to be
+// disposable, so it keeps the checkout.
+func TestADeletedStatusIsOnlyBelievedWhereTheFileIsAbsent(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, root, "present.txt", "still here\n")
+	entry := func(name string) dirtyPath { return dirtyPath{index: ' ', worktree: 'D', path: name} }
+	if entry("present.txt").removable(root, nil) {
+		t.Fatal("a file Git calls deleted but that is on the disk was called disposable")
+	}
+	if !entry("gone.txt").removable(root, nil) {
+		t.Fatal("a file Git calls deleted and that is absent from the disk was not called disposable")
+	}
+}
+
+// A change brought up to date after its original was merged leaves the branch
+// at a commit of its own with the same patch. Nothing on it is missing from the
+// target, so the checkout and the branch are both removed.
+func TestManagerCleanupRemovesAWorktreeWhoseCommitsAreAlreadyInTheTarget(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	worktree, request := integratedWorktree(t, repository, manager, "yoyodyne-replayed")
+	runGit(t, worktree.Path, "reset", "--hard", worktree.BaseCommit)
+	writeFile(t, worktree.Path, "feature.txt", "implemented\n")
+	runGit(t, worktree.Path, "add", "feature.txt")
+	runGit(t, worktree.Path, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "--no-verify", "-m", "the same change again")
+
+	cleanup, err := manager.CleanupIntegrated(context.Background(), request)
+	if err != nil {
+		t.Fatalf("CleanupIntegrated() error = %v", err)
+	}
+	if !cleanup.Complete() {
+		t.Fatalf("cleanup = %#v, want the worktree and branch removed", cleanup)
+	}
+}
+
+// A commit on the branch whose change the target lacks is work nothing else
+// holds, so it keeps the checkout and is named.
+func TestManagerCleanupKeepsAWorktreeHoldingACommitTheTargetLacks(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	worktree, request := integratedWorktree(t, repository, manager, "yoyodyne-unmerged")
+	writeFile(t, worktree.Path, "later.txt", "not merged\n")
+	runGit(t, worktree.Path, "add", "later.txt")
+	runGit(t, worktree.Path, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "--no-verify", "-m", "a later change")
+
+	cleanup, err := manager.CleanupIntegrated(context.Background(), request)
+	kept, ok := IsKeptCheckout(err)
+	if !ok || len(kept.Commits) != 1 || !strings.Contains(kept.Commits[0], "a later change") {
+		t.Fatalf("CleanupIntegrated() error = %v, want a kept checkout naming the commit", err)
+	}
+	if cleanup.WorktreeRemoved {
+		t.Fatalf("cleanup = %#v, want nothing removed", cleanup)
+	}
+	if _, err := os.Stat(filepath.Join(worktree.Path, "later.txt")); err != nil {
+		t.Fatalf("the unmerged file is gone: %v", err)
+	}
+}
