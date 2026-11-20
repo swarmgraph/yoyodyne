@@ -765,22 +765,30 @@ else in the way, the step:
 
 1. finds the lowest-numbered release item that the Lead Product Manager
    admitted, that is not closed, and whose tag origin does not hold;
-2. reads the commit origin's default branch holds, and starts from that;
-3. checks that `docs/releases/<version>.md` is there at that commit, and that
-   it last changed after the release was decided;
+2. reads the commit origin's default branch holds, and the release's notes,
+   `docs/releases/<version>.md`, as that commit carries them;
+3. checks that the notes are there and last changed after the release was
+   decided, and reads the commit they name, in the words "up to and including
+   commit `<the commit's whole name>`". A release covers everything up to that
+   commit and is tagged there, and its notes land on `main` after it, so notes
+   waiting in review never claim work that landed while they waited;
 4. runs every gate a person's cut runs, in a worktree of its own detached at
-   that commit under the product's state directory: `HEAD` at `origin/main`
-   with a clean tree, the notes, release readiness matching the notes' stamp,
-   the adoption walkthrough, `make check`, and the release build. These are
-   `scripts/cut-release.sh` itself, run with `YOYODYNE_RELEASE_CUT=automatic`,
-   which drafts nothing, opens no pull request, and tags nothing. The worktree
-   is removed afterwards;
+   the named commit under the product's state directory, handed the notes as
+   `main` holds them, since the named commit's own tree does not carry them:
+   `HEAD` at the named commit, which `origin/main` holds, with a clean tree, the
+   notes, release readiness matching the notes' stamp, the adoption
+   walkthrough, `make check`, and the release build. These are
+   `scripts/cut-release.sh` itself, run with `YOYODYNE_RELEASE_CUT=automatic`
+   and the notes in `YOYODYNE_RELEASE_NOTES`, which drafts nothing, opens no
+   pull request, and tags nothing. The worktree and the notes beside it are
+   removed afterwards;
 5. records its intent to cut in `release-cuts.json` under the product's state
-   directory, before any tag exists: the version, the commit, the verdict and
-   definition the readiness stamp records, the notes' digest, the gates that
-   passed, and which process cut;
-6. writes an annotated tag on that commit under the harness's own identity
-   (`Yoyodyne Harness`), pushes the tag alone to `execution.remote`, and reads
+   directory, before any tag exists: the version, the named commit and the
+   commit `main` held, the verdict and definition the readiness stamp records,
+   the notes' digest, the gates that passed, and which process cut;
+6. writes an annotated tag on the named commit under the harness's own
+   identity (`Yoyodyne Harness`), pushes the tag alone to `execution.remote`,
+   and reads
    origin back to confirm it holds the tag on that commit;
 7. records the push on the release item, in a note naming the commit, the
    gates, and the readiness verdict, and on the pass, and files a `warning` so
@@ -789,13 +797,17 @@ else in the way, the step:
 The tag push is what [the release workflow](../.github/workflows/release.yml)
 publishes from, so the archives that ship are built by the workflow from the
 tagged commit. The archives the gate builds in the cut's worktree only prove
-the build works, and they are removed with the worktree.
+the build works, and they are removed with the worktree. The release page's
+text is the notes: the tagged commit's tree has none, so the workflow reads
+them from `main` with [`scripts/release-body.sh`](../scripts/release-body.sh),
+and takes them only where they name the tagged commit.
 
 What it will not do:
 
 - **Prepare anything.** Notes that are missing, older than the release
-  decision, or carrying a readiness result that no longer matches a fresh
-  reading refuse the cut. Nothing is drafted, committed, or opened, and the
+  decision, naming no commit or two, naming a commit `origin/main` does not
+  hold, or carrying a readiness result that no longer matches a fresh reading
+  refuse the cut, saying which. Nothing is drafted, committed, or opened, and the
   release goes back to the Lead Product Manager: a note on its item and a
   `warning` report saying its reviewed run has the notes or the stamp still to
   land. That happens once for each version of the notes, however often `main`
@@ -820,8 +832,8 @@ tag stands and acts on it:
 
 | What the next pass finds | What it does |
 |---|---|
-| no tag here or on origin, and origin's default branch still at the recorded commit | writes the tag, pushes it, and confirms it, without running the gates again |
-| no tag here or on origin, and origin's default branch has moved on | marks the intent stale; the pass after starts a fresh cut and runs every gate again |
+| no tag here or on origin, and origin's default branch still holds the recorded commit with the notes there still naming it | writes the tag, pushes it, and confirms it, without running the gates again |
+| no tag here or on origin, and the notes on origin's default branch now name another commit, or none, or the branch no longer holds the recorded one | marks the intent stale; the pass after starts a fresh cut and runs every gate again |
 | the tag here on the recorded commit, not on origin | pushes it and confirms it |
 | origin holding the tag on the recorded commit | adopts it as pushed: the earlier push landed |
 | the tag, here or on origin, on any other commit | holds the release for the Lead Product Manager to choose a new version, with a note and a `warning`; nothing is moved or deleted |

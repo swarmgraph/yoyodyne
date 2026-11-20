@@ -8,12 +8,18 @@
 // through that item's own reviewed run; and the cut is this pass and nothing
 // else — never an agent, a conversation, or a developer run. So this prepares
 // nothing and writes nothing to main. It finds a decided release whose tag is
-// not on origin, starts from the commit origin's default branch holds, runs
+// not on origin, reads the release's notes as origin's default branch holds
+// them, and cuts at the commit those notes name: a release covers everything
+// up to a named commit and is tagged there, with the notes landing on main
+// afterwards, so notes that wait in review never claim work that landed while
+// they waited (the Lead Product Manager's decision of 2026-11-19). It runs
 // every gate a person's cut runs (scripts/cut-release.sh, in its automatic
-// mode, in a worktree of its own at that commit), and pushes the tag under the
-// harness's identity. Notes that are missing, older than the decision, or
+// mode, in a worktree of its own at the named commit, handed main's notes),
+// and pushes the tag under the harness's identity. Notes that are missing,
+// older than the decision, naming no commit or one main does not hold, or
 // carrying a stale stamp refuse the cut and hand the release back to the Lead
-// Product Manager, once for each version of the notes.
+// Product Manager, once for each version of the notes. The release workflow
+// publishes the page from the same notes on main (scripts/release-body.sh).
 //
 // Interrupted publication follows the architect's ruling on release-tag
 // recovery (Settle interrupted release-tag publication, yoyodyne-ifd.436.2.1):
@@ -22,8 +28,8 @@
 // exists, and creating, pushing and confirming the tag are each safe to
 // repeat from that record. A later pass reads one of five states and acts on
 // it: no tag anywhere (the same intent is tried again while origin's default
-// branch is still at its commit; otherwise it is stale, and the next cut runs
-// the gates again), a local tag origin does not have (pushed), origin holding
+// branch still holds its commit and the notes there still name it; otherwise
+// it is stale, and the next cut runs the gates again), a local tag origin does not have (pushed), origin holding
 // the tag on the intent's commit after a push nobody saw land (adopted),
 // origin or this repository holding the tag on some other commit (held for
 // the Lead Product Manager to choose a new version, with nothing moved or
@@ -54,6 +60,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -82,7 +89,7 @@ const (
 // The gates a person's cut holds, in the order scripts/cut-release.sh runs
 // them, which a cut's intent records as passed.
 var gates = []string{
-	"HEAD at origin's default branch, with a clean tree",
+	"HEAD at the commit the notes name, which origin's default branch holds, with a clean tree",
 	"the release's notes",
 	"release readiness, matching the notes' stamp",
 	"the adoption walkthrough",
@@ -299,35 +306,36 @@ func standing(cuts []runstate.ReleaseCut, version string) string {
 	return ""
 }
 
-// cut runs the gates on what origin's default branch holds and, where they
-// pass, records the intent and publishes the tag.
+// cut reads the release's notes as origin's default branch holds them, runs
+// the gates on the commit they name and, where they pass, records the intent
+// and publishes the tag.
 func (c *Cutter) cut(ctx context.Context, cuts []runstate.ReleaseCut, item beads.WorkItem, version string) runstate.SweepStep {
 	step := runstate.SweepStep{Name: StepName}
 	branch := c.defaultBranch(ctx)
-	commit, err := c.remoteHead(ctx, branch)
+	head, err := c.remoteHead(ctx, branch)
 	if err != nil {
 		return skipped(step, fmt.Sprintf("where origin/%s is could not be read, so %s is not cut on this pass: %v", branch, version, err))
 	}
 	for _, cut := range cuts {
-		if cut.Version == version && cut.Commit == commit && cut.State != runstate.ReleaseCutStale {
-			return skipped(step, fmt.Sprintf("%s was refused at %s, which origin/%s still holds, and is tried again once it moves: %s", version, short(commit), branch, cut.Detail))
+		if cut.Version == version && cut.ReadAtMain() == head && cut.State != runstate.ReleaseCutStale {
+			return skipped(step, fmt.Sprintf("%s was refused when origin/%s held %s, which it still does, and is tried again once it moves: %s", version, branch, short(head), cut.Detail))
 		}
 	}
-	notes := "docs/releases/" + version + ".md"
+	notes := NotesPath(version)
 	refused := runstate.ReleaseCut{
 		SchemaVersion: runstate.ReleaseCutSchemaVersion, ProductID: c.Product, Version: version,
-		WorkItemID: item.ID, Commit: commit, State: runstate.ReleaseCutRefused, CutBy: c.CutBy,
+		WorkItemID: item.ID, Commit: head, MainCommit: head, State: runstate.ReleaseCutRefused, CutBy: c.CutBy,
 		RecordedAt: c.now().UTC(), UpdatedAt: c.now().UTC(),
 	}
-	digest, present, err := c.blob(ctx, commit, notes)
+	digest, present, err := c.blob(ctx, head, notes)
 	if err != nil {
 		return failed(step, fmt.Sprintf("whether %s is on origin/%s could not be read: %v", notes, branch, err))
 	}
 	if !present {
-		return c.handBack(ctx, cuts, refused, "", fmt.Sprintf("%s is not on origin/%s at %s", notes, branch, short(commit)))
+		return c.handBack(ctx, cuts, refused, "", fmt.Sprintf("%s is not on origin/%s at %s", notes, branch, short(head)))
 	}
 	if !item.CreatedAt.IsZero() {
-		landed, err := c.committedAt(ctx, commit, notes)
+		landed, err := c.committedAt(ctx, head, notes)
 		if err != nil {
 			return failed(step, fmt.Sprintf("when %s last changed could not be read: %v", notes, err))
 		}
@@ -336,8 +344,20 @@ func (c *Cutter) cut(ctx context.Context, cuts []runstate.ReleaseCut, item beads
 				notes, branch, local(landed), local(item.CreatedAt)))
 		}
 	}
+	text, err := c.git(ctx, c.Repository, gitTimeout, "show", head+":"+notes)
+	if err != nil {
+		return failed(step, fmt.Sprintf("%s on origin/%s could not be read: %v", notes, branch, err))
+	}
+	commit, why, err := c.namedOnMain(ctx, text, head, notes, branch)
+	if err != nil {
+		return failed(step, err.Error())
+	}
+	if why != "" {
+		return c.handBack(ctx, cuts, refused, digest, why)
+	}
+	refused.Commit = commit
 
-	result, err := c.gates(ctx, version, commit)
+	result, err := c.gates(ctx, version, commit, text)
 	if err != nil {
 		return failed(step, fmt.Sprintf("the gates for %s at %s could not be run: %v", version, short(commit), err))
 	}
@@ -355,11 +375,11 @@ func (c *Cutter) cut(ctx context.Context, cuts []runstate.ReleaseCut, item beads
 	}
 	checked := checkedCommit(result.Stdout)
 	if checked != commit {
-		return failed(step, fmt.Sprintf("the gates for %s passed on %q, not on %s, which origin/%s held when the cut started; nothing was tagged", version, checked, short(commit), branch))
+		return failed(step, fmt.Sprintf("the gates for %s passed on %q, not on %s, which its notes on origin/%s name; nothing was tagged", version, checked, short(commit), branch))
 	}
-	verdict, definition, err := c.stamp(ctx, commit, notes)
+	verdict, definition, err := Stamp(text)
 	if err != nil {
-		return failed(step, fmt.Sprintf("the readiness stamp in %s at %s could not be read after its gate passed: %v", notes, short(commit), err))
+		return failed(step, fmt.Sprintf("the readiness stamp in %s at %s could not be read after its gate passed: %v", notes, short(head), err))
 	}
 	intent := refused
 	intent.State = runstate.ReleaseCutIntent
@@ -392,21 +412,92 @@ func (c *Cutter) recover(ctx context.Context, intent runstate.ReleaseCut) runsta
 	}
 	if local == "" {
 		// No tag anywhere: the gates still describe what would be tagged only
-		// while origin's default branch has not moved off the commit they ran on.
+		// while origin's default branch holds the commit they ran on and the
+		// notes there still name it.
 		branch := c.defaultBranch(ctx)
 		head, err := c.remoteHead(ctx, branch)
 		if err != nil {
 			return c.unconfirmed(ctx, intent, fmt.Sprintf("where origin/%s is could not be read: %v", branch, err))
 		}
-		if head != intent.Commit {
-			intent.State = runstate.ReleaseCutStale
-			intent.Detail = runstate.BoundReleaseCutText(fmt.Sprintf("no tag was written for %s at %s, and origin/%s has moved on to %s, so the gates no longer describe what would be tagged; the next pass cuts it afresh",
-				intent.Version, short(intent.Commit), branch, short(head)))
-			intent.UpdatedAt = c.now().UTC()
-			return c.record(ctx, intent, runstate.StepRan, intent.Detail)
+		if head != intent.ReadAtMain() {
+			notes := NotesPath(intent.Version)
+			why := ""
+			text, err := c.git(ctx, c.Repository, gitTimeout, "show", head+":"+notes)
+			if err != nil {
+				why = fmt.Sprintf("%s could not be read on origin/%s at %s", notes, branch, short(head))
+			} else {
+				named, refusal, err := c.namedOnMain(ctx, text, head, notes, branch)
+				switch {
+				case err != nil:
+					return c.unconfirmed(ctx, intent, err.Error())
+				case refusal != "":
+					why = refusal
+				case named != intent.Commit:
+					why = fmt.Sprintf("%s on origin/%s now names %s", notes, branch, short(named))
+				}
+			}
+			if why != "" {
+				intent.State = runstate.ReleaseCutStale
+				intent.Detail = runstate.BoundReleaseCutText(fmt.Sprintf("no tag was written for %s at %s, and %s, so the gates no longer describe what would be tagged; the next pass cuts it afresh",
+					intent.Version, short(intent.Commit), why))
+				intent.UpdatedAt = c.now().UTC()
+				return c.record(ctx, intent, runstate.StepRan, intent.Detail)
+			}
 		}
 	}
 	return c.publish(ctx, intent)
+}
+
+// NotesPath is where a release's notes live in the repository.
+func NotesPath(version string) string { return "docs/releases/" + version + ".md" }
+
+// namedLine is how a release's notes name the commit the release covers and is
+// tagged at: "up to and including commit `<whole object name>`", as
+// docs/releases/README.md asks the notes to say it. scripts/release-body.sh
+// reads the same words.
+var namedLine = regexp.MustCompile("up to and including commit `([0-9a-f]{40}(?:[0-9a-f]{24})?)`")
+
+// NamedCommit reads the commit a release's notes name. Notes that name none,
+// or name two different commits, are refused with the reason.
+func NamedCommit(notes string) (string, error) {
+	found := ""
+	for _, match := range namedLine.FindAllStringSubmatch(notes, -1) {
+		if found != "" && match[1] != found {
+			return "", fmt.Errorf("they name two commits, %s and %s, and a release is tagged at one", short(found), short(match[1]))
+		}
+		found = match[1]
+	}
+	if found == "" {
+		return "", errors.New("they name no commit for the tag; the notes say which commit the release covers in the words \"up to and including commit `<the commit's whole name>`\"")
+	}
+	return found, nil
+}
+
+// namedOnMain reads the commit the notes at head name, and whether origin's
+// default branch holds it. A refusal over the notes comes back as why, said
+// plainly; err is a Git command that could not answer.
+func (c *Cutter) namedOnMain(ctx context.Context, text, head, notes, branch string) (commit, why string, err error) {
+	commit, refusal := NamedCommit(text)
+	if refusal != nil {
+		return "", fmt.Sprintf("%s on origin/%s does not say where to tag: %v", notes, branch, refusal), nil
+	}
+	if _, err := c.git(ctx, c.Repository, gitTimeout, "cat-file", "-e", commit+"^{commit}"); err != nil {
+		return "", fmt.Sprintf("%s on origin/%s names commit %s, which is not on origin/%s", notes, branch, short(commit), branch), nil
+	}
+	result, err := c.Runner.Run(ctx, execution.Command{
+		Name: "git", Args: []string{"merge-base", "--is-ancestor", commit, head},
+		Dir: c.Repository, Env: execution.GitEnvironment(nil), Timeout: gitTimeout,
+	}, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("whether origin/%s holds %s could not be read: %w", branch, short(commit), err)
+	}
+	switch {
+	case result.Status == execution.ProcessSucceeded:
+		return commit, "", nil
+	case result.Status == execution.ProcessFailed && result.ExitCode == 1:
+		return "", fmt.Sprintf("%s on origin/%s names commit %s, which is not on origin/%s", notes, branch, short(commit), branch), nil
+	}
+	return "", "", fmt.Errorf("whether origin/%s holds %s could not be read: the ancestry check %s", branch, short(commit), describe(result))
 }
 
 // publish writes the tag where it is not, pushes it, and reads it back. Each
@@ -602,12 +693,31 @@ func (c *Cutter) report(cut runstate.ReleaseCut) error {
 }
 
 // gates runs scripts/cut-release.sh in its automatic mode, in a worktree of
-// the cut's own detached at commit. The worktree is removed afterwards however
-// the gates ended.
-func (c *Cutter) gates(ctx context.Context, version, commit string) (execution.ProcessResult, error) {
+// the cut's own detached at commit, handed the notes as origin's default
+// branch holds them: the commit they name is older than the notes, so its own
+// tree does not carry them. The notes are written beside the worktree rather
+// than in it, so its tree stays the commit's. Both are removed afterwards
+// however the gates ended.
+func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (execution.ProcessResult, error) {
 	if err := os.MkdirAll(c.WorkRoot, 0o700); err != nil {
 		return execution.ProcessResult{}, fmt.Errorf("create %s: %w", c.WorkRoot, err)
 	}
+	// The directory is resolved once and then held, so the notes land in it
+	// whatever replaces the path afterwards.
+	resolved, err := filepath.EvalSymlinks(c.WorkRoot)
+	if err != nil {
+		return execution.ProcessResult{}, fmt.Errorf("resolve %s: %w", c.WorkRoot, err)
+	}
+	root, err := repowrite.OpenPinnedRoot(resolved)
+	if err != nil {
+		return execution.ProcessResult{}, fmt.Errorf("open %s: %w", c.WorkRoot, err)
+	}
+	defer root.Close()
+	notesName := version + ".notes.md"
+	if err := root.WriteFile(notesName, []byte(notes), 0o600, false); err != nil {
+		return execution.ProcessResult{}, fmt.Errorf("write the notes the gates read beside the cut's worktree: %w", err)
+	}
+	defer func() { _ = root.Remove(notesName) }()
 	path := filepath.Join(c.WorkRoot, version)
 	// A worktree an interrupted cut left is removed before this one is made; it
 	// holds nothing but a checkout of a commit and what the gates built.
@@ -626,6 +736,7 @@ func (c *Cutter) gates(ctx context.Context, version, commit string) (execution.P
 	environ := execution.ForgeEnvironment(c.Environ)
 	environ = append(environ,
 		"YOYODYNE_RELEASE_CUT=automatic",
+		"YOYODYNE_RELEASE_NOTES="+filepath.Join(resolved, notesName),
 		// The release-readiness gate reads the work items through bd, whose
 		// store is the primary checkout's.
 		"BEADS_DIR="+filepath.Join(c.Repository, ".beads"),
@@ -765,15 +876,6 @@ const (
 	readinessBegin = "<!-- yoyodyne:release-readiness -->"
 	readinessEnd   = "<!-- /yoyodyne:release-readiness -->"
 )
-
-// stamp reads the verdict and definition the notes' readiness stamp records.
-func (c *Cutter) stamp(ctx context.Context, commit, path string) (string, string, error) {
-	notes, err := c.git(ctx, c.Repository, gitTimeout, "show", commit+":"+path)
-	if err != nil {
-		return "", "", err
-	}
-	return Stamp(notes)
-}
 
 // Stamp reads the verdict and definition a release's notes record in their
 // readiness section.
