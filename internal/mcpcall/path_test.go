@@ -666,3 +666,46 @@ func TestAChangedToolListingFilesOneNoteForTheDevelopmentManager(t *testing.T) {
 		t.Fatalf("the same new listing filed another note: %d in all", len(notes.reports))
 	}
 }
+
+func TestAnIntakeQuerysCallRecordKeepsSizeDigestAndWhatWasCutAndNoResult(t *testing.T) {
+	f := newPathFixture(t)
+	f.config.Intake = config.Intake{Queries: map[string]config.IntakeQuery{"bugs": {Tool: "fake.echo"}, "busy": {Tool: "fake.big"}}}
+	f.path.Config = f.config
+	caller, err := IntakeQueryCaller(f.config, "bugs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers := f.do(t, caller, Request{Tool: "fake.echo", Arguments: json.RawMessage(`{"message":"a sender's words"}`)})
+	if answers[0].Outcome != OutcomePerformed || !strings.Contains(answers[0].Result, "a sender's words") {
+		t.Fatalf("the query was not handed its result: %+v", answers[0])
+	}
+	busy, err := IntakeQueryCaller(f.config, "busy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answers := f.do(t, busy, Request{Tool: "fake.big", Arguments: json.RawMessage(`{"bytes":40000}`)}); !answers[0].Cut {
+		t.Fatalf("a result past the bound was not cut: %+v", answers[0])
+	}
+	records := f.records(t)
+	if len(records) != 2 {
+		t.Fatalf("%d records, want 2", len(records))
+	}
+	whole, cut := records[0], records[1]
+	if whole.Caller.Task != "intake:bugs" || whole.Scope != "task:intake:bugs" {
+		t.Errorf("caller recorded = %+v, scope %q", whole.Caller, whole.Scope)
+	}
+	if !whole.ResultWithheld || whole.Result != "" || whole.ResultBytes == 0 || whole.ResultDigest == "" || whole.AnswerCut {
+		t.Errorf("a whole answer's record = %+v, want its size and digest and no result", whole)
+	}
+	if !cut.ResultWithheld || cut.Result != "" || cut.ResultBytes != 40000 || !cut.AnswerCut {
+		t.Errorf("a cut answer's record = %+v, want it said to be cut and no result", cut)
+	}
+	// The echo's result is its arguments, which the record keeps as asked; the
+	// big tool's result is forty thousand bytes nothing asked for.
+	if text := f.recordText(t); strings.Contains(text, "xxxx") {
+		t.Fatal("the record holds what an intake query's call returned")
+	}
+	if _, err := IntakeQueryCaller(f.config, "nothing"); err == nil {
+		t.Fatal("a query the configuration does not hold was given a caller")
+	}
+}
