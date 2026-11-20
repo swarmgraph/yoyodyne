@@ -34,10 +34,12 @@ type WatchAvailability struct {
 	LastGap            time.Duration `json:"last_gap,omitempty"`
 	Problem            string        `json:"problem,omitempty"`
 	ObservationProblem string        `json:"observation_problem,omitempty"`
-	sleeps             []watchGap
-	down               []watchGap
-	passes             []watchGap
-	unobserved         []watchGap
+	// passesAtOnce is Sources.RecurringPassesAtOnce as the reading was given it.
+	passesAtOnce int
+	sleeps       []watchGap
+	down         []watchGap
+	passes       []watchGap
+	unobserved   []watchGap
 }
 
 type watchGap struct {
@@ -53,7 +55,7 @@ type passMoment struct {
 }
 
 func ReadWatchAvailability(sources Sources) WatchAvailability {
-	var availability WatchAvailability
+	availability := WatchAvailability{passesAtOnce: sources.RecurringPassesAtOnce}
 	now := time.Now()
 	if sources.Now != nil {
 		now = sources.Now()
@@ -296,9 +298,11 @@ func (a WatchAvailability) Explain(from, to time.Time, task string) string {
 			reasons = append(reasons, fmt.Sprintf("the harness was not watching: the scheduler was observed down from %s to %s", localMoment(gap.from), localMoment(gap.to)))
 		}
 	}
-	for _, gap := range a.passes {
-		if task != "" && gap.task != task && gap.known && overlaps(gap, from, to) {
-			reasons = append(reasons, fmt.Sprintf("the pass was waiting its turn behind the recurring pass of %s, running from %s to %s", gap.task, localMoment(gap.from), localMoment(gap.to)))
+	if task != "" && a.placesFull(from, to, task, false) {
+		for _, gap := range a.passes {
+			if gap.task != task && gap.known && overlaps(gap, from, to) {
+				reasons = append(reasons, fmt.Sprintf("the pass was waiting its turn behind the recurring pass of %s, running from %s to %s", gap.task, localMoment(gap.from), localMoment(gap.to)))
+			}
 		}
 	}
 	if len(reasons) == 0 {
@@ -316,12 +320,64 @@ func (a WatchAvailability) Cause(from, to time.Time, task string) GapCause {
 			problem = joinProblems(problem, unobservedPresence(gap))
 		}
 	}
-	for _, gap := range a.passes {
-		if task != "" && gap.task != task && !gap.known && overlaps(gap, from, to) {
-			problem = joinProblems(problem, fmt.Sprintf("the session last recorded taking the recurring pass of %s at %s; its ending is unrecorded, so whether it held this pass is uncertain", gap.task, localMoment(gap.from)))
+	// A pass whose ending is unrecorded is uncertain only where counting it would
+	// fill every place: with places to spare it held nothing, whenever it ended.
+	if task != "" && !a.placesFull(from, to, task, false) && a.placesFull(from, to, task, true) {
+		for _, gap := range a.passes {
+			if gap.task != task && !gap.known && overlaps(gap, from, to) {
+				problem = joinProblems(problem, fmt.Sprintf("the session last recorded taking the recurring pass of %s at %s; its ending is unrecorded, so whether it held this pass is uncertain", gap.task, localMoment(gap.from)))
+			}
 		}
 	}
 	return GapCause{Why: a.Explain(from, to, task), Waiting: task != "" && a.WaitingBehindPass(from, to, task), Problem: problem, Checked: true}
+}
+
+// placesFull reports whether, at some moment inside the gap, other recurring
+// passes ran as many at once as a watch session takes side by side, which is
+// the only way another role's pass keeps this one waiting: passes of different
+// roles run beside each other (orchestrator's recurringfirings.go). Passes whose
+// ending is unrecorded are counted only where uncertain is set.
+func (a WatchAvailability) placesFull(from, to time.Time, task string, uncertain bool) bool {
+	type edge struct {
+		at    time.Time
+		delta int
+	}
+	var edges []edge
+	for _, gap := range a.passes {
+		if gap.task == task || (!gap.known && !uncertain) || !overlaps(gap, from, to) {
+			continue
+		}
+		start, end := gap.from, gap.to
+		if start.Before(from) {
+			start = from
+		}
+		if end.After(to) {
+			end = to
+		}
+		edges = append(edges, edge{start, 1}, edge{end, -1})
+	}
+	// A pass ending at the moment another begins never ran beside it.
+	sort.Slice(edges, func(i, j int) bool {
+		if !edges[i].at.Equal(edges[j].at) {
+			return edges[i].at.Before(edges[j].at)
+		}
+		return edges[i].delta < edges[j].delta
+	})
+	running := 0
+	for _, edge := range edges {
+		running += edge.delta
+		if running >= a.places() {
+			return true
+		}
+	}
+	return false
+}
+
+// places is how many recurring passes run at once; a reading given none counts
+// one, so any other pass running is read as a wait, as before the limit was
+// passed in.
+func (a WatchAvailability) places() int {
+	return max(a.passesAtOnce, 1)
 }
 
 func unobservedPresence(gap watchGap) string {
@@ -334,12 +390,7 @@ func unobservedPresence(gap watchGap) string {
 // WaitingBehindPass distinguishes the harness's own blocked schedule from
 // machine sleep and observed downtime, without a caller parsing the prose.
 func (a WatchAvailability) WaitingBehindPass(from, to time.Time, task string) bool {
-	for _, gap := range a.passes {
-		if gap.known && gap.task != task && overlaps(gap, from, to) {
-			return true
-		}
-	}
-	return false
+	return a.placesFull(from, to, task, false)
 }
 
 func overlaps(gap watchGap, from, to time.Time) bool {

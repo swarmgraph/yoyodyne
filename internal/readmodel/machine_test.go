@@ -293,3 +293,60 @@ func TestRecordedWatchStopAndOpeningStillGiveExactDowntime(t *testing.T) {
 		t.Fatalf("recorded stop/opening did not explain the gap: %+v", cause)
 	}
 }
+
+// Passes of different roles run side by side, up to the number a session takes
+// at once, so another pass running is a wait only where that many ran together.
+// The development manager's pass and the Lead Product Manager's ran while a
+// program manager pass stood due with places to spare, and the development
+// manager's ending was not yet recorded: neither is named as what held it, and
+// the unrecorded ending is not said to be uncertain, since it held no place the
+// due pass needed.
+func TestAPassRunningBesideADuePassDoesNotHoldItBelowTheLimit(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 20, 12, 37, 0, 0, time.UTC)
+	due := time.Date(2026, 11, 20, 12, 5, 30, 0, time.UTC)
+	started := time.Date(2026, 11, 20, 11, 50, 24, 0, time.UTC)
+	pass := func(task string) runstate.WatchTransition {
+		return runstate.WatchTransition{At: started, SessionID: "one", RecurringPass: &runstate.WatchPass{Task: task, At: started}}
+	}
+	read := func(limit int, tasks []string, ended []runstate.Sweep) WatchAvailability {
+		var transitions []runstate.WatchTransition
+		for _, task := range tasks {
+			transitions = append(transitions, pass(task))
+		}
+		var watching []runstate.MachineObservation
+		for at := started; !at.After(now); at = at.Add(time.Minute) {
+			watching = append(watching, runstate.MachineObservation{At: at, Watching: true})
+		}
+		return ReadWatchAvailability(Sources{
+			Machine:  machineHistory{watching},
+			Sessions: fakeSessions{transitions: transitions}, Sweeps: fakeSweeps{recorded: ended},
+			Now: func() time.Time { return now }, RecurringPassesAtOnce: limit,
+		})
+	}
+	productManager := runstate.Sweep{Task: "product-manager-sweep", StartedAt: started, EndedAt: time.Date(2026, 11, 20, 12, 6, 36, 0, time.UTC)}
+
+	beside := read(4, []string{"product-manager-sweep", "development-manager-sweep"}, []runstate.Sweep{productManager})
+	cause := beside.Cause(due, now, "factory-flow-pm")
+	if cause.Why != "" || cause.Waiting || cause.Problem != "" {
+		t.Fatalf("cause = %+v, want no pass named as holding one that had places to spare", cause)
+	}
+
+	// Four passes running together fill every place, and they are named.
+	var tasks []string
+	var ended []runstate.Sweep
+	for _, task := range []string{"one-pass", "two-pass", "three-pass", "four-pass"} {
+		tasks = append(tasks, task)
+		ended = append(ended, runstate.Sweep{Task: task, StartedAt: started, EndedAt: now})
+	}
+	full := read(4, tasks, ended).Cause(due, now, "factory-flow-pm")
+	if !full.Waiting || !strings.Contains(full.Why, "waiting its turn behind the recurring pass of four-pass") {
+		t.Fatalf("cause = %+v, want the four passes filling every place named", full)
+	}
+
+	// Three recorded and one unrecorded could fill them, so that one is uncertain.
+	uncertain := read(4, tasks, ended[:3]).Cause(due, now, "factory-flow-pm")
+	if uncertain.Waiting || uncertain.Why != "" || !strings.Contains(uncertain.Problem, "four-pass") || !strings.Contains(uncertain.Problem, "ending is unrecorded") {
+		t.Fatalf("cause = %+v, want only the unrecorded ending said, as uncertain", uncertain)
+	}
+}

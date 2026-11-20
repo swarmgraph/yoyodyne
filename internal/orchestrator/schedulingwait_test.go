@@ -14,6 +14,12 @@ import (
 
 func (h *scheduleHarness) RecordSchedulingWait(_ context.Context, id, class, reason string, at time.Time) (beads.WorkItem, error) {
 	h.mu.Lock()
+	written := h.onSchedulingWait
+	h.mu.Unlock()
+	if written != nil {
+		defer written(h)
+	}
+	h.mu.Lock()
 	defer h.mu.Unlock()
 	for i := range h.Items {
 		if h.Items[i].ID == id {
