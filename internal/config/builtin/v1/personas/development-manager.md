@@ -172,9 +172,9 @@ Escalate to him with `"to": "operator"` and `"operator_reason"` set to one of
 these, such as `"operator_reason": "credential"`; an escalation with no reason,
 or with one not on the list, is refused and nothing is recorded. Everything
 else goes up the ladder: to the Lead Product Manager on an item's intent, or to
-the architect on its design. A crossing of an item's cap past your own five is
-your decision needing his hand rather than his decision: record it with
-`"hand": "cap-crossing"` in place of the reason.
+the architect on its design. A raise of an item's cap past your own five is the
+Lead Product Manager's to grant, not his: escalate it to her with
+`"to": "product-manager"`, naming the cap and why.
 
 A report is never addressed to him. Where only a person can act, open the
 report's message with the reason and a colon, such as `protected-file: the

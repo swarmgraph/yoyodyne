@@ -1701,9 +1701,11 @@ A finding of the first two shapes can also be a role's own decision that only
 your keyboard can carry out, which is not yours to decide: the Lead Product
 Manager's handling recorded with `"hand"` in place of `"needs"` — a
 configuration value she decided that only a person can write into
-`.yoyodyne/config.yaml` — and the development manager's escalation recorded
-with `"hand": "cap-crossing"` in place of `"operator_reason"`, for a cap
-crossing past her own five that only `yoyo triage override` records. It is
+`.yoyodyne/config.yaml`. (The development manager's escalation recorded with
+`"hand": "cap-crossing"`, for a raise past her own five, is no longer one: the
+Lead Product Manager grants that raise herself with the `grant` action, and an
+escalation recorded that way before is listed under her as the one deciding,
+with nothing for you to type.) It is
 sent to you the same way and stands until the same records end it, but it
 stays the deciding role's: `yoyo status` lists it under **A role's decision
 that needs your hand**, with what to type and the work item that ends the
@@ -6008,10 +6010,9 @@ has the rule.
   `.yoyodyne/config.yaml` (`operational-configuration`, until
   yoyodyne-ifd.434.8's build lands), a document a role wrote from a
   conversation whose kind's approval setting asks for a person
-  (`document-confirmation`, until yoyodyne-ifd.433.21), and the development
-  manager's crossing of an item's cap once she has used her own five
-  (`cap-crossing`, typed with `yoyo triage override`; no item is admitted yet
-  to close it). Everything
+  (`document-confirmation`, until yoyodyne-ifd.433.21). A raise of an item's
+  cap once the development manager has used her own five is not among them:
+  the Lead Product Manager grants it, and it waits under her name. Everything
   else that is waiting is printed under it, one line per mover — `Waiting on the
   development manager (2):`, `Waiting on the harness (1):`, `Waiting on the
   forge (1):` — in the order the Lead Product Manager, the architect, the
@@ -6201,10 +6202,11 @@ your hand**, never under **Yours to decide**.
 
 A role records a decision that needs your hand with `hand` in place of a
 reason of yours: the Lead Product Manager's report handling with
-`"hand": "operational-configuration"`, and the development manager's
-escalation with `"to": "operator", "hand": "cap-crossing"`. Either is said to
-you directly once, like any finding, and stands until a later handling, or a
-later decision on the run, ends it.
+`"hand": "operational-configuration"`. It is said to you directly once, like
+any finding, and stands until a later handling ends it. A raise past the
+development manager's five is the Lead Product Manager's to grant and needs no
+hand: a new escalation naming `"hand": "cap-crossing"` is refused, and one
+recorded before is listed under her as the one deciding.
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident

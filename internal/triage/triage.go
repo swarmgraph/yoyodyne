@@ -765,6 +765,12 @@ type Override struct {
 // the operator's.
 func (o Override) Delegated() bool { return strings.TrimSpace(o.CrossedBy) != "" }
 
+// Granted reports a raise the Lead Product Manager granted past the development
+// manager's own crossings.
+func (o Override) Granted() bool {
+	return strings.TrimSpace(o.CrossedBy) == domain.RoleProductManager.Title() || strings.TrimSpace(o.CrossedBy) == string(domain.RoleProductManager)
+}
+
 // Describe says what one override did, the way the entry that carries it reads.
 func (o Override) Describe() string {
 	crossed := fmt.Sprintf("raised the %s cap to %d", o.Budget, o.Cap)
@@ -772,7 +778,10 @@ func (o Override) Describe() string {
 		crossed = fmt.Sprintf("cleared the %s cap", o.Budget)
 	}
 	decided := fmt.Sprintf("decided by %s", strings.TrimSpace(o.DecidedBy))
-	if o.Delegated() {
+	switch {
+	case o.Granted():
+		decided = fmt.Sprintf("granted by the %s past the %s's own raises", strings.TrimSpace(o.CrossedBy), domain.RoleDevelopmentManager.Title())
+	case o.Delegated():
 		decided = fmt.Sprintf("crossed by the %s on delegated authority", strings.TrimSpace(o.CrossedBy))
 	}
 	return fmt.Sprintf("%s, %s at %s: %s",
@@ -2699,7 +2708,10 @@ func (e Entry) renderOverrides() string {
 		// this item — which is the best evidence there is about whether crossing it
 		// again will help, and it is one of five.
 		label := "Operator override"
-		if override.Delegated() {
+		switch {
+		case override.Granted():
+			label = "Raise granted by the Lead Product Manager"
+		case override.Delegated():
 			label = "Cap crossed on delegated authority"
 		}
 		fmt.Fprintf(&rendered, "      %s: %s\n", label, override.Describe())
@@ -2722,7 +2734,7 @@ func (e Entry) renderCrossingStanding() string {
 		return ""
 	}
 	if counters.CrossingsSpent() {
-		return fmt.Sprintf("      A further cap crossing for %s is not yours: %d of %d crossing(s) on your own authority are recorded, and past the bound a crossing is not a development manager's to record. Escalate to the Lead Product Manager, and say which cap and why.\n",
+		return fmt.Sprintf("      A further cap crossing for %s is not yours: %d of %d crossing(s) on your own authority are recorded, and past the bound a raise is the Lead Product Manager's to grant, up to five more and never past ten in all. Escalate to her, and say which cap and why.\n",
 			e.WorkItemID, counters.Crossings, counters.CrossingsBound)
 	}
 	return fmt.Sprintf("      %d of %s cap crossing(s) on your own authority are recorded against %s; each further one is reported to the operator as you record it.\n",

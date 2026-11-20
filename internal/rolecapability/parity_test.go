@@ -248,8 +248,16 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // stop at the head never waits on a person merging by hand
 // (yoyodyne-ifd.429.166). Deciding what becomes of stopped work is triage, so it
 // is held under work.triage.
+//
+// The product manager's `grant` raises an item's limit on attempts once the
+// development manager's own five raises are used, up to five more and never past
+// ten in all. It is the architect's ruling for yoyodyne-ifd.432.25.12
+// (docs/designs/stopped-run-recovery.md): whether an item is worth more spending
+// is a judgment of its worth against the other work waiting, which is hers, and
+// until this action existed the operator typed each such raise. It is held under
+// backlog.admit, which only she holds, with no lane-scoped name.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace"},
+	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
 	domain.RoleArchitect:          {"amendment"},
 	domain.RoleDevelopmentManager: {"brake", "label", "queue"},
 }

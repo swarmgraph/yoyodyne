@@ -460,6 +460,52 @@ func (b conversationTriageBudgets) CrossCap(ctx context.Context, workItemID, bud
 	return b.store.CrossCap(ctx, workItemID, domain.RoleDevelopmentManager, budget, reason, b.clock.Now(), b.caps)
 }
 
+// conversationCapGrants wires the Lead Product Manager's grant of a further raise
+// of an item's limit, for her conversation and for no other. It writes to the same
+// triage record and measures against the same configured caps the development
+// manager's crossings do, so the two roles' raises are counted together against
+// the limit of ten.
+func conversationCapGrants(parts components, role domain.AgentRole) chat.CapGrants {
+	if role != domain.RoleProductManager {
+		return nil
+	}
+	return conversationCapGrantor{
+		store:  parts.store.Triage(),
+		prices: parts.store,
+		caps:   orchestrator.TriageCaps(parts.config.Execution, parts.config.Triage),
+		clock:  execution.RealClock{},
+	}
+}
+
+// conversationCapGrantor is what the Lead Product Manager's conversation
+// supplies that she does not get to assert: the configured caps, the clock, the
+// item's cost so far read from its run records, and that the grant is recorded
+// under her role.
+type conversationCapGrantor struct {
+	store  *runstate.TriageStore
+	prices itemPricer
+	caps   runstate.TriageCaps
+	clock  execution.Clock
+}
+
+// itemPricer is the one read of the run records a grant needs: what the item's
+// runs have cost so far, found through the run index.
+type itemPricer interface {
+	PriceFromIndex(workItemID string) (runstate.ItemPrice, error)
+}
+
+// GrantCap prices the item before it records the grant, because every grant
+// carries the item's cost so far. A cost that cannot be read refuses the grant
+// with nothing recorded, rather than recording a judgement without the figure it
+// is meant to be made against.
+func (g conversationCapGrantor) GrantCap(ctx context.Context, workItemID, budget, reason string) (runstate.TriageCrossing, error) {
+	price, err := g.prices.PriceFromIndex(workItemID)
+	if err != nil {
+		return runstate.TriageCrossing{}, fmt.Errorf("what %s has cost so far could not be read from its run records, so the grant was not recorded; asking again once they can be read records it: %w", workItemID, err)
+	}
+	return g.store.GrantCap(ctx, workItemID, budget, reason, runstate.GrantCostOf(price), g.clock.Now(), g.caps)
+}
+
 // conversationStoppages wires the durable run records a triage decision is
 // checked against, and that a decomposition's substrate gate is decided from,
 // for the role that does both and for no other. It is the same store the docket

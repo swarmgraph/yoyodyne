@@ -1410,9 +1410,6 @@ func (a Attention) ownershipRecord() ownership.Record {
 			record.Reason = action.Reason
 			record.FromReport, record.FromEscalation = action.ReportID != "", action.RunID != ""
 			record.Hand, record.Role = action.Hand, action.DecidedBy
-			if action.Hand == ownership.HandCapCrossing && action.WorkItemID != "" {
-				record.Command = "yoyo triage override --budget <budget> --cap <n> --by \"<you>\" --reason \"<why>\" " + action.WorkItemID
-			}
 		}
 	case AttentionHumanGate:
 		if a.HumanGate != nil {

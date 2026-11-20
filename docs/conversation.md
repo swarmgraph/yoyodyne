@@ -3111,13 +3111,20 @@ What is still yours is
 [`yoyo triage override`](configuration.md#crossing-a-cap-the-operator-decides-to-cross),
 in your name and with your reason: any ceiling, any budget, and lifting one
 entirely. **Nothing crosses a cap except a recorded crossing**, and the refusal
-prints both — her own, with the budget already in it, and your command with the
-item and the ceiling filled in — because naming the remedy without naming the
-verb sent two of these overrides into the item's notes instead, where no guard
-reads them and where the resubmitted decision met the identical refusal.
-Where both of a decision's budgets are spent it prints one of each and
+prints her own crossing with the budget already in it, because naming the remedy
+without naming the verb sent two overrides into the item's notes instead, where
+no guard reads them and where the resubmitted decision met the identical refusal.
+Where both of a decision's budgets are spent it prints one crossing for each and
 says both are needed, because crossing one and meeting the other is what cost two
-override sittings minutes apart on each of two items. **A merge
+override sittings minutes apart on each of two items. **Past her five, a raise is
+the Lead Product Manager's to grant**, as the architect ruled: the refusal sends
+the development manager to escalate the item to her, and she records up to five
+more raises for it with the `grant` action, each the same size as one crossing
+and each with her reason. The harness carries a grant out as she records it and
+tells you afterwards in the channel, stating what the item has cost so far, which
+the grant records beside her reason; you are never asked. No role raises an item
+past ten in all, and the refusal says so: such an item is rewritten or split, or
+closed. **A merge
 re-arm is bounded once per publication** rather than by the rounds, because it
 buys no round at all and because what it repeats is one merge request the
 reviewer's verdict already authorized: an item that published three times has
@@ -3130,11 +3137,12 @@ only for a reason on your closed list**, given as `"operator_reason"`:
 `fundamental-intent`, `credential`, `repository-setting`, or `protected-file`.
 One that names you without one of them — and one that leaves out `"to"`, which
 names you — is refused with the rung to use instead: nothing is recorded and the
-item is not blocked. A cap crossing past the five the development manager may
-record herself is hers to decide and only your keyboard can record, so she
-escalates it with `"to": "operator", "hand": "cap-crossing"` in place of a
-reason of yours: it stays her decision, and `yoyo status` lists it under **A
-role's decision that needs your hand** with the `yoyo triage override` to type.
+item is not blocked. A raise past the five the development manager may record
+herself is not yours either: she escalates it with `"to": "product-manager"`,
+and an escalation to you carrying `"hand": "cap-crossing"` is refused with that
+path. One recorded that way before the Lead Product Manager could grant a raise
+is listed under her as the one deciding, with nothing for you to type, and is
+not among the decisions listed as needing your hand.
 **An escalation is a durable blocker on the item and a
 report at `warning` severity or above**, in the same reply, addressed with
 `"for"` to the role it goes to, which puts it on that role's list and in front
