@@ -1142,15 +1142,15 @@ func TestATriageDecisionClosesTheDocketEntryItSettled(t *testing.T) {
 	if closure.RunID != stoppedRun || closure.Decision != "rescope" {
 		t.Fatalf("closure = %#v, want the stoppage and the decision it was settled with", closure)
 	}
-	// A re-scope answers the run rather than a publication nobody merged, and
-	// closing the wrong one would take a live question off the docket. The run is
-	// every entry it can be docketed as under its own identifier: what it stopped
-	// on, that it died before claiming, or the escalation a role raised from it.
-	if slices.Contains(closure.Classes, triage.ClassPublication) ||
+	// A re-scope answers the run, which is every entry it can be docketed as
+	// under its own identifier: what it stopped on, that it died before claiming,
+	// the escalation a role raised from it, and the pull request it left. Leaving
+	// the pull request's entry standing put the same run to her twice.
+	if !slices.Contains(closure.Classes, triage.ClassPublication) ||
 		!slices.Contains(closure.Classes, triage.ClassStoppedRun) ||
 		!slices.Contains(closure.Classes, triage.ClassUnstartedRun) ||
 		!slices.Contains(closure.Classes, triage.ClassEscalation) {
-		t.Fatalf("classes = %#v, want the run's own entries and not its publication", closure.Classes)
+		t.Fatalf("classes = %#v, want every entry of the run, its publication included", closure.Classes)
 	}
 	if !strings.Contains(closure.Reason, "refused the migration") || !strings.Contains(closure.DecidedBy, "development manager") {
 		t.Fatalf("closure = %#v, want the reasoning and who decided it", closure)
@@ -1173,6 +1173,7 @@ func TestWhichEntriesADecisionClosesFollowsWhatItAnswers(t *testing.T) {
 	}{
 		{decision: "wait", classes: []triage.Class{triage.ClassStoppedRun, triage.ClassUnstartedRun, triage.ClassEscalation, triage.ClassPublication}},
 		{decision: "escalate", classes: []triage.Class{triage.ClassStoppedRun, triage.ClassUnstartedRun, triage.ClassEscalation, triage.ClassPublication}},
+		{decision: "rescope", classes: []triage.Class{triage.ClassStoppedRun, triage.ClassUnstartedRun, triage.ClassEscalation, triage.ClassPublication}},
 	} {
 		t.Run(decided.decision, func(t *testing.T) {
 			t.Parallel()

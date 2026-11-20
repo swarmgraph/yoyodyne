@@ -413,6 +413,8 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// escalation are never attempted and have nothing to be stopped by.
 	listable, waiting, unlisted := listableDocket(entries, now)
 	problems = append(problems, d.joinDecisions(listable, docketedRunsOf(entries), publicationsOf(recorded), byID)...)
+	listable, awaited := withoutAwaitedPublications(listable, now)
+	unlisted += awaited
 	open, closed := openDocket(listable, now)
 	// One live entry per stopped run. The repeats are folded here, where every
 	// docket anybody reads is built, rather than rewritten on the log — so the
@@ -1706,7 +1708,7 @@ func (d Docketer) entriesFor(state runstate.State, now time.Time, already standi
 	if publicationDocketed(state, already) {
 		return entries, errors.Join(problems...)
 	}
-	if stuckPublication(state, now, d.Triage.StuckMergeAge.Duration()) {
+	if stuckPublication(state, now, d.Triage.StuckMergeAge.Duration()) && !d.carryOutAwaited(state) {
 		entry, err := d.publicationEntry(state, now)
 		if err != nil {
 			problems = append(problems, err)
@@ -1715,6 +1717,47 @@ func (d Docketer) entriesFor(state runstate.State, now time.Time, already standi
 		}
 	}
 	return entries, errors.Join(problems...)
+}
+
+// carryOutAwaited reports a decision about this run that the harness has still
+// to carry out: a repair or re-run waiting for a developer slot, most often, or
+// a re-arm the watch has not made yet. The run's publication is not docketed
+// while one stands. Her decision is already the answer for the whole run, its
+// pull request included, so listing the request to her again as unpublished
+// would ask her a question she has already answered. Once the decision is carried out
+// or refused it no longer stands in the way, and the publication is docketed by
+// the rules below as any other.
+//
+// A record that cannot be read says nothing is awaited, which dockets the
+// publication as before rather than hiding it.
+func (d Docketer) carryOutAwaited(state runstate.State) bool {
+	if strings.TrimSpace(state.WorkItemID) == "" {
+		return false
+	}
+	counters, err := d.Decisions.Counters(state.WorkItemID)
+	if err != nil {
+		return false
+	}
+	return counters.AwaitingCarryOutOf(state)
+}
+
+// withoutAwaitedPublications leaves out the open publication entries whose run
+// has a decision the harness has still to carry out, read off the record the
+// join put on each entry (carryOutAwaited says why), and reports how many it
+// left out. It is the same rule applied to an entry docketed before the
+// decision, or before the rule existed, which nothing else takes off.
+func withoutAwaitedPublications(entries []triage.Entry, now time.Time) ([]triage.Entry, int) {
+	kept := make([]triage.Entry, 0, len(entries))
+	left := 0
+	for _, entry := range entries {
+		if entry.Class == triage.ClassPublication && entry.Undecided(now) && entry.CountersProblem == "" &&
+			entry.Counters.AwaitingCarryOut() {
+			left++
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept, left
 }
 
 // publicationDocketed reports this run's publication already being on the
