@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-19T22:50:31.304144Z
       reason: 'Brings the reviewer''s line on the run on main into line with race point 4 as revised on November 19: only the failing tests run once more on the same commit; a second failure, unnamed tests, or a second run that cannot run is critical; a pass the second time is a warning with both results; the same test doing this twice in seven days is critical; and a second-try pass leaves the last clean commit where it was. The other lines are unchanged. Migration item 21 follows in its own revision. Read whole at main 9783c9d5f.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T00:17:21.567336Z
+      reason: 'yoyodyne-fgkk: brings the last two passages into line with race point 4 as ruled on November 19, 2026: the reviewer line in ''What a reviewer can check'' (also sent alone as document-3140.1, which this whole revision carries and supersedes) and migration item 21, which now names the single rerun of the failing tests on the same commit and the warning or critical report. Every other paragraph is copied unchanged from main 0b147f184ea0. Sent whole so the reviewer line cannot be lost if 3140.1 has not started.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-11-19T22:50:31.304144Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3140, for document-3140.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-20T00:17:21.567336Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3142, for document-3142.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -346,7 +355,7 @@ The items keep the numbers they were first given, so work already citing an item
 18. What a result proves: the result record with the five things that make two runs the same run, written through one narrow update. It includes the rule that a revision none of whose checks ran is not integrated, and the report for a finish record that failed to save (yoyodyne-ifd.429.77).
 19. When a result is kept or a check runs again: kept results, the single rerun of failures in untouched tests (the pieces of yoyodyne-ifd.429.87), reruns of a check stopped by its time limit, and keeping a result across commits by the analyser's answer, in shadow first. This repository's race check point 2 is built on it.
 20. Time limits in one place: from launch, scaled for load, the stage limit as a numeric limit, and the stage limit back to 60 minutes once item 17's narrowed race check has landed (yoyodyne-g9g). The measured limits for heavy checks then apply on every path (yoyodyne-ifd.429.48).
-21. The recurring full run on main, with its critical report on failure: this repository's race check point 4, run as a plan of the same runner.
+21. The recurring full run on main, with its single rerun of the failing tests on the same commit and its warning or critical report, as this repository's race check point 4 says, run as a plan of the same runner.
 
 **One invocation policy**
 
@@ -424,5 +433,5 @@ Until each named design is revised, this design decides where they differ.
 - The list of places still going around a component only shrinks.
 - No new code adds a whole save of a run record outside the lease holder's versioned save, a slot read followed by a later start, a paid turn without the budget's permission, a cost event parsed outside `internal/cost`, a tracker command run outside `internal/beads`, a configured check launched outside `internal/checks`, or a routine read of all history.
 - With the race check rules on, a change with no Go code changed runs no race check before review; a path the analyser cannot place runs the whole race check; and the local full race on the merge candidate is skipped only with both conditions recorded.
-- The run on main happens only when main moved since the last clean run. When it fails, only the failing tests run once more, on the same commit, with a permit of their own, and no test runs a third time. A test that fails again, failing tests that cannot be named, or a second run that cannot run files one critical report naming the commits between. Tests that all pass the second time file one warning report that keeps and shows both results. The same test failing and then passing in two runs within seven days files a critical report naming both runs. A run that passed only on the second try does not move the last clean commit.
+- The run on main happens only when main moved since the last clean run. A failure reruns only its failing tests, once, on the same commit. A test that then passes files a warning report with both results. A test that fails again, failing tests that cannot be named, a second run that cannot run, or the same test failing and then passing twice in seven days files one critical report naming the commits between. A run that passed only on the second try does not move the last clean commit.
 - A fix admitted to one of these areas names the parent item (yoyodyne-ifd.428.126) and is written against the component, as the Lead Product Manager's rule says.
