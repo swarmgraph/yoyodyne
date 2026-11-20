@@ -601,3 +601,131 @@ func TestASchedulerPastItsWindDownLimitIsRestartedOntoTheDeployedBuild(t *testin
 		t.Fatalf("stops = %d, want a scheduler on the deployed build left running", scheduler.stopCount())
 	}
 }
+
+// scheduledScheduler is the watch on a build that never begins its move: it
+// says when its move falls due and whether it is winding down, as the test
+// sets them, and never restarts itself.
+type scheduledScheduler struct {
+	selfRestartingChild
+	next        *time.Time
+	windingDown *bool
+}
+
+func (s scheduledScheduler) NextMove(context.Context) (time.Time, bool, error) {
+	return *s.next, *s.windingDown, nil
+}
+
+func (scheduledScheduler) MoveGrace() time.Duration { return 20 * time.Minute }
+
+// A scheduler whose move onto a new build has fallen due under the least time
+// between moves, and which has not begun it, is moved by the supervisor once
+// it is as far past the due moment as a move begun on time is left before the
+// supervisor restarts it, and not before. Until then the record names it as
+// left behind, with the build it is on and the build the rest of the product
+// is on, so the next maintenance pass and `yoyo status` say so. A scheduler
+// that has begun winding down is left to its bounded wind-down.
+func TestASchedulerThatHasNotBegunADueMoveIsMovedOntoTheDeployedBuild(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	next := clock.now.Add(time.Hour)
+	windingDown := false
+	scheduler := scheduledScheduler{
+		selfRestartingChild: selfRestartingChild{newDeployable(config.ServiceScheduler, binary, nil)},
+		next:                &next,
+		windingDown:         &windingDown,
+	}
+	supervisor := deploySupervisor(t, store, clock, binary, scheduler)
+	supervisor.Tick(context.Background())
+
+	// A build lands an hour before the move may be made: the scheduler goes on
+	// working on its own build, and the record says until when.
+	binary.deploy(t, "2222222222222222")
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	got := child(t, loaded(t, store), config.ServiceScheduler)
+	if scheduler.stopCount() != 0 || !strings.Contains(got.Redeploy, "it moves onto it at") {
+		t.Fatalf("stops = %d, scheduler = %+v; want it left working until its move is due, and the record to say when", scheduler.stopCount(), got)
+	}
+
+	// Due, and not begun: named as left behind on both builds, not yet moved.
+	clock.advance(70 * time.Minute)
+	supervisor.Tick(context.Background())
+	got = child(t, loaded(t, store), config.ServiceScheduler)
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want a scheduler inside its grace past the due moment left to move itself", scheduler.stopCount())
+	}
+	for _, want := range []string{"on build " + short("1111111111111111"), "the rest of the product is on the deployed build " + short("2222222222222222"), "was due at", "has not begun winding down"} {
+		if !strings.Contains(got.Redeploy, want) {
+			t.Fatalf("scheduler redeploy = %q, want it to say %q", got.Redeploy, want)
+		}
+	}
+	// The maintenance pass's redeploy step says what ChildState holds for each
+	// part, so the next pass names the scheduler left behind in these words.
+	if hosted, known := supervisor.ChildState(config.ServiceScheduler); !known || hosted.Redeploy != got.Redeploy {
+		t.Fatalf("ChildState(scheduler) = %+v, %t; want the redeploy line the record carries, %q", hosted, known, got.Redeploy)
+	}
+
+	// Past its grace but winding down: that wind-down is bounded, and the
+	// supervisor's answer to one stuck is RestartOverdue, not this.
+	windingDown = true
+	clock.advance(15 * time.Minute)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want a scheduler winding down for its move left to it", scheduler.stopCount())
+	}
+
+	// Past its grace and not winding down: restarted into the deployed build,
+	// as a restart rather than a death.
+	windingDown = false
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 1 || scheduler.startCount() != 2 {
+		t.Fatalf("stops = %d starts = %d, want the scheduler stopped once and started from the deployed binary", scheduler.stopCount(), scheduler.startCount())
+	}
+	got = child(t, loaded(t, store), config.ServiceScheduler)
+	if got.State != runstate.ChildRunning || got.Build != "2222222222222222" || got.Restarts != 1 || got.Failures != 0 || got.Redeploy != "" {
+		t.Fatalf("scheduler = %+v, want it running on the deployed build after one restart and no failure", got)
+	}
+
+	// On the deployed build it is no longer behind, so nothing moves it again.
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 1 {
+		t.Fatalf("stops = %d, want a scheduler on the deployed build left running", scheduler.stopCount())
+	}
+}
+
+// While a restart is held, a scheduler that cannot move when due is left on
+// its build, and the record says it cannot move and why.
+func TestASchedulerThatCannotMoveWhenDueIsNamedWhileARestartIsHeld(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	next := clock.now
+	windingDown := false
+	scheduler := scheduledScheduler{
+		selfRestartingChild: selfRestartingChild{newDeployable(config.ServiceScheduler, binary, nil)},
+		next:                &next,
+		windingDown:         &windingDown,
+	}
+	supervisor := deploySupervisor(t, store, clock, binary, scheduler)
+	supervisor.RestartHold = func() string { return "the provider cannot be reached" }
+	supervisor.Tick(context.Background())
+	binary.deploy(t, "2222222222222222")
+	clock.advance(time.Hour)
+	supervisor.Tick(context.Background())
+	got := child(t, loaded(t, store), config.ServiceScheduler)
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want nothing restarted while a restart is held", scheduler.stopCount())
+	}
+	for _, want := range []string{"cannot move when due", "the provider cannot be reached", short("2222222222222222")} {
+		if !strings.Contains(got.Redeploy, want) {
+			t.Fatalf("scheduler redeploy = %q, want it to say %q", got.Redeploy, want)
+		}
+	}
+}

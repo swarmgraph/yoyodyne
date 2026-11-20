@@ -100,3 +100,53 @@ func TestABuildMoveRunsUntilTheQueueItSetAsideIsWorkingAgain(t *testing.T) {
 		t.Fatalf("move = %#v costing %s, want it still costing while the queue has not moved", still, still.Cost(at(17, 20)))
 	}
 }
+
+// The last move is counted from a restart line, and also from a session that
+// began on a different build from the one before it: a move the supervisor
+// made by stopping a session stuck winding down leaves "the scheduler was
+// cancelled" rather than a restart line, and a session counting from the
+// restart line before it would move again minutes later, as the scheduler did
+// at 22:34 PST on November 19, 2026, eighteen minutes after such a move. A
+// session that came back on the same build, and a session asking as it starts,
+// are each read as they are.
+func TestLastBuildMoveCountsAMoveTheSessionDidNotMakeItself(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 20, 2, 55, 0, 0, time.UTC)
+	restarted := []WatchTransition{
+		{SessionID: "watch-one", State: WatchWatching, At: at.Add(-time.Hour), Build: "aaa"},
+		{SessionID: "watch-one", State: WatchStopped, At: at, Build: "aaa", Restarting: true},
+		{SessionID: "watch-two", State: WatchWatching, At: at.Add(time.Minute), Build: "bbb"},
+	}
+	if got := LastBuildMove(restarted, "", time.Time{}); !got.Equal(at.Add(time.Minute)) {
+		t.Fatalf("LastBuildMove() = %s, want the first line of the session on the new build, %s", got, at.Add(time.Minute))
+	}
+
+	cancelled := append(restarted,
+		WatchTransition{SessionID: "watch-two", State: WatchWatching, At: at.Add(3 * time.Hour), Build: "bbb", Draining: &WatchDrain{Since: at.Add(3 * time.Hour), BoundSeconds: 900, Until: at.Add(3*time.Hour + 15*time.Minute)}},
+		WatchTransition{SessionID: "watch-two", State: WatchStopped, At: at.Add(3*time.Hour + 20*time.Minute), Build: "bbb", Reason: "the scheduler was cancelled"},
+		WatchTransition{SessionID: "watch-three", State: WatchWatching, At: at.Add(3*time.Hour + 21*time.Minute), Build: "ccc"},
+	)
+	if got, want := LastBuildMove(cancelled, "", time.Time{}), at.Add(3*time.Hour+21*time.Minute); !got.Equal(want) {
+		t.Fatalf("LastBuildMove() = %s, want the session the supervisor started on the new build, %s", got, want)
+	}
+
+	sameBuild := append(cancelled,
+		WatchTransition{SessionID: "watch-three", State: WatchStopped, At: at.Add(4 * time.Hour), Build: "ccc", Reason: "the scheduler was cancelled"},
+		WatchTransition{SessionID: "watch-four", State: WatchWatching, At: at.Add(4*time.Hour + time.Minute), Build: "ccc"},
+	)
+	if got, want := LastBuildMove(sameBuild, "", time.Time{}), at.Add(3*time.Hour+21*time.Minute); !got.Equal(want) {
+		t.Fatalf("LastBuildMove() = %s, want a session back on the same build not counted as a move, %s", got, want)
+	}
+
+	starting := at.Add(5 * time.Hour)
+	if got := LastBuildMove(sameBuild, "ddd", starting); !got.Equal(starting) {
+		t.Fatalf("LastBuildMove() = %s, want a session starting on a new build to count its own start, %s", got, starting)
+	}
+	if got, want := LastBuildMove(sameBuild, "ccc", starting), at.Add(3*time.Hour+21*time.Minute); !got.Equal(want) {
+		t.Fatalf("LastBuildMove() = %s, want a session starting on the same build to count the last move, %s", got, want)
+	}
+	if got := LastBuildMove(nil, "ddd", starting); !got.IsZero() {
+		t.Fatalf("LastBuildMove() = %s, want nothing for a log that records no session", got)
+	}
+}

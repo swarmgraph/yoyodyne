@@ -572,11 +572,7 @@ func lastBuildMove(configPath string, started time.Time, stderr io.Writer) time.
 		var transitions []runstate.WatchTransition
 		transitions, _, err = parts.watch.Scan()
 		if err == nil {
-			moves := runstate.BuildMoves(transitions, nil)
-			if len(moves) == 0 {
-				return time.Time{}
-			}
-			return moves[len(moves)-1].Restarted
+			return runstate.LastBuildMove(transitions, buildinfo.Commit(), started)
 		}
 	}
 	fmt.Fprintf(stderr, "when the watch last moved onto a new build could not be read, so the least time before its next move is counted from now: %v\n", err)

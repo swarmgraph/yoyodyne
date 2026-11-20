@@ -27,6 +27,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -87,6 +88,24 @@ type RestartsItself interface {
 // it is not.
 type OverdueRestart interface {
 	RestartOverdue(ctx context.Context, now time.Time) (string, error)
+}
+
+// ScheduledMove is a child that restarts itself onto a deployed build no
+// sooner than a set time after its last move — the scheduler, under
+// execution.build_move_interval — and says from its own records when that is.
+// The supervisor reads it so a move that is due reaches the child whatever
+// build the child runs: the child's own build decides when it moves, and a
+// build from before a fix to that decision, or one a fault has stopped from
+// beginning its wind-down, would otherwise hold the product on it unnoticed.
+type ScheduledMove interface {
+	// NextMove is the earliest the child may next move onto a newer build, zero
+	// where it may move at once, and whether it has already begun winding down
+	// for a move, which OverdueRestart then answers for.
+	NextMove(ctx context.Context) (next time.Time, windingDown bool, err error)
+	// MoveGrace is how long past the moment its move fell due the child is left
+	// to have begun it on its own before the supervisor moves it: as long as a
+	// move begun on time is left before the supervisor restarts it.
+	MoveGrace() time.Duration
 }
 
 // DeployedBinary is the binary the parts are started from, and the revision it
@@ -208,6 +227,7 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		s.restarted(child, state, now, "took the deployed build up itself")
 	}
 	if build == "" || build == s.deployed {
+		delete(s.behindSince, child.Name())
 		state.RestartingInto = ""
 		state.Redeploy = ""
 		return
@@ -216,7 +236,9 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 	if self {
 		state.RestartingInto = s.deployed
 		state.Redeploy = behind + "; " + child.(RestartsItself).RestartsItself()
-		s.restartOverdue(ctx, child, state, now, build, behind)
+		if !s.restartOverdue(ctx, child, state, now, build, behind) {
+			s.moveOverdue(ctx, child, state, now, build)
+		}
 		return
 	}
 	if state.RestartingInto == s.deployed {
@@ -251,26 +273,93 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 // `yoyo stop` stops it and started from the deployed binary, and it counts as
 // a restart rather than a death. What the scheduler had already stopped for
 // the move is kept as the move keeps it, preserved for the session that comes
-// back. Nothing is restarted while a restart is held.
-func (s *Supervisor) restartOverdue(ctx context.Context, child Child, state *runstate.SupervisedChild, now time.Time, from, behind string) {
+// back. Nothing is restarted while a restart is held. It reports whether it
+// found the child overdue, restarted or held.
+func (s *Supervisor) restartOverdue(ctx context.Context, child Child, state *runstate.SupervisedChild, now time.Time, from, behind string) bool {
 	overdue, ok := child.(OverdueRestart)
 	if !ok {
-		return
+		return false
 	}
 	why, err := overdue.RestartOverdue(ctx, now)
 	if err != nil {
 		s.log("whether the %s service is overdue to restart itself into the deployed build could not be read, so it is asked again at the next look: %v", child.Name(), err)
-		return
+		return false
 	}
 	if why == "" {
-		return
+		return false
 	}
 	if held := s.restartHold(); held != "" {
 		state.Redeploy = fmt.Sprintf("%s; it %s, and is not restarted while %s", behind, why, held)
-		return
+		return true
 	}
 	s.log("the %s service %s, so the supervisor restarts it into the deployed build %s rather than wait any longer", child.Name(), why, short(s.deployed))
 	s.restart(ctx, child, state, now, from)
+	return true
+}
+
+// moveOverdue moves a child that restarts itself and has not begun a move that
+// is due. The move falls due at the later of two moments: the earliest the
+// child may move after its last one, from its own records, and the moment the
+// supervisor first found it behind the binary on disk, which is no later than
+// when that binary was written. A child that has begun winding down is left to
+// its bounded wind-down and restartOverdue. One that has not begun by the time
+// its grace past the due moment is up is restarted the ordinary way, as a
+// session stuck winding down is; before then, the record says when the move is
+// due and when the supervisor makes it, so every surface reading the record
+// names a scheduler left behind, and on which builds, at its next look.
+func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runstate.SupervisedChild, now time.Time, from string) {
+	scheduled, ok := child.(ScheduledMove)
+	if !ok {
+		return
+	}
+	if s.behindSince == nil {
+		s.behindSince = make(map[config.ServiceName]time.Time)
+	}
+	since, seen := s.behindSince[child.Name()]
+	if !seen {
+		// The binary on disk has been there since it was written, so a child on
+		// another build has been behind at least that long; a supervisor that
+		// has just started knows no more than that.
+		since = now
+		if !s.deployedAt.IsZero() && s.deployedAt.Before(now) {
+			since = s.deployedAt
+		}
+		s.behindSince[child.Name()] = since
+	}
+	next, windingDown, err := scheduled.NextMove(ctx)
+	if err != nil {
+		s.log("when the %s service may next move onto a new build could not be read, so whether its move is overdue is asked again at the next look: %v", child.Name(), err)
+		return
+	}
+	if windingDown {
+		return
+	}
+	apart := fmt.Sprintf("on build %s while the rest of the product is on the deployed build %s", short(from), short(s.deployed))
+	due := next
+	if since.After(due) {
+		due = since
+	}
+	if now.Before(due) {
+		state.Redeploy = fmt.Sprintf("%s; it moves onto it at %s, the least time after its last move (execution.build_move_interval), and goes on working on its own build until then", apart, localStamp(due))
+		return
+	}
+	deadline := due.Add(scheduled.MoveGrace())
+	if now.Before(deadline) {
+		state.Redeploy = fmt.Sprintf("%s; its move onto it was due at %s and it has not begun winding down for it; the supervisor restarts it into the deployed build at %s if it has not moved by then", apart, localStamp(due), localStamp(deadline))
+		return
+	}
+	why := fmt.Sprintf("was due to move onto a new build at %s and has not begun to, %s later", localStamp(due), now.Sub(due).Round(time.Second))
+	if held := s.restartHold(); held != "" {
+		state.Redeploy = fmt.Sprintf("%s; it cannot move when due: it %s, and is not restarted while %s", apart, why, held)
+		return
+	}
+	s.log("the %s service is %s: it %s, so the supervisor restarts it into the deployed build rather than wait any longer", child.Name(), apart, why)
+	s.restart(ctx, child, state, now, from)
+}
+
+// localStamp is a moment in the reader's own zone, with the zone named.
+func localStamp(at time.Time) string {
+	return at.Local().Format("2006-01-02 15:04 MST")
 }
 
 // restart stops a child that is behind the deployed binary and starts it again
