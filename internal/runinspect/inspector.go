@@ -209,6 +209,9 @@ func WaitOf(state runstate.State) *Wait {
 	case state.CIWait != nil:
 		pushed := state.CIWait.PushedAt
 		return &Wait{Kind: "the forge's checks", Since: &pushed, Release: "the forge deciding, or the wait limit passing (" + state.CIWait.Summary() + ")"}
+	case state.SpendWait != nil:
+		since := state.SpendWait.Since
+		return &Wait{Kind: "the shared remote taking its review round", Since: &since, Release: "the remote taking the record, which is asked for again every minute (" + state.SpendWait.Summary() + ")"}
 	case state.UsageLimitResetsAt != nil || state.UsageLimitResetUnknown:
 		wait := &Wait{Kind: runstate.DescribePause(state.PauseCause, state.UsageLimitKind), Since: state.UsageLimitPausedSince}
 		if state.UsageLimitResetsAt != nil {

@@ -416,6 +416,8 @@ func snapshotOf(state runstate.State) chat.RunSnapshot {
 		snapshot.Detail = "paused waiting on unfinished work it depends on: " + state.DependencyPause.Summary()
 	case state.CIWait != nil:
 		snapshot.Detail = "waiting for CI: " + state.CIWait.Summary()
+	case state.SpendWait != nil:
+		snapshot.Detail = "waiting for the shared remote: " + state.SpendWait.Summary()
 	case state.TrackerPause != nil:
 		snapshot.Detail = "parked waiting on the tracker to answer: " + state.TrackerPause.Summary()
 	case state.UsageLimitResetsAt != nil:

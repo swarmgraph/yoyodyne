@@ -973,6 +973,9 @@ var standingWarningAgeSeconds = 5 * 60;
     if (run.waiting_for_ci) {
       card.appendChild(el("p", "card-meta", "Waiting for CI, " + age(run.ci_waited) + " so far: " + run.waiting_on + "."));
     }
+    if (run.waiting_for_remote) {
+      card.appendChild(el("p", "problem", "Waiting for the shared remote, " + age(run.remote_waited) + " so far, " + run.remote_tries + " tries: " + run.waiting_for_remote + "."));
+    }
     if (run.no_process) {
       card.appendChild(el("p", "problem", "No process can be found behind this run: " + run.no_process + (run.no_process_remedy ? "; " + run.no_process_remedy : "") + "."));
     }

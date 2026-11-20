@@ -345,6 +345,27 @@ func (u InstallWaitRecorded) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// SpendWaitRecorded puts a wait for the shared remote to take a review round on
+// the run, or takes it off where Wait is nil (SpendWait).
+type SpendWaitRecorded struct {
+	Wait *SpendWait
+	At   time.Time
+}
+
+func (u SpendWaitRecorded) apply(state *State) (bool, error) {
+	if u.Wait == nil && state.SpendWait == nil {
+		return false, nil
+	}
+	if u.Wait != nil {
+		wait := *u.Wait
+		state.SpendWait = &wait
+	} else {
+		state.SpendWait = nil
+	}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // LateStopRecorded records a stop that reached the run only after its checks
 // had passed (LateStop). The same stop recorded again changes nothing.
 type LateStopRecorded struct {
