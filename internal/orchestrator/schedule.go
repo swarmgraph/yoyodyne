@@ -1773,6 +1773,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// pull's, set once the queue is read.
 	var waitTracker ScheduleTracker
 	var waitItems map[string]beads.WorkItem
+	// firingsBetween claims the recurring passes that fell due while the pull is
+	// still at work below the schedule; it is set once the session's firings
+	// are, below.
+	var firingsBetween func()
 	// keepReason is the tracker half of keepWait, for a reason already worded;
 	// an empty reason clears the value.
 	keepReason := func(workItemID string, class runstate.PassedOverClass, reason string) {
@@ -1783,6 +1787,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 				return
 			}
 		}
+		// Each reason kept is a tracker read and a write, and a pull that keeps
+		// a hundred of them against a slow tracker is half an hour long.
+		firingsBetween()
 		if err := recordSchedulingWait(ctx, waitTracker, workItemID, class, reason, s.now()); err != nil {
 			schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem, fmt.Sprintf("record why %s has not started: %v", workItemID, err))
 		}
@@ -1913,6 +1920,36 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// from one that had died — and the watchdog said exactly that.
 	var window providerWindow
 	running := 0
+	// The schedule is fired once at its place in every pull, and a pull can be
+	// long: one that keeps the reason on each of a hundred items a pull passed
+	// over, against a tracker taking up to two minutes a call, is half an hour,
+	// and a pass falling due just after the pull's firing would wait all of it
+	// with places free. So a pull at work below the schedule goes back to it
+	// between its slow steps, at most once every firingCheckEvery: it takes in the
+	// firings that have ended, so their places are free, and claims what has
+	// fallen due, on the session's own goroutine as the pull's firing does.
+	// pullRecurring is the schedule this pull fired, and nil before it has, or
+	// where it fires only in place.
+	var pullRecurring ScheduleRecurringConcurrent
+	var firingsChecked time.Time
+	waitsSaid := ""
+	fireBeside := func() {
+		firingsChecked = s.now()
+		cadence.hold(s.startFirings(ctx, &schedule, pullRecurring, firings, &cadence))
+		waitsSaid = sayWaitingFirings(session, cadence.waiting, waitsSaid, running)
+	}
+	firingsBetween = func() {
+		if pullRecurring == nil || ctx.Err() != nil || s.now().Before(firingsChecked.Add(firingCheckEvery)) {
+			return
+		}
+		s.collectFirings(&schedule, firings, &cadence, false)
+		// A session draining to restart that hosts no run starts no new firing,
+		// as at the pull's own firing.
+		if drain.active && running == 0 {
+			return
+		}
+		fireBeside()
+	}
 	// continuing is the started entries that are continuations of a run paused on
 	// work its item waited on, against that run, and refusedContinuations is the
 	// continuations this session attempted that did not get the run going, so a
@@ -2675,9 +2712,11 @@ pulling:
 		// per pass, as it always was. A session draining to restart that hosts
 		// no run starts no new firing, so the restart is not put off by one.
 		s.missed(ctx, &schedule, pull, &cadence)
+		pullRecurring = nil
 		if concurrent, beside := pull.Recurring.(ScheduleRecurringConcurrent); beside {
+			pullRecurring = concurrent
 			if !drain.active || running > 0 {
-				cadence.hold(s.startFirings(ctx, &schedule, concurrent, firings, &cadence))
+				fireBeside()
 			} else {
 				drain.paused(s.now())
 			}
@@ -2741,6 +2780,8 @@ pulling:
 		// here beside the audit that gives dead claims back, so it is the harness
 		// and never a person that does it.
 		clearLeftoverAssignees(ctx, &schedule, pull)
+		// The audit and the claims are tracker calls each, which can be slow.
+		firingsBetween()
 		// The runs this audit ended because the process carrying them died count
 		// toward the hold on new work, and count once however many there are: a
 		// machine restart ends every run it was carrying, and the first audit of
@@ -3705,6 +3746,8 @@ pulling:
 		// pull as work still waiting on somebody opening a conversation.
 		waitTracker = pull.Tracker
 		waitItems = read.items
+		// Reading the queue is a tracker listing, which can be slow.
+		firingsBetween()
 		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries, read.items)
 		// Work the tracker leaves out of its ready set is never asked about by a
 		// slot, so its reason is kept here, over the whole queue; see
@@ -5664,6 +5707,8 @@ type recurringHold struct {
 	// fired is the task the pass's one firing went to, where that is the hold. It
 	// kept every other due task and never the one it fired.
 	fired string
+	// due is when the task a waiting hold kept fell due, where that is known.
+	due time.Time
 }
 
 // said is the severity a miss this hold kept is reported at.

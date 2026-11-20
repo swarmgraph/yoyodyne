@@ -312,6 +312,12 @@ type Sources struct {
 	// about what their owners argued — which is what every surface showed
 	// before the queue had a cadence.
 	Sweeps Sweeps
+	// RecurringPassesAtOnce is how many recurring passes a watch session takes
+	// side by side (orchestrator.MaxConcurrentFirings), which is how many other
+	// passes have to be running before one counts as keeping a due pass waiting
+	// (WatchAvailability.Cause). It is optional, and a reading without it counts
+	// any other pass running as a wait.
+	RecurringPassesAtOnce int
 	// UsageLimits is the provider's refusals outside a run, read with the runs
 	// above — for the ones parked on a limit — and the agents below for the one
 	// thing the three say together: whether the provider is holding every role
