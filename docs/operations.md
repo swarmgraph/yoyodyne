@@ -7816,7 +7816,7 @@ first kind does not last.
 
 ### What the page presents
 
-Eight sections, top to bottom, and a ninth below them only where the product
+Seven sections, top to bottom, and an eighth below them only where the product
 has a merge queue record, each drawn from the read model and from nothing
 else. Above them, one banner and only one, while it stands: the same sentence
 the terminal prints above the four lines when the harness is paused on the
