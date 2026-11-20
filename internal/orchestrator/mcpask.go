@@ -66,12 +66,14 @@ type developerAsks struct {
 
 // newDeveloperAsks is this attempt's caller, or nil where the developer holds
 // no MCP tool: no path is wired, the developer agent names none, or none it
-// names is a read tool its role holds.
+// names is a read tool its role holds. The caller carries the run's own
+// worktree, which every server its calls start is handed as the repository
+// (mcpcall.RepositoryVariable).
 func (a *activeRun) newDeveloperAsks() *developerAsks {
 	if a.pipeline.MCP == nil {
 		return nil
 	}
-	caller, err := mcpcall.DeveloperCaller(a.pipeline.Config, a.pipeline.developerName(), a.state.RunID, a.state.RepairAttempts)
+	caller, err := mcpcall.DeveloperCaller(a.pipeline.Config, a.pipeline.developerName(), a.state.RunID, a.state.RepairAttempts, a.state.WorktreePath)
 	if err != nil || len(caller.Tools()) == 0 {
 		return nil
 	}
@@ -105,6 +107,9 @@ func developerMCPContract(caller mcpcall.Caller) string {
 	for _, tool := range caller.Tools() {
 		fmt.Fprintf(&text, "- `%s` (%s)\n", tool.Name(), tool.Class)
 	}
+	// Which path the tools read is the harness's to say, never the role's to
+	// choose (mcpcall.RepositoryVariable).
+	fmt.Fprintf(&text, "\nThe repository these tools read is your own worktree, `%s`, and never the main checkout: the harness starts each server with that path as its repository, in the variable %s. Where a tool takes a repository path, give it that path. A server confined to its repository refuses any other checkout, the main checkout and other runs' worktrees included.\n", caller.Repository(), mcpcall.RepositoryVariable)
 	text.WriteString("\nTo ask, end your turn with exactly one block of this shape and nothing after it:\n\n")
 	text.WriteString(mcpcall.Fence + "\n")
 	text.WriteString(`{"requests":[{"tool":"server.tool","arguments":{"name":"value"},"why":"what this settles"}]}` + "\n")

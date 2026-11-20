@@ -46,6 +46,10 @@ func runMCPCalls(parts components) (orchestrator.MCPCalls, orchestrator.MCPCallR
 		RedactValues:  parts.redactValues,
 		ClientVersion: buildinfo.Commit(),
 		Attribution:   passFailureAttribution(cfg),
+		// The main checkout is what a conversation's and a recurring task's
+		// servers read; a developer run's read its own worktree, which its
+		// caller carries (mcpcall.RepositoryVariable).
+		Repository: parts.repository,
 	}
 	// A changed tool listing is put to the development manager exactly as a
 	// conversation's call path puts it (conversationMCP); the store is assigned
