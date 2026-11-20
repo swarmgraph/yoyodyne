@@ -342,6 +342,12 @@ func mcpCallOutcome(call mcpcall.Record) string {
 			return string(call.Outcome)
 		}
 		words := fmt.Sprintf("%s, %d bytes back", call.Outcome, call.ResultBytes)
+		if call.ResultWithheld {
+			words += ", not kept in this record"
+			if call.AnswerCut {
+				words += ", too large to read whole"
+			}
+		}
 		if call.ResultCut {
 			words += ", the record kept part of it"
 		}
@@ -395,6 +401,14 @@ func printMCPCallWhole(writer io.Writer, call mcpcall.Record, zone *time.Locatio
 	}
 	if len(call.Arguments) > 0 {
 		fmt.Fprintf(writer, "arguments, secrets removed:\n%s\n", call.Arguments)
+	}
+	if call.ResultWithheld {
+		fmt.Fprintf(writer, "result: %d bytes, %s; not kept here, because what an intake query reads is kept only in the intake record", call.ResultBytes, call.ResultDigest)
+		if call.AnswerCut {
+			fmt.Fprint(writer, "; it was too large to read whole, so its time window was narrowed")
+		}
+		fmt.Fprintln(writer)
+		return
 	}
 	if call.ResultDigest != "" {
 		fmt.Fprintf(writer, "result: %d bytes, %s", call.ResultBytes, call.ResultDigest)

@@ -54,6 +54,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/intake"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -506,6 +507,7 @@ func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *read
 		fmt.Fprint(stdout, standing.RenderConversationPasses())
 		fmt.Fprint(stdout, standing.RenderMergeQueues())
 		fmt.Fprint(stdout, standing.RenderMCPCalls())
+		fmt.Fprint(stdout, standing.RenderIntakeQueries())
 		fmt.Fprint(stdout, standing.RenderMainChecks())
 		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
@@ -864,6 +866,11 @@ func standingSources(configPath string) readmodel.Sources {
 	// product that has made none prints nothing.
 	if record, err := mcpcall.NewRecords(stateRoot, cfg.Product.ID); err == nil {
 		sources.MCPCalls = record
+	}
+	// The intake record, counted by query with no content. A product that has
+	// run no query prints nothing.
+	if record, err := intake.NewRecords(stateRoot, cfg.Product.ID); err == nil {
+		sources.IntakeQueries = record
 	}
 	// Where the target branch stands against the team's branch, which only a
 	// project with execution.upstream_branch set has a record of.
