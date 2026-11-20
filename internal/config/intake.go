@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -32,6 +33,23 @@ type Intake struct {
 
 // Declared reports whether the project declares any scheduled query at all.
 func (i Intake) Declared() bool { return len(i.Queries) > 0 }
+
+// RulesPaths are the rules documents the project's queries name, each once and
+// in order. A rules document is read by the message reader and by nobody else,
+// so these are kept out of the product documents every role is given.
+func (i Intake) RulesPaths() []string {
+	seen := map[string]bool{}
+	var paths []string
+	for _, query := range i.Queries {
+		if query.Rules == "" || seen[query.Rules] {
+			continue
+		}
+		seen[query.Rules] = true
+		paths = append(paths, query.Rules)
+	}
+	sort.Strings(paths)
+	return paths
+}
 
 // IntakeQuery is one scheduled query.
 type IntakeQuery struct {
@@ -62,7 +80,10 @@ type IntakeQuery struct {
 	// Reader is the role that reads each message. The first build has one, the
 	// shipped message reader, and it is the default.
 	Reader string `yaml:"reader" json:"reader"`
-	// Rules is the id of the rules document the reader judges by.
+	// Rules is the repository-relative path of the Markdown rules document the
+	// reader judges by. Each project keeps its rules wherever it chooses, so the
+	// harness fixes no path; the document is read as the target branch holds it
+	// (internal/intakerules).
 	Rules string `yaml:"rules" json:"rules"`
 	// Questions is who a question about a message goes to: the Lead Product
 	// Manager, the default, or a person, which only the operator can choose.
@@ -317,9 +338,9 @@ func (c Config) intakeQueryProblems(name string, query IntakeQuery) []string {
 		problems = append(problems, fmt.Sprintf("%s.reader is %q; the one reader this build has is %q, a role with no tools", key, query.Reader, IntakeMessageReader))
 	}
 	if query.Rules == "" {
-		problems = append(problems, fmt.Sprintf("%s names no rules, the id of the rules document its messages are judged by", key))
-	} else if err := domain.ValidateIdentifier(key+".rules", query.Rules); err != nil {
-		problems = append(problems, err.Error())
+		problems = append(problems, fmt.Sprintf("%s names no rules, the path of the rules document its messages are judged by", key))
+	} else if problem := IntakeRulesPathProblem(query.Rules); problem != "" {
+		problems = append(problems, fmt.Sprintf("%s.rules %q %s; it names the rules document by its path in the repository, such as docs/intake/rules.md", key, query.Rules, problem))
 	}
 	switch query.Questions {
 	case IntakeQuestionsLeadProductManager, IntakeQuestionsPerson:
@@ -366,4 +387,26 @@ func (c Config) intakeToolProblems(key, name string) []string {
 		return []string{fmt.Sprintf("%s is declared %q, and a query may call only a %q tool, because it runs on a schedule with nobody watching and must change nothing outside the harness", said, class, MCPRead)}
 	}
 	return nil
+}
+
+// IntakeRulesPathProblem says what is wrong with a path a query names its rules
+// by, and nothing where it is one: a Markdown file named relative to the
+// repository and inside it. The harness fixes no path, because each project
+// keeps its rules wherever it chooses.
+func IntakeRulesPathProblem(name string) string {
+	switch {
+	case strings.TrimSpace(name) == "":
+		return "is empty"
+	case strings.ContainsAny(name, "\\\x00") || strings.TrimSpace(name) != name:
+		return "is not written as a plain repository path"
+	case path.IsAbs(name):
+		return "is absolute; name the file relative to the repository"
+	case path.Clean(name) != name:
+		return fmt.Sprintf("is not written plainly; write it as %q", path.Clean(name))
+	case name == ".." || strings.HasPrefix(name, "../"):
+		return "climbs out of the repository"
+	case !strings.EqualFold(path.Ext(name), ".md"):
+		return "does not name a Markdown file ending in .md"
+	}
+	return ""
 }

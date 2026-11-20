@@ -302,7 +302,7 @@ func (b BranchReviewer) conduct(ctx context.Context, in conducted) (BranchReview
 	if err != nil {
 		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
 	}
-	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.IntentRoot(b.Repository), b.Config.Product.Specifications, revision, intentRevision)
+	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.IntentRoot(b.Repository), b.Config.Product.Specifications, revision, intentRevision, b.Config.Intake.RulesPaths())
 	if err != nil {
 		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
 	}
