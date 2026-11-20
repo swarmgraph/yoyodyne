@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-20T08:30:30.852382Z
       reason: 'yoyodyne-ifd.437.79: rules how a scheduled intake query chooses the time format of its since and until arguments, as approved in amendment-cdf01638 on November 19: time_format is rfc3339 by default (UTC to the whole second, what is built today) or unix_seconds (a decimal part in sent_at accepted and dropped), refused at load otherwise, and also governs reading sent_at; a source taking only whole days is not offered a format; one build piece is named. Also changes section 1''s example to name the rules document by its path and adds a bullet saying so, the first half of yoyodyne-ifd.437.78; the artifact contract bullet under Documents this changes follows in the next revision. Written from a read of the whole design at main 8126b550; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T10:04:37.582609Z
+      reason: 'yoyodyne-ifd.437.78: the artifact contract bullet under Documents this changes now covers any rules document an intake query names by its path, wherever the project files it, instead of only documents under docs/product/intake, matching section 6 and the code. Section 1''s example and its bullet already name the rules by path since the previous revision, so this completes the follow-up the revision log promised. Written from a read of the whole design at main d9558b1d; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -70,6 +74,11 @@ approvals:
       by: harness
       at: 2026-11-20T08:30:30.852382Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3164, for document-3164.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-20T10:04:37.582609Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3169, for document-3169.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -334,7 +343,7 @@ The rules that could be broken from outside this design are already held: no ses
 
 - [The MCP design](mcp-tools-through-the-harness.md): the table of role bundles gains the message reader, holding neither class. Section 4's record gains the one exception of this design's section 4, and section 7's sentence that records apply unchanged says so. Its rule on Slack names the two exceptions of section 7 here: the link to the source message and the reader's line, both sent only by direct message.
 - [Who owns what](ownership-and-the-operator.md): the table gains the kind for an intake question, owned as the query says. The wording of `human-gate` covers a step a query reserved for a person, and the wording of `protected-file` covers a section of the configuration that every role's write refuses.
-- [The artifact contract](artifact-contract.md): the rules kind gains one sentence for documents under `docs/product/intake`, which are read by the message reader and not delivered to every role.
+- [The artifact contract](artifact-contract.md): the rules kind gains one sentence for any rules document an intake query names by its path, wherever the project files it: such a document is read by the message reader, at the commit the query run records, and is not delivered to every role as product intent. The sentence names no fixed place, because section 6 lets the project choose one.
 - [Portable agent configuration](portable-agent-configuration.md): section 6's refused list names `intake`.
 
 ## Build pieces, for the Lead Product Manager to admit
