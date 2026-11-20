@@ -35,6 +35,10 @@ revisions:
       by: architect
       at: 2026-10-24T23:58:17.208001Z
       reason: 'Carries the revision the forward progress design (yoyodyne-ifd.428.112) and the review of lifecycle states (yoyodyne-ifd.428.113) both promised: health.observe reports every item''s state and the forward progress problems, the recovery tool names who acts and accepts the harness for its bounded acts while the development manager is unavailable, a third use of the same act on the same failure is refused, and the unresolved hold becomes a wait that keeps the stop listed.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T05:11:51.845998Z
+      reason: 'Rewords the section on recovering a preserved run in plain words, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the word the operator retired on November 8 becomes the checks a change must still pass, and joined terms become ordinary phrases. What the section requires is unchanged.'
 approvals:
     - revision: 0
       by: operator
@@ -70,6 +74,11 @@ approvals:
       by: harness
       at: 2026-10-24T23:58:17.208001Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1665, for document-1665.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-20T05:11:51.845998Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3155, for document-3155.1 under the automatic approval policy
 ---
 # Purpose and scope
 
@@ -107,17 +116,17 @@ Scheduler selection, reconciliation, claim auditing, capacity reporting and mana
 
 # Preserved-run recovery
 
-Recover the same run, branch, worktree, provider session and counters. Preserve the recorded definition binding and interrupted phase. Development interrupted before completion resumes development; a dependency pause must not move it to checking. An interrupted review re-earns the gate from checks according to the existing delivery policy. No incomplete check or verdict receives credit.
+Recover the same run, branch, worktree, provider session and counters. Keep the delivery workflow definition the run was started under, and the step it was interrupted at. Development interrupted before it finished resumes development; a pause for a dependency must not move it on to checking. An interrupted review starts again from the checks: they must pass again under the existing delivery policy before review resumes. No check or verdict that did not finish receives credit.
 
-A recovery actor takes the existing run lease and strictly reloads its record. It then reads current dependencies, the operator's pause (set by `yoyo pause`), directives and applicable gates before invoking a provider or advancing delivery. A pre-adoption refusal is not a durable dependency wait.
+Whoever carries out a recovery takes the existing run lease and reloads the run's record strictly. It then reads the item's current dependencies, the operator's pause (set by `yoyo pause`), the directives, and the checks the change must still pass, before invoking a provider or moving delivery on. A refusal given before the run is taken up is not a durable dependency wait.
 
-If unfinished dependencies prevent continuation, record the dependency wait under the run lease without advancing the interrupted phase, and write its follow-up in the same act, with the check that the item's dependencies have closed. Only a successfully established durable wait releases capacity. The duplicate-run reservation stays active. When dependencies clear, reacquire capacity and clear the wait under the same reservation lock used by fresh reservations, while retaining the run lease. A capacity refusal leaves the durable wait and interrupted phase intact.
+If unfinished dependencies prevent continuation, record the dependency wait under the run lease without moving the interrupted step on, and write its follow-up in the same act, with the check that the item's dependencies have closed. Only a wait that was durably recorded releases capacity. The reservation that stops a second run of the item stays active. When the dependencies clear, take capacity again and clear the wait under the same reservation lock that fresh reservations use, while keeping the run lease. A refusal for lack of capacity leaves the durable wait and the interrupted step as they were.
 
-A redeploy stop describes why execution ended; it is not by itself a perpetual audit exemption or proof of a legitimate wait. The shared classification must lead to continuation, a durable wait, completion of already integrated work, or a wait that keeps the stop listed for the development manager. Claim auditing must not cancel useful preserved work merely to free capacity.
+A stop caused by a move onto a new build says why execution ended; it is not by itself a standing exemption from the audit of claims, or proof of a legitimate wait. The shared classification must lead to continuation, a durable wait, completion of work already integrated, or a wait that keeps the stop listed for the development manager. The audit of claims must not cancel useful preserved work merely to free capacity.
 
-After a save reports an uncertain result, strictly reload under the lease before another transition. A replacement may have succeeded before a directory-sync error was returned. Neither success nor absence may be inferred from that error alone. If durable state cannot be established, stop further invocation and report uncertainty, the last attempted operation and the recovery owner. Do not attempt blind cancellation as a substitute for reconciliation.
+After a save reports an uncertain result, reload the record strictly under the lease before any further change. A replacement may have succeeded before an error from syncing the directory was returned. Neither success nor absence may be inferred from that error alone. If what is durably recorded cannot be established, stop further invocation and report the uncertainty, the last operation attempted and who owns the recovery. Do not attempt blind cancellation in place of reconciliation.
 
-Re-entry must observe artifacts and any previously attempted mutation before repeating it. Exclusive local ownership prevents concurrent workers; it does not prove that a remote or provider action never happened. Ambiguous effects require observation or a wait that keeps the stop listed rather than an assertion of exactly-once execution.
+A run taken up again must look at its artifacts, and at any change it already attempted, before repeating it. Holding the run's lease on this machine prevents two workers at once; it does not prove that a remote or provider action never happened. Where an effect is uncertain, look for it, or record a wait that keeps the stop listed, rather than claiming the action ran exactly once.
 
 # Workflow observation and checkpoints
 
