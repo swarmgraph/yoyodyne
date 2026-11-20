@@ -54,6 +54,10 @@ revisions:
       by: architect
       at: 2026-11-19T17:04:47.537531Z
       reason: 'Part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the entry kind for a step only a person can take was written with the retired word for a required check, in the list of kinds and in the owner table. Both now read ''a step set aside for a person'', the plain wording this design already gives the reason, with the stored name `human-gate` beside it. Nothing else changes. Written against main at 473d3600.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T16:23:02.313856Z
+      reason: 'Approved amendment-645896574114e1e18b036497d9147f0a from the developer on the build letting the Lead Product Manager grant attempts past the development manager''s five (yoyodyne-ifd.432.25.13): that raise leaves the hand cases, which become three, and the section says the harness carries out her grant, tells the operator afterwards, and refuses a raise past ten. Held until that build closes, so the design does not run ahead of the code. Written against main at 84b45228; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -110,6 +114,11 @@ approvals:
       by: harness
       at: 2026-11-19T17:04:47.537531Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3110, for document-3110.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-11-20T16:23:02.313856Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3150, for document-3150.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -377,24 +386,25 @@ Some remedies are a role's to decide, but the harness cannot yet perform them
 for that role. Such an entry keeps the role as its owner and carries `hand`:
 the operator, the capability that is missing, what the operator types, and the
 item that closes the gap. It never sets the owner to the operator. The
-registry carries a hand for these four cases, and for no other:
+registry carries a hand for these three cases, and for no other:
 
 - **Applying operational configuration**, which waits on configuration
   applied through a run (yoyodyne-ifd.434.8).
 - **Committing a document written from a conversation** where its kind's
   approval policy is not automatic (yoyodyne-ifd.433.21).
-- **Raising an item's limit once the development manager has used the five
-  raises she may grant herself.** The Lead Product Manager decides it, up to
-  five more raises for that item, as
-  [stopped-run recovery](stopped-run-recovery.md#raising-an-items-limit-on-attempts)
-  states; the operator types each raise she grants with
-  `yoyo triage override`. After ten raises in all no role may raise the limit,
-  so no hand is carried past ten. The need ends with the build the development
-  manager admits from that ruling (yoyodyne-ifd.432.25.12); until it is
-  admitted, the hand says so.
 - **Deciding a proposed change whose owning role holds no capability to
   decide it.** The owning role decides; the operator types its decision with
   `yoyo amendment approve` or `yoyo amendment decline`.
+
+Raising an item's limit on attempts once the development manager has used the
+five raises she may grant herself is no longer one of these cases. The Lead
+Product Manager grants up to five more raises for that item from her own
+conversation, as
+[stopped-run recovery](stopped-run-recovery.md#raising-an-items-limit-on-attempts)
+states; the harness carries out each raise she records and tells the operator
+afterwards, and refuses a raise that would take the item past ten in all
+(yoyodyne-ifd.432.25.13). The waiting entry for such a raise names her as the
+one deciding and carries no hand.
 
 A hand names the item that ends the need for it. Where no item is admitted
 yet, the hand says so, and the entry is also shown to the Lead Product Manager
