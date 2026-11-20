@@ -2935,9 +2935,10 @@ lands in the item's notes, so the next reader of a run that stopped finds the
 reasoning beside the evidence rather than deciding it a second time, and it
 closes the entry it settled — a repair, a re-run, or a re-scope closes the
 run's own entries, whichever of the stopped run, the run that died before it
-claimed, and the escalation a role raised from it the run carries, and a re-run
-closes the unfinished publication's entry too, and retiring a raise closes the
-raise's; a re-arm closes the unfinished publication's entry for good; a wait
+claimed, and the escalation a role raised from it the run carries, and the
+unfinished publication's entry too, because a decision about a run answers the
+whole run and its pull request is not put to her a second time; retiring a raise
+closes the raise's; a re-arm closes the unfinished publication's entry for good; a wait
 closes any of them, the run's own entries and the publication's alike, only
 until the entry has been sitting there as long again, or until the work item it
 names is closed; and an escalation closes
@@ -2964,6 +2965,20 @@ primary checkout, which is no reason on your closed list, and escalating is
 held to the ladder exactly as below. Either lands on the item as a note or a blocker and closes the item's
 open attempts; neither spends anything, and no other decision may leave out the
 run.
+
+**A wait that names nothing to wait on leaves a decided repair or re-run
+standing.** One decision stands per run, and a later one replaces the earlier —
+except here. Where a repair or re-run she decided about the run has not been
+carried out yet, usually because it is waiting for a developer slot, a `wait`
+with no `waits_on` is waiting for exactly that, so the repair or re-run stays
+the decision on the item's record and the harness still carries it out. What
+she is told as she records the wait says so, and says what to record instead if
+she meant the wait to cancel it: a wait naming the work item it waits on, a
+`rescope`, or an `escalate`, each of which replaces it. While such a decision
+waits to be carried out, the run's pull request is not listed to her again as
+an unfinished publication either; it comes back only if the harness is refused
+carrying the decision out, or once it has been carried out and the publication
+is still stuck.
 
 **A wait can name the work it depends on.** Some stoppages can only wait on
 admitted work that is days away — a fix that has to merge first, or a recovery
