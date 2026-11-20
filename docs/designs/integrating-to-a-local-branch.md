@@ -1,7 +1,7 @@
 ---
 id: integrating-to-a-local-branch
 kind: design
-title: Integrating to a local branch and handing landed work to the team through a pull request the harness tracks
+title: Integrating to a local branch and handing landed work to the team through a pull request the harness tracks or opens
 supports:
     - v1-goals
 status: active
@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-17T02:17:03.413365Z
       reason: 'yoyodyne-ifd.429.176 and yoyodyne-ifd.429.198: records the architect''s ruling of November 13, 2026, extended November 16, on how the development manager''s decision to repair an item whose run has ended is recorded, paid for and run. It is a decision of its own kind bound to the list entry it answers, refused once the item has closed; it starts a new run, from the target branch''s head for an item waiting on the team''s merge and from the kept branch for an item waiting on a pull request the harness opened (the case from yoyodyne-ifd.429.120); it spends one of the item''s attempts, except a conflict repair, which spends one of the update''s three rounds. Section 2, section 3''s conflict paragraph, the enforced list, the reviewer checks and build items 3 and 4 change; the rest is copied unchanged from main 668e95f1.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T18:57:51.760645Z
+      reason: 'yoyodyne-ifd.429.127.1: records the operator''s November 19, 2026 narrowing of the November 7 ruling. A batch pull request becomes a fourth delivery route the harness opens, grows, tracks and merges under a few bounded settings, and no outside code holds push or merge rights. Adds section 5, rewrites the rejected alternative about the harness opening the batch, maps the seven asks to build items, and adds build items 7 to 14. Sections 1 to 4 are unchanged from main 18d599c6.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,12 +38,17 @@ approvals:
       by: harness
       at: 2026-11-17T02:17:03.413365Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2922, for document-2922.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-20T18:57:51.760645Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3206, for document-3206.1 under the automatic approval policy
 ---
 # Integrating to a local branch and handing landed work to the team
 
-Serves the team goal: a team can run Yoyodyne against one shared repository, with collaborators each running their own harness without losing work, splitting the tracker, or weakening any safety invariant. It answers the design item for integrating to a branch that is not the team's main (yoyodyne-ifd.429.127), from a user's setup the operator passed on on November 7, 2026, and stays inside [the team-mode scope](../team-mode-scope.md).
+Serves the team goal: a team can run Yoyodyne against one shared repository, with collaborators each running their own harness without losing work, splitting the tracker, or weakening any safety invariant. It answers the design item for integrating to a branch that is not the team's main (yoyodyne-ifd.429.127), from a user's setup the operator passed on on November 7, 2026, and the item revising it for batch pull requests the harness opens itself (yoyodyne-ifd.429.127.1), and stays inside [the team-mode scope](../team-mode-scope.md).
 
-In that setup the factory lands its work on a branch of the project's own, such as `staging`. A script of the project's own then opens one pull request into the team's branch, such as `main`, carrying a batch of landed items. Which items go into a batch, and when, is that project's policy. The harness does not batch, and this design adds no batching rule.
+In that setup the factory lands its work on a branch of the project's own, such as `staging`, and a batch of landed items goes to the team's branch, such as `main`, in one pull request. Which items go into a batch, and when, is that project's policy. A project can keep that policy in a script of its own, which opens the pull request and tells the harness about it (sections 2 and 4). Or, since the operator narrowed the November 7 ruling on November 19, 2026 (recorded on yoyodyne-ifd.429.128), it can state the policy as a few settings and have the harness open, grow, track and merge the batch pull request itself (section 5). That is a fourth delivery route beside a pull request for each change, the merge queue, and landing on a local branch alone. On that route no outside code holds push or merge rights.
 
 ## How this sits beside the design for working alongside other contributors
 
@@ -175,9 +184,156 @@ The hold stops landing on one target branch on this machine, nothing else. It is
 
 A script does not need the hold if it builds its batch from a commit it has chosen, rather than from the moving head of the target branch, and that is the simpler way.
 
+## 5. The harness's own batch pull request
+
+The operator ruled on November 19, 2026 that batching rules stay the project's, as settings, and the mechanics move into the harness. This section is that route. It came from a user's project that had run the batch as an outside shell job of about 720 lines every 15 minutes since November 8: a second control loop the harness could not see, forge logic rewritten in shell, Lead Product Manager conversations started from outside, and the review request posted by hand.
+
+### What is set, and by whom
+
+The route is on when `execution.upstream_branch` is set (section 1) and `execution.batch_pull_request.enabled` is true. Both are off by default, and with either off nothing in this section runs. Turning it on is the development manager's decision, applied as portable agent configuration rules for settings a role applies, like the team's branch.
+
+The settings are few. Each is checked against bounds held in code when the configuration loads, and a value outside them refuses the configuration in plain words:
+
+| Setting | What it says | Bounds | Default |
+| --- | --- | --- | --- |
+| `min_items` | how many unpublished items open or grow a batch | 1 to 100 | 5 |
+| `max_wait` | how long the oldest unpublished item waits before a batch opens or grows with fewer | 15 minutes to 14 days | 24 hours |
+| `review_window` | the days and hours, in a named time zone, when a batch may open or grow and a review request may go out | at least one hour a week; unset means any time | unset |
+| `automated_reviewer` | the forge account of a review tool whose review the harness waits for and whose findings go to the Lead Product Manager | one account, or unset for none | unset |
+| `review_request` | a command, or an https address, told when a batch is ready for a person, with its format, `json` or `text` | one of the two | unset, meaning no request is sent |
+| `merge_method` | how the forge merges the batch, `merge` or `squash` | one of the two | `merge` |
+
+Nothing else about batching is configurable, and no general way to plug outside code into the harness is built from this one case.
+
+### Where each item stands
+
+On this route an item waiting for the team's merge (section 1) is also in one of these states, shown by `yoyo status`, the dashboard and the item's notes:
+
+- **unpublished:** on the target branch, in no open batch;
+- **in the open batch:** its landing commit is in the batch pull request;
+- **approved:** in a batch a person has approved on its head commit;
+- **merged:** the batch merged, and the item closed as section 2 closes it.
+
+The status line also says what the open batch is waiting on: the review window, the threshold, the automated reviewer, a person's approval, or the forge reporting it mergeable.
+
+### Opening and growing the batch
+
+The harness keeps the batch on a branch of its own, `yoyodyne/batch/<target>`, and never uses the target branch itself as the pull request's head. A head that moves whenever work lands could be neither held still for an approval nor held back for the automated reviewer.
+
+On each forge check, inside the review window:
+
+1. With no batch pull request open into the team's branch from this target, and `min_items` unpublished items or one older than `max_wait`, the harness opens one. It pushes the batch branch at the newest target commit that keeps every item whole, and opens the pull request from it. Before opening, it looks for an open pull request from that branch and takes it up rather than opening a second, so a restart never opens two.
+2. With one open and not approved, and the same threshold met by items landed since its head, it moves the batch branch forward to the newest target commit that keeps every item whole. Where `automated_reviewer` is set, it first waits until that account has submitted a review on the exact head commit. A review tool that has not finished two hours after the head was pushed is passed over: the harness grows the batch, and says so on the pull request and the status line, naming the commit that went unreviewed.
+3. With one open and approved by a person on its head commit, the batch is frozen. Items that land after the approval wait for the next batch, which opens after this one merges or closes.
+
+A target commit keeps every item whole when no item landed at or before it has a decided repair run that has not ended (section 2). An item is never published with a repair half done.
+
+Every push of the batch branch is a compare and swap against the head the batch record holds, so two harnesses never both move it. The one whose push is refused reads the branch again and does nothing more in that check.
+
+One batch pull request is open per target branch at a time. It is tracked by the record of section 2 from the moment it opens, without `yoyo pull-request track`, so a merge closes its items, a close without merging sends them to the Lead Product Manager, and items found among its commits are added, exactly as section 2 says. It is not counted against `execution.max_waiting_pull_requests`, for the reason section 2 gives.
+
+### Keeping the batch current with the team's branch
+
+While the batch is not approved, bringing the target branch up to date (section 3) is enough. The next growth carries the update merge, which already passed checks and review.
+
+A batch approved before the team's branch moved cannot take later target commits without carrying items nobody approved. So the harness brings the batch branch itself up to date, as section 3 brings the target branch: it builds a merge of the team's branch into the batch head in a checkout of its own, runs the configured checks and the independent reviewer on that merge commit, carries the same proof in place of the check on protected paths, and pushes it by compare and swap. The head has then moved, so the approval no longer stands on it. The harness says on the pull request that the team's branch moved after the approval and that the new head needs approval, and sends the review request again.
+
+Where that merge conflicts, the harness does not resolve it. The conflict goes to the development manager's list as section 3's conflicts do. Once the target branch's own update has landed, the batch is no longer frozen: it grows to that update and asks for approval again on the new head.
+
+### Describing the batch
+
+Each time the batch opens or grows, the Lead Product Manager writes its description, because what a batch is for is product intent and hers to say. The harness gives her one turn whose only material is the batch's items, with their titles, the goals they serve and their landing commits, and no tools. Her answer is posted as the pull request's description, and its cost is recorded against the batch.
+
+If her answer has not come within fifteen minutes, or the turn fails, the harness posts a plain list of the items, says on the pull request that her description is still to come, and asks again at the next forge check, at most three times for one head. Publishing never waits on her past that.
+
+### Findings from the automated reviewer
+
+Where `automated_reviewer` is set, each review comment and line comment that account leaves on the batch becomes one entry on the Lead Product Manager's list. The entry names the finding, the files it is about, and the items whose landed commits touched them. A review tool's findings range from defects to matters of preference, and deciding which deserve work is backlog work, so they go to her rather than to the development manager. Her decision is one of three:
+
+- **decline**, with her reason;
+- **admit a fix item**, under the ordinary admission rules, whose record names the finding it answers;
+- **ask for a repair of one named item**, which goes to the development manager's list as feedback does in section 2 and is decided there.
+
+The harness posts her answer on the pull request as a reply to the finding: her reason, the fix item's title and identifier, or that a repair was asked for. A fix item lands on the target branch like any work, and joins the batch at its next growth, or the next batch if this one is frozen. Feedback from people, and the development manager's handling of it, stays as section 2 says.
+
+### Asking a person to review
+
+Once all of the following hold, the harness sends one review request for the head commit to the configured command or address:
+
+- the batch has opened, grown, or been brought up to date;
+- its description is posted, or the plain list in its place;
+- the automated reviewer has finished with the head, or been passed over;
+- the time is inside the review window.
+
+The request goes out in one of two ways:
+
+- **A command** is run by the harness without a shell, from a temporary directory, with the request on its standard input. It is given none of the harness's forge, tracker or provider credentials, and it is stopped after 60 seconds. The request counts as sent when the command exits with status 0.
+- **An https address** is sent the request as a POST. It counts as sent when a success answer comes within 10 seconds.
+
+With `json`, the request is one object naming:
+
+- the pull request's number, address and title;
+- the target and team's branches;
+- the head commit;
+- each item's identifier and title;
+- the description;
+- why it is sent: opened, grown, or brought up to date.
+
+With `text`, it says the same as plain lines.
+
+A request that fails is tried again at each forge check. After three failures, the development manager's list gets one entry naming the error, and the batch carries on. The head commit a request was sent for is recorded, so a restart does not send it again. A crash between sending and recording can send it twice.
+
+### Merging on approval
+
+The harness merges the batch only when all of these hold, read from the forge in one check:
+
+- a person's approval is on the head commit, and no person's request for changes stands;
+- the forge reports the pull request mergeable, and its required checks passed;
+- the head contains the team's branch head, so the merged tree is exactly the head's tree, and every piece of that tree earned its evidence when it landed on the target branch.
+
+It merges under the landing lease for the team's branch, as [one promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) rules. The forge's merge call names the expected head commit, and uses `merge_method`.
+
+When any condition fails, or the forge refuses the merge, the harness says plainly on the pull request and the status line what is missing: an approval on an older commit, a check that failed, or a team's branch the head does not contain. No role is asked to decide anything for it, and the next forge check tries again.
+
+A merge closes the items as section 2 says, a squash merge included.
+
+### Ownership and restarts
+
+The batch record is kept in the harness's state directory and written after each step. It holds the pull request, its head, its items, the approval seen, the automated reviewer's state, the requests sent, and the description tries.
+
+Every step is decided from a fresh forge read and this record, so a restart repeats nothing that was finished:
+
+- an open batch pull request is taken up, never opened twice;
+- every push is a compare and swap;
+- a request is sent once for each head.
+
+Only the harness opens, pushes, comments on and merges the batch pull request. No agent session holds a forge credential on this route, and the review request command runs without one.
+
+### The seven asks, and what already provides them
+
+| Ask | Already provided by build items 1 to 5 | Still to build |
+| --- | --- | --- |
+| 1. A target branch the harness knows, with each item shown as unpublished, in an open pull request, approved or merged, on `yoyo status` | Items 1 and 2: waiting for the team's merge, a tracked pull request, closing on merge | the batch states on every surface, the approved state, and what the batch waits on (item 7) |
+| 2. Publication in review hours and on a count or time threshold, items whole, one open pull request, grown until approved, frozen by approval, grown only after the automated reviewer finished | nothing | item 8 |
+| 3. Bringing in the team's branch, checked before it moves the target, with conflicts raised | Item 4, for the target branch | the same for an approved batch's own branch (item 9) |
+| 4. A description written by the Lead Product Manager | nothing | item 10 |
+| 5. Automated reviewer findings decided by the Lead Product Manager, fixes linked, answers posted | Item 3, for people's feedback and the repair her third choice hands on | item 11 |
+| 6. A review request through a configured command or address, in a set format and time window | nothing | item 12 |
+| 7. Merge on approval on the head commit when mergeable, with a plain notice otherwise | nothing | item 13 |
+
+The landing hold (item 5) is not needed on this route, because the harness moves the batch branch only to commits it chose. It stays for projects that keep a script of their own.
+
+Rejected for this route:
+
+- **The target branch as the batch's head.** It cannot be held still for an approval or held back for the automated reviewer.
+- **A way for any project to plug in its own batching code.** The operator ruled that settings stay few and that no general framework is built from one case.
+- **Sending automated reviewer findings to the development manager, as people's feedback goes.** Many findings are not defects, and whether one deserves work is the Lead Product Manager's backlog decision.
+- **Merging when the head does not contain the team's branch.** The forge would build a merged tree nobody checked or reviewed.
+- **Keeping an approval across a change to the head.** The approval would then stand on a commit the person never saw.
+
 ## Alternatives rejected
 
-- **The harness opening the batch pull request itself.** Which items go into a batch, and when, is the project's policy, and the item that asked for this design says so.
+- **The harness opening a batch pull request no setting asked for.** Which items go into a batch, and when, stays the project's policy. Until November 19, 2026 this design left the batch to the project's own script. The operator then ruled that the policy stays the project's, as settings, while the mechanics move into the harness, so the harness opens a batch pull request only on the route in section 5, under the settings that project chose.
 - **Closing an item when it lands on the target branch, as today.** The team's merge is the outcome that matters, and an item closed early sends nothing back when the team refuses the batch.
 - **Finding every pull request whose head is the target branch, with no record.** It would adopt pull requests nobody meant to hand over. A record the outside tool makes, checked against the forge, says what the batch carries.
 - **Turning feedback on a batch into a repair round directly.** A batch carries many items, and a comment cannot reliably name its item, so the development manager decides which item to repair.
@@ -195,6 +351,13 @@ A script does not need the hold if it builds its batch from a commit it has chos
 - A repair of an item whose run has ended starts only from the development manager's decision bound to the list entry it answers, always as a new run; it is refused once the item has closed or the entry already has a decision, and it spends one of the item's attempts, except a conflict repair, which spends one of the update's three rounds.
 - An update of the target branch lands only with configured checks and an independent review of the exact merge commit, through the remote's compare and swap, and never by rebase or force.
 - A landing hold is read under the landing lease before every guarded change to its target branch, and expires on its own.
+- With `execution.batch_pull_request.enabled` off, or the team's branch unset, the harness opens, moves and merges no batch pull request.
+- Each batch setting outside its bounds refuses the configuration when it loads.
+- The batch branch moves only by compare and swap against its recorded head: either forward to a target commit that keeps every item whole, or by an update merge that passed the configured checks and independent review. After a person's approval, it moves only by that update merge.
+- At most one batch pull request is open for a target branch.
+- The batch merges only when a person's approval is on its head commit, the forge reports it mergeable, and the head contains the team's branch head, under the landing lease with the expected head named.
+- The review request command runs with none of the harness's credentials and is stopped after 60 seconds.
+- A finding from the automated reviewer starts no run and admits no item without the Lead Product Manager's decision.
 
 ## What a reviewer can check
 
@@ -211,6 +374,16 @@ A script does not need the hold if it builds its batch from a commit it has chos
 - When the team's branch moves, the target branch gains one merge commit that passed the checks and the reviewer, and the status line shows when.
 - A conflict while bringing the target branch up to date reaches the development manager's list naming paths and items, and landing on the target branch carries on; her decision on it spends one of the update's three rounds and none of the item's attempts.
 - With a landing hold set, nothing lands on that target branch, checks and reviews carry on, and the hold ends at its expiry with nobody releasing it.
+- With the batch route off, no batch pull request opens, whatever lands.
+- A batch setting outside its bounds refuses the configuration in plain words.
+- With `min_items` reached inside the review window, one batch pull request opens from `yoyodyne/batch/<target>`; outside the window it waits; a restart after opening opens no second one.
+- An item with a decided repair run that has not ended is left out of the batch until the run ends.
+- The batch does not grow while the automated reviewer has not reviewed its head, and grows after two hours with that said on the pull request.
+- After a person approves, items landing later stay out of the batch.
+- When the team's branch moves after an approval, the batch branch gains one merge that passed checks and review, and the pull request says approval of the new head is needed.
+- The batch merges only with a person's approval on its head commit; an approval on an older commit leaves a comment naming it, and no merge.
+- An automated reviewer finding reaches the Lead Product Manager's list naming the items that touched its files, and her answer is posted as a reply to it.
+- One review request is sent for each head; the command sees none of the harness's credentials; after three failures the development manager's list gets one entry.
 
 ## Build items, for the Lead Product Manager to admit under `team-development`
 
@@ -219,8 +392,16 @@ A script does not need the hold if it builds its batch from a commit it has chos
 3. Feedback on a tracked pull request put on the development manager's list with the items that touched the file, and the decision to repair an item whose run has ended (section 2): recorded against the entry it answers, refused once the item has closed or the entry is answered, starting a new run from the target branch's head or, for an item waiting on a pull request the harness opened, from that pull request's kept branch, and spending one of the item's attempts. It builds on build item 2 of the contributors design, on yoyodyne-ifd.429.125, and on the fixed list of decisions in stopped-run recovery (yoyodyne-ifd.428.99.4).
 4. Bringing the target branch up to date: the merge, its checks and review, landing by compare and swap, the update record and status line, and conflicts put on the development manager's list, decided with the same kind of decision as build item 3, under a limit of three rounds for the update.
 5. The landing hold: `yoyo landing hold` and `release`, the four-hour bound, reading it under the landing lease, and the status line.
-6. A validation on a scratch repository with a target branch and a team's branch, covering every check under What a reviewer can check.
+6. A validation on a scratch repository with a target branch and a team's branch, covering every check under What a reviewer can check up to the landing hold.
+7. The batch route's settings and states: `execution.batch_pull_request` with its bounds checked at load, the batch record in the state directory, and the unpublished, in the open batch, approved and merged states with what the batch waits on, on status, the dashboard and the item's notes.
+8. Opening and growing the batch: the threshold and review window, the newest commit that keeps every item whole, one open batch for each target, the batch branch pushed by compare and swap, taking up an open batch after a restart, waiting for the automated reviewer with the two hour limit, freezing on approval, and tracking under section 2 without a command.
+9. Bringing an approved batch's branch up to date when the team's branch moves: the merge with checks, review and the protected paths proof as in section 3, the notice asking for approval of the new head, and a conflict unfreezing the batch once the target's own update lands.
+10. The Lead Product Manager's description: her one turn with the batch's items and no tools, the fifteen minute limit, the plain list in its place, three tries for each head, and its cost recorded against the batch.
+11. Automated reviewer findings: one entry each on the Lead Product Manager's list naming files and items, her three decisions, a fix item naming the finding, and her answer posted as a reply.
+12. The review request: the command without a shell or credentials and its 60 second limit, the https address and its 10 second limit, the `json` and `text` formats, one request for each head, three failures to the development manager's list.
+13. Merging on approval: the three conditions read in one forge check, the merge under the landing lease with the expected head and `merge_method`, and the plain notice on the pull request and status line when a condition fails.
+14. A validation on a scratch repository extending item 6 with every check from With the batch route off onwards.
 
-Items 2, 3 and 4 need item 1. Item 4 needs the fetch before each run and the forge check on its own schedule from the contributors design (its build items 3 and 10), and its conflict decision needs build item 3. Item 5 stands alone.
+Items 2, 3 and 4 need item 1. Item 4 needs the fetch before each run and the forge check on its own schedule from the contributors design (its build items 3 and 10), and its conflict decision needs build item 3. Item 5 stands alone. Item 7 needs item 1. Item 8 needs items 2 and 7. Items 10, 12 and 13 need item 8. Item 9 needs items 4 and 8, and item 13 needs item 9. Item 11 needs items 3 and 8. Item 14 needs items 7 to 13.
 
-This design adds no invariant: the two rules linked above already bind every landing it describes. It changes no other document; the contributors design's section 2 should point to the decision in section 2 here at its next revision, for the case of a pull request the harness opened.
+This design adds no invariant: the two rules linked above already bind every landing it describes, the batch's merge into the team's branch included. It changes no other document; the contributors design's section 2 should point to the decision in section 2 here at its next revision, for the case of a pull request the harness opened.
