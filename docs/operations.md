@@ -5676,9 +5676,13 @@ has the rule.
   on other work, or once that run has ended — its approved change admitted to
   the merge queue, or stopped with its change kept on its branch — even while
   the run's process is still finishing, such as writing to a slow tracker. A
-  run whose change the merge queue has taken is recorded as ended before its
-  note goes to the tracker rather than after, so it holds no slot while the
-  tracker keeps it waiting. Each such item still has its run standing over it,
+  run recorded waiting is not counted either once its process has finished and
+  is waiting for the scheduler to take its ending back: the scheduler takes
+  back one ending each time it waits, and none after a pull that started work,
+  so on a slow tracker that could take several pulls, while the health check
+  already counted the slot free. A run whose change the merge queue has taken
+  is recorded as ended before its note goes to the tracker rather than after,
+  so it holds no slot while the tracker keeps it waiting. Each such item still has its run standing over it,
   so it is never started a second time.
 
   When the scheduler's last word is that no slot stands empty, yet this reading
