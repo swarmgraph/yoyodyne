@@ -1126,7 +1126,29 @@ git -C "$project" commit -q --allow-empty -m "a commit origin does not have"
 detach "$project"
 cut_automatic "$project" "v0.3.0"
 if [ "$status" = "1" ]; then pass "it exits 1"; else fail "it exited $status -- got: $output"; fi
-contains "$output" "HEAD is not where origin/main is" "it refuses as a person's cut does"
+contains "$output" "is not on origin/main" "it refuses a commit the product does not have"
+
+step "the harness's cut: a commit origin/main holds behind its tip is cut, with the notes main carries"
+# The harness cuts at the commit a release's notes name, which the notes landed
+# after: the checkout is at that older commit, its own tree has no notes, and
+# the harness hands over the notes as origin/main holds them.
+project="$(fabricate automatic-named green green absent)"
+named="$(git -C "$project" rev-parse HEAD)"
+mkdir -p "$project/docs/releases"
+{ printf '# v0.3.0\n\nEverything up to and including commit `%s`.\n' "$named"; printf '\n'; readiness_section green; } \
+  > "$project/docs/releases/v0.3.0.md"
+git -C "$project" add -A
+git -C "$project" commit -qm "the notes land after the commit they name"
+origin_for "$project" >/dev/null
+cp "$project/docs/releases/v0.3.0.md" "$scratch/automatic-named-notes.md"
+git -C "$project" checkout -q --detach "$named"
+if output="$(cd "$project" && PATH="$project/bin:$PATH" YOYODYNE_RELEASE_CUT=automatic \
+    YOYODYNE_RELEASE_NOTES="$scratch/automatic-named-notes.md" \
+    "$project/scripts/cut-release.sh" "v0.3.0" 2>&1)"; then status=0; else status=$?; fi
+if [ "$status" = "0" ]; then pass "it exits 0"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "checked commit: $named" "it names the older commit the gates ran on"
+contains "$output" "handed over by the harness" "it read the notes origin/main carries"
+if [ -z "$(tags "$project")" ]; then pass "no tag was written; the tag is the harness's"; else fail "the harness's cut tagged: $(tags "$project")"; fi
 
 step "the harness's cut: a red gate is told apart from preparation"
 project="$(fabricate automatic-check-red green check-red)"
