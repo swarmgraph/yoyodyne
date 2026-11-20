@@ -227,8 +227,8 @@ func TestRunInitProposesChecksFromTheProjectsOwnFiles(t *testing.T) {
 	}
 }
 
-// The adoption walkthrough chooses a candidate by deleting one "#" and then asks
-// `config show --effective` whether that took. Both halves are checked here as
+// The getting-started walkthrough chooses a candidate by deleting one "#" and
+// then asks `config show --effective` whether that took. Both halves are checked here as
 // well, so the claim rests on the supplied checks rather than only on a script
 // none of them runs.
 func TestUncommentingACandidateMakesItTheEffectiveChecksList(t *testing.T) {

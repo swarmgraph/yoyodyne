@@ -67,7 +67,7 @@ func checkTimesFixture() (fakeDeliveryRuns, time.Time) {
 		StartedAt: at(1, 8, 0), UpdatedAt: at(1, 11, 30),
 		CheckStage: &runstate.CheckStage{
 			StartedAt: stageStart, FinishedAt: &stageEnd,
-			Narrowed: "the whole module (the merge candidate is checked whole before it is promoted); before review: ./internal/dashboard; make adoption added because the change touches internal/dashboard/assets/backlog-count.js, which scripts/walk-adoption.paths lists",
+			Narrowed: "the whole module (the merge candidate is checked whole before it is promoted); before review: ./internal/dashboard; make getting-started added because the change touches internal/dashboard/assets/backlog-count.js, which scripts/walk-adoption.paths lists",
 		},
 	}
 	fresh := runstate.State{RunID: "run-fresh", WorkItemID: "yoyodyne-ifd.2", Status: runstate.StatusRunning, StartedAt: at(2, 8, 0), UpdatedAt: at(2, 10, 0)}

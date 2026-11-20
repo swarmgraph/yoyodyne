@@ -1,7 +1,9 @@
-# What the adoption walk vouches for: a change touching any of these runs
-# `make adoption` in the harness's per-run check stage, and a change touching
-# none of them does not, once .yoyodyne/config.yaml names the walk under
-# `path_checks`. A change that edits this file runs the walk whatever the file
+# What the getting-started walk vouches for: a change touching any of these
+# runs it in the harness's per-run check stage, and a change touching none of
+# them does not, once .yoyodyne/config.yaml names the walk under `path_checks`.
+# This file keeps its old name, and `make adoption` its old target, only because
+# .yoyodyne/config.yaml names both there; the Makefile's `adoption` target says
+# what replaces them. A change that edits this file runs the walk whatever the file
 # then says, so no change can narrow the check that holds it.
 #
 # One pattern a line, in the part of .gitignore's syntax everybody reads: no "/"
@@ -12,7 +14,7 @@
 
 # What the walk reads and executes.
 /README.md
-/scripts/walk-adoption.sh
+/scripts/walk-getting-started.sh
 /scripts/walk-adoption.paths
 /Makefile
 /go.mod

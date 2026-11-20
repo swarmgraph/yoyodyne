@@ -26,9 +26,9 @@ lines on 2026-08-24 by deleting the bodies the six documents below already
 carried; tranches yoyodyne-ifd.121.4 and yoyodyne-ifd.121.5 reduced what was
 left against those documents; and yoyodyne-ifd.121.6 closed the sequence on
 2026-09-05 with the repository-wide citation sweep this document's tables now
-record, and with the adoption walkthrough made a merge gate rather than a
-habit — the `adoption` job in `.github/workflows/ci.yml` installs `bd` and runs
-`make adoption` on every pull request, so the claim the README makes about its
+record, and with the getting-started walkthrough made a merge gate rather than
+a habit — the `getting-started` job in `.github/workflows/ci.yml` installs `bd`
+and runs `make getting-started` on every pull request, so the claim the README makes about its
 own getting-started section is executed on every change.
 
 The README stood at 844 lines at the end of the split: 600 of them the README
@@ -965,7 +965,7 @@ homes: the test says whether a citation resolves, never whether an anchor is
 frozen, and the tracker is past what any check here can reach.
 
 **And the walkthrough is a gate now too.** `.github/workflows/ci.yml` runs
-`make adoption` on every pull request, which executes the README's
+`make getting-started` on every pull request, which executes the README's
 "Getting started" against a throwaway project rather than reading it. The link
 checker says a fragment resolves; the walkthrough says the steps still work. The
 README split needed both, and until yoyodyne-ifd.121.6 the second one ran only
