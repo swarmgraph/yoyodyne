@@ -316,7 +316,7 @@ func TestAMissSaysWhichFiringKeptTheTaskBehindIt(t *testing.T) {
 	}
 
 	full := waitingReason(WaitingFiring{Task: "architect-amendments", Full: true}, firings)
-	if !strings.Contains(full, "firings that had waited longer") {
+	if !strings.Contains(full, "passes that had been due longer went first") || !strings.Contains(full, "recurring passes a session runs at once were already running") {
 		t.Fatalf("a firing kept by the bound says %q, want the bound and the order named", full)
 	}
 }
@@ -666,7 +666,7 @@ func TestADuePassStartsBesideAnotherWhileThePullIsSlow(t *testing.T) {
 		// Neither of her tasks has fired before, so which goes first is the
 		// schedule's order, and the line says the other waits on it.
 		if strings.Contains(transition.reason, "the recurring pass of development-manager-") &&
-			strings.Contains(transition.reason, "is waiting: its conversation was taking the turns of the recurring task development-manager-") {
+			strings.Contains(transition.reason, "is waiting: its conversation was in use by the recurring pass of development-manager-") {
 			said = true
 		}
 	}

@@ -722,16 +722,16 @@ func waitingReason(waiting WaitingFiring, firings *recurringFirings) string {
 			holding = append(holding, started.Task)
 		}
 		sort.Strings(holding)
-		return fmt.Sprintf("all %d of the firings a session takes at once were in flight (%s), and the firings that had waited longer since falling due went first",
+		return fmt.Sprintf("all %d of the recurring passes a session runs at once were already running (%s), and the passes that had been due longer went first",
 			MaxConcurrentFirings, strings.Join(holding, ", "))
 	}
 	if started, held := firings.inFlight[waiting.Conversation]; held {
 		if started.beside {
-			return fmt.Sprintf("its conversation was taking the turn of %s, which had not ended", started.Task)
+			return fmt.Sprintf("its conversation was in use by %s, which had not ended", started.Task)
 		}
-		return fmt.Sprintf("its conversation was taking the turns of the recurring task %s, which had not ended", started.Task)
+		return fmt.Sprintf("its conversation was in use by the recurring pass of %s, which had not ended", started.Task)
 	}
-	return "its conversation was taking the turns of another firing, which had not ended"
+	return "its conversation was in use by another recurring pass, which had not ended"
 }
 
 // collectFirings takes every firing whose turns have ended into the schedule,
