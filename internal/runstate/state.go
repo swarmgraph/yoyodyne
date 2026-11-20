@@ -385,6 +385,11 @@ type CheckFailure struct {
 	// could not be read that way (failing_tests in the configuration). It is
 	// absent for a check no reading applies to.
 	FailingTests *checks.FailingTests `json:"failing_tests,omitempty"`
+	// TouchedTests is each of those failing tests judged touched or untouched
+	// by the change's paths, and whether the failure is confined to tests the
+	// change does not touch, with the reason (checks.JudgeTouched). It is absent
+	// where FailingTests is.
+	TouchedTests *checks.TouchedTests `json:"touched_tests,omitempty"`
 	// ForgeHeadCommit names the revision a forge check failed on. The forge
 	// reports a conclusion rather than a process exit code, so ExitCode is not
 	// used for this input.
@@ -2281,6 +2286,22 @@ func failingTestTexts(add func(key, path string, text *string, limit int), key, 
 	}
 }
 
+// touchedTestTexts names the free text of a check failure's judgment of its
+// failing tests, which checks.JudgeTouched keeps well inside the bound.
+func touchedTestTexts(add func(key, path string, text *string, limit int), key, path string, judgment *checks.TouchedTests) {
+	if judgment == nil {
+		return
+	}
+	add(key+".reason", path+".reason", &judgment.Reason, MaxRecordedTextBytes)
+	for index := range judgment.Tests {
+		test := &judgment.Tests[index]
+		at := fmt.Sprintf("%s.tests[%d]", path, index)
+		add(key+".tests[].name", at+".name", &test.Name, MaxRecordedTextBytes)
+		add(key+".tests[].file", at+".file", &test.File, MaxRecordedTextBytes)
+		add(key+".tests[].why", at+".why", &test.Why, MaxRecordedTextBytes)
+	}
+}
+
 func (s *State) recordedTexts() []recordedText {
 	var texts []recordedText
 	add := func(key, path string, text *string, limit int, cutNote string, stated bool) {
@@ -2454,6 +2475,7 @@ func (s *State) recordedTexts() []recordedText {
 	if s.CheckFailure != nil {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
 		failingTestTexts(unstated, "check_failure.failing_tests", "check_failure.failing_tests", s.CheckFailure.FailingTests)
+		touchedTestTexts(unstated, "check_failure.touched_tests", "check_failure.touched_tests", s.CheckFailure.TouchedTests)
 		reviewBefore("check_failure.review_before", "check_failure.review_before", s.CheckFailure.ReviewBefore)
 	}
 	// What people wrote on the forge, in their own words.
@@ -2536,6 +2558,7 @@ func (s *State) recordedTexts() []recordedText {
 		if continuation.SupersededCheckFailure != nil {
 			nested("repair_continuations[].superseded_check_failure.output", at("repair_continuations", index, "superseded_check_failure.output"), &continuation.SupersededCheckFailure.Output, MaxCheckOutputBytes)
 			failingTestTexts(unstated, "repair_continuations[].superseded_check_failure.failing_tests", at("repair_continuations", index, "superseded_check_failure.failing_tests"), continuation.SupersededCheckFailure.FailingTests)
+			touchedTestTexts(unstated, "repair_continuations[].superseded_check_failure.touched_tests", at("repair_continuations", index, "superseded_check_failure.touched_tests"), continuation.SupersededCheckFailure.TouchedTests)
 			reviewBefore("repair_continuations[].superseded_check_failure.review_before", at("repair_continuations", index, "superseded_check_failure.review_before"), continuation.SupersededCheckFailure.ReviewBefore)
 		}
 	}

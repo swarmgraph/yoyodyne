@@ -169,8 +169,8 @@ func TestASecondCheckFailureKeepsTheReviewTheFirstKept(t *testing.T) {
 		ReviewFindings:       1,
 		ReviewFindingDetails: []runstate.Finding{{Severity: "blocker", Message: "add the missing file"}},
 	}}
-	a.recordCheckFailure(checkResultExiting("make test", 2))
-	a.recordCheckFailure(checkResultExiting("make test", 1))
+	a.recordCheckFailure(checkFailure{result: checkResultExiting("make test", 2)})
+	a.recordCheckFailure(checkFailure{result: checkResultExiting("make test", 1)})
 	before := a.state.CheckFailure.ReviewBefore
 	if before == nil || len(before.Findings) != 1 || before.Findings[0].Message != "add the missing file" {
 		t.Fatalf("second failure lost the review the first kept: %#v", a.state.CheckFailure)
@@ -184,7 +184,7 @@ func TestASecondCheckFailureKeepsTheReviewTheFirstKept(t *testing.T) {
 
 	// A check failing with no review before it records none.
 	none := activeRun{state: runstate.State{}}
-	none.recordCheckFailure(checkResultExiting("make test", 2))
+	none.recordCheckFailure(checkFailure{result: checkResultExiting("make test", 2)})
 	if none.state.CheckFailure.ReviewBefore != nil {
 		t.Fatalf("failure with no review before it recorded one: %#v", none.state.CheckFailure.ReviewBefore)
 	}

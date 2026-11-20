@@ -41,7 +41,7 @@ func TestAFailedChecksRunRecordListsEachFailingTestWithItsFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	record := func(command string) runstate.State {
+	record := func(command string, changed ...string) runstate.State {
 		t.Helper()
 		results, _, err := (checks.Runner{Process: execution.OSProcessRunner{}, FailingTests: []checks.TestReading{goTestReading("cat")}}).Run(
 			context.Background(), checks.Request{RunID: "run-failing-tests", Directory: directory, Commands: []string{command}}, nil)
@@ -49,7 +49,7 @@ func TestAFailedChecksRunRecordListsEachFailingTestWithItsFile(t *testing.T) {
 			t.Fatalf("Run(%q) = %#v, %v", command, results, err)
 		}
 		a := activeRun{state: runstate.State{}}
-		a.recordCheckFailure(results[0])
+		a.recordCheckFailure(checkFailure{result: results[0], changed: changed, changedListed: changed != nil})
 		return a.state
 	}
 
@@ -68,6 +68,47 @@ func TestAFailedChecksRunRecordListsEachFailingTestWithItsFile(t *testing.T) {
 	}
 	if unread.Command != "cat unread.txt; exit 1" || unread.ExitCode != 1 {
 		t.Fatalf("check_failure = %#v, want the failed check recorded as before", unread)
+	}
+	if unread.TouchedTests == nil || unread.TouchedTests.Confined {
+		t.Fatalf("check_failure.touched_tests = %#v, want an unread failure judged an ordinary one", unread.TouchedTests)
+	}
+}
+
+// After a failed check whose failing tests were named, the run's record says
+// whether the failure is confined to tests the change does not touch, and why.
+func TestAFailedChecksRunRecordSaysWhetherItsFailureIsConfinedToUntouchedTests(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	output := "--- FAIL: TestTotals (0.00s)\n    alpha_test.go:7: total = 3, want 4\nFAIL\nFAIL\texample.com/shop/internal/alpha\t0.2s\nFAIL\n"
+	if err := os.WriteFile(filepath.Join(directory, "named.txt"), []byte(output), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := func(failing checkFailure) *runstate.CheckFailure {
+		t.Helper()
+		results, _, err := (checks.Runner{Process: execution.OSProcessRunner{}, FailingTests: []checks.TestReading{goTestReading("cat")}}).Run(
+			context.Background(), checks.Request{RunID: "run-touched-tests", Directory: directory, Commands: []string{"cat named.txt; exit 1"}}, nil)
+		if err != nil || len(results) != 1 || results[0].Passed {
+			t.Fatalf("Run = %#v, %v", results, err)
+		}
+		failing.result = results[0]
+		a := activeRun{state: runstate.State{}}
+		a.recordCheckFailure(failing)
+		return a.state.CheckFailure
+	}
+
+	untouched := record(checkFailure{changed: []string{"internal/beta/beta.go"}, changedListed: true}).TouchedTests
+	if untouched == nil || !untouched.Confined || len(untouched.Tests) != 1 || untouched.Tests[0].Touched ||
+		!strings.Contains(untouched.Reason, "Every failing test is one the change does not touch: TestTotals (internal/alpha/alpha_test.go)") {
+		t.Fatalf("check_failure.touched_tests = %#v, want the failure confined to the untouched test", untouched)
+	}
+	touched := record(checkFailure{changed: []string{"internal/alpha/alpha.go"}, changedListed: true}).TouchedTests
+	if touched == nil || touched.Confined || !touched.Tests[0].Touched || !strings.Contains(touched.Reason, "TestTotals (internal/alpha/alpha.go changed in its directory)") {
+		t.Fatalf("check_failure.touched_tests = %#v, want an ordinary failure naming what touches the test", touched)
+	}
+	unlisted := record(checkFailure{}).TouchedTests
+	if unlisted == nil || unlisted.Confined {
+		t.Fatalf("check_failure.touched_tests = %#v, want a failure whose paths were not listed judged an ordinary one", unlisted)
 	}
 }
 
