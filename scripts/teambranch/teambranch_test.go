@@ -104,6 +104,29 @@ func (f *forge) set(change func(*forge)) {
 	change(f)
 }
 
+// trackers is the work tracker as the forge check's sweep sees it: every item
+// the scratch project has run, each answered by the tracker its run used.
+type trackers struct {
+	orchestrator.WorkTracker
+	items map[string]*orchestratortest.Tracker
+}
+
+func (m *trackers) Show(ctx context.Context, id string) (beads.WorkItem, error) {
+	return m.items[id].Show(ctx, id)
+}
+
+func (m *trackers) RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error) {
+	return m.items[id].RecordOutcome(ctx, id, notes)
+}
+
+func (m *trackers) Complete(ctx context.Context, id, reason string) (beads.WorkItem, error) {
+	return m.items[id].Complete(ctx, id, reason)
+}
+
+func (m *trackers) Reopen(ctx context.Context, id, reason string, parking domain.WorkItemParking) (beads.WorkItem, error) {
+	return m.items[id].Reopen(ctx, id, reason, parking)
+}
+
 // flow is the one project every step works: a scratch repository checked out on
 // the target branch, a bare remote holding both branches, a clone the team
 // merges into its own branch from, and the harness's own pipeline, run store and
@@ -122,6 +145,9 @@ type flow struct {
 	records      *runstate.TeamBranchUpdateStore
 	forge        *forge
 	updater      orchestrator.TeamBranchUpdater
+	// trackers holds every item's tracker by identifier, which the forge check's
+	// sweep reads as one tracker.
+	trackers *trackers
 
 	// What the steps hand to the ones after them.
 	runID   string
@@ -131,7 +157,11 @@ type flow struct {
 	failed string
 }
 
-func newFlow(t *testing.T) *flow {
+func newFlow(t *testing.T) *flow { return newFlowFor(t, team) }
+
+// newFlowFor is newFlow for a project whose execution.upstream_branch is the
+// given branch; empty leaves it unset.
+func newFlowFor(t *testing.T, upstream string) *flow {
 	t.Helper()
 	repository, worktreeRoot, store := testharness.RestartableFixture(t)
 	// The scratch project has one commit on the team's branch. The target branch
@@ -148,11 +178,12 @@ func newFlow(t *testing.T) *flow {
 
 	f := &flow{repository: repository, remote: remote, teamClone: teamClone, worktreeRoot: worktreeRoot, store: store, forge: &forge{}}
 	f.tracker = &orchestratortest.Tracker{Item: beads.WorkItem{ID: itemID, Title: "Scratch item", Status: "open"}}
+	f.trackers = &trackers{items: map[string]*orchestratortest.Tracker{itemID: f.tracker}}
 	f.provider = orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approve)
-	f.pipeline = testharness.Automatic(testharness.NewSharedPipeline(t, repository, worktreeRoot, store, f.tracker, f.provider, []string{"test -f feature.txt"}), f.provider)
-	f.pipeline.Config.Execution.UpstreamBranch = team
+	f.pipeline = testharness.Automatic(testharness.NewSharedPipeline(t, repository, worktreeRoot, store, f.tracker, f.provider, []string{"test -f docs/design.md"}), f.provider)
+	f.pipeline.Config.Execution.UpstreamBranch = upstream
 	f.checks = &countingChecks{runner: f.pipeline.Checks}
 	f.pipeline.Checks = f.checks
 
@@ -190,13 +221,75 @@ func newFlow(t *testing.T) *flow {
 func (f *flow) reconciler(t *testing.T) orchestrator.Reconciler {
 	t.Helper()
 	return orchestrator.Reconciler{
-		Tracker:          f.tracker,
+		Tracker:          f.trackers,
 		Worktrees:        testharness.NewObserver(t, f.repository, f.worktreeRoot),
 		Store:            f.store,
 		TeamPullRequests: f.forge,
 		Feedback:         f.forge,
 		Reports:          f.reports,
 	}
+}
+
+// pipelineFor is the project's pipeline for another item, which writes a file
+// of its own so no two items' changes are the same.
+func (f *flow) pipelineFor(t *testing.T, id string, dependencies ...beads.Dependency) (orchestrator.Pipeline, *orchestratortest.Tracker) {
+	t.Helper()
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: id, Title: "Item " + id, Status: "open", Dependencies: dependencies}}
+	f.trackers.items[id] = tracker
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, id+".txt"), []byte("implemented "+id+"\n"), 0o600)
+	}, approve)
+	pipeline := testharness.Automatic(f.pipeline, provider)
+	pipeline.Tracker, pipeline.Backend = tracker, provider
+	pipeline.NewRunID = runstate.NewRunID
+	return pipeline, tracker
+}
+
+// land runs another item to its landing and returns its run.
+func (f *flow) land(t *testing.T, id string) (runstate.State, *orchestratortest.Tracker) {
+	t.Helper()
+	pipeline, tracker := f.pipelineFor(t, id)
+	outcome, err := pipeline.Run(context.Background(), id)
+	if err != nil || outcome.Integration == nil {
+		t.Fatalf("running %s gave %#v, error %v; expected its change landed", id, outcome, err)
+	}
+	return testharness.LoadRun(t, f.store, outcome.RunID), tracker
+}
+
+// opens makes the forge report a pull request into the team's branch carrying
+// the given commits.
+func (f *flow) opens(commits ...string) {
+	f.forge.set(func(g *forge) {
+		g.request = publish.TeamPullRequest{
+			Number: requestNumber, URL: "https://forge.example.invalid/pull/41", State: "OPEN",
+			BaseBranch: team, HeadBranch: target, HeadCommit: commits[len(commits)-1], Commits: commits,
+		}
+	})
+}
+
+func (f *flow) track(t *testing.T, unverified bool, items ...string) (orchestrator.TeamPullRequestTrack, error) {
+	t.Helper()
+	return f.reconciler(t).TrackTeamPullRequest(context.Background(), orchestrator.TeamPullRequestTracking{
+		Number: requestNumber, Items: items, Unverified: unverified, TargetBranch: target, UpstreamBranch: team,
+	})
+}
+
+func (f *flow) settle(t *testing.T) []orchestrator.TeamPullRequestSettlement {
+	t.Helper()
+	settled, err := f.reconciler(t).SettleTeamPullRequests(context.Background())
+	if err != nil {
+		t.Fatalf("settling the pull requests failed: %v", err)
+	}
+	return settled
+}
+
+func (f *flow) runOf(t *testing.T, id string) runstate.State {
+	t.Helper()
+	runs, err := f.store.Runs(id)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("the runs of %s are %d (error %v); expected one", id, len(runs), err)
+	}
+	return runs[0]
 }
 
 func (f *flow) run(t *testing.T) runstate.State {
@@ -219,25 +312,40 @@ func (f *flow) toldTheDevelopmentManager(t *testing.T) []report.Report {
 	return told
 }
 
-// step is one thing the design says happens, in the order it happens.
+// step is one thing the design says happens. The first eight follow one item
+// from its start to its closing and run in order; a step that fails stops the
+// ones after it. The rest are cases of their own, each against a project of its
+// own, so one failing never hides another. A case whose piece has not landed
+// names the work it waits on instead of a function, and is reported as not yet
+// built: counted as neither passed nor failed.
 type step struct {
-	name string
-	run  func(t *testing.T, f *flow)
+	name    string
+	run     func(t *testing.T, f *flow)
+	own     func(t *testing.T)
+	waitsOn string
 }
 
 var steps = []step{
-	{"01 an item is run from its start and lands on the target branch, and the team's branch does not hold it", stepStart},
-	{"02 the item is left open, waiting for the team's merge, and its developer slot is freed", stepWaiting},
-	{"03 the outside tool's pull request into the team's branch is refused where it is wrong and recorded where the forge confirms it", stepTrack},
-	{"04 requested changes on the pull request reach the development manager's list naming the item, and start no run", stepFeedback},
-	{"05 the pull request still open leaves the item waiting", stepStillOpen},
-	{"06 the team's branch moves, and the target branch gains one merge that was checked and reviewed", stepMovedTarget},
-	{"07 the team merges the pull request, and the item closes naming the merge commit", stepTeamMerge},
-	{"08 nothing is left waiting, and a later check changes nothing", stepSettled},
+	{name: "01 an item is run from its start and lands on the target branch, and the team's branch does not hold it", run: stepStart},
+	{name: "02 the item is left open, waiting for the team's merge, and its developer slot is freed", run: stepWaiting},
+	{name: "03 the outside tool's pull request into the team's branch is refused where it is wrong and recorded where the forge confirms it", run: stepTrack},
+	{name: "04 requested changes on the pull request reach the development manager's list naming the item, and start no run", run: stepFeedback},
+	{name: "05 the pull request still open leaves the item waiting", run: stepStillOpen},
+	{name: "06 the team's branch moves, and the target branch gains one merge that was checked and reviewed", run: stepMovedTarget},
+	{name: "07 the team merges the pull request, and the item closes naming the merge commit", run: stepTeamMerge},
+	{name: "08 nothing is left waiting, and a later check changes nothing", run: stepSettled},
+	{name: "09 with the team's branch unset, an item closes when it lands", own: caseUnset},
+	{name: "10 an item that depends on a waiting item starts on the same target branch, and one that depends on any other open item does not", own: caseDependency},
+	{name: "11 naming an item whose landing commit is not among the pull request's commits is refused unless it is marked unverified", own: caseUnverified},
+	{name: "12 a tracked pull request closed without merging sends its items to the Lead Product Manager with the change kept", own: caseClosedUnmerged},
+	{name: "13 an item that lands while a tracked pull request's head is the target branch is added to that pull request's record with a note", own: caseAddedByLanding},
+	{name: "14 squash merging a tracked pull request closes its items", own: caseSquash},
+	{name: "15 a conflict while bringing the target branch up to date reaches the development manager's list, and landing carries on", own: caseConflict},
+	{name: "16 with a landing hold set nothing lands, checks and reviews carry on, and the hold ends at its expiry", own: caseHold},
+	{name: "17 the development manager's decision to repair an item whose run has ended starts a new run bound to the feedback entry", waitsOn: "the decision to repair an item whose run has ended, from feedback on a tracked pull request (build item 3 of docs/designs/integrating-to-a-local-branch.md, designed under yoyodyne-ifd.429.176 and ruled under yoyodyne-ifd.429.198; no work item to build it is admitted yet)"},
 }
 
-// TestTeamBranchFlow runs every step against one project, in order. A step that
-// fails stops the ones after it, which then say so rather than pass.
+// TestTeamBranchFlow runs every step.
 func TestTeamBranchFlow(t *testing.T) {
 	root := os.Getenv(RootVariable)
 	if root == "" {
@@ -249,6 +357,15 @@ func TestTeamBranchFlow(t *testing.T) {
 	f := newFlow(t)
 	for _, s := range steps {
 		t.Run(s.name, func(t *testing.T) {
+			switch {
+			case s.waitsOn != "":
+				// The script reads this line by its number to say what the step
+				// waits on.
+				t.Skipf("not yet built: step %s waits on %s", strings.SplitN(s.name, " ", 2)[0], s.waitsOn)
+			case s.own != nil:
+				s.own(t)
+				return
+			}
 			if f.failed != "" {
 				t.Fatalf("not run: step %q did not happen, and this step follows from it", f.failed)
 			}
@@ -495,5 +612,290 @@ func stepSettled(t *testing.T, f *flow) {
 	}
 	if len(f.tracker.Calls) != calls {
 		t.Fatalf("the later checks made %v on the work item; expected nothing", f.tracker.Calls[calls:])
+	}
+}
+
+// caseUnset is step 09.
+func caseUnset(t *testing.T) {
+	f := newFlowFor(t, "")
+	run, tracker := f.land(t, "plain-item")
+	if run.TeamMerge != nil || run.WaitingForTeamMerge() {
+		t.Fatalf("the run's wait is %#v; expected none with no team's branch set", run.TeamMerge)
+	}
+	if !tracker.Closed {
+		t.Fatalf("the item's tracker calls are %v; expected the item closed when its change landed", tracker.Calls)
+	}
+}
+
+// caseDependency is step 10.
+func caseDependency(t *testing.T) {
+	f := newFlow(t)
+	f.land(t, "needed")
+	blocker := func(id string) beads.Dependency {
+		return beads.Dependency{ID: id, Type: "blocks", Status: "in_progress"}
+	}
+
+	// An item that depends on one waiting for the team's merge starts and lands
+	// on the same target branch.
+	pipeline, tracker := f.pipelineFor(t, "dependent", blocker("needed"))
+	outcome, err := pipeline.Run(context.Background(), "dependent")
+	if err != nil || outcome.Integration == nil || tracker.Closed {
+		t.Fatalf("running the dependent item gave %#v, error %v, closed %t; expected it landed and waiting for the team's merge", outcome, err, tracker.Closed)
+	}
+	if !f.runOf(t, "dependent").WaitingForTeamMerge() {
+		t.Fatal("the dependent item's run is not waiting for the team's merge")
+	}
+
+	// One that depends on any other unfinished item is still held back.
+	before := testharness.PublishedCommit(t, f.repository, target)
+	pipeline, _ = f.pipelineFor(t, "held-back", blocker("unrelated"))
+	if outcome, err := pipeline.Run(context.Background(), "held-back"); err == nil && outcome.Integration != nil {
+		t.Fatalf("running an item that depends on an unrelated open item gave %#v; expected it refused", outcome)
+	}
+	if after := testharness.PublishedCommit(t, f.repository, target); after != before {
+		t.Fatalf("%s moved from %s to %s; expected the held-back item to land nothing", target, before, after)
+	}
+}
+
+// caseUnverified is step 11.
+func caseUnverified(t *testing.T) {
+	f := newFlow(t)
+	run, _ := f.land(t, "squashed")
+	f.opens(strings.Repeat("a", 40))
+	_, err := f.track(t, false, "squashed")
+	if err == nil || !strings.Contains(err.Error(), "--unverified") || !strings.Contains(err.Error(), run.TeamMerge.LandingCommit) {
+		t.Fatalf("recording an item whose landing commit is not among the pull request's commits gave error %v; expected a refusal naming the commit and --unverified", err)
+	}
+	if f.runOf(t, "squashed").TeamMerge.PullRequest != nil {
+		t.Fatal("the refused record left a pull request on the run")
+	}
+	tracked, err := f.track(t, true, "squashed")
+	if err != nil || len(tracked.Items) != 1 || !tracked.Items[0].Unverified || tracked.Items[0].Failure != "" {
+		t.Fatalf("recording it as unverified gave %#v, error %v; expected it recorded and marked unverified", tracked, err)
+	}
+	if pull := f.runOf(t, "squashed").TeamMerge.PullRequest; pull == nil || !pull.Unverified {
+		t.Fatalf("the run's record of the pull request is %#v; expected it marked unverified", pull)
+	}
+	if notes := f.trackers.items["squashed"].Notes; !strings.Contains(notes, "unverified") {
+		t.Fatalf("the item's notes are %q; expected them to say it was recorded as unverified", notes)
+	}
+}
+
+// caseClosedUnmerged is step 12.
+func caseClosedUnmerged(t *testing.T) {
+	f := newFlow(t)
+	run, tracker := f.land(t, "refused-item")
+	f.opens(run.TeamMerge.LandingCommit)
+	if _, err := f.track(t, false, "refused-item"); err != nil {
+		t.Fatalf("recording the pull request failed: %v", err)
+	}
+	closedAt := time.Date(2026, 11, 19, 9, 30, 0, 0, time.UTC)
+	f.forge.set(func(g *forge) { g.request.State = "CLOSED" })
+	reconciler := f.reconciler(t)
+	reconciler.Closers = closers{publish.Closer{By: "octo-reviewer", At: closedAt}}
+	settled, err := reconciler.SettleTeamPullRequests(context.Background())
+	if err != nil || len(settled) != 1 || settled[0].Found != orchestrator.TeamPullRequestClosed || settled[0].Failure != "" ||
+		len(settled[0].Items) != 1 || !settled[0].Items[0].Settled {
+		t.Fatalf("settling the closed pull request gave %#v, error %v; expected its item given back", settled, err)
+	}
+	if !tracker.Reopened || tracker.Closed {
+		t.Fatalf("the item's tracker calls are %v; expected it given back, not closed", tracker.Calls)
+	}
+	for _, phrase := range []string{"closed without being merged, by octo-reviewer", "Lead Product Manager", "nothing was undone"} {
+		if !strings.Contains(tracker.ReopenReason, phrase) {
+			t.Errorf("the note on the item is %q; expected it to say %q", tracker.ReopenReason, phrase)
+		}
+	}
+	if parking := tracker.Item.Parking; !parking.Parked() || !strings.Contains(parking.Reason(), "octo-reviewer") {
+		t.Errorf("the item's parking is %q; expected it parked for the Lead Product Manager naming octo-reviewer", parking)
+	}
+	if after := f.runOf(t, "refused-item"); after.WaitingForTeamMerge() || after.TeamMerge.Returned == nil || after.TeamMerge.Returned.ClosedBy != "octo-reviewer" {
+		t.Errorf("the run's wait is %#v; expected it ended on the closing", after.TeamMerge)
+	}
+	// The change is kept: nothing was undone on the target branch.
+	if got := testharness.GitLine(t, f.repository, "branch", "--contains", run.TeamMerge.LandingCommit, "--list", target); !strings.Contains(got, target) {
+		t.Errorf("%s no longer holds the landing commit %s; expected the change kept", target, run.TeamMerge.LandingCommit)
+	}
+}
+
+// closers answers who closed a pull request.
+type closers struct{ closer publish.Closer }
+
+func (c closers) Closer(_ context.Context, number int) (publish.Closer, error) {
+	closer := c.closer
+	closer.Number = number
+	return closer, nil
+}
+
+// caseAddedByLanding is step 13.
+func caseAddedByLanding(t *testing.T) {
+	f := newFlow(t)
+	first, _ := f.land(t, "first-item")
+	f.opens(first.TeamMerge.LandingCommit)
+	if _, err := f.track(t, false, "first-item"); err != nil {
+		t.Fatalf("recording the pull request failed: %v", err)
+	}
+
+	// Another item lands on the target branch, which is the pull request's head,
+	// and so is among its commits at the next check.
+	second, tracker := f.land(t, "second-item")
+	if second.TeamMerge.PullRequest != nil {
+		t.Fatal("the second item was recorded under a pull request before any check read it")
+	}
+	f.opens(first.TeamMerge.LandingCommit, second.TeamMerge.LandingCommit)
+	settled := f.settle(t)
+	if len(settled) != 1 || settled[0].Found != orchestrator.TeamPullRequestOpen || len(settled[0].Items) != 1 ||
+		settled[0].Items[0].WorkItemID != "second-item" || !settled[0].Items[0].Added || settled[0].Items[0].Failure != "" {
+		t.Fatalf("settling the open pull request gave %#v; expected second-item added to it", settled)
+	}
+	if pull := f.runOf(t, "second-item").TeamMerge.PullRequest; pull == nil || pull.Number != requestNumber || !pull.Found {
+		t.Fatalf("the second item's record of the pull request is %#v; expected #%d, found among its commits", pull, requestNumber)
+	}
+	if !strings.Contains(tracker.Notes, "found this item's landing commit") || !strings.Contains(tracker.Notes, "#41") {
+		t.Fatalf("the item's notes are %q; expected a note saying the pull request now carries it", tracker.Notes)
+	}
+}
+
+// caseSquash is step 14.
+func caseSquash(t *testing.T) {
+	f := newFlow(t)
+	run, tracker := f.land(t, "squash-item")
+	f.opens(run.TeamMerge.LandingCommit)
+	if _, err := f.track(t, false, "squash-item"); err != nil {
+		t.Fatalf("recording the pull request failed: %v", err)
+	}
+	// The team squashes the batch into one new commit, which does not hold the
+	// landing commit.
+	if err := os.WriteFile(filepath.Join(f.teamClone, "squash-item.txt"), []byte("implemented squash-item\n"), 0o600); err != nil {
+		t.Fatalf("write the squash commit: %v", err)
+	}
+	testharness.RunPipelineGit(t, f.teamClone, "add", "squash-item.txt")
+	testharness.RunPipelineGit(t, f.teamClone, "commit", "-m", "the batch, squashed")
+	testharness.RunPipelineGit(t, f.teamClone, "push", "origin", "HEAD:refs/heads/"+team)
+	squash := testharness.GitLine(t, f.teamClone, "rev-parse", "HEAD")
+	if _, err := testharness.AttemptPipelineGit(f.repository, "merge-base", "--is-ancestor", run.TeamMerge.LandingCommit, squash); err == nil {
+		t.Fatal("the squash commit holds the landing commit; expected a commit that does not")
+	}
+	f.forge.set(func(g *forge) { g.request.State, g.request.Merged, g.request.MergeCommit = "MERGED", true, squash })
+	settled := f.settle(t)
+	if len(settled) != 1 || settled[0].Found != orchestrator.TeamPullRequestMerged || settled[0].Failure != "" || len(settled[0].Items) != 1 || !settled[0].Items[0].Settled {
+		t.Fatalf("settling the squash-merged pull request gave %#v; expected its item settled", settled)
+	}
+	if !tracker.Closed || !strings.Contains(tracker.CloseReason, run.TeamMerge.LandingCommit) {
+		t.Fatalf("the item closed = %t with reason %q; expected it closed", tracker.Closed, tracker.CloseReason)
+	}
+	if after := f.runOf(t, "squash-item"); after.WaitingForTeamMerge() || !after.TeamMerge.Found() || after.TeamMerge.FoundOn != squash {
+		t.Fatalf("the run's wait is %#v; expected it ended with the squash commit %s recorded", after.TeamMerge, squash)
+	}
+}
+
+// caseConflict is step 15.
+func caseConflict(t *testing.T) {
+	f := newFlow(t)
+	f.land(t, "conflicting-item")
+	// The team adds the same file with other content, which cannot be merged.
+	if err := os.WriteFile(filepath.Join(f.teamClone, "conflicting-item.txt"), []byte("the team's own version\n"), 0o600); err != nil {
+		t.Fatalf("write the team's change: %v", err)
+	}
+	testharness.RunPipelineGit(t, f.teamClone, "add", "conflicting-item.txt")
+	testharness.RunPipelineGit(t, f.teamClone, "commit", "-m", "the team writes the same file")
+	testharness.RunPipelineGit(t, f.teamClone, "push", "origin", "HEAD:refs/heads/"+team)
+
+	before := testharness.PublishedCommit(t, f.repository, target)
+	checks, reviews := f.checks.count(), len(f.provider.RequestsForRole(domain.RoleReviewer))
+	outcome, err := f.updater.Update(context.Background())
+	if err != nil || outcome.Landed != "" || !slices.Equal(outcome.Conflict, []string{"conflicting-item.txt"}) || outcome.Waiting == "" {
+		t.Fatalf("the update gave %#v, error %v; expected a conflict in conflicting-item.txt with nothing landed", outcome, err)
+	}
+	if testharness.PublishedCommit(t, f.repository, target) != before || f.checks.count() != checks || len(f.provider.RequestsForRole(domain.RoleReviewer)) != reviews {
+		t.Fatal("a merge that conflicts moved the target branch or was checked or reviewed")
+	}
+	told := f.toldTheDevelopmentManager(t)
+	if len(told) != 1 || !strings.Contains(told[0].Message, "conflicting-item.txt") || !strings.Contains(told[0].Message, "conflicting-item") {
+		t.Fatalf("the development manager's list holds %#v; expected one entry naming the path and the item", told)
+	}
+
+	// Work keeps landing on the target branch meanwhile, and she is not told
+	// twice of the same conflict.
+	f.land(t, "carries-on")
+	if landed := testharness.PublishedCommit(t, f.repository, target); landed == before {
+		t.Fatal("an item could not land while the update waited on a conflict")
+	}
+	again, err := f.updater.Update(context.Background())
+	if err != nil || again.Landed != "" || len(again.Conflict) != 1 || len(f.toldTheDevelopmentManager(t)) != 1 {
+		t.Fatalf("the second update gave %#v, error %v with %d entries on her list; expected the same conflict, told once", again, err, len(f.toldTheDevelopmentManager(t)))
+	}
+}
+
+// steppedClock is a clock the test moves by hand, so a hold's expiry is reached
+// without waiting for it.
+type steppedClock struct {
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+func (c *steppedClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.offset)
+}
+
+func (c *steppedClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offset += d
+}
+
+// caseHold is step 16.
+func caseHold(t *testing.T) {
+	f := newFlow(t)
+	holds, err := runstate.NewLandingHoldStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("open the landing holds: %v", err)
+	}
+	clock := &steppedClock{}
+	hold, err := holds.Place(target, "an outside tool is building a batch", 10*time.Minute, clock.Now())
+	if err != nil {
+		t.Fatalf("place the hold: %v", err)
+	}
+
+	pipeline, tracker := f.pipelineFor(t, "held-item")
+	provider := pipeline.Backend.(*orchestratortest.Backend)
+	pipeline.LandingHolds, pipeline.Clock = holds, clock
+	before := testharness.PublishedCommit(t, f.repository, target)
+	checksBefore := f.checks.count()
+	waits := 0
+	// Each time the run waits on the hold, nothing has landed and the run's
+	// checks and review are already done. The wait ends when the clock passes
+	// the hold's expiry; nobody releases it.
+	pipeline.Sleep = func(_ context.Context, d time.Duration) error {
+		waits++
+		if now := testharness.PublishedCommit(t, f.repository, target); now != before {
+			t.Errorf("%s moved to %s while the hold stood; expected it left at %s", target, now, before)
+		}
+		if f.checks.count() == checksBefore || len(provider.RequestsForRole(domain.RoleReviewer)) == 0 {
+			t.Errorf("the run waited with %d check stage(s) and %d review(s) done; expected both finished before it waited on the hold", f.checks.count()-checksBefore, len(provider.RequestsForRole(domain.RoleReviewer)))
+		}
+		if _, held, _ := holds.Standing(target, clock.Now()); !held {
+			t.Error("the run waited on a hold that no longer stands")
+		}
+		clock.advance(d)
+		return nil
+	}
+	outcome, err := pipeline.Run(context.Background(), "held-item")
+	if err != nil || outcome.Integration == nil {
+		t.Fatalf("running the held item gave %#v, error %v; expected it landed once the hold ended", outcome, err)
+	}
+	if waits == 0 {
+		t.Fatal("the run never waited on the hold; expected it to")
+	}
+	if after := testharness.PublishedCommit(t, f.repository, target); after == before {
+		t.Fatalf("%s did not move after the hold expired", target)
+	}
+	if _, held, err := holds.Standing(target, clock.Now()); err != nil || held {
+		t.Fatalf("the hold stands after its expiry %s (held %t, error %v); expected it ended on its own", hold.Until, held, err)
+	}
+	if !tracker.Claimed {
+		t.Fatal("the held item was never claimed")
 	}
 }

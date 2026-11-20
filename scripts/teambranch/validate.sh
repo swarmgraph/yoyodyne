@@ -21,9 +21,13 @@
 # the script ends. HOME is pointed inside it and YOYODYNE_STATE_HOME and
 # XDG_STATE_HOME are unset, so the real ~/.yoyodyne is never read or written.
 #
-# A step that fails stops the ones after it, which are reported as not run. The
-# script exits non-zero when any step fails or the test could not be built or
-# run, and zero only when every step passed.
+# The first eight steps follow one item from its start to its closing, and a
+# step that fails stops the ones after it, which are reported as not run. The
+# steps after those are cases of their own against a project of their own, so
+# one failing hides no other. A step whose piece has not landed is reported as
+# not yet built, naming the work it waits on, and counted as neither passed nor
+# failed. The script exits non-zero when any step fails or is not run, or the
+# test could not be built or run.
 #
 # Requires go and git. Nothing it starts outlives it: the test runs in the
 # foreground and starts no process of its own that keeps running.
@@ -62,7 +66,7 @@ log="$scratch/go-test.log"
   go test -count=1 -v -timeout 20m -run '^TestTeamBranchFlow$' ./scripts/teambranch) >"$log" 2>&1
 code=$?
 
-passed=0 failed=0 notrun=0
+passed=0 failed=0 notrun=0 unbuilt=0
 # The test's own result lines, one per step, in the order they were written.
 # Go writes a subtest's name with its spaces as underscores; they are put back
 # here so each step reads as its name.
@@ -85,13 +89,18 @@ while IFS= read -r line; do
         failed=$((failed + 1)); printf 'step %s: FAILED\n%s\n' "$name" "$what"
       fi
       ;;
-    (SKIP) failed=$((failed + 1)); printf 'step %s: skipped, which counts as failed here\n' "$name" ;;
+    (SKIP)
+      unbuilt=$((unbuilt + 1))
+      number="${name%% *}"
+      why="$(sed -n -E "s/.*not yet built: step $number (waits on .*)/\1/p" "$log" | head -1)"
+      printf 'step %s: not yet built, counted neither passed nor failed%s\n' "$name" "${why:+; it $why}"
+      ;;
   esac
 done < <(grep -E '^ +--- (PASS|FAIL|SKIP): TestTeamBranchFlow/' "$log")
 
-printf '\n%d passed, %d failed, %d not run\n' "$passed" "$failed" "$notrun"
+printf '\n%d passed, %d failed, %d not run, %d not yet built\n' "$passed" "$failed" "$notrun" "$unbuilt"
 
-if [ "$((passed + failed + notrun))" -eq 0 ] || { [ "$code" -ne 0 ] && [ "$failed" -eq 0 ]; }; then
+if [ "$((passed + failed + notrun + unbuilt))" -eq 0 ] || { [ "$code" -ne 0 ] && [ "$failed" -eq 0 ]; }; then
   printf 'the steps could not be built or run; go test said:\n' >&2
   tail -40 "$log" >&2
   exit 2
