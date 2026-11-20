@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-11-20T01:15:47.787501Z
       reason: 'amendment-bfea6bc6, approved Nov 19, from the slice 2 developer (yoyodyne-ifd.428.99.3): the Nov 18 subsection wrongly said escalations and failed starts have no stop on a run record. Every entry whose run has a run record (stopped runs, failed starts, escalations, stuck publications, merge disagreements) is now worked out from it; the code that builds entries moves next to the one listing function; the latest decision on a stop is the one shown. Read at commit 8c492930. No other section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T16:30:17.009052Z
+      reason: 'amendment-7727641a, approved Nov 19, from the developer of the extra-attempts build (yoyodyne-ifd.432.25.13): the paragraph saying the operator types a raise past the development manager''s five until the build lands is replaced by one saying the harness carries out the Lead Product Manager''s raise, tells the operator afterwards and refuses a raise past ten, so it is no longer a case for the operator''s hand. Read at commit bba1815a. Held until that build closes; the ownership design''s matching revision (document-3150.1) is held the same way. No other text in the subsection or the design changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -106,6 +110,11 @@ approvals:
       by: harness
       at: 2026-11-20T01:15:47.787501Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3145, for document-3145.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-20T16:30:17.009052Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3153, for document-3153.1 under the automatic approval policy
 ---
 # Stopped run recovery: every step from the stop to the run going on, and what each step may never do
 
@@ -266,7 +275,7 @@ Ruled on October 22 for the item asking who may let a work item go past its limi
 - **After ten raises in all, no role raises the limit again.** The item is not working as written. The development manager rewrites or splits it into new items, or the Lead Product Manager closes it, and the stopped run is retired with its change kept. Ten is the bound because every raise is paid for on the operator's behalf, and an item that has failed through ten raises is more likely wrong than unlucky.
 - **The operator is told afterwards, never asked.** Every raise the Lead Product Manager grants, and every item that reaches ten raises, appears in the regular summary he reads, with the item's cost. He may still raise or lower an item's limit himself with `yoyo triage override`; that is an override, never part of the ordinary loop.
 
-When this is built, a raise past the development manager's five stops being one of the cases needing the operator's hand in [who owns what](ownership-and-the-operator.md#a-roles-decision-that-needs-the-operators-hand), and that case is removed from that design. Until it is built, the Lead Product Manager decides the raise and the operator types it, and the hand names the build the development manager admits from this ruling.
+Built under the item letting the Lead Product Manager grant these raises (yoyodyne-ifd.432.25.13). She records a raise past the development manager's five from her own conversation, as her decision with her reason and the item. The harness carries it out without the operator typing anything and tells him afterwards, and it refuses a raise that would take an item past ten, saying that ten is the limit no role may pass. A raise past the development manager's five is therefore no longer one of the cases needing the operator's hand in [who owns what](ownership-and-the-operator.md#a-roles-decision-that-needs-the-operators-hand), and the waiting entry for it names the Lead Product Manager as the one deciding.
 
 Alternatives rejected:
 
