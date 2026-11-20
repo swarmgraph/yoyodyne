@@ -18,13 +18,27 @@ refused.
 [`v0.3.0.md`](v0.3.0.md) is the exception and says so here rather than in
 itself: it was written after `v0.3.0` was tagged and pushed, so the repository
 carries it but that release's published page does not. Every tag from `v0.3.1`
-on has its notes before it exists.
+to `v0.5.0` has its notes before it exists.
 
 [`v0.6.0.md`](v0.6.0.md) is the other exception: it names a tag that was never
 cut. Its notes landed on `main`, no `v0.6.0` tag followed, and everything they
 describe shipped in `v0.7.0`, whose notes, [`v0.7.0.md`](v0.7.0.md), carry it
 and cover everything from `v0.5.0`. The file stays as the record of what was
 prepared, and says at its top that it was never tagged.
+
+[`v0.7.0.md`](v0.7.0.md) is an exception the other way: its notes exist
+before its tag, but not at the commit the tag names. They cover everything
+merged into `main` up to a named commit, so that work landing while they wait
+in review cannot make them wrong, and the tag is cut from that commit, which
+the notes landed after. The release workflow reads the notes from the tagged
+commit, does not find them, and publishes the install instructions alone, so
+whoever cuts the tag puts the notes on the release page afterwards, from a
+checkout of `main` that carries them:
+
+```sh
+bash scripts/release-body.sh v0.7.0 body.md      # these notes, install instructions under them
+gh release edit v0.7.0 --notes-file body.md
+```
 
 ## The shape
 
