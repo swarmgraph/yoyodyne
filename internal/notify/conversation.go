@@ -70,6 +70,10 @@ const (
 	// delegated on condition of hearing about it, and the hearing is the veto.
 	trackerTriage = "triage"
 	triageCross   = "cross"
+	// The Lead Product Manager's grant of a further raise past the development
+	// manager's five, reported for the reason a crossing is: the harness carries
+	// it out without asking the operator, so he is told afterwards.
+	trackerGrant = "grant"
 )
 
 // exchangeUnresolved is the outcome an ask exchange records when it reaches the
@@ -450,6 +454,13 @@ type trackerAction struct {
 		Cap       int    `json:"cap"`
 		Crossing  int    `json:"crossing"`
 		Crossings int    `json:"crossings"`
+		// CostSoFar is what the item had cost when a grant was recorded, carried
+		// on the Lead Product Manager's grant alone.
+		CostSoFar *struct {
+			TotalUSD    float64 `json:"total_usd"`
+			Runs        int     `json:"runs"`
+			UnknownRuns int     `json:"unknown_runs"`
+		} `json:"cost_so_far"`
 	} `json:"crossing"`
 	WorkItemID string `json:"work_item_id"`
 	// WorkItemTitle is what the tracker called the item as the action ran. It is
@@ -609,6 +620,21 @@ func fromTrackerAction(conversation runstate.Conversation, earlier []execution.E
 			detail.Cap = crossing.Cap
 			detail.Crossing = crossing.Crossing
 			detail.Crossings = crossing.Crossings
+		}
+	case recorded.Action.Action == trackerGrant:
+		kind = KindCapGranted
+		severity = report.SeverityWarning
+		detail.Budget = strings.TrimSpace(recorded.Action.Budget)
+		if granted := recorded.Crossing; granted != nil {
+			detail.Budget = strings.TrimSpace(granted.Budget)
+			detail.Cap = granted.Cap
+			detail.Crossing = granted.Crossing
+			detail.Crossings = granted.Crossings
+			if cost := granted.CostSoFar; cost != nil {
+				detail.CostSoFar = runstate.TriageGrantCost{
+					TotalUSD: cost.TotalUSD, Runs: cost.Runs, UnknownRuns: cost.UnknownRuns,
+				}.Text()
+			}
 		}
 	default:
 		return Notification{}, nil

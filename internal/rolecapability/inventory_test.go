@@ -251,6 +251,11 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.WorkTriage},
 		gap:      "holding triage does not say how far it may move a cap or how often; a step size and a per-item bound are scopes over the subject, and scopes are the next step of this workstream",
 	},
+	"triage.lead-grant": {
+		question: "does the role hold backlog admission?",
+		asks:     []capability.Capability{capability.BacklogAdmit},
+		gap:      "holding admission does not say how far a grant may move a cap, how often, or that the development manager's raises come first; a step size, a per-item bound and an order between two roles are scopes over the subject, and scopes are the next step of this workstream",
+	},
 	"heavy-checks.release-by-hand": {
 		question: "none: the command reads which role launched its process, the way the verbs that record a person's decision do",
 		gap:      "no capability names giving back a heavy check's place; releasing one is a run-reliability judgement the development manager makes, and the role marker a launched process carries is the only thing a command at a shell can read",

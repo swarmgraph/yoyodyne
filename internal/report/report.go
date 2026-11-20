@@ -769,7 +769,7 @@ func (h Handling) Validate() error {
 		if h.NeedsOperator {
 			problems = append(problems, errors.New("hand is a role's decision that needs the operator's hand, and needs_operator makes it his; a handling records one or the other"))
 		}
-		if err := h.Hand.Check(); err != nil {
+		if err := h.Hand.CheckStored(); err != nil {
 			problems = append(problems, err)
 		}
 	}

@@ -169,6 +169,7 @@ var harnessVoice = voice{
 		KindWorkPickedUp:             "Taken up in conversation: {title}",
 		KindWorkCarriedOut:           "{item} was closed by the conversation carrying it: {why}",
 		KindCapCrossed:               "The {budget} cap for {item} was crossed to {cap} by the development manager on delegated authority, which is {crossing} for this item: {why}",
+		KindCapGranted:               "The {budget} cap for {item} was raised to {cap} by the Lead Product Manager, past the development manager's own raises, which is {raise} for this item, with the item at {cost} so far: {why}",
 		KindRunStarted:               "{item} claimed and started as {run}, on account {account} at configuration {config}. Selected by {by}: {reason}",
 		KindChecksPassed:             "Checks passed on {item} in {checks}.",
 		KindChecksFailed:             "Checks failed on {item}: {command} exited {exit}.",
@@ -252,6 +253,7 @@ var developerVoice = voice{
 		KindWorkPickedUp:             "Somebody has started {title} in conversation. There is no worktree and no diff in that.",
 		KindWorkCarriedOut:           "{item} is finished without a change of mine ever being written: {why}",
 		KindCapCrossed:               "The {budget} cap on {item} was crossed to {cap} without the operator being asked first — {crossing} — so what I was refused is something I can be handed now: {why}",
+		KindCapGranted:               "The {budget} cap on {item} was raised to {cap} by the Lead Product Manager — {raise}, with the item at {cost} so far — so what I was refused is something I can be handed now: {why}",
 		KindRunStarted:               "I've picked up {item} as {run}, on account {account} at configuration {config}. It came to me from {by}: {reason}",
 		KindChecksPassed:             "Checks are green on {item} in {checks}. I ran them before calling anything done.",
 		KindChecksFailed:             "Checks are red on {item}: {command} exited {exit}. That is my next attempt, not somebody else's problem.",
@@ -335,6 +337,7 @@ var reviewerVoice = voice{
 		KindWorkPickedUp:             "{title} is under way in conversation. Nothing is coming to me for a verdict on it.",
 		KindWorkCarriedOut:           "{item} is done and was never judged, because there was no change to judge: {why}",
 		KindCapCrossed:               "{item} has been given more room than the project configured: the {budget} cap now stands at {cap}, on {crossing}. I judge the change and not the budget, and the budget is why it comes back to me again: {why}",
+		KindCapGranted:               "{item} has been given more room than the project configured: the {budget} cap now stands at {cap}, on {raise}, with the item at {cost} so far. I judge the change and not the budget: {why}",
 		KindRunStarted:               "{item} is under way as {run}, on account {account} at configuration {config}, chosen by {by}: {reason}. I'll judge what comes back rather than how it got here.",
 		KindChecksPassed:             "The checks behind {item} pass, in {checks}. Passing checks are evidence, not a verdict.",
 		KindChecksFailed:             "The checks behind {item} fail: {command} exited {exit}. There is nothing for me to judge yet.",
@@ -417,6 +420,7 @@ var developmentManagerVoice = voice{
 		KindWorkPickedUp:             "{title} is being carried in conversation now. It stays in flight until whoever holds it closes it.",
 		KindWorkCarriedOut:           "{item} is done, closed by the conversation that carried it rather than by a run: {why}",
 		KindCapCrossed:               "I crossed the {budget} cap on {item} to {cap} myself rather than waiting to be granted it — {crossing} of the ones that are mine to take. Overrule me if I have this wrong: {why}",
+		KindCapGranted:               "The Lead Product Manager granted {item} another raise past my own: the {budget} cap stands at {cap}, on {raise}, with the item at {cost} so far, and recording the decision it permits is mine: {why}",
 		KindRunStarted:               "I've pulled {item} off the queue, and it is claimed and started as {run}, on account {account} at configuration {config}: {reason}",
 		KindChecksPassed:             "{item} cleared its checks in {checks} and is on to review.",
 		KindChecksFailed:             "{item} came back from its checks: {command} exited {exit}. It routes to repair with that intact.",
@@ -500,6 +504,7 @@ var productManagerVoice = voice{
 		KindWorkPickedUp:             "Somebody has taken this up: {title}. What the work serves is unchanged by who carries it.",
 		KindWorkCarriedOut:           "{item} is delivered, in a conversation rather than in a change: {why}",
 		KindCapCrossed:               "More room went to {item} than the queue budgeted for it: the {budget} cap stands at {cap}, on {crossing}. The item is no closer to being decided for it: {why}",
+		KindCapGranted:               "I granted {item} another raise of its {budget} cap, to {cap} — {raise} — with the item at {cost} so far. You were not asked first; overrule me if I have this wrong: {why}",
 		KindRunStarted:               "Work started on {item} as {run}, on account {account} at configuration {config}, chosen by {by}: {reason}. That reason is the operator's to disagree with.",
 		KindChecksPassed:             "{item} passed its checks in {checks} — progress on what it was admitted for.",
 		KindChecksFailed:             "{item} failed its checks: {command} exited {exit}. Nothing about what it is for has changed.",
@@ -583,6 +588,7 @@ var architectVoice = voice{
 		KindWorkPickedUp:             "{title} has been taken up in conversation. What it produces is a judgment rather than a diff.",
 		KindWorkCarriedOut:           "{item} is carried out, and what it settled is in the documents rather than in a promotion: {why}",
 		KindCapCrossed:               "A budget the project set has been crossed rather than argued with: {item} now has a {budget} cap of {cap}, on {crossing}. A cap crossed repeatedly is a cap that is wrong or work that is: {why}",
+		KindCapGranted:               "{item} now has a {budget} cap of {cap}, on {raise}, with the item at {cost} so far. An item raised this often may have a design worth reading again: {why}",
 		KindRunStarted:               "{item} is under way as {run}, on account {account} at configuration {config}, chosen by {by}: {reason}. The design it derives from is unchanged.",
 		KindChecksPassed:             "{item} passed its checks in {checks}. They held.",
 		KindChecksFailed:             "{item} failed its checks: {command} exited {exit}. Checks that catch this are checks doing their job.",
@@ -667,6 +673,7 @@ var programManagerVoice = voice{
 		KindWorkPickedUp:             "{title} is being worked in conversation now. Its progress is a decision recorded rather than a change landed.",
 		KindWorkCarriedOut:           "{item} is carried out, and the record of it is what the conversation settled: {why}",
 		KindCapCrossed:               "{item} now has a {budget} cap of {cap}, on {crossing}. One crossing is a decision; the same cap crossed again and again is a pattern worth somebody's attention: {why}",
+		KindCapGranted:               "{item} now has a {budget} cap of {cap}, on {raise}, with the item at {cost} so far. Ten raises in all is the limit no role passes: {why}",
 		KindRunStarted:               "{item} started as {run}, on account {account} at configuration {config}, chosen by {by}: {reason}. The line is moving here.",
 		KindChecksPassed:             "{item} passed its checks in {checks}, one step nearer landing. A stage creeping toward its bound across items is a cost I watch.",
 		KindChecksFailed:             "{item} failed its checks: {command} exited {exit}. One failure is the checks working; the same command failing across items is a cause somebody should look for.",
@@ -809,6 +816,7 @@ var nextMoves = map[Kind]string{
 	// message that said nobody's move followed would be telling the reader they had
 	// nothing to do about the one kind of message they were promised a say in.
 	KindCapCrossed: "the operator's, only if they disagree — the cap is crossed already, and the decision it makes recordable is the development manager's to record next.",
+	KindCapGranted: "the operator's, only if they disagree — the raise is granted already, and the decision it permits is the development manager's to record next.",
 	// One run's own arc. Each of these is followed by the next by itself, so what
 	// they say is who is working rather than who is being waited on.
 	KindRunStarted:     "the developer's, until the checks say otherwise.",
@@ -1335,6 +1343,8 @@ func (e Event) fields(topic Topic) map[string]string {
 		"budget":   stated(detail.Budget, "a cap the record does not name"),
 		"cap":      capOf(detail.Cap),
 		"crossing": crossingOf(detail),
+		"raise":    raiseOf(detail),
+		"cost":     stated(detail.CostSoFar, "a cost the record does not carry"),
 		// Which log a line could not be read from, and where in the file it is. The
 		// place is said as a line and the byte it starts at, because those are the
 		// two things a person opening the file actually uses.
@@ -1440,6 +1450,19 @@ func crossingOf(detail Detail) string {
 		return "crossing " + strconv.Itoa(detail.Crossing) + " of a bound the record does not carry"
 	default:
 		return "crossing " + strconv.Itoa(detail.Crossing) + " of " + strconv.Itoa(detail.Crossings)
+	}
+}
+
+// raiseOf says which of the Lead Product Manager's grants past the development
+// manager's own raises this one was, stating an absence the way crossingOf does.
+func raiseOf(detail Detail) string {
+	switch {
+	case detail.Crossing <= 0:
+		return "a grant the record does not count"
+	case detail.Crossings <= 0:
+		return "grant " + strconv.Itoa(detail.Crossing) + " of a bound the record does not carry"
+	default:
+		return "grant " + strconv.Itoa(detail.Crossing) + " of " + strconv.Itoa(detail.Crossings) + " past the development manager's own"
 	}
 }
 

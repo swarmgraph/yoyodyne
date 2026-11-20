@@ -1,6 +1,7 @@
 package ownership
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -44,8 +45,13 @@ const (
 	// conversation, where the project's approval setting for its kind asks for a
 	// person.
 	HandDocumentConfirmation HandNeed = "document-confirmation"
-	// HandCapCrossing is crossing one work item's triage cap once the
-	// development manager has used every crossing she may record herself.
+	// HandCapCrossing was crossing one work item's triage cap once the
+	// development manager had used every crossing she may record herself. The
+	// harness now carries that out: past her five the Lead Product Manager grants
+	// up to five more from her own conversation, and no role passes ten
+	// (`docs/designs/stopped-run-recovery.md`). So it is no longer a gap: a new
+	// record naming it is refused with that path, and one recorded before resolves
+	// to the Lead Product Manager as the one deciding, with no hand.
 	HandCapCrossing HandNeed = "cap-crossing"
 )
 
@@ -74,16 +80,11 @@ var handGaps = map[HandNeed]handGap{
 		types:    "yoyo agent chat <agent> --message \"approve <document>\"",
 		closedBy: "yoyodyne-ifd.433.21",
 	},
-	HandCapCrossing: {
-		missing:  "letting a role cross a work item's triage cap past the development manager's own crossings",
-		types:    "yoyo triage override --budget <budget> --cap <n> --by \"<you>\" --reason \"<why>\" <work item>",
-		closedBy: "",
-	},
 }
 
 // HandNeeds is the whole set, in the order a refusal names it.
 func HandNeeds() []HandNeed {
-	return []HandNeed{HandAmendmentDecision, HandOperationalConfiguration, HandDocumentConfirmation, HandCapCrossing}
+	return []HandNeed{HandAmendmentDecision, HandOperationalConfiguration, HandDocumentConfirmation}
 }
 
 // Valid reports whether a need is in the set.
@@ -92,10 +93,31 @@ func (n HandNeed) Valid() bool {
 	return ok
 }
 
+// Known reports a hand a stored record may name: a gap the harness still lacks,
+// or the cap crossing it has since closed. A record written before the gap closed
+// is still read as the role's decision it was, and the registry resolves it to
+// whoever decides it now, rather than being read as a finding naming the
+// operator for no reason.
+func (n HandNeed) Known() bool { return n.Valid() || n == HandCapCrossing }
+
+// CheckStored is Check for a record already written, which may name the cap
+// crossing recorded before the harness carried that raise out itself. A record
+// that was valid when written stays readable; what refuses a new one is Check,
+// where a role asks.
+func (n HandNeed) CheckStored() error {
+	if n.Known() {
+		return nil
+	}
+	return n.Check()
+}
+
 // Check refuses a need that is not in the set, naming the set.
 func (n HandNeed) Check() error {
 	if n.Valid() {
 		return nil
+	}
+	if n == HandCapCrossing {
+		return errors.New(capRaiseIsTheLeads)
 	}
 	names := make([]string, 0, len(HandNeeds()))
 	for _, known := range HandNeeds() {
@@ -103,6 +125,10 @@ func (n HandNeed) Check() error {
 	}
 	return fmt.Errorf("hand %q is not a capability the harness is known to lack; the ones it lacks are %s, and anything else a role cannot do is a defect to admit", n, strings.Join(names, ", "))
 }
+
+// capRaiseIsTheLeads is what a record naming the retired cap-crossing hand is
+// told: the raise is a role's decision the harness now carries out itself.
+const capRaiseIsTheLeads = `a raise of an item's cap past the development manager's own five needs no hand any more: it is the Lead Product Manager's to grant, up to five more for the item, with the "grant" action from her conversation, and the harness carries it out and tells the operator afterwards. Escalate it to her with "to": "product-manager" instead; ten raises in all is the limit no role may pass`
 
 // Missing is what the harness cannot yet do, in words.
 func (n HandNeed) Missing() string {

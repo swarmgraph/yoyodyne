@@ -641,11 +641,11 @@ func TestACapRefusalNamesTheCommandThatCrossesTheCap(t *testing.T) {
 			},
 			want: []string{
 				"re-run is refused for yoyodyne-ifd.224",
-				`yoyo triage override --budget "review round"`,
-				// The ceiling is filled in rather than left as a placeholder: the
-				// operator types the command rather than reconstructing the figure.
-				"--cap 5",
 				"yoyodyne-ifd.224",
+				// Past her five, the raise is the Lead Product Manager's, never a
+				// command for the operator to type.
+				`escalate to her with "to": "product-manager"`,
+				"Ten raises in all is the limit no role may pass",
 				"Nothing written into the item's notes crosses that cap",
 				// His own crossing, offered before the escalation and with the budget
 				// that refused already in it.
@@ -671,8 +671,6 @@ func TestACapRefusalNamesTheCommandThatCrossesTheCap(t *testing.T) {
 				"repair grant is refused for yoyodyne-ifd.272",
 				"1 of 1 permitted repair grant(s) are spent",
 				"4 of 4 permitted review round(s) are spent",
-				`yoyo triage override --budget "repair grant" --cap 2`,
-				`yoyo triage override --budget "review round" --cap 5`,
 				// One crossing per budget as well, for the same reason: crossing one
 				// leaves the same decision refused by the other.
 				`"budget":"repair grant"`,
@@ -686,7 +684,6 @@ func TestACapRefusalNamesTheCommandThatCrossesTheCap(t *testing.T) {
 			name: "a cap refusal carrying no budget to name",
 			err:  fmt.Errorf("the budget is gone: %w", runstate.ErrTriageCapReached),
 			want: []string{
-				`yoyo triage override --budget "<budget>"`,
 				`"decision":"cross"`,
 				"Nothing written into the item's notes crosses that cap",
 			},
@@ -703,6 +700,9 @@ func TestACapRefusalNamesTheCommandThatCrossesTheCap(t *testing.T) {
 				if !strings.Contains(refusal.Error(), want) {
 					t.Fatalf("the refusal is missing %q:\n%s", want, refusal)
 				}
+			}
+			if strings.Contains(refusal.Error(), "yoyo triage override") || strings.Contains(refusal.Error(), "cap-crossing") {
+				t.Fatalf("the refusal still sends the raise to the operator's keyboard:\n%s", refusal)
 			}
 		})
 	}

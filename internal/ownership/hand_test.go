@@ -51,14 +51,6 @@ func TestARolesDecisionThatNeedsTheOperatorsHandKeepsTheRoleAsOwner(t *testing.T
 			closedBy: "yoyodyne-ifd.433.21",
 			types:    "yoyo agent chat architect --message \"approve document-7.1\"",
 		},
-		{
-			name:   "a cap crossing past the development manager's own",
-			kind:   KindOperatorAction,
-			record: Record{FromEscalation: true, Hand: HandCapCrossing, Command: "yoyo triage override --budget \"review-rounds\" --cap <n> --by \"<you>\" --reason \"<why>\" item-1"},
-			owner:  MoverDevelopmentManager,
-			need:   HandCapCrossing,
-			types:  "yoyo triage override",
-		},
 	}
 	for _, c := range cases {
 		answer := Resolve(c.kind, c.record)
@@ -85,6 +77,34 @@ func TestARolesDecisionThatNeedsTheOperatorsHandKeepsTheRoleAsOwner(t *testing.T
 		if c.closedBy != "" && !strings.Contains(said, c.closedBy) {
 			t.Errorf("%s: says %q, want the item that ends the need", c.name, said)
 		}
+	}
+}
+
+// A raise of an item's cap past the development manager's five is the Lead
+// Product Manager's to grant, and the harness carries it out, so an escalation or
+// a handling recorded before that names her as the one deciding and carries no
+// step for the operator to type. A new record naming it is refused with the path.
+func TestACapRaisePastTheDevelopmentManagersFiveIsTheLeadProductManagersWithNoHand(t *testing.T) {
+	t.Parallel()
+	for _, record := range []Record{
+		{FromEscalation: true, Hand: HandCapCrossing, Command: "yoyo triage override --budget \"review-rounds\" --cap <n> item-1"},
+		{FromReport: true, Role: domain.RoleDevelopmentManager, Hand: HandCapCrossing},
+	} {
+		answer := Resolve(KindOperatorAction, record)
+		if answer.Owner != MoverProductManager || answer.Hand != nil || answer.NeedsHand() || answer.Owner.IsOperator() {
+			t.Errorf("%+v resolves to %+v, want the Lead Product Manager deciding with no hand", record, answer)
+		}
+		if strings.Contains(answer.Capability, "yoyo triage override") || strings.Contains(answer.Remedy, "operator") {
+			t.Errorf("%+v resolves to %+v, which still carries a step for the operator", record, answer)
+		}
+	}
+	if HandCapCrossing.Valid() || !HandCapCrossing.Known() || HandCapCrossing.CheckStored() != nil {
+		t.Errorf("the cap-crossing hand reads as valid=%v known=%v stored=%v, want a closed gap a stored record may still name",
+			HandCapCrossing.Valid(), HandCapCrossing.Known(), HandCapCrossing.CheckStored())
+	}
+	err := HandCapCrossing.Check()
+	if err == nil || !strings.Contains(err.Error(), `"grant"`) || !strings.Contains(err.Error(), "product-manager") {
+		t.Errorf("a new record naming the cap-crossing hand is checked as %v, want it refused with the Lead Product Manager's grant as the path", err)
 	}
 }
 

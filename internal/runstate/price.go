@@ -660,6 +660,30 @@ func (s *Store) Price(workItemID string) (ItemPrice, error) {
 	return s.price(id, states), nil
 }
 
+// PriceFromIndex reports what one work item's runs cost, finding them through
+// the run index rather than reading every run record, which is what a routine
+// caller asks: the Lead Product Manager's grant of a further raise records the
+// item's cost so far on every grant. It prices the runs made for the item; a run
+// that brought in an outside file and is priced against the item is indexed
+// under its own item and is not counted here, where `yoyo cost` counts it.
+func (s *Store) PriceFromIndex(workItemID string) (ItemPrice, error) {
+	id := strings.TrimSpace(workItemID)
+	if id == "" {
+		return ItemPrice{}, errors.New("a work item is required to price it")
+	}
+	runs, err := s.Runs(id)
+	if err != nil {
+		return ItemPrice{}, err
+	}
+	priced := make([]State, 0, len(runs))
+	for _, run := range runs {
+		if run.PricedAgainst() == id {
+			priced = append(priced, run)
+		}
+	}
+	return s.price(id, priced), nil
+}
+
 // Prices reports what every work item the harness has ever run cost, one entry
 // per item in identifier order. It is what prices the items that were closed
 // before anything recorded a price on them: the runs and their event logs are
