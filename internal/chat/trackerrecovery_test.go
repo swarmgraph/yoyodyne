@@ -485,8 +485,9 @@ func equalDurations(got, want []time.Duration) bool {
 // fails here until somebody has made that judgement.
 var trackerRetryClasses = map[string]string{
 	// Reads change nothing, and are asked again as they stand.
-	"Show": "read",
-	"List": "read",
+	"Show":               "read",
+	"List":               "read",
+	"UnfinishedChildren": "read",
 	// Writes that set something to a value leave the tracker as the first attempt
 	// did, and are asked again as they stand.
 	"AddBlocker":    "safe to repeat",
@@ -577,6 +578,14 @@ func (k *killedOnceTracker) List(ctx context.Context, status string) ([]beads.Wo
 	return k.fakeTracker.List(ctx, status)
 }
 
+func (k *killedOnceTracker) UnfinishedChildren(ctx context.Context, parent string) ([]beads.WorkItem, error) {
+	k.reads++
+	if err := k.answer("UnfinishedChildren"); err != nil {
+		return nil, err
+	}
+	return k.fakeTracker.UnfinishedChildren(ctx, parent)
+}
+
 func (k *killedOnceTracker) Create(_ context.Context, item beads.NewWorkItem) (beads.WorkItem, error) {
 	created := beads.WorkItem{ID: fmt.Sprintf("yoyodyne-ifd.433.%d", len(k.all)+1), Title: item.Title, Parent: item.Parent, Notes: item.Notes, Status: "open"}
 	k.all = append(k.all, created)
@@ -631,6 +640,10 @@ var killedOnceDrivers = map[string]func(context.Context, Tracker) error{
 	},
 	"List": func(ctx context.Context, tracker Tracker) error {
 		_, err := tracker.List(ctx, "")
+		return err
+	},
+	"UnfinishedChildren": func(ctx context.Context, tracker Tracker) error {
+		_, err := tracker.UnfinishedChildren(ctx, "yoyodyne-ifd.433")
 		return err
 	},
 	"Create": func(ctx context.Context, tracker Tracker) error {

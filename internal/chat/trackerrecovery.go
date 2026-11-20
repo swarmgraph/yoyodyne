@@ -80,6 +80,12 @@ func (r recoveringTracker) List(ctx context.Context, status string) ([]beads.Wor
 	})
 }
 
+func (r recoveringTracker) UnfinishedChildren(ctx context.Context, parent string) ([]beads.WorkItem, error) {
+	return recoveringTrackerValue(ctx, r.session, func(ctx context.Context) ([]beads.WorkItem, error) {
+		return r.tracker.UnfinishedChildren(ctx, parent)
+	})
+}
+
 // Create is not safe to ask for twice. An item created again is a second item,
 // and on 2026-09-24 that is how yoyodyne-ifd.428.21 and 428.22 came from one
 // admission: the `bd create` that made 428.21 was killed at the timeout after the

@@ -1674,6 +1674,72 @@ func TestAWaitOnTheStoppedItemsOwnParentOrAnythingAboveItIsRefused(t *testing.T)
 	}
 }
 
+// A wait on an item that is not the stopped item's parent but still has open
+// child items ends only once that whole area of work is done, so it hides the
+// stoppage from the development manager for as long as the area runs. It is
+// refused with the item named, saying it closes only when all its work is done
+// and to wait on a specific item instead, and nothing is recorded. A wait on an
+// item with no open children — none at all, or only closed ones — is recorded,
+// and a children listing that cannot be read refuses rather than guessing
+// (yoyodyne-ifd.428.99.30).
+func TestAWaitOnAnUnrelatedItemWithOpenChildrenIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, named := range []struct {
+		name        string
+		waitsOn     string
+		childrenErr error
+		applied     bool
+		says        []string
+	}{
+		{name: "an area with open children", waitsOn: "yoyodyne-ifd.429",
+			says: []string{"yoyodyne-ifd.429 still has 2 open child item(s): yoyodyne-ifd.429.106, yoyodyne-ifd.429.200",
+				"it closes only when all of its work is done", "Name the specific item the stoppage depends on instead"}},
+		{name: "an item with no children", waitsOn: "yoyodyne-yrku-fix", applied: true},
+		{name: "an item whose children are all closed", waitsOn: "yoyodyne-ifd.433", applied: true},
+		{name: "children that cannot be read", waitsOn: "yoyodyne-yrku-fix", childrenErr: errors.New("bd list did not answer"),
+			says: []string{"whether yoyodyne-yrku-fix still has open work under it could not be read", "nothing was recorded"}},
+	} {
+		t.Run(named.name, func(t *testing.T) {
+			t.Parallel()
+
+			answer := trackerReply("Decided.",
+				`{"action":"triage","id":"yoyodyne-yrku","run":"`+stoppedRun+`","decision":"wait","waits_on":"`+named.waitsOn+`","reason":"nothing to do until that closes"}`)
+			tracker := &fakeTracker{childrenErr: named.childrenErr, items: map[string]beads.WorkItem{
+				"yoyodyne-yrku":        {ID: "yoyodyne-yrku", Title: "the item that stopped", Status: "open"},
+				"yoyodyne-yrku-fix":    {ID: "yoyodyne-yrku-fix", Title: "the one fix it waits for", Status: "open"},
+				"yoyodyne-ifd.429":     {ID: "yoyodyne-ifd.429", Title: "the checks-and-integration area", Status: "open"},
+				"yoyodyne-ifd.429.106": {ID: "yoyodyne-ifd.429.106", Title: "open work in the area", Status: "in_progress", Parent: "yoyodyne-ifd.429"},
+				"yoyodyne-ifd.429.200": {ID: "yoyodyne-ifd.429.200", Title: "more open work in the area", Status: "blocked", Parent: "yoyodyne-ifd.429"},
+				"yoyodyne-ifd.429.1":   {ID: "yoyodyne-ifd.429.1", Title: "finished work in the area", Status: "closed", Parent: "yoyodyne-ifd.429"},
+				"yoyodyne-ifd.433":     {ID: "yoyodyne-ifd.433", Title: "a finished area", Status: "open"},
+				"yoyodyne-ifd.433.1":   {ID: "yoyodyne-ifd.433.1", Title: "its last work", Status: "closed", Parent: "yoyodyne-ifd.433"},
+			}}
+			docket := &fakeDocket{closes: 1}
+			reply := triageReplyClosing(t, tracker, docket, answer)
+
+			if len(reply.Actions) != 1 || reply.Actions[0].Applied != named.applied {
+				t.Fatalf("actions = %#v, want applied = %t", reply.Actions, named.applied)
+			}
+			if named.applied {
+				if len(docket.closed) != 1 || docket.closed[0].WaitsOn != named.waitsOn {
+					t.Fatalf("closed = %#v, want the wait recorded on %s", docket.closed, named.waitsOn)
+				}
+				return
+			}
+			if len(docket.closed) != 0 || len(tracker.updates) != 0 {
+				t.Fatalf("closed = %#v, updates = %#v, want nothing recorded for a wait on a whole area", docket.closed, tracker.updates)
+			}
+			said := reply.Actions[0].Failure + reply.Actions[0].Detail + reply.Actions[0].Summary
+			for _, says := range named.says {
+				if !strings.Contains(said, says) {
+					t.Fatalf("refusal = %#v, want it to say %q", reply.Actions[0], says)
+				}
+			}
+		})
+	}
+}
+
 // Only a wait names the work it waits on, and never its own item.
 func TestOnlyAWaitNamesWorkToWaitOn(t *testing.T) {
 	t.Parallel()

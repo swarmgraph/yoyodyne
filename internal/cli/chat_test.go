@@ -963,6 +963,11 @@ func (t *recordingChatTracker) Unblock(context.Context, string, string) (beads.W
 func (t *recordingChatTracker) AddBlocker(context.Context, string, string) error    { return nil }
 func (t *recordingChatTracker) RemoveBlocker(context.Context, string, string) error { return nil }
 
+// UnfinishedChildren answers that no item has work broken out of it.
+func (t *recordingChatTracker) UnfinishedChildren(context.Context, string) ([]beads.WorkItem, error) {
+	return nil, nil
+}
+
 func (t *recordingChatTracker) Complete(context.Context, string, string) (beads.WorkItem, error) {
 	return beads.WorkItem{}, errors.New("this test did not expect a completion")
 }

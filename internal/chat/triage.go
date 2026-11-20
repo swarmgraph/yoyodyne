@@ -601,7 +601,10 @@ func (a TrackerAction) waitsOnProblems() []error {
 // back at all, so neither is recorded. Nor is a wait on the stopped item's own
 // parent or any item above it: an item cannot close while work under it is open,
 // so that wait could never end, and the stoppage would leave the development
-// manager's docket for good. Nothing has been spent when this is asked.
+// manager's docket for good. Nor, for the same reason, is a wait on any other
+// item that still has open child items: it closes only once that whole area of
+// work is done, which hides the stoppage from her for as long as the area runs.
+// Nothing has been spent when this is asked.
 func (s *Session) refuseFinishedWaitsOn(ctx context.Context, id, waitsOn string) error {
 	if waitsOn == "" {
 		return nil
@@ -626,6 +629,14 @@ func (s *Session) refuseFinishedWaitsOn(ctx context.Context, id, waitsOn string)
 	if chain != nil {
 		return fmt.Errorf("a wait on %s can never end, because %s, and an item cannot close while work under it is still open; nothing was recorded. Decide the stoppage as it now stands, or name an unfinished item outside %s's own line of parents that the wait depends on",
 			waitsOn, beads.DescribeAncestry(id, chain), id)
+	}
+	children, err := s.options.Tracker.UnfinishedChildren(ctx, waitsOn)
+	if err != nil {
+		return fmt.Errorf("whether %s still has open work under it could not be read, so nothing says a wait on it ends before that whole area is done; nothing was recorded: %w", waitsOn, err)
+	}
+	if len(children) > 0 {
+		return fmt.Errorf("%s still has %s, and it closes only when all of its work is done, so a wait on it would keep this stoppage off your docket until that whole area is finished; nothing was recorded. Name the specific item the stoppage depends on instead, such as the one fix it is waiting for",
+			waitsOn, beads.DescribeOpenChildren(children))
 	}
 	return nil
 }

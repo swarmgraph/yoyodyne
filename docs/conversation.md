@@ -3014,7 +3014,15 @@ that makes it so. A wait of that shape recorded before this refusal existed is
 put back on her docket by the next `yoyo reconcile` sweep, as a stoppage needing
 a new decision, with her earlier reasoning and why the wait could never end; the
 item's hold already reads it that way, and `yoyo status` counts it as awaiting
-her decision. A wait that names nothing keeps the window. While such a
+her decision. Nor may it be any other item that still has open child items, such
+as a whole area of work: it closes only once all of that work is done, so the
+wait would keep the stoppage off her docket for as long as the area runs. The
+refusal names the item and its open children and says to wait on the specific
+item the stoppage depends on instead. A wait of that shape recorded before this
+refusal existed is put back on her docket by the next `yoyo reconcile` sweep in
+the same way, saying the item still has open work under it; until that sweep,
+the item's hold still reads it as a wait. A wait that names nothing keeps the
+window. While such a
 wait stands, [`yoyo status`](operations.md#where-the-harness-stands-the-four-lines)
 counts the item as waiting on admitted work rather than as awaiting her
 decision, and counts it as awaiting her decision again once the work is closed.

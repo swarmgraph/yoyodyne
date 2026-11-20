@@ -81,6 +81,11 @@ func (m *memoryTracker) Unblock(context.Context, string, string) (beads.WorkItem
 }
 func (m *memoryTracker) AddBlocker(context.Context, string, string) error    { return nil }
 func (m *memoryTracker) RemoveBlocker(context.Context, string, string) error { return nil }
+
+// UnfinishedChildren answers that no item has work broken out of it.
+func (m *memoryTracker) UnfinishedChildren(context.Context, string) ([]beads.WorkItem, error) {
+	return nil, nil
+}
 func (m *memoryTracker) Complete(context.Context, string, string) (beads.WorkItem, error) {
 	return beads.WorkItem{}, fmt.Errorf("not used")
 }
