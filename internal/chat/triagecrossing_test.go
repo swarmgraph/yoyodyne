@@ -140,7 +140,7 @@ func TestACapRefusalOffersTheCrossingThatIsTheDevelopmentManagersOwn(t *testing.
 		`"budget":"` + runstate.TriageReviewRoundBudget + `"`,
 		"both are needed",
 		"5 times per item",
-		"yoyo triage override",
+		"Lead Product Manager",
 	} {
 		if !strings.Contains(failure, want) {
 			t.Fatalf("the refusal is missing %q:\n%s", want, failure)
@@ -208,10 +208,10 @@ func TestACrossingIsRefusedWithoutAJustificationOrACap(t *testing.T) {
 	}
 }
 
-// The sixth crossing of one item is the operator's again, and the refusal says
-// so with the command in it. An item crossed five times is one where something
-// other than the budget is wrong, which is what the bound exists to surface.
-func TestTheSixthCrossingIsRefusedAndSendsTheDevelopmentManagerToTheOperator(t *testing.T) {
+// The sixth crossing of one item is the Lead Product Manager's to grant, and the
+// refusal says so, naming the rung to escalate to rather than a command for the
+// operator to type.
+func TestTheSixthCrossingIsRefusedAndSendsTheDevelopmentManagerToTheLeadProductManager(t *testing.T) {
 	t.Parallel()
 
 	budgets := newTriageBudgetGate(t, runstate.TriageCaps{ReviewRounds: 4, RepairGrants: 1, Reruns: 1, MergeRearms: 1}, 2)
@@ -231,8 +231,8 @@ func TestTheSixthCrossingIsRefusedAndSendsTheDevelopmentManagerToTheOperator(t *
 	failure := refused.Actions[0].Failure
 	for _, want := range []string{
 		"already carries 5 of 5 cap crossing(s)",
-		"cap is the operator's again",
-		"yoyo triage override",
+		"is the Lead Product Manager's to grant",
+		`"to": "product-manager"`,
 	} {
 		if !strings.Contains(failure, want) {
 			t.Fatalf("the sixth crossing's refusal is missing %q:\n%s", want, failure)
@@ -347,7 +347,8 @@ func TestTheContractStatesTheCrossingBoundTheStoreEnforces(t *testing.T) {
 		`"decision":"repair|rerun|rescope|rearm|wait|escalate|stop|proceed|retire-raise|cross|give-back-claim|leave-claim-spent"`,
 		maxDelegatedCapCrossingsText + " times per item",
 		"a crossing without one is refused outright",
-		"yoyo triage override",
+		"escalate to the Lead Product Manager",
+		"After ten raises in all no role raises the item's limit again",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("the development manager's contract does not state %q", required)

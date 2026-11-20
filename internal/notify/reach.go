@@ -100,6 +100,10 @@ var reaches = map[Kind]Reach{
 	// happens, so that a veto by reading is a veto at all: a crossing carried only
 	// to the item's thread is one he learns about from the work it bought.
 	KindCapCrossed: ReachChannel,
+	// A raise the Lead Product Manager granted past the development manager's
+	// five. The operator is never asked for it, so he is told afterwards where he
+	// reads, with the item's thread carrying it as well.
+	KindCapGranted: ReachChannel,
 	// One run's own arc, which is the largest block of narration there is. A run
 	// starting, its checks passing or failing, a verdict, a promotion, a
 	// publication and its merge are the thread's whole story and none of them is a

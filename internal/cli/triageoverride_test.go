@@ -91,10 +91,9 @@ func TestAnOperatorOverrideMakesTheRefusedDecisionRecordable(t *testing.T) {
 	// twice read as the item's notes.
 	for _, want := range []string{
 		"repair grant is refused for " + cappedItem,
-		`yoyo triage override --budget "review round"`,
-		"--by \"<operator>\"",
-		"--reason \"<why>\"",
 		cappedItem,
+		// Past her own five the raise is the Lead Product Manager's to grant.
+		`escalate to her with "to": "product-manager"`,
 		"Nothing written into the item's notes crosses that cap",
 		// And his own crossing, offered before the escalation: the delegation is
 		// what the ordinary refusal now points at first.

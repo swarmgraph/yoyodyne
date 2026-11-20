@@ -125,3 +125,55 @@ func TestACrossingIsSaidEvenWhereTheRecordCarriesNoFigures(t *testing.T) {
 		}
 	}
 }
+
+// The Lead Product Manager's grant of a raise past the development manager's
+// five is carried out without the operator being asked, so he is told
+// afterwards, in her voice, with the cap, which of her grants it was, and her
+// reason, and with a move that leaves him a say.
+func TestALeadProductManagersGrantReachesTheOperatorAfterwards(t *testing.T) {
+	conversation := conversationWith(domain.RoleProductManager)
+	events := []execution.Event{recorded(t, 1, execution.EventTrackerActionApplied, map[string]any{
+		"action_id": "t1.1",
+		"turn":      1,
+		"action": map[string]any{
+			"action": "grant",
+			"id":     "yoyodyne-ifd.143",
+			"budget": "review round",
+			"reason": "worth more than the work waiting behind it",
+		},
+		"work_item_id":    "yoyodyne-ifd.143",
+		"work_item_title": "Unmeetable items do not dispatch",
+		"crossing": map[string]any{
+			"budget":    "review round",
+			"cap":       10,
+			"crossing":  1,
+			"crossings": 5,
+			"cost_so_far": map[string]any{
+				"total_usd": 41.27,
+				"runs":      3,
+			},
+		},
+		"summary": "the harness's own account of it",
+	})}
+
+	notification, message := said(t, conversation, events, 0)
+	if notification.Event.Kind != KindCapGranted || notification.Event.Severity != report.SeverityWarning {
+		t.Fatalf("a grant is reported as %s at %q", notification.Event.Kind, notification.Event.Severity)
+	}
+	if notification.Speaker.Role != domain.RoleProductManager {
+		t.Fatalf("spoken by %q", notification.Speaker.Key())
+	}
+	for _, want := range []string{
+		"Unmeetable items do not dispatch",
+		"review round",
+		"10",
+		"grant 1 of 5 past the development manager's own",
+		"with the item at $41.27 over 3 runs so far",
+		"worth more than the work waiting behind it",
+		"only if they disagree",
+	} {
+		if !strings.Contains(message.Body, want) {
+			t.Fatalf("the grant message is missing %q:\n%s", want, message.Body)
+		}
+	}
+}

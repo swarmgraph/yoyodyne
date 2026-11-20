@@ -1130,7 +1130,7 @@ and the line under it names the one thing that changes that, so the dead end and
 the way out are read in the same breath:
 
 ```text
-    `yoyo triage override --budget "review round" --cap <n> --by "<you>" --reason "<why>" yoyodyne-ifd.90` crosses it to any ceiling; the development manager may also cross it far enough for one more decision, 5 times per item, and each of those reaches you in the channel as it happens
+    `yoyo triage override --budget "review round" --cap <n> --by "<you>" --reason "<why>" yoyodyne-ifd.90` crosses it to any ceiling; the development manager may also cross it far enough for one more decision, 5 times per item, and the Lead Product Manager may grant 5 more past those, and each of those reaches you in the channel as it happens
 ```
 
 What may still happen without crossing anything is what the budget lines beside
@@ -1496,11 +1496,26 @@ named:
   publication of the item is held to. An
   unbounded raise, a cleared budget, and any ceiling beyond the one that permits
   the decision are operator acts and are refused to him.
-- **Five per item.** A sixth crossing of the same item is refused, naming
-  `yoyo triage override` as the path, because an item that has been given more
-  room five times is one where something other than the budget is wrong. The
-  crossings are counted across every budget together: what is bounded is how often
-  he may decide the item deserves more room.
+- **Five per item.** A sixth crossing of the same item is refused, naming the
+  Lead Product Manager as the one who decides past it: the development manager
+  escalates the item to her. The crossings are counted across every budget
+  together: what is bounded is how often he may decide the item deserves more
+  room.
+- **Five more from the Lead Product Manager, and never past ten.** Past the
+  development manager's five, whether the item is worth more spending is the
+  Lead Product Manager's judgment. She grants a raise from her own conversation
+  with the `grant` action, naming the item, the cap, and her reason; each grant
+  is the same size as one of his crossings, and she may grant five for one item.
+  The harness carries a grant out as she records it, with nobody typing
+  anything, and tells you afterwards in the channel. Each grant records what the
+  item's runs have cost so far, priced from the same run records `yoyo cost`
+  reads, on the item's triage record and its note, and the message you get
+  states that cost; a grant whose item's cost cannot be read is refused and
+  nothing is recorded. A grant is refused while the development manager still
+  has crossings of his own, and any raise by either
+  role is refused once the item has ten in all, saying that ten is the limit no
+  role may pass: the item is then rewritten or split, or closed. Your own
+  `yoyo triage override` is not counted against either bound.
 - **A justification, always.** A crossing carrying no reason is refused outright.
   The reason is recorded on the item beside the cap and the crossing number, and
   it is reported to the operator in the channel at the moment of the crossing.
@@ -1512,12 +1527,14 @@ crossing of the five it was, and the reason. Disagreeing means undoing the work 
 bought, not withholding permission. A crossing that reached nobody would be the
 delegation without the condition it was granted under.
 
-`yoyo status <beads-id>` lists each recorded crossing beside the operator's own
-overrides, and says how many of the item's five are spent:
+`yoyo status <beads-id>` lists each recorded crossing and grant beside the
+operator's own overrides, and says how many of the item's five are spent; a
+grant is labelled `raise granted by the Lead Product Manager`, with a line under
+it saying how many of her five are spent:
 
 ```text
   cap crossed on delegated authority: raised the review round cap to 5, crossed by the development manager on delegated authority at 2026-09-06T09:00:00Z: the change was right and the ground moved under it
-  1 of 5 cap crossing(s) the development manager may take himself are recorded; past that the caps are yours again
+  1 of 5 cap crossing(s) the development manager may take herself are recorded; past those the Lead Product Manager may grant 5 more, and no role raises the item past 10 in all
 ```
 
 **It carries nothing out and buys nothing.** A crossing spends none of the
