@@ -30,6 +30,11 @@ func (c *candidateChecks) Checks(context.Context, int, string) (publish.CheckRea
 	return c.reading, nil
 }
 
+// JobLogTail names no test, as a cancelled job's log does not.
+func (c *candidateChecks) JobLogTail(context.Context, int64, int) (string, error) {
+	return "", nil
+}
+
 func (c *candidateChecks) RerunCheck(_ context.Context, checkRun int64) error {
 	if c.refuse != nil {
 		return c.refuse
