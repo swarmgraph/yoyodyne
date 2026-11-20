@@ -262,6 +262,23 @@ the part is doing:
   restart rather than a death; the runs it had already stopped for the move
   keep what they had and are picked up by the session that comes back, and
   nothing is restarted this way while a restart is held.
+
+  The supervisor also reads, with its own build, when the scheduler's move
+  falls due: three hours (`execution.build_move_interval`) after the last
+  move in the watch log, or when the supervisor first found the scheduler
+  behind, whichever is later. The last move is the session that stopped to
+  restart, or the first session on a different build from the one before it,
+  so a move the supervisor made itself counts and the next move waits the full
+  interval after it. Until the move is due, the scheduler's line says when it
+  moves and that it goes on working on its own build. Once it is due and the
+  session has not begun winding down, the line says the scheduler is on its
+  build while the rest of the product is on the deployed one, when the move
+  was due, and when the supervisor moves it; the next maintenance pass's
+  `redeploy` step and `yoyo status` both carry that line, and the development manager's health reading names the scheduler as left behind, with both builds and when the move was due. While the move is not yet due, that reading does not count the scheduler's old build as a problem. A session that has
+  not begun its move by its limit for winding down and five more minutes past the
+  first look at which the supervisor, awake, found the move overdue is restarted the same way as one stuck winding down. Counting from that look, not from the due moment, means a laptop that slept across the due moment never has the scheduler's runs stopped at the first look on waking. That
+  holds whatever build the scheduler runs, since it is the supervisor's
+  build that decides it.
 - **The Slack sink is restarted by the supervisor**, between two passes over
   the records and never while it is answering a product manager turn in a
   thread. The sink makes each pass under a lease of its own; the supervisor
@@ -340,7 +357,7 @@ deploy is moving one:
 Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1b2c):
   slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-09-28 09:40 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
-  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit
+  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit, or has not begun its move that long after the move fell due
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 

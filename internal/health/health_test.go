@@ -872,3 +872,54 @@ func TestADecidedRerunsWaitIsSaidWholeAndACutNeverSplitsAWord(t *testing.T) {
 		t.Fatalf("cut = …%q (%d bytes), want at most %d bytes ending on a whole word and the mark", got[len(got)-30:], len(got), MaxNeedsBytes)
 	}
 }
+
+// The scheduler moves onto a new build at most once every
+// execution.build_move_interval, so its copy on an old build is not a
+// condition while it waits that out. Once its move has fallen due and not
+// begun, the reading names it in one pass: the build it runs, the build the
+// rest of the product is on, when the move was due, and when the supervisor
+// restarts it, or what holds that restart.
+func TestASchedulerLeftBehindPastItsMoveIsNamed(t *testing.T) {
+	t.Parallel()
+
+	reading := func(due time.Time, held string) Observation {
+		t.Helper()
+		observer, _ := whole(t)
+		readers := observer.Sources.ConfigReaders.(fakeReaders)
+		readers.running[1].Build = "build-old"
+		observer.Sources.ConfigReaders = readers
+		standing := readmodel.Standing{Services: &readmodel.Services{SupervisorRunning: true, Recorded: true, Record: runstate.Supervision{
+			PID: 100, Deployed: "build-current", Children: []runstate.SupervisedChild{{Service: config.ServiceScheduler, State: runstate.ChildRunning, PID: 200,
+				Build: "build-old", MoveDue: due, MoveBy: due.Add(20 * time.Minute), MoveHeld: held}},
+		}}}
+		return withStanding(observer, standing).Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	}
+
+	waiting := reading(observedAt.Add(time.Hour), "")
+	for _, anomaly := range waiting.Anomalies {
+		if anomaly.Classification == ClassOldBuild {
+			t.Fatalf("a scheduler inside the time between moves was reported: %+v", anomaly)
+		}
+	}
+
+	overdue := reading(observedAt.Add(-10*time.Minute), "")
+	left := find(t, overdue, "yoyodyne/-/scheduler-move-overdue:build-current")
+	for _, want := range []string{"cannot move onto a new build when due", "runs build build-old", "the rest of the product is on the deployed build build-curren", "was due at", "restarts it into the deployed build at"} {
+		if !strings.Contains(left.Says, want) {
+			t.Fatalf("scheduler left behind says %q, want %q in it", left.Says, want)
+		}
+	}
+	if left.Classification != ClassOldBuild || !left.Actionable {
+		t.Fatalf("scheduler left behind = %+v", left)
+	}
+	for _, anomaly := range overdue.Anomalies {
+		if strings.HasPrefix(anomaly.Identity.Condition, "old-build:scheduler") {
+			t.Fatalf("the scheduler was also reported as a plain old copy: %+v", anomaly)
+		}
+	}
+
+	held := find(t, reading(observedAt.Add(-time.Hour), "the provider cannot be reached"), "yoyodyne/-/scheduler-move-overdue:build-current")
+	if !strings.Contains(held.Says, "does not restart it while the provider cannot be reached") {
+		t.Fatalf("held scheduler says %q, want what holds the restart", held.Says)
+	}
+}
