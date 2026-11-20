@@ -978,13 +978,17 @@ func keptQueueChecks(generation runstate.MergeQueueGeneration) ([]runstate.Merge
 
 // queueCheckResult is one check's result as a candidate's record keeps it.
 func queueCheckResult(result checks.Result) runstate.MergeQueueCheckResult {
-	return runstate.MergeQueueCheckResult{
+	queued := runstate.MergeQueueCheckResult{
 		Command:     result.Command,
 		Passed:      result.Passed,
 		ExitCode:    result.Process.ExitCode,
 		Status:      string(result.Process.Status),
 		CouldNotRun: boundedEvidence(result.CouldNotRun),
 	}
+	if result.FailingTests != nil {
+		queued.FailingTests = boundedEvidence(result.FailingTests.Describe())
+	}
+	return queued
 }
 
 // orderedQueueResults puts the kept results and those of the checks run now

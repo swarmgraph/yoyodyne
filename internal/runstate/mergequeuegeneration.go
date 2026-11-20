@@ -433,6 +433,12 @@ type MergeQueueCheckResult struct {
 	// CouldNotRun is the reason a check gave for judging nothing. A check that
 	// judged nothing earned nothing, so a candidate with one is not verified.
 	CouldNotRun string `json:"could_not_run,omitempty"`
+	// FailingTests is, for a check that failed and that the project declares a
+	// reading for (failing_tests), its failing tests each with its file in one
+	// line, or why the failure could not be read that way
+	// (checks.FailingTests.Describe). The hand-back of a candidate the check
+	// failed carries it, so the developer is told which tests failed.
+	FailingTests string `json:"failing_tests,omitempty"`
 }
 
 // MergeQueueReviewEvidence is one independent review of a generation's
@@ -738,6 +744,9 @@ func (g MergeQueueGeneration) validate() error {
 		for _, result := range g.CheckRun.Results {
 			if len(result.CouldNotRun) > maxMergeQueueEvidenceText {
 				problems = append(problems, errors.New("the reason a check gave for not running exceeds its bound"))
+			}
+			if len(result.FailingTests) > maxMergeQueueEvidenceText {
+				problems = append(problems, errors.New("a check's failing tests exceed their bound"))
 			}
 		}
 	}

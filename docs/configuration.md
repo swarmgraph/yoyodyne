@@ -4081,6 +4081,85 @@ execution:
   usage_window_degraded_percent: 90   # the default
 ```
 
+### Naming a failed check's failing tests
+
+When a check fails, the harness can record which tests failed and which file
+each one is in. It does not know any language's test output, so it learns this
+from you: `failing_tests` says how a check's output names its failing tests.
+A check you declare nothing for is recorded exactly as before.
+
+```yaml
+failing_tests:
+  - checks: [make test, make race]
+    test: '^\s*--- FAIL: (?P<test>[^\s/]+)'
+    file: '^\s+(?P<file>[^\s/:]+_test\.go):[0-9]+: '
+    group: '^FAIL\s+(?P<directory>\S+)'
+    strip_prefix: example.com/shop
+```
+
+Each entry is a reading, and these are its keys:
+
+- **`checks`** names the checks it applies to, the way
+  `execution.heavy_checks` names them: `make test` is every configured command
+  that is `make test` or begins with `make test` and a space. Where two
+  readings name the same command, the longer name wins. A name that matches no
+  configured check is refused when the configuration loads.
+- **`test`** is a regular expression for a line that names a failing test. Its
+  `(?P<test>...)` group is the test's name. If the same line also names the
+  file, a `(?P<file>...)` group says so and `file` can be left out.
+- **`file`** is an expression for a line that names the file the failing test
+  above it is in, by its `(?P<file>...)` group. A line it matches when no test
+  is waiting for a file is ignored.
+- **`group`** is an expression for a line that ends a set of failing tests and
+  says which directory their files are in, by its `(?P<directory>...)` group.
+  Leave it out if the file names are already complete paths.
+- **`strip_prefix`** is taken off the start of each directory `group` names, so
+  a name the test runner prints, such as a Go import path, becomes a directory
+  in the repository. A directory equal to it is the top of the repository.
+
+Each expression is matched against one line of the output at a time, and uses
+Go's regular expression syntax. An expression that does not compile, or lacks
+the group it needs, is refused when the configuration loads.
+
+The example above is the reading for `go test`. It prints `--- FAIL: TestName`
+for each failing test, with a subtest counted under its test. It then prints
+lines such as `    cart_test.go:12: ...` naming the file the test failed in,
+and then `FAIL<tab>example.com/shop/internal/cart` for the package. Taking the
+module path off the package gives `internal/cart/cart_test.go`. A runner that
+prints the test and its file on one line needs only `test`. For pytest:
+
+```yaml
+failing_tests:
+  - checks: [pytest]
+    test: '^FAILED (?P<file>[^:\s]+)::(?P<test>\S+)'
+```
+
+**What is recorded.** After a check that ran and exited non-zero, the run's
+record lists each failing test with its file, under
+`check_failure.failing_tests`. The check's failure output, which goes to the
+developer, the work item's notes and the development manager's list, says the
+same in one line. A merge queue candidate that is handed back over a failed
+check names the failing tests in the reason it is handed back with. At most
+twenty tests are listed, and the line says how many more there were.
+
+**When the output cannot be read that way.** The reading is all or nothing. If
+any failure in the output cannot be named as a test with its file, the record
+says so and why, and lists no tests. Examples are a package that did not build,
+a test binary that ran out of time, a test whose failure line points at a file
+that is not a test file, or output that stops before the line saying where the
+tests were. The check is then handled exactly as it would have been without a
+reading.
+
+A reading only describes a failure. A check fails or passes exactly as it
+would without one, and a reading spends nothing and decides nothing. Later
+work uses the list to tell whether a change touched the failing tests (see
+[the design for failures in tests a change does not
+touch](designs/recoverable-and-terminal-failures.md#a-check-that-fails-only-in-tests-the-change-does-not-touch)).
+
+`failing_tests` is a configuration key. A running part of the product on a
+build from before it refuses a file that carries it, so restart the product
+after upgrading and before adding it.
+
 ## Scheduling ready work
 
 `yoyo run <id>` is you naming an item. `yoyo work` is the harness choosing:

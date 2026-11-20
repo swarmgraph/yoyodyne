@@ -89,6 +89,13 @@ type Result struct {
 	// reader that judges the change skips such a check rather than counting it
 	// as a failure.
 	CouldNotRun string `json:"could_not_run,omitempty"`
+	// FailingTests is what the project's declared reading (failingtests.go) made
+	// of a check that ran and exited non-zero: each failing test with its file,
+	// or why the failure could not be read that way. It is nil for a check no
+	// reading applies to, and for one that passed, could not run, or was
+	// stopped before it ended. It describes the failure and judges nothing:
+	// the check failed either way.
+	FailingTests *FailingTests `json:"failing_tests,omitempty"`
 }
 
 // Elapsed is how long the check actually ran.
@@ -181,6 +188,11 @@ type Runner struct {
 	// Permits, where set, is asked for a place before each heavy check
 	// launches (permits.go). Nil launches every check at once.
 	Permits Permits
+	// FailingTests are the project's declared readings of how its checks name
+	// their failing tests (failing_tests in the configuration). A check none of
+	// them names is read by none, which is every check of a project that
+	// declares nothing.
+	FailingTests []TestReading
 }
 
 func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Event) error) ([]Result, uint64, error) {
@@ -359,6 +371,10 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		}
 		var observerErrors []error
 		var failure failureCapture
+		var tests *testReader
+		if reading, ok := ReadingFor(r.FailingTests, command); ok {
+			tests = newTestReader(reading)
+		}
 		checkEnvironment := environment
 		if request.ProviderCLIs[index] {
 			checkEnvironment = withProviders
@@ -386,6 +402,9 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			Gate:         gate,
 		}, func(output execution.Output) {
 			failure.add(redactor.Redact(output.Text))
+			if tests != nil {
+				tests.add(redactor.Redact(output.Text))
+			}
 			if len(observerErrors) > 0 {
 				return
 			}
@@ -483,6 +502,11 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			StoppedByStage:  boundByStage && processResult.Status == execution.ProcessTimedOut && ctx.Err() == nil,
 			StoppedByCaller: ctx.Err() != nil && (processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessCancelled),
 			CouldNotRun:     couldNotRun,
+		}
+		if tests != nil && processResult.Status == execution.ProcessFailed && couldNotRun == "" {
+			read := tests.finish()
+			result.FailingTests = &read
+			failure.failingTests = read.Describe()
 		}
 		if !passed && failure.observed {
 			result.FailureOutput = failure.render()

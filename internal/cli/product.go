@@ -921,6 +921,7 @@ func (p *product) mainCheck(repository string, log func(format string, args ...a
 			RedactValues:      execution.SensitiveEnvironmentValues(p.environ),
 			HiddenExecutables: providerExecutables(cfg),
 			Permits:           heavyCheckPermits(cfg, p.stateRoot, p.runner),
+			FailingTests:      cfg.FailingTests,
 		},
 		CheckTimeout: cfg.Execution.LandingCheckTimeout.Duration(),
 		Runs:         runs,

@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -379,6 +380,11 @@ type CheckFailure struct {
 	Command  string `json:"command"`
 	ExitCode int    `json:"exit_code"`
 	Output   string `json:"output,omitempty"`
+	// FailingTests is each failing test with its file, as the project's
+	// declared reading named them from the check's output, or why the failure
+	// could not be read that way (failing_tests in the configuration). It is
+	// absent for a check no reading applies to.
+	FailingTests *checks.FailingTests `json:"failing_tests,omitempty"`
 	// ForgeHeadCommit names the revision a forge check failed on. The forge
 	// reports a conclusion rather than a process exit code, so ExitCode is not
 	// used for this input.
@@ -2247,6 +2253,21 @@ type recordedText struct {
 // Nested records mostly carry their bounds already, in their own Validate. Those
 // are named here at the same bound, so a field over it is cut on its way into
 // the store rather than costing the whole record.
+// failingTestTexts names the free text of a check failure's failing tests,
+// which the reading in internal/checks keeps well inside the bound.
+func failingTestTexts(add func(key, path string, text *string, limit int), key, path string, tests *checks.FailingTests) {
+	if tests == nil {
+		return
+	}
+	add(key+".unread", path+".unread", &tests.Unread, MaxRecordedTextBytes)
+	for index := range tests.Tests {
+		test := &tests.Tests[index]
+		at := fmt.Sprintf("%s.tests[%d]", path, index)
+		add(key+".tests[].name", at+".name", &test.Name, MaxRecordedTextBytes)
+		add(key+".tests[].file", at+".file", &test.File, MaxRecordedTextBytes)
+	}
+}
+
 func (s *State) recordedTexts() []recordedText {
 	var texts []recordedText
 	add := func(key, path string, text *string, limit int, cutNote string, stated bool) {
@@ -2419,6 +2440,7 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	if s.CheckFailure != nil {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
+		failingTestTexts(unstated, "check_failure.failing_tests", "check_failure.failing_tests", s.CheckFailure.FailingTests)
 		reviewBefore("check_failure.review_before", "check_failure.review_before", s.CheckFailure.ReviewBefore)
 	}
 	// What people wrote on the forge, in their own words.
@@ -2500,6 +2522,7 @@ func (s *State) recordedTexts() []recordedText {
 		nested("repair_continuations[].fresh_session", at("repair_continuations", index, "fresh_session"), &continuation.FreshSession, MaxSelectionReasonBytes)
 		if continuation.SupersededCheckFailure != nil {
 			nested("repair_continuations[].superseded_check_failure.output", at("repair_continuations", index, "superseded_check_failure.output"), &continuation.SupersededCheckFailure.Output, MaxCheckOutputBytes)
+			failingTestTexts(unstated, "repair_continuations[].superseded_check_failure.failing_tests", at("repair_continuations", index, "superseded_check_failure.failing_tests"), continuation.SupersededCheckFailure.FailingTests)
 			reviewBefore("repair_continuations[].superseded_check_failure.review_before", at("repair_continuations", index, "superseded_check_failure.review_before"), continuation.SupersededCheckFailure.ReviewBefore)
 		}
 	}

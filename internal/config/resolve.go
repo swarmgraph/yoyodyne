@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
@@ -820,6 +821,10 @@ func (r *resolution) apply(applied layer) error {
 	if document.Install != nil {
 		r.config.Install = append([]InstallStep(nil), (*document.Install)...)
 		r.origins["install"] = applied.origin
+	}
+	if document.FailingTests != nil {
+		r.config.FailingTests = append([]checks.TestReading(nil), (*document.FailingTests)...)
+		r.origins["failing_tests"] = applied.origin
 	}
 
 	for _, name := range sortedAgentNames(document.Agents) {

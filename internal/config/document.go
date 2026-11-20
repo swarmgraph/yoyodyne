@@ -11,6 +11,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/research"
@@ -66,8 +67,10 @@ type configDocument struct {
 	// PathChecks replaces an inherited list entirely, for the same reason.
 	PathChecks *[]PathCheck `yaml:"path_checks"`
 	// Install replaces an inherited list entirely, for the same reason.
-	Install *[]InstallStep           `yaml:"install"`
-	Agents  map[string]agentDocument `yaml:"agents"`
+	Install *[]InstallStep `yaml:"install"`
+	// FailingTests replaces an inherited list entirely, for the same reason.
+	FailingTests *[]checks.TestReading    `yaml:"failing_tests"`
+	Agents       map[string]agentDocument `yaml:"agents"`
 	// Operators replaces an inherited mapping entirely rather than merging into
 	// it, for the reason the check list does and the allow-list it absorbed did:
 	// who may act is a decision, and a mapping silently assembled from two layers
