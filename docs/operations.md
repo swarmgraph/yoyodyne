@@ -426,7 +426,7 @@ The same sentence is on the fourth line under **Waiting on the development
 manager**, as a `service-copies` entry: the supervisor collects every copy it
 stopped and will not stop one it cannot account for, so what is left is
 finding what started it and having that fixed, which is the reliability work
-she resolves. It is among the dashboard's **Factory problems** too. The entry
+she resolves. It is among the dashboard's **Problems** too. The entry
 clears once only the supervisor's own copy runs. Parts the supervisor does not
 start are not counted. A dashboard started by hand beside the product's is
 counted as a copy, and is left running; for the moment a deploy replaces the
@@ -882,7 +882,7 @@ same ending, so the cause can be read without the session. The one-line entry
 in `yoyo status` does not carry it; `--json` has it as `failure_output`. A pass
 recorded before this, or a session that printed nothing, carries none.
 
-The dashboard's **Factory problems** section and `yoyo status` carry the same
+The dashboard's **Problems** section and `yoyo status` carry the same
 finding from the shared read model. Further failures raise its count without
 filing another report, and the status line names it even after reaching its
 ordinary listing limit. Completing the watching role's pass or handling the
@@ -4002,7 +4002,7 @@ past that limit reads as the session on its way back for three minutes. A
 session still winding down after that, and not saying it is waiting out a
 promotion or a document landing run, has stopped restarting — stuck, or killed
 while it waited — and is reported as a factory problem rather than as a session
-on its way back: `yoyo status`, the dashboard's **Factory problems** section,
+on its way back: `yoyo status`, the dashboard's **Problems** section,
 and the channel's heartbeat name the session, say since when and for how long
 it has been past its limit, and say that the supervisor restarts it once it is
 five minutes past that limit, whose move is the harness's. The supervisor's
@@ -5242,7 +5242,7 @@ everything that lists runs.
 - **What you see.** The dashboard's standing and `yoyo status` read past it.
   The running panel lists every run in flight that reads, and every other
   section that lists runs does the same. The record is named among the
-  **Factory problems** and on the needs-a-human line as an **unreadable run**:
+  **Problems** and on the needs-a-human line as an **unreadable run**:
   the run, its file under the product's state, and what refused it. It is the
   development manager's to look into.
 - **What acts on runs.** The scheduler, reservations, reconcile, and the
@@ -6627,7 +6627,7 @@ is no longer its role's current one — replaced, as the development manager's
 `chat-419cedb4…` was on 2026-09-24 — is never listed, and its refusals count
 toward no hold. [A watch session inside a recorded
 window](#a-watch-session-inside-a-recorded-window) says how the served turn is
-recorded; the dashboard's capacity section, `yoyo status`, the channel's
+recorded; the dashboard's problems section, `yoyo status`, the channel's
 provider-hold message, and the watch session's hold on intake all read this one
 derivation. Where either the record of what was served or the conversation
 records could not be read, nothing is cleared early by either of them, and the
@@ -6635,12 +6635,25 @@ failure is named in `runs_problem` and `conversations_problem` alike — the
 evidence clears stopped runs as well as conversations, so both lists may be
 longer than they would have been — and on the "Needs a human" line's
 `needs_human_problem`, since the hold over every role reads the same evidence.
+
+`standing.problems` is everything broken, stalled, blocked, or degraded as one
+list, which the dashboard's problems section shows: every `needs_human` entry,
+every `factory_problems` entry, and each run and conversation above, each said
+once. Each carries its `kind` (`broken`, `stalled`, `blocked`, or `degraded`),
+the `identity` repeats fold onto, the attention `entry` it came from — whose
+`mover` and `ownership` are the ownership registry's answer — `since` and
+`latest` where the record keeps them, its `count`, its `cost` (`runs`,
+`waiting`, `stood_seconds` where the start is known, and `money`, which reads
+`not recorded`), `fixed_by` with `fixed_by_says` where an open item cites its
+record, and the identifiers of its `sources`. The entries whose `mover` is
+`operator` are exactly the `needs_human` entries whose mover is the operator.
+`problems_problem` names every list it could not read whole.
 A run waiting on a login or a network is
 not capacity and is not here; the outage banner says it. Both lists are always
 present, and each says under `runs_problem` or `conversations_problem` when
 its records could not be read rather than reporting an empty list. It is not
 printed as a fifth line: it is the read model's capacity query, carried for the
-capacity panel and for scripts.
+dashboard's problems section, which lists each entry as degraded, and for scripts.
 
 ## Reading why the scheduler has not started an item
 
@@ -7336,8 +7349,8 @@ against the answer.
 `yoyo dashboard` serves what `yoyo status` reads — [the
 summary](#where-things-stand-in-five-answers-the-summary), the four lines, the
 capacity state carried under them, what the harness is spending, and what
-landed — to a browser on this machine, as one page of nine sections opening
-with the summary, with a tenth, Merge queues, shown only where the product has
+landed — to a browser on this machine, as one page of eight sections opening
+with the summary, with a ninth, Merge queues, shown only where the product has
 a merge queue record, and keeps serving it until you stop it. With
 [`services.dashboard.hide_summary`](configuration.md#services) set, the page
 leaves the summary out and opens with the four lines:
@@ -7863,7 +7876,7 @@ first kind does not last.
 
 ### What the page presents
 
-Eight sections, top to bottom, and a ninth below them only where the product
+Seven sections, top to bottom, and an eighth below them only where the product
 has a merge queue record, each drawn from the read model and from nothing
 else. Above them, one banner and only one, while it stands: the same sentence
 the terminal prints above the four lines when the harness is paused on the
@@ -7999,40 +8012,59 @@ slowly or not at all`.
    last 24 hours" in another is a page with two cost figures a reader has to
    reconcile, and with the money moved out this section needs no pricing at all,
    which is what keeps the page at one read of the event logs rather than two.
-6. **Provider capacity** — the capacity-blocked state under
-   `standing.capacity_blocked`: each run parked or held on provider capacity,
-   with what refused it, since when, the reset it is waiting out or that none
-   was named, how much of its pause budget it has spent, whether its change is
-   preserved, and what to do about it — `nothing needs doing` for a run that is
-   only asleep, and the remedy for one that stopped; each conversation the
-   provider is still refusing, with its model, its refusals, and its reset; and,
-   when every role is held at once, a line saying so with the agents, the
-   models, the alternates or the lack of them, the refusals, and the reset.
-7. **Factory problems** — repeatedly failing product passes from
-   `standing.factory_problems`, with the pass, its current consecutive failure
-   count, the local time the failures began, the latest error, who watches it,
-   and who resolves its cause. An unreadable sweep or handling log says so in
-   this section. The finding ends when its own pass next carries out its work,
-   finished or with more waiting, as described
+6. **Problems: broken, stalled, blocked, or degraded** — everything the
+   harness is not doing that it should, where nothing in the ordinary flow
+   fixes it by itself, from `standing.problems`. It is one list drawn from
+   three: every entry on the needs-a-human line, every factory problem, and
+   every run and conversation held on provider capacity, each entry said once
+   however many of those lists carry it. The page groups it under one heading
+   per kind, broken first, each heading saying how many are under it:
+   **broken**, the harness failing at its own doing (a product pass failing
+   over and over, a part the supervisor left down, a run record that will not
+   read, the tracker or GitHub not answering); **stalled**, nothing moving that
+   should (a queue nothing pulls, a run that ended owing a step, a merge whose
+   checks cannot be read); **blocked**, a decision somebody owes that is
+   unmade (stopped runs waiting on the development manager, proposed changes
+   waiting on their owner, reports nobody has handled, a step only a person
+   can take); and **degraded**, running but worse. Every entry says what is
+   wrong; since when, in the reader's zone, with the latest occurrence where
+   the record keeps one, or `not recorded`; how many it covers; what it has
+   cost so far — the runs spent on it, what waits behind it, how long it has
+   stood, and money, which reads `not recorded` because no record yet ties
+   spend to a problem; whose move it is, from the
+   [ownership registry](designs/ownership-and-the-operator.md), with the act
+   that ends it; and the work item that fixes it, as a button that opens the
+   item, or `none admitted yet`. The fixing item is the open item whose own
+   text cites the problem's record — a run's, a report's, or a proposed
+   change's identifier — the most urgent first, or the item the registry names
+   as closing a gap in the harness. An entry whose move is yours says
+   `yours` beside its kind, and those entries are exactly what **Needs a
+   human** counts as waiting on the operator: an entry beside the line that
+   the registry gives to the operator is put on the line too. A merge GitHub
+   has queued with its checks passing is not listed.
+
+   Provider capacity has no section of its own. The provider holding every
+   role, each run parked or stopped on provider capacity (`standing.capacity_blocked`
+   carries the same runs whole), each conversation the provider is still
+   refusing, and a provider usage limit past
+   `execution.usage_window_degraded_percent` are each a degraded entry. A run
+   asleep on a reset and a run the usage window gave back to the queue are
+   the harness's; a run the refusal stopped with its item handed back is the
+   development manager's to decide; a refused conversation and a limit past
+   its threshold are nobody's, because they lift on the provider's clock.
+   None of them is the operator's. A failing product pass is one broken entry
+   with how many times in a row it has failed, since when, its latest error,
+   who watches it, and who resolves its cause; it ends when its own pass next
+   carries out its work, as described
    [under maintenance](#the-supervisors-maintenance-pass). A watch session
-   that has been past its limit for winding down for three minutes without
-   restarting is listed here too, naming the session, since when, and for how
-   long, until a session
-   running the deployed build takes over. One waiting out a run at its
-   promotion is not listed, however long the promotion takes. So is a part
-   the supervisor starts with
+   past its limit for winding down for three minutes without restarting, a
+   part the supervisor starts with
    [more than one copy running](#starting-the-product-and-stopping-it), each
-   copy with its process, build, and start, until only the supervisor's own
-   copy runs. So is a provider usage limit past
-   `execution.usage_window_degraded_percent`, as degraded capacity: the
-   account, the limit, its share used, its reset, and how old the reading
-   is. It is nobody's move — the limit lifts on the provider's clock, and a
-   refusal when it comes is waited out by the harness — so it is not on the
-   attention line, and it clears when a reading below the threshold arrives
-   or the reset passes. So is each
-   [run record that will not read](#one-run-record-that-will-not-read), as an
-   unreadable run: the run, its file, and what refused it.
-8. **Program managers** — each [program manager](designs/program-manager.md)
+   [run record that will not read](#one-run-record-that-will-not-read), and a
+   role's pass that found something and left no trace of it are listed here
+   as they are on the attention line. A list it could not read whole says so
+   above the entries.
+7. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),
    by name, opening with the three lists its lane report opens with —
@@ -8046,8 +8078,8 @@ slowly or not at all`.
    completed; when its report was written, or that it has written none; how
    many restart requests it has open; and a button that
    [opens its current report](#opening-a-program-managers-report).
-9. **Merge queues** — shown only where the product has a merge queue record;
-   a product with none shows no panel at all, so the page is the eight
+8. **Merge queues** — shown only where the product has a merge queue record;
+   a product with none shows no panel at all, so the page is the seven
    sections above. For each target branch: how many changes wait to land and
    how many have finished, what the queue's worker last found, why the queue
    last refused a change where it did, and one line per change naming the work

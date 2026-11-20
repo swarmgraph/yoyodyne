@@ -60,5 +60,6 @@
   },
   "startable": 0,
   "admitted_items": [],
-  "startable_items": []
+  "startable_items": [],
+  "problems": []
 }

@@ -760,7 +760,15 @@ type Standing struct {
 	// carries, projected for the dashboard's factory-problems section.
 	FactoryProblems        []Attention `json:"factory_problems"`
 	FactoryProblemsProblem string      `json:"factory_problems_problem,omitempty"`
-	ObservedAt             time.Time   `json:"observed_at"`
+	// Problems is everything broken, stalled, blocked, or degraded as one list,
+	// each with its kind, age, count, cost, owner, and fixing item: the
+	// needs-a-human line, the factory problems, and the work held on provider
+	// capacity, folded by identity (problems.go). Its entries whose owner is the
+	// operator are exactly the needs-a-human line's. ProblemsProblem names every
+	// source the list could not read whole.
+	Problems        []Problem `json:"problems"`
+	ProblemsProblem string    `json:"problems_problem,omitempty"`
+	ObservedAt      time.Time `json:"observed_at"`
 	// TrackerListing is when the tracker's open and ready listings this
 	// standing was read from were taken, which can be up to a minute before
 	// ObservedAt (sharedlisting.go), and what the latest listing said where it
@@ -1613,6 +1621,18 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 			standing.FactoryProblems[index].titles = standing.Titles
 			standing.FactoryProblems[index].wording = standing.wording
 		}
+	}
+	// Everything broken, stalled, blocked, or degraded, as one list, built
+	// once every entry it is drawn from carries its titles; then the line takes
+	// any of them that is the operator's and it does not carry yet.
+	var fixing []beads.WorkItem
+	if listedErr == nil {
+		fixing = listed
+	}
+	standing.SetProblems(fixing)
+	for index := range standing.NeedsHuman {
+		standing.NeedsHuman[index].titles = standing.Titles
+		standing.NeedsHuman[index].wording = standing.wording
 	}
 	for index := range standing.ProgramManagers {
 		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)

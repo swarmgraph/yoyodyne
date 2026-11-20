@@ -98,5 +98,48 @@
       "restart_requests": []
     }
   ],
-  "program_managers_problem": "the program managers' restart requests could not be read: open program-managers/restart-requests.jsonl: permission denied"
+  "program_managers_problem": "the program managers' restart requests could not be read: open program-managers/restart-requests.jsonl: permission denied",
+  "problems": [
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 7389,
+        "waiting": 0
+      },
+      "count": 3,
+      "entry": {
+        "capacity_blocked": {
+          "conversation": {
+            "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
+            "model": "claude-opus-5",
+            "refusals": 3,
+            "refused_by": "an exhausted usage limit (seven_day)",
+            "remedy": "nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then",
+            "resets_at": "2026-09-19T18:50:00Z",
+            "since": "2026-09-19T12:02:00Z",
+            "state": "capacity-blocked",
+            "waiting": "the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider"
+          }
+        },
+        "id": "chat-91253e0e070c17b0663651cc48602122",
+        "kind": "capacity-blocked",
+        "label": "held on provider capacity",
+        "mover": "nobody",
+        "ownership": {
+          "owner": "nobody",
+          "remedy": "nothing: the turn is served by asking again once the limit lifts"
+        },
+        "what": "the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider: 3 turn(s) refused on an exhausted usage limit (seven_day) since 2026-09-19T12:02:00Z; it resets at 2026-09-19T18:50:00Z",
+        "whose": "nobody's — nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then"
+      },
+      "identity": "degraded:capacity-blocked:chat-91253e0e070c17b0663651cc48602122:",
+      "kind": "degraded",
+      "since": "2026-09-19T12:02:00Z",
+      "sources": [
+        "chat-91253e0e070c17b0663651cc48602122"
+      ]
+    }
+  ],
+  "problems_problem": "the recorded directives could not be read: open directives: permission denied; the run records could not be read: open runs: permission denied"
 }

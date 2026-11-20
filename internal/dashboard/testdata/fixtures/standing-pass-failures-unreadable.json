@@ -18,5 +18,7 @@
   "startable": 0,
   "admitted_items": [],
   "startable_items": [],
-  "factory_problems_problem": "product pass failures could not be read whole: permission denied"
+  "factory_problems_problem": "product pass failures could not be read whole: permission denied",
+  "problems": [],
+  "problems_problem": "product pass failures could not be read whole: permission denied"
 }

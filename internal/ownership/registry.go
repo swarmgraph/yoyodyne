@@ -158,6 +158,10 @@ type Record struct {
 	// assistant wrote it. Reason is why the recorded owner is the operator.
 	RecordedOwner      Mover
 	RecordedByOperator bool
+
+	// Capacity is where a run or conversation parked or held on the provider's
+	// capacity stands, on a capacity-blocked entry.
+	Capacity CapacityStand
 }
 
 // HoldSwitch is which of the three switches a hold entry is about.
@@ -205,6 +209,7 @@ var registry = map[Kind]Rule{
 	KindLaneHumanBlock:    laneHumanBlockRule,
 	KindDocumentApproval:  documentApprovalRule,
 	KindUnreadableRun:     unreadableRunRule,
+	KindCapacityBlocked:   capacityBlockedRule,
 	KindStoppage:          stoppageRule,
 	KindFollowUp:          followUpRule,
 	KindEmptySlot:         emptySlotRule,
@@ -648,6 +653,26 @@ func capacityDegradedRule(Record) (Answer, bool) {
 // run meanwhile, so whether it is a run still going and what becomes of its
 // work is the development manager's to find out; the harness reads it again as
 // soon as its file changes.
+// capacityBlockedRule is a run or conversation parked or held on the
+// provider's capacity. A run asleep on a reset asks again by itself, and one the
+// usage window stopped is pulled again once the window resets, so both are the
+// harness's. A run the refusal stopped handed its item to the development
+// manager, whose decision it is. A refused turn is served by asking again once
+// the limit lifts, which waits on nobody.
+func capacityBlockedRule(r Record) (Answer, bool) {
+	switch r.Capacity {
+	case CapacityRunWaiting:
+		return owned(MoverHarness, "ask the provider again at the run's next probe", "")
+	case CapacityRunRequeued:
+		return owned(MoverHarness, "pull the item again once the usage window resets", "")
+	case CapacityRunStopped:
+		return owned(MoverDevelopmentManager, "decide what becomes of the stopped run", "triage decision")
+	case CapacityTurnRefused:
+		return owned(MoverNobody, "nothing: the turn is served by asking again once the limit lifts", "")
+	}
+	return Answer{}, false
+}
+
 func unreadableRunRule(Record) (Answer, bool) {
 	return owned(MoverDevelopmentManager, "find out why the run record does not read and settle the run", "")
 }

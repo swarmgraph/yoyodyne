@@ -264,27 +264,49 @@
             <p id="throughput-empty" class="empty">Nothing ran in the last 7 days, from 2026-09-13.</p>
           </div>
         </section>
-        <section id="capacity" class="panel capacity" data-state="empty" aria-labelledby="capacity-heading">
-          <div class="panel-head">
-            <h2 id="capacity-heading">Provider capacity</h2>
-            <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
-          </div>
-          <div class="section-empty">
-            <p id="capacity-empty" class="empty">No run or conversation is waiting on provider capacity, and no provider usage limit is holding every role.</p>
-          </div>
-        </section>
         <section id="factory" class="panel factory" data-state="ready" aria-labelledby="factory-heading">
           <div class="panel-head">
-            <h2 id="factory-heading">Factory problems</h2>
-            <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
+            <h2 id="factory-heading">Problems: broken, stalled, blocked, or degraded</h2>
+            <p class="panel-note">everything the harness is not doing that it should, where nothing in the ordinary flow fixes it by itself, broken first; each with how long it has stood, what it has cost, who has to act next, the work item that fixes it, and how many it covers. Work held on provider capacity is listed here as degraded. The entries marked yours are the ones Needs a human counts.</p>
           </div>
           <div class="section-ready">
-            <ul id="factory-list" class="held-list">
-              <li class="held">
-                <h3 class="held-title">the product pass maintenance has failed 5 times in a row since 2026-10-04 12:00 UTC; latest: reconcile: last error</h3>
-                <p class="held-reason">the program manager's — the factory-flow program manager factory-flow-pm watches and must answer this finding; the development manager resolves the cause; the affected pass succeeding clears this finding</p>
-              </li>
-            </ul>
+            <ul id="factory-problems" class="degraded" hidden></ul>
+            <div id="factory-kinds" class="problem-kinds">
+              <div class="problem-kind problem-kind-broken">
+                <h3 class="problem-kind-heading">Broken (1): the harness failed at its own doing</h3>
+                <ul class="held-list">
+                  <li class="held problem problem-broken">
+                    <div class="held-head">
+                      <span class="held-kind">scheduled task failing</span>
+                      <span class="held-state">broken</span>
+                    </div>
+                    <h3 class="held-title">the product pass maintenance has failed 5 times in a row since 2026-10-04 12:00 UTC; latest: reconcile: last error</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>2026-10-04 12:00 UTC; latest 2026-10-04 12:20 UTC</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>5</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>5 runs spent on it; how long it has stood is not recorded; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the program manager's — the factory-flow program manager factory-flow-pm watches and must answer this finding; the development manager resolves the cause; the affected pass succeeding clears this finding</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </section>
         <section id="managers" class="panel managers" data-state="empty" aria-labelledby="managers-heading">
