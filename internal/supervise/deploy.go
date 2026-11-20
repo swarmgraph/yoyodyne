@@ -228,6 +228,7 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 	}
 	if build == "" || build == s.deployed {
 		delete(s.behindSince, child.Name())
+		delete(s.overdueSince, child.Name())
 		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
 		state.RestartingInto = ""
 		state.Redeploy = ""
@@ -336,6 +337,7 @@ func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runsta
 		return
 	}
 	if windingDown {
+		delete(s.overdueSince, child.Name())
 		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
 		return
 	}
@@ -344,7 +346,22 @@ func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runsta
 	if since.After(due) {
 		due = since
 	}
+	// The grace is counted from the first look at which this supervisor, awake,
+	// saw the move overdue, not from the moment it fell due: a machine that slept
+	// across the due moment wakes with the scheduler's own loop yet to run, and
+	// stopping it then would cut live runs short because the laptop slept.
 	deadline := due.Add(scheduled.MoveGrace())
+	if !now.Before(due) {
+		if s.overdueSince == nil {
+			s.overdueSince = make(map[config.ServiceName]time.Time)
+		}
+		first, seenOverdue := s.overdueSince[child.Name()]
+		if !seenOverdue {
+			first = now
+			s.overdueSince[child.Name()] = first
+		}
+		deadline = first.Add(scheduled.MoveGrace())
+	}
 	state.MoveDue, state.MoveBy, state.MoveHeld = due, deadline, ""
 	if now.Before(due) {
 		state.Redeploy = fmt.Sprintf("%s; it moves onto it at %s, the least time after its last move (execution.build_move_interval), and goes on working on its own build until then", apart, localStamp(due))
@@ -454,6 +471,7 @@ func (s *Supervisor) restarted(child Child, state *runstate.SupervisedChild, now
 	state.Redeploy = ""
 	state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
 	delete(s.behindSince, child.Name())
+	delete(s.overdueSince, child.Name())
 	s.log("the %s service %s and is on build %s: restart %d into a deployed build, a restart rather than a death, so its restart bound is untouched", child.Name(), how, short(into), state.Restarts)
 }
 

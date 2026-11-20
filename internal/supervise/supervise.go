@@ -201,6 +201,9 @@ type Supervisor struct {
 	// behindSince is when the supervisor first found each child that moves on
 	// a schedule of its own behind the binary on disk (moveOverdue).
 	behindSince map[config.ServiceName]time.Time
+	// overdueSince is the first look at which each such child's move was found
+	// overdue; its grace is counted from there (moveOverdue).
+	overdueSince map[config.ServiceName]time.Time
 }
 
 // ErrAlreadyRunning is a supervisor refused because another holds the lease.

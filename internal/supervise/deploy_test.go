@@ -685,6 +685,11 @@ func TestASchedulerThatHasNotBegunADueMoveIsMovedOntoTheDeployedBuild(t *testing
 	windingDown = false
 	clock.advance(DeployEvery)
 	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want the grace counted again from the first look that found the move overdue and not begun", scheduler.stopCount())
+	}
+	clock.advance(20*time.Minute + DeployEvery)
+	supervisor.Tick(context.Background())
 	if scheduler.stopCount() != 1 || scheduler.startCount() != 2 {
 		t.Fatalf("stops = %d starts = %d, want the scheduler stopped once and started from the deployed binary", scheduler.stopCount(), scheduler.startCount())
 	}
@@ -698,6 +703,46 @@ func TestASchedulerThatHasNotBegunADueMoveIsMovedOntoTheDeployedBuild(t *testing
 	supervisor.Tick(context.Background())
 	if scheduler.stopCount() != 1 {
 		t.Fatalf("stops = %d, want a scheduler on the deployed build left running", scheduler.stopCount())
+	}
+}
+
+// A machine that sleeps across the moment a move fell due and the whole grace
+// past it wakes with the scheduler's own loop yet to run: the first look after
+// waking must not stop it, and a look the grace later, awake, must.
+func TestASchedulerIsNotRestartedAtTheFirstLookAfterTheMachineSleptThroughItsMove(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	next := clock.now.Add(time.Hour)
+	windingDown := false
+	scheduler := scheduledScheduler{
+		selfRestartingChild: selfRestartingChild{newDeployable(config.ServiceScheduler, binary, nil)},
+		next:                &next,
+		windingDown:         &windingDown,
+	}
+	supervisor := deploySupervisor(t, store, clock, binary, scheduler)
+	supervisor.Tick(context.Background())
+	binary.deploy(t, "2222222222222222")
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+
+	// Asleep for three hours: due, and far past the grace, at the first look.
+	clock.advance(3 * time.Hour)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want the scheduler left to begin its move after the machine woke", scheduler.stopCount())
+	}
+	got := child(t, loaded(t, store), config.ServiceScheduler)
+	if !got.MoveBy.After(clock.now) {
+		t.Fatalf("scheduler = %+v, want its restart time still ahead of %s", got, clock.now)
+	}
+
+	clock.advance(20*time.Minute + DeployEvery)
+	supervisor.Tick(context.Background())
+	if scheduler.stopCount() != 1 {
+		t.Fatalf("stops = %d, want the scheduler restarted once it had its whole grace awake", scheduler.stopCount())
 	}
 }
 
@@ -721,6 +766,8 @@ func TestASchedulerThatCannotMoveWhenDueIsNamedWhileARestartIsHeld(t *testing.T)
 	supervisor.Tick(context.Background())
 	binary.deploy(t, "2222222222222222")
 	clock.advance(time.Hour)
+	supervisor.Tick(context.Background())
+	clock.advance(20*time.Minute + DeployEvery)
 	supervisor.Tick(context.Background())
 	got := child(t, loaded(t, store), config.ServiceScheduler)
 	if scheduler.stopCount() != 0 {

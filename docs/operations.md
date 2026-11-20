@@ -276,7 +276,7 @@ the part is doing:
   was due, and when the supervisor moves it; the next maintenance pass's
   `redeploy` step and `yoyo status` both carry that line, and the development manager's health reading names the scheduler as left behind, with both builds and when the move was due. While the move is not yet due, that reading does not count the scheduler's old build as a problem. A session that has
   not begun its move by its limit for winding down and five more minutes past the
-  moment it fell due is restarted the same way as one stuck winding down. That
+  first look at which the supervisor, awake, found the move overdue is restarted the same way as one stuck winding down. Counting from that look, not from the due moment, means a laptop that slept across the due moment never has the scheduler's runs stopped at the first look on waking. That
   holds whatever build the scheduler runs, since it is the supervisor's
   build that decides it.
 - **The Slack sink is restarted by the supervisor**, between two passes over
