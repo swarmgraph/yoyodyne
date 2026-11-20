@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-19T06:06:35.781773Z
       reason: 'Point 1 of the five design corrections (yoyodyne-hs28), from the reviewer''s report 399c215d: the log reader section named only the program manager as holding the tool, while the development manager now holds it too. A short paragraph saying both roles hold it, at the same bounds and reading the same kinds, is added before the closing paragraph; nothing else in the section changes. Read whole at main 3396a1a9. The development manager''s grant is taken from the reviewer''s report; the reviewer of this revision should confirm it against the role bundles. The program-manager half of this point waits until that design can be read whole.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T07:36:22.967144Z
+      reason: 'Replacing the coined vocabulary in the governed documents, the tool interface design (part of yoyodyne-ifd.437.21). The retired word is replaced in five places: the descriptor''s bullet becomes standing checks; gate evidence becomes the evidence a change carries for its checks; the human gate, written with a space and so not an exempt stored name, becomes the record of a step only a person can take; the protected-path gate becomes the protected-path comparison, as the terms register words it. Two metaphors become plain words: load-bearing and one-off. Nothing else changes. Read whole at main b8562a78. The register''s row naming this document is left for the register''s owner; the terms check logs it as ready to remove and passes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -47,6 +51,11 @@ approvals:
       by: harness
       at: 2026-11-19T06:06:35.781773Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3050, for document-3050.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-20T07:36:22.967144Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3162, for document-3162.1 under the automatic approval policy
 ---
 # Tools: one interface for what the harness does on a role's behalf
 
@@ -54,7 +63,7 @@ approvals:
 
 Every typed block a role ends a reply with is the harness acting for it: reading an item, reading a path at a recorded commit, filing a report, admitting work in a lane, writing a memory, asking another role. Each was built as its own protocol — its own block, bounds, audit event, redaction, and contract paragraph — so each new ability has cost a design amendment and a build, and a role that lacked one read stayed blind for a day. This design makes them one thing: a **tool** is a registered action a conversation may invoke, described once, carried out by one reader, bounded and recorded the same way, and granted by the role's bundle. It serves the goal that roles stay configurable without safety invariants becoming optional: adding a tool changes one descriptor, and nothing about who may hold it moves.
 
-A tool is never a provider tool. Conversational roles run with no tools of their own, and that stays true and load-bearing; a tool here is held by the harness and worked on the role's behalf, from a block in the reply, under bounds the role cannot move.
+A tool is never a provider tool. Conversational roles run with no tools of their own, and that stays true, because the safety boundaries depend on it; a tool here is held by the harness and worked on the role's behalf, from a block in the reply, under bounds the role cannot move.
 
 ## What a tool is
 
@@ -65,11 +74,11 @@ A tool is an entry in the action registry [configurable-workflows](configurable-
 - **parameters**: typed literals only, validated before anything runs, the block refused whole on a bad one and the refusal handed back inside the same message as tracker refusals are today;
 - **bounds**: requests per reply, rounds per message, bytes returned per request and per reply, and a per-reply cost note where the result feeds the prompt; the descriptor's bounds are the widest any grant may hold, and an agent's block may only tighten them;
 - **scope**: what a subject must satisfy at the moment of the act — a lane label, the agent's own store, an admitted parent — read from the record as the action runs and never from a listing;
-- **gates**: the standing ones every act passes — the spending pause, the intake hold where it applies, `approvals.work_items` for an admission — named so the reader applies them rather than each tool re-implementing them;
+- **standing checks**: the checks every act passes — the spending pause, the intake hold where it applies, `approvals.work_items` for an admission — named so the reader applies them rather than each tool re-implementing them;
 - **redaction and framing**: every result is redacted before it reaches the prompt with the values every provider-facing path is redacted against, framed as untrusted evidence, and for the Lead Product Manager labeled as description of the implementation and never intent;
 - **audit**: every invocation records `tool.requested`, then `tool.performed` or `tool.refused`, on the conversation, naming the tool, the redacted parameters, the bounds spent, and never the content; a pass records the same on its pass record.
 
-Three things are never tools. Gate evidence and the human gate are minted only by registered actions the workflow runtime invokes, per `integration-requires-revision-bound-evidence`. Running a command or a check is not a tool: a role that needs something run admits bounded developer work. And publishing, integrating, or pushing is the harness's own act on a run and reaches no conversation.
+Three things are never tools. The evidence a change carries for its checks, and the record of a step only a person can take, are created only by registered actions the workflow runtime invokes, per `integration-requires-revision-bound-evidence`. Running a command or a check is not a tool: a role that needs something run admits bounded developer work. And publishing, integrating, or pushing is the harness's own act on a run and reaches no conversation.
 
 ## Grants
 
@@ -77,7 +86,7 @@ A grant is membership in a role bundle, and the bundle is the ceiling. Three lay
 
 1. **The role bundle grants.** Every agent on a role holds every tool its bundle names, at the descriptor's bounds. The shipped bundles are Go; adding a tool to one is a row in the bundle, a row in the authority inventory, and the descriptor — the parity guard's three, and no design amendment, because this design governs the classes and the registry lists the members. `yoyo config show` reports each agent's tools off the registry, as it reports capabilities today.
 2. **An agent's block narrows.** `tools:` under an agent may carry `deny`, a list of tool ids the agent does not hold, and `bounds`, per-tool limits no larger than the descriptor's. A tool the role does not hold cannot be named there, a bound cannot be widened there, and neither is a key a persona or a remit can carry. That is configuration selecting, per `configuration-never-grants-authority`.
-3. **A protected role definition widens.** A named bundle under `.yoyodyne/roles/`, composing registered tools, inert until operator-authorized activation pins its digest, that an agent profile binds to in place of a shipped bundle. That is the per-persona grant, and its properties are the ones [configurable-workflows](configurable-workflows.md) already fixes: the protected-path gate refuses any grant naming the directory, the activated digest is the authority, and the audit history is a CLI surface. When it opens is [authority-by-capability](../decisions/authority-by-capability.md)'s: after behavioral parity, unless the operator amends that record for the read class as the option stated to him.
+3. **A protected role definition widens.** A named bundle under `.yoyodyne/roles/`, composing registered tools, inert until operator-authorized activation pins its digest, that an agent profile binds to in place of a shipped bundle. That is the per-persona grant, and its properties are the ones [configurable-workflows](configurable-workflows.md) already fixes: the protected-path comparison refuses any grant naming the directory, the activated digest is the authority, and the audit history is a CLI surface. When it opens is [authority-by-capability](../decisions/authority-by-capability.md)'s: after behavioral parity, unless the operator amends that record for the read class as the option stated to him.
 
 Personas and remits grant nothing, as before. A persona may tell an agent when to use a tool; it cannot give it one.
 
@@ -91,7 +100,7 @@ Research is a tool whose implementation configuration supplies: a command the op
 
 ## Migration of the existing blocks
 
-Every block a conversation reads today becomes a descriptor, with its block name kept so no persona or contract test breaks, and the behavior held to the tests it has. A conformance test holds every capability the registry declares to exactly one of: a tool descriptor, or a named entry in the list of capabilities no conversation invokes (gate evidence, the human gate, publication). The order, each slice independently landable:
+Every block a conversation reads today becomes a descriptor, with its block name kept so no persona or contract test breaks, and the behavior held to the tests it has. A conformance test holds every capability the registry declares to exactly one of: a tool descriptor, or a named entry in the list of capabilities no conversation invokes (the evidence a change carries for its checks, the record of a step only a person can take, and publication). The order, each slice independently landable:
 
 1. The descriptor type, the registry marking, the generated contract section, the audit events, and the first new tool, the log reader below.
 2. The reads: `repository.read`, `repository.list`, `readmodel.read`, `work-item.read` and survey, re-expressed unchanged.
@@ -127,7 +136,7 @@ A request may carry two further parameters. A read of pass records may name one 
 
 **Who holds it.** Two roles hold it, each through a row in its own bundle and at the bounds above: the program manager and the development manager. The development manager reads the same kinds the program manager does, and neither role's bundle may widen what this section says it reads. Another role gains it only by a row in its bundle, under the grant rules above.
 
-It is the archetype of the class rather than a one-off: its descriptor is the first the interface carries, and its grant to the program manager is what discharges yoyodyne-ifd.437.9 and builds yoyodyne-ifd.430.13.13.
+It is the first of its class rather than a special case: its descriptor is the first the interface carries, and its grant to the program manager is what discharges yoyodyne-ifd.437.9 and builds yoyodyne-ifd.430.13.13.
 
 ## Searching the repository
 
