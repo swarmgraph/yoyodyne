@@ -2036,6 +2036,17 @@ reaches `.claude/settings.json`, `.claude/settings.local.json`, or
 `.yoyodyne/roles/`, which stay beyond any grant as above. [How work flows](work.md#what-an-item-may-ask-of-a-run)
 states the rule from the item's side.
 
+**The configuration directory is read the same way, by path alone.** A
+done-condition that names a file under `.yoyodyne/` — `.yoyodyne/config.yaml`
+— is refused unless the item carries a `Protected-path grant:` line covering it
+(the file, or a directory around it), because a run's edit there is refused and
+reverted and every repair attempt goes on it. The fixes are the grant, where the
+change is already decided, or an executor naming the conversation of the role
+whose work the change is, which keeps the item from ever being selected for a run.
+Naming the directory itself or a folder inside it names no file and is not read,
+and the role definitions under `.yoyodyne/roles/` stay beyond every grant: they
+are refused exactly as before.
+
 **What a grant does not do.** It admits the path; it does not decide what is
 written into it. The legitimate use of the exception is recording a change
 somebody already decided — an approved amendment, an operator's decision — never

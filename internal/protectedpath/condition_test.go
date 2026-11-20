@@ -140,11 +140,9 @@ func TestOnlyTheArtifactHomesAndTheirDocumentsAreConditions(t *testing.T) {
 	t.Parallel()
 
 	homes := defaultHomes()
-	// docs/work.md is documentation the developer updates as part of the work,
-	// and the configuration directory is protected in a diff but not here: a
-	// condition naming it is about the harness's settings, not another role's
-	// document.
-	description := "Done means docs/work.md states the rule, .yoyodyne/config.yaml names the check, and internal/protectedpath/condition.go carries it; the brief's acceptance criteria hold."
+	// docs/work.md is documentation the developer updates as part of the work.
+	// The configuration directory has its own test below.
+	description := "Done means docs/work.md states the rule, and internal/protectedpath/condition.go carries it; the brief's acceptance criteria hold."
 	if conditions := homes.Ungranted(description, "", nil); len(conditions) != 0 {
 		t.Fatalf("Ungranted() on ordinary paths and a one-word id = %#v, want nothing", conditions)
 	}
@@ -653,5 +651,69 @@ func TestADesignsNameFollowedByAVerbIsNotTheDesign(t *testing.T) {
 		if problems := homes.ConditionProblems(Subject{AcceptanceCriteria: document.clause}); len(problems) != 1 {
 			t.Errorf("ConditionProblems() on acceptance criteria %q = %v, want it refused", document.clause, problems)
 		}
+	}
+}
+
+// A done-condition whose only deliverable is a file under the configuration
+// directory is refused when the item carries no grant for it, because the run's
+// edit would be refused and reverted and every repair spent on it.
+func TestADoneConditionNamingAConfigurationFileIsRefusedWithoutAGrant(t *testing.T) {
+	t.Parallel()
+
+	description := "Raise the pass time limit.\n\nDone means .yoyodyne/config.yaml sets the architect's pass limit to thirty minutes."
+	conditions := defaultHomes().Ungranted(description, "", nil)
+	if len(conditions) != 1 || conditions[0].Path != ".yoyodyne/config.yaml" || !conditions[0].Configuration {
+		t.Fatalf("Ungranted() = %#v, want the one configuration clause", conditions)
+	}
+	refusal := conditions[0].Refusal()
+	for _, want := range []string{"Done means .yoyodyne/config.yaml sets", GrantMarker, "executor"} {
+		if !strings.Contains(refusal, want) {
+			t.Fatalf("refusal %q never says %q", refusal, want)
+		}
+	}
+	if problems := defaultHomes().ConditionProblems(Subject{Description: description}); len(problems) != 1 {
+		t.Fatalf("ConditionProblems() = %v, want the one refusal", problems)
+	}
+	// The acceptance criteria are read whole.
+	if conditions := defaultHomes().Ungranted("", "The limit is set in .yoyodyne/config.yaml.", nil); len(conditions) != 1 {
+		t.Fatalf("Ungranted() on acceptance criteria = %#v, want the one clause", conditions)
+	}
+}
+
+// The same item is admitted with the grant, whether it names the file or the
+// directory, and a conversation that carries the item may state the condition.
+func TestAGrantOrAnExecutorAdmitsAConfigurationCondition(t *testing.T) {
+	t.Parallel()
+
+	description := "Done means .yoyodyne/config.yaml sets the limit.\n\n" + GrantMarker + " .yoyodyne/config.yaml\n"
+	if problems := defaultHomes().ConditionProblems(Subject{Description: description, Granted: Grants(description)}); len(problems) != 0 {
+		t.Fatalf("ConditionProblems() on a granted item = %v, want nothing", problems)
+	}
+	if conditions := defaultHomes().Ungranted(description, "", []string{".yoyodyne"}); len(conditions) != 0 {
+		t.Fatalf("Ungranted() with the directory granted = %#v, want nothing", conditions)
+	}
+	if conditions := defaultHomes().Ungranted(description, "", []string{".yoyodyne/personas"}); len(conditions) != 1 {
+		t.Fatalf("Ungranted() with another path granted = %#v, want the condition refused", conditions)
+	}
+	subject := Subject{Description: "Done means .yoyodyne/config.yaml sets the limit.", Executor: domain.ConversationWith(domain.RoleArchitect)}
+	if problems := defaultHomes().ConditionProblems(subject); len(problems) != 0 {
+		t.Fatalf("ConditionProblems() on an item the architect's conversation carries = %v, want nothing", problems)
+	}
+}
+
+// A path named as background, outside the done-conditions, or a role definition
+// that no grant reaches, is not read by this check.
+func TestAConfigurationPathNamedAsBackgroundIsNotACondition(t *testing.T) {
+	t.Parallel()
+
+	description := "The limit lives in .yoyodyne/config.yaml, which the architect changes.\n\nDone means the harness reads the limit from the field and a test pins it.\n\nSee .yoyodyne/config.yaml."
+	if conditions := defaultHomes().Ungranted(description, "", nil); len(conditions) != 0 {
+		t.Fatalf("Ungranted() on background = %#v, want nothing", conditions)
+	}
+	if conditions := defaultHomes().Ungranted("Done means the files under .yoyodyne/ and .yoyodyne/personas/ are listed.", "", nil); len(conditions) != 0 {
+		t.Fatalf("Ungranted() on directories = %#v, want nothing", conditions)
+	}
+	if conditions := defaultHomes().Ungranted("Done means .yoyodyne/roles/developer.yaml says it.", "", nil); len(conditions) != 0 {
+		t.Fatalf("Ungranted() on a role definition = %#v, want it left to the existing refusal", conditions)
 	}
 }
