@@ -15,10 +15,12 @@
 // whole there through the shared checks runner, heavy-check permits included,
 // and the worktree is removed afterwards however the run ended. The run is
 // recorded with the commit, the time and how each check ended
-// (runstate.MainCheckStore). A failure is never run again to make it pass: it
-// files a critical report naming the commit, the failing tests, the last
-// commit that passed and the commits between, and the next run waits for the
-// branch to move.
+// (runstate.MainCheckStore). A check that fails has its failing tests run once
+// more on the same commit (runFailingAgain). A test that passes then fails
+// only under load, and is reported at warning as that; one that fails again,
+// or a failure that names no test, files a critical report naming the commit,
+// both runs' failing tests, the last commit that passed and the commits
+// between. Either way the next run waits for the branch to move.
 //
 // The schedule is kept in that record rather than in memory, so the supervisor
 // restarting into a new build neither starts a run early nor forgets one is
@@ -60,6 +62,13 @@ const (
 	fetchTimeout    = 5 * time.Minute
 	checkoutTimeout = 10 * time.Minute
 )
+
+// FailingTestsVariable is the environment variable a check run a second time
+// is given, naming the tests and packages its first run's output named
+// failing, one to a line (checks.FailingNames). A check that reads it runs
+// only those; one that does not runs as it always does. It is an environment
+// variable for the reason checks.ChangedGoPackagesVariable is.
+const FailingTestsVariable = "YOYODYNE_FAILING_TESTS"
 
 // retryAfter is how soon after a run that could not run the next is tried,
 // instead of waiting out the whole interval. The regular schedule is unchanged.
@@ -270,19 +279,30 @@ func (c *Check) run(ctx context.Context, startedAt time.Time) Outcome {
 		return Outcome{Said: fmt.Sprintf("the checks on main did not run: %s is still at %s, which they %s on at %s", branch, short(commit), last.Outcome.Words(), runstate.LocalStamp(last.StartedAt))}
 	}
 	run := runstate.MainCheckRun{Branch: branch, Commit: commit, StartedAt: startedAt, Detail: readFrom}
-	results, err := c.checkOut(ctx, commit)
+	ended, err := c.checkOut(ctx, commit)
 	if err != nil {
 		run.Outcome = runstate.MainCheckCouldNotRun
 		run.Detail = joinDetail(run.Detail, err.Error())
 		return c.record(ctx, run)
 	}
-	run.Checks, run.Outcome = summarize(results)
-	if run.Outcome == runstate.MainCheckFailed {
+	run.Checks, run.Outcome = ended, overall(ended)
+	switch {
+	case run.Outcome == runstate.MainCheckFailed:
 		id, err := c.report(ctx, run, standing)
 		if err != nil {
 			run.Detail = joinDetail(run.Detail, fmt.Sprintf("the report of this failure could not be filed: %v", err))
 		}
 		run.ReportID = id
+	case len(passedOnSecondRun(run.Checks)) > 0:
+		id, err := c.reportUnderLoad(run)
+		if err != nil {
+			run.Detail = joinDetail(run.Detail, fmt.Sprintf("the report of the tests that passed only on a second run could not be filed: %v", err))
+		}
+		// A run that could not run files its own report in record, which a
+		// report id here would stop.
+		if run.Outcome == runstate.MainCheckPassed {
+			run.ReportID = id
+		}
 	}
 	return c.record(ctx, run)
 }
@@ -353,40 +373,145 @@ func (c *Check) reportCouldNotRun(run runstate.MainCheckRun) (string, error) {
 	})
 }
 
-// summarize is each check's ending, and the run's: failed where any check
-// failed, could not run where none failed and one could not run, and passed
-// only where every check passed.
-func summarize(results []checks.Result) ([]runstate.MainCheckResult, runstate.MainCheckOutcome) {
-	outcome := runstate.MainCheckPassed
-	if len(results) == 0 {
-		outcome = runstate.MainCheckCouldNotRun
-	}
+// summarize is how each check ended.
+func summarize(results []checks.Result) []runstate.MainCheckResult {
 	ended := make([]runstate.MainCheckResult, 0, len(results))
 	for _, result := range results {
-		check := runstate.MainCheckResult{Command: result.Command, Took: result.Elapsed()}
-		switch {
-		case result.Passed:
-			check.Outcome = runstate.MainCheckPassed
-		case result.CouldNotRun != "" || result.NotLaunched:
-			check.Outcome = runstate.MainCheckCouldNotRun
-			check.Detail = runstate.BoundMainCheckText(firstOf(result.CouldNotRun, "it was stopped before it started"))
-			if outcome == runstate.MainCheckPassed {
-				outcome = runstate.MainCheckCouldNotRun
-			}
-		default:
-			check.Outcome = runstate.MainCheckFailed
-			check.FailingTests = runstate.BoundMainCheckFailingTests(checks.FailingNames(result))
-			if len(check.FailingTests) == 0 {
-				check.Detail = runstate.BoundMainCheckText(fmt.Sprintf("it ended %s with exit code %d and named no failing test", result.Process.Status, result.Process.ExitCode))
-			}
-			outcome = runstate.MainCheckFailed
-		}
-		if check.Took < 0 {
-			check.Took = 0
-		}
-		ended = append(ended, check)
+		ended = append(ended, ending(result))
 	}
-	return ended, outcome
+	return ended
+}
+
+// ending is how one check ended.
+func ending(result checks.Result) runstate.MainCheckResult {
+	check := runstate.MainCheckResult{Command: result.Command, Took: max(result.Elapsed(), 0)}
+	switch {
+	case result.Passed:
+		check.Outcome = runstate.MainCheckPassed
+	case result.CouldNotRun != "" || result.NotLaunched:
+		check.Outcome = runstate.MainCheckCouldNotRun
+		check.Detail = runstate.BoundMainCheckText(firstOf(result.CouldNotRun, "it was stopped before it started"))
+	default:
+		check.Outcome = runstate.MainCheckFailed
+		check.FailingTests = runstate.BoundMainCheckFailingTests(checks.FailingNames(result))
+		if len(check.FailingTests) == 0 {
+			check.Detail = runstate.BoundMainCheckText(fmt.Sprintf("it ended %s with exit code %d and named no failing test", result.Process.Status, result.Process.ExitCode))
+		}
+	}
+	return check
+}
+
+// overall is the run's ending: failed where any check failed, could not run
+// where none failed and one could not run or none ran at all, and passed only
+// where every check passed, a check that passed on its second run included.
+func overall(ended []runstate.MainCheckResult) runstate.MainCheckOutcome {
+	outcome := runstate.MainCheckPassed
+	if len(ended) == 0 {
+		outcome = runstate.MainCheckCouldNotRun
+	}
+	for _, check := range ended {
+		switch check.Outcome {
+		case runstate.MainCheckFailed:
+			return runstate.MainCheckFailed
+		case runstate.MainCheckCouldNotRun:
+			outcome = runstate.MainCheckCouldNotRun
+		}
+	}
+	return outcome
+}
+
+// runFailingAgain runs each check that failed naming its failing tests once
+// more, on the same commit in the same worktree, told only those tests, and
+// records how that second run ended in place of the first, which it keeps as
+// the check's FirstRun.
+//
+// The harness knows nothing of a project's test runner, so it cannot narrow a
+// check itself. It names the failing tests to the check in
+// FailingTestsVariable, and a check that reads it runs only them; this
+// repository's `make race` does (scripts/rerun-failing.sh). A check that does
+// not read it runs whole again, which still answers the same question. A
+// check whose output named no failing test is not run again, because there is
+// nothing to narrow it to, and it stays failed.
+//
+// Its purpose is the test that fails only on a loaded machine: the whole race
+// suite on main runs beside everything else the machine is doing, and a test
+// that fails there and passes on its own is reported at warning as failing
+// under load (reportUnderLoad) rather than as a broken branch. A test that
+// fails both times is the critical failure it always was.
+func (c *Check) runFailingAgain(ctx context.Context, path, commit string, ended []runstate.MainCheckResult) {
+	for i, check := range ended {
+		if check.Outcome != runstate.MainCheckFailed || len(check.FailingTests) == 0 {
+			continue
+		}
+		first := runstate.MainCheckFirstRun{Took: check.Took, FailingTests: append([]string(nil), check.FailingTests...)}
+		results, _, err := c.Checks.Run(ctx, checks.Request{
+			RunID:     "main-check-" + short(commit) + "-again",
+			Directory: path,
+			Commands:  []string{check.Command},
+			Env:       []string{FailingTestsVariable + "=" + strings.Join(check.FailingTests, "\n")},
+			Timeout:   c.CheckTimeout,
+			Unbounded: true,
+			Permit:    checks.PermitRequest{Commit: commit},
+		}, nil)
+		// A second run that could not be made leaves the first run's failure
+		// standing, with the reason it was not run again.
+		again := check
+		switch {
+		case len(results) == 0:
+			first.NotRunAgain = "it was not started"
+			if err != nil {
+				first.NotRunAgain = runstate.BoundMainCheckText(err.Error())
+			}
+		case ending(results[0]).Outcome == runstate.MainCheckCouldNotRun:
+			first.NotRunAgain = ending(results[0]).Detail
+		default:
+			again = ending(results[0])
+			again.Command = check.Command
+		}
+		again.FirstRun = &first
+		ended[i] = again
+	}
+}
+
+// passedOnSecondRun is the checks that failed and then passed when their
+// failing tests were run once more.
+func passedOnSecondRun(ended []runstate.MainCheckResult) []runstate.MainCheckResult {
+	var passed []runstate.MainCheckResult
+	for _, check := range ended {
+		if check.FirstRun != nil && check.Outcome == runstate.MainCheckPassed {
+			passed = append(passed, check)
+		}
+	}
+	return passed
+}
+
+// reportUnderLoad files the warning a run owes for the tests that failed on
+// its first run and passed when run once more on the same commit: they fail
+// under load rather than on that commit's code, so nobody has to drop what
+// they are doing, but each is a fix of its own.
+func (c *Check) reportUnderLoad(run runstate.MainCheckRun) (string, error) {
+	if c.Reports == nil {
+		return "", errors.New("no report pile is wired")
+	}
+	var said []string
+	for _, check := range passedOnSecondRun(run.Checks) {
+		said = append(said, fmt.Sprintf("%q failed in %s naming %s, and passed in %s when only those tests were run once more",
+			check.Command, check.FirstRun.Took.Round(time.Second), strings.Join(check.FirstRun.FailingTests, ", "), check.Took.Round(time.Second)))
+	}
+	message := fmt.Sprintf("Tests failing under load on %s at commit %s, in the run of the checks on main started at %s: %s. "+
+		"They passed on the same commit when run again, so the branch is not broken by them, and the next run of the checks on main is at its usual time. "+
+		"Each still fails when the machine is busy and is a reliability fix of its own.",
+		run.Branch, run.Commit, runstate.LocalStamp(run.StartedAt), strings.Join(said, "; "))
+	id, err := report.NewID()
+	if err != nil {
+		return "", err
+	}
+	return id, c.Reports.Append(report.Report{
+		SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter,
+		RunID: "main-check:" + run.Commit, Build: c.Build,
+		ProductID: c.Product, RepositoryID: c.RepositoryID, Severity: report.SeverityWarning,
+		Message: oneline.Fold(message, report.MaxMessageBytes-len(oneline.Marker)), RecordedAt: c.now().UTC(),
+	})
 }
 
 // report files the critical report a failed run owes.
@@ -411,6 +536,7 @@ func (c *Check) report(ctx context.Context, run runstate.MainCheckRun, standing 
 // tests, the last commit that passed and the commits between.
 func (c *Check) failureMessage(ctx context.Context, run runstate.MainCheckRun, standing runstate.MainCheckStanding) string {
 	var failed []string
+	again, once := false, false
 	for _, check := range run.Checks {
 		if check.Outcome != runstate.MainCheckFailed {
 			continue
@@ -419,7 +545,19 @@ func (c *Check) failureMessage(ctx context.Context, run runstate.MainCheckRun, s
 		if len(check.FailingTests) > 0 {
 			named = "failing: " + strings.Join(check.FailingTests, ", ")
 		}
-		failed = append(failed, fmt.Sprintf("%q (%s)", check.Command, named))
+		switch first := check.FirstRun; {
+		case first == nil:
+			once = true
+			failed = append(failed, fmt.Sprintf("%q (%s, so it was not run again)", check.Command, named))
+		case first.NotRunAgain != "":
+			once = true
+			failed = append(failed, fmt.Sprintf("%q (%s; running those tests once more could not be done: %s)",
+				check.Command, named, first.NotRunAgain))
+		default:
+			again = true
+			failed = append(failed, fmt.Sprintf("%q (first run failed in %s, failing: %s; run again with only those tests, it failed again in %s, %s)",
+				check.Command, first.Took.Round(time.Second), strings.Join(first.FailingTests, ", "), check.Took.Round(time.Second), named))
+		}
 	}
 	message := fmt.Sprintf("The checks run on %s failed on commit %s, in the run started at %s: %s.",
 		run.Branch, run.Commit, runstate.LocalStamp(run.StartedAt), strings.Join(failed, "; "))
@@ -428,7 +566,7 @@ func (c *Check) failureMessage(ctx context.Context, run runstate.MainCheckRun, s
 	}
 	clean := standing.LatestPassed
 	if clean == nil || clean.Branch != run.Branch {
-		message += " No earlier run on this branch passed, so there is no last clean commit to compare with."
+		message += " No earlier run on this branch passed on its first try, so there is no last clean commit to compare with."
 	} else {
 		message += fmt.Sprintf(" The last commit they passed on is %s, at %s.", clean.Commit, runstate.LocalStamp(clean.StartedAt))
 		if between := c.between(ctx, clean.Commit, run.Commit); between != "" {
@@ -438,7 +576,13 @@ func (c *Check) failureMessage(ctx context.Context, run runstate.MainCheckRun, s
 	if previous := standing.LatestResult; previous != nil && previous.Outcome == runstate.MainCheckFailed {
 		message += fmt.Sprintf(" The run before this one, on %s, failed too.", short(previous.Commit))
 	}
-	message += " The failure was not run again. It blocks reliable execution, so it is reliability work at priority 0, and more work landing on this branch lands on it."
+	if again {
+		message += " Failing twice on the same commit, it is not a test failing under load."
+	}
+	if once {
+		message += " Where a failure was not run again, whether it fails under load is not known."
+	}
+	message += " It blocks reliable execution, so it is reliability work at priority 0, and more work landing on this branch lands on it."
 	return message
 }
 
@@ -514,9 +658,10 @@ func (c *Check) head(ctx context.Context, branch string) (string, string, error)
 	return strings.TrimSpace(local), fmt.Sprintf("%s could not be read (%v), so the local %s was checked", remote, remoteErr, branch), nil
 }
 
-// checkOut runs the checks in a worktree of the commit's own, removed
-// afterwards however they ended.
-func (c *Check) checkOut(ctx context.Context, commit string) ([]checks.Result, error) {
+// checkOut runs the checks in a worktree of the commit's own, runs the
+// failing tests of any that failed once more there (runFailingAgain), and
+// removes the worktree afterwards however they ended.
+func (c *Check) checkOut(ctx context.Context, commit string) ([]runstate.MainCheckResult, error) {
 	if err := os.MkdirAll(c.WorkRoot, 0o700); err != nil {
 		return nil, fmt.Errorf("create %s: %w", c.WorkRoot, err)
 	}
@@ -542,7 +687,11 @@ func (c *Check) checkOut(ctx context.Context, commit string) ([]checks.Result, e
 	if err != nil && len(results) == 0 {
 		return nil, fmt.Errorf("the checks could not be run: %w", err)
 	}
-	return results, nil
+	ended := summarize(results)
+	if overall(ended) == runstate.MainCheckFailed {
+		c.runFailingAgain(ctx, path, commit, ended)
+	}
+	return ended, nil
 }
 
 // clearLeftover removes what an earlier run left at the run's own path: a

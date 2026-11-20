@@ -3749,10 +3749,19 @@ no bound on the list, and waits for a place like any other check where
 
 Every run is recorded with the commit, when it started and ended, and how each
 check ended, and `yoyo status` says when the branch last passed and what the
-latest run came to where it did not pass. A failure is not run again to make it
-pass. It files a critical report naming the commit, the failing tests, the last
-commit the checks passed on, and the commits that landed between them. The next
-run waits for the branch to move. A check that could not run is recorded as
+latest run came to where it did not pass. A check that fails is run once more on
+the same commit, in the same worktree, with the tests and packages its output
+named failing given to it in `YOYODYNE_FAILING_TESTS`, one to a line. A check
+that reads the variable runs only those; one that does not runs whole again.
+This repository's `make race` reads it (`scripts/rerun-failing.sh`). Where that
+second run passes, the tests fail under load rather than on the commit: the run
+is recorded as passed, `yoyo status` names them, and a warning names them with
+both runs' results. Such a run is not a clean run: the last clean commit that
+`yoyo status` and a later failure's report name stays the last commit whose run
+passed on its first try. Where it fails again, or where the failure named no test and
+so is not run again, the run files a critical report naming the commit, both
+runs' failing tests, the last commit the checks passed on at the first try, and the commits that
+landed between them. Either way the next run waits for the branch to move. A check that could not run is recorded as
 such, files a warning naming the commit and the reason (once for a stretch of
 tries on one commit), and is tried again ten minutes later rather than at the
 next interval; the regular schedule is unchanged. Before each run, anything an

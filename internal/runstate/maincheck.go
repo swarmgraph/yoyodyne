@@ -93,6 +93,22 @@ type MainCheckResult struct {
 	// Detail is the reason a check could not run, or how a failed one ended
 	// where its output named no failing test.
 	Detail string `json:"detail,omitempty"`
+	// FirstRun is set on a check that failed and had its failing tests run
+	// once more on the same commit (internal/maincheck): it is how the first
+	// run ended, and the fields above are how the second did. A check that
+	// failed first and passed second fails under load rather than on the
+	// commit.
+	FirstRun *MainCheckFirstRun `json:"first_run,omitempty"`
+}
+
+// MainCheckFirstRun is the first, failed run of a check whose failing tests
+// were run once more.
+type MainCheckFirstRun struct {
+	Took         time.Duration `json:"took"`
+	FailingTests []string      `json:"failing_tests,omitempty"`
+	// NotRunAgain is why the second run could not be made, where it could
+	// not; the check then stands as the first run left it.
+	NotRunAgain string `json:"not_run_again,omitempty"`
 }
 
 // MainCheckRun is one run of the main checks on one commit.
@@ -150,6 +166,14 @@ func (r MainCheckRun) Validate() error {
 		}
 		if len(check.FailingTests) > maxMainCheckFailingNames {
 			problems = append(problems, fmt.Errorf("main check %q names more than %d failing tests", check.Command, maxMainCheckFailingNames))
+		}
+		if first := check.FirstRun; first != nil {
+			if len(first.FailingTests) > maxMainCheckFailingNames {
+				problems = append(problems, fmt.Errorf("main check %q names more than %d failing tests in its first run", check.Command, maxMainCheckFailingNames))
+			}
+			if len(first.NotRunAgain) > MaxMainCheckTextBytes {
+				problems = append(problems, fmt.Errorf("main check %q says more than %d bytes about its second run", check.Command, MaxMainCheckTextBytes))
+			}
 		}
 	}
 	return errors.Join(problems...)
@@ -269,11 +293,31 @@ func (s *MainCheckStore) Append(run MainCheckRun) error {
 	return root.Unchanged()
 }
 
+// PassedFirstTime reports whether the run passed with every check passing on
+// its first run. A run that passed only because a check's failing tests passed
+// when run once more passed, but its commit is not clean: those tests failed
+// on it once.
+func (r MainCheckRun) PassedFirstTime() bool {
+	if r.Outcome != MainCheckPassed {
+		return false
+	}
+	for _, check := range r.Checks {
+		if check.FirstRun != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // MainCheckStanding is what the record says about the branch now: the latest
-// run, the latest run that passed, and the latest run that ended with a result
-// about its commit.
+// run, the latest clean run, and the latest run that ended with a result about
+// its commit.
 type MainCheckStanding struct {
-	Latest       *MainCheckRun
+	Latest *MainCheckRun
+	// LatestPassed is the latest run that passed on its first run
+	// (PassedFirstTime), which is the last clean commit a failure's report and
+	// `yoyo status` name. A run that passed only on its second run never moves
+	// it.
 	LatestPassed *MainCheckRun
 	LatestResult *MainCheckRun
 }
@@ -289,7 +333,7 @@ func ReadMainCheckStanding(runs []MainCheckRun) MainCheckStanding {
 		if standing.LatestResult == nil && run.Outcome != MainCheckCouldNotRun {
 			standing.LatestResult = &run
 		}
-		if standing.LatestPassed == nil && run.Outcome == MainCheckPassed {
+		if standing.LatestPassed == nil && run.PassedFirstTime() {
 			standing.LatestPassed = &run
 		}
 		if standing.Latest != nil && standing.LatestResult != nil && standing.LatestPassed != nil {
