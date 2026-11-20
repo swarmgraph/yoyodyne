@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-20T05:52:59.215454Z
       reason: 'amendment-1767cd23, approved November 19: a query names its rules document by its path in the repository, kept wherever the project chooses, rather than by id at one fixed place. Adds that a query naming a place the Lead Product Manager''s writes cannot reach is refused at load, so the rules stay hers. Section 1''s example line and the artifact contract bullet under Documents this changes follow in the next revision. Written from a read of the whole design at main 6678a924.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T08:30:30.852382Z
+      reason: 'yoyodyne-ifd.437.79: rules how a scheduled intake query chooses the time format of its since and until arguments, as approved in amendment-cdf01638 on November 19: time_format is rfc3339 by default (UTC to the whole second, what is built today) or unix_seconds (a decimal part in sent_at accepted and dropped), refused at load otherwise, and also governs reading sent_at; a source taking only whole days is not offered a format; one build piece is named. Also changes section 1''s example to name the rules document by its path and adds a bullet saying so, the first half of yoyodyne-ifd.437.78; the artifact contract bullet under Documents this changes follows in the next revision. Written from a read of the whole design at main 8126b550; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-11-20T05:52:59.215454Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3157, for document-3157.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-20T08:30:30.852382Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3164, for document-3164.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -94,22 +103,31 @@ intake:
       arguments: {query: in-bugs}
       since_argument: after
       until_argument: before
+      time_format: rfc3339        # the default; or unix_seconds
       more_field: has_more
       every: 1h
       items: messages
       fields: {id: ts, sender: user, text: text, sent_at: ts, link: permalink}
       senders: [U123, U456]
       reader: message-reader
-      rules: intake-rules
+      rules: docs/product/intake/intake-rules.md
       questions: lead-product-manager
       limits: {messages_per_run: 20, messages_per_day: 100, starts_per_day: 5, questions_per_day: 5, text_bytes: 4096}
 ```
 
 - **`tool`** must be a `read` tool declared under `mcp`. Section 7 of the MCP design gives a scheduled caller read tools only, and this query's tool is its list. An `act` tool is refused when the configuration loads.
 - **`arguments`** are literals. **`since_argument`** and **`until_argument`** name the two arguments the harness fills in, with the start and end of the time window it is reading. Both are required. A source that cannot be asked for a time window cannot be used in the first build, and the configuration is refused in plain words.
+- **`time_format`** says how the harness writes the two times it fills in, and how it reads each message's `sent_at`. It is one of two values, and the harness knows no other:
+  - `rfc3339`, the default: a date and time in UTC to the whole second, such as `2026-11-20T08:00:00Z`. A query that names no format is read exactly as one built before this setting existed.
+  - `unix_seconds`: the whole seconds since the start of 1970 in UTC, such as `1795161600` for that same moment. Where `sent_at` is read in this format, a part after a decimal point is accepted and dropped, because some sources, Slack among them, write a message's time that way.
+
+  Any other value is refused when the configuration loads, naming the query and the two values. A `sent_at` that cannot be read in the query's format makes the answer one that does not hold `fields` as declared, which section 9 treats as a failed run. A source that can be asked only for whole days is not offered a format: a window narrower than a day could not be asked for, so the narrowing below would stop at the first busy day. Such a source cannot be used in the first build, like one that cannot be asked for a time window at all. Which format a particular service's search takes is for the first real query (piece 8) to find out from that service; where it takes only dates, that piece stops and asks the architect.
 - **`more_field`** is optional and names a field saying the source held back more than it returned. Where it is set and true, the answer counts as cut.
 - **`items`** and **`fields`** say where the messages and their parts are in the tool's answer, by plain field names. No expression language is added, and no knowledge of any one service is built in.
+- **`rules`** is the path of the query's rules document from the repository root, wherever the project keeps it, as section 6 says.
 - **All of `intake` is the operator's,** as `mcp` is. The typed write of section 6 of portable agent configuration refuses it, and a developer's change cannot touch `.yoyodyne/`.
+
+**Building the time format.** It is one piece of its own, for the Lead Product Manager to admit, after piece 3 and before piece 8: the `time_format` key with its default and its refusal at load; filling `since_argument` and `until_argument` in the chosen format; reading `sent_at` in it, with a decimal part accepted for `unix_seconds`; `yoyo config show` naming it; and tests for both values, the default, and the refusal. Piece 3 fills both times in the default format already, so nothing built changes for a query that names none.
 
 **The schedule** is a recurring task under [configurable workflows](configurable-workflows.md): one instance for each window of the schedule, recorded before anything is spent, skipped while the previous run of that query is still working. The default is one hour and the shortest allowed is five minutes. No query run holds a developer slot.
 
