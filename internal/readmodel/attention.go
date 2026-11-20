@@ -390,6 +390,26 @@ func (a Attention) HandEnds() string {
 	return a.titles.Name(a.Ownership.Hand.ClosedBy)
 }
 
+// LacksClosingItem reports a role's decision that needs the operator's hand
+// where no work item is admitted to give the harness the capability it lacks.
+// Such an entry is also the Lead Product Manager's to admit a defect for, as
+// the ownership design says, because nothing else would ever take it off his
+// line (orchestrator/missingcapability.go).
+func (a Attention) LacksClosingItem() bool {
+	return a.Ownership.NeedsHand() && a.Ownership.Hand.ClosedBy == ""
+}
+
+// HandKey identifies a role's decision that needs the operator's hand by the
+// entry and the capability it lacks, and is empty on every other entry. It is
+// what the Lead Product Manager's report about a missing capability is filed
+// under, so one entry is reported once however many passes read it.
+func (a Attention) HandKey() string {
+	if !a.Ownership.NeedsHand() {
+		return ""
+	}
+	return string(a.Kind) + ":" + a.ID + ":" + string(a.Ownership.Hand.Need)
+}
+
 // Named reports an entry the attention line prints by name wherever it falls
 // and never counts into "and N things not named here": a finding only the
 // operator can act on, a critical report waiting on a role, a repeatedly

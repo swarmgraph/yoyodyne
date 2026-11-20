@@ -34,7 +34,9 @@ const (
 	// the role that owns it holds no capability to decide it from its own
 	// conversation. Owning roles decide their own (yoyodyne-ifd.437.14), so with
 	// the shipped roles no amendment carries this; it stays for a role the
-	// harness has not given the decision.
+	// harness has not given the decision. No item is admitted to give such a
+	// role the decision: the design that let owning roles decide theirs covered
+	// the shipped roles and does not end this need, so the hand names none.
 	HandAmendmentDecision HandNeed = "amendment-decision"
 	// HandOperationalConfiguration is applying an operational configuration
 	// value a role recommends — a check, a developer model, how often a task runs —
@@ -62,7 +64,7 @@ var handGaps = map[HandNeed]handGap{
 	HandAmendmentDecision: {
 		missing:  "letting the owning role decide the change from its own conversation",
 		types:    "yoyo amendment approve|decline <amendment> --reason \"<why>\"",
-		closedBy: "yoyodyne-ifd.437.14",
+		closedBy: "",
 	},
 	HandOperationalConfiguration: {
 		missing:  "applying operational configuration a role recommends through a reviewed run",
