@@ -373,3 +373,82 @@ func TestAVerifiedCandidateCountsAsInProgressAndOneCheckedAheadOnlyOnceItsBaseHa
 		t.Fatal("a candidate whose checks have not begun is counted as in progress")
 	}
 }
+
+// batchOrderTracker is orderTracker that can also read several items in one
+// call, as beads.Client can, and counts what it is asked.
+type batchOrderTracker struct {
+	orderTracker
+	batches *[][]string
+	singles *[]string
+}
+
+func (t batchOrderTracker) Show(ctx context.Context, id string) (beads.WorkItem, error) {
+	*t.singles = append(*t.singles, id)
+	return t.orderTracker.Show(ctx, id)
+}
+
+func (t batchOrderTracker) ShowMany(_ context.Context, ids []string) (map[string]beads.WorkItem, error) {
+	*t.batches = append(*t.batches, append([]string(nil), ids...))
+	if t.down {
+		return nil, errors.New("bd show: timed out waiting for the store")
+	}
+	read := map[string]beads.WorkItem{}
+	for _, id := range ids {
+		if item, found := t.items[id]; found {
+			read[id] = item
+		}
+	}
+	return read, nil
+}
+
+// The order is chosen by the worker and the promoter in every pass of a queue,
+// once a minute while it waits, and read each entry's item with a `bd show` of
+// its own, which on bd's one-command-at-a-time store kept every listing waiting
+// behind the queue (yoyodyne-ifd.428.126.4.24). Through the harness's own
+// tracker, which is how the watch wires the queue, the entries' items are read
+// in one call and choose as they did read alone; an item the batch left out is
+// read alone, and a batch that went unanswered chooses in admission order,
+// saying so, without asking each entry again.
+func TestTheQueueReadsItsEntriesItemsInOneCall(t *testing.T) {
+	items := map[string]beads.WorkItem{
+		"item-p3": {ID: "item-p3", Priority: 3},
+		"item-p1": {ID: "item-p1", Priority: 1},
+		"item-p2": {ID: "item-p2", Priority: 2},
+	}
+	waiting := []runstate.MergeQueueEntry{
+		{EntryID: "p3", Order: 1, WorkItemID: "item-p3", RunID: "p3", ApprovedHead: "p3", AdmittedAt: orderNow.Add(-time.Hour)},
+		{EntryID: "p1", Order: 2, WorkItemID: "item-p1", RunID: "p1", ApprovedHead: "p1", AdmittedAt: orderNow.Add(-time.Hour)},
+		{EntryID: "p2", Order: 3, WorkItemID: "item-p2", RunID: "p2", ApprovedHead: "p2", AdmittedAt: orderNow.Add(-time.Hour)},
+		{EntryID: "gone", Order: 4, WorkItemID: "item-gone", RunID: "gone", ApprovedHead: "gone", AdmittedAt: orderNow.Add(-time.Hour)},
+	}
+	choose := func(down bool) (MergeQueueChoice, [][]string, []string) {
+		var batches [][]string
+		var singles []string
+		tracker := batchOrderTracker{orderTracker: orderTracker{items: items, down: down}, batches: &batches, singles: &singles}
+		o := queueOrder{
+			pipeline: &Pipeline{Store: orderRuns{}, Tracker: HarnessRunItems{WorkTracker: tracker, Runs: orderRuns{}}},
+			paths:    orderPaths{paths: map[string][]string{"p3": code, "p1": code, "p2": code, "gone": code}}.CandidatePaths,
+			now:      orderNow,
+		}
+		return o.choose(context.Background(), waiting, map[string]bool{}), batches, singles
+	}
+
+	got, batches, singles := choose(false)
+	if got.Entry.EntryID != "p1" || got.Rule != MergeQueueRulePriority {
+		t.Fatalf("chose %s by %q, want p1 by priority", got.Entry.EntryID, got.Rule)
+	}
+	if len(batches) != 1 || len(batches[0]) != 4 {
+		t.Fatalf("batches = %v, want every entry's item read in one call", batches)
+	}
+	if len(singles) != 1 || singles[0] != "item-gone" {
+		t.Fatalf("read %v alone, want only the item the batch left out", singles)
+	}
+
+	got, batches, singles = choose(true)
+	if got.Entry.EntryID != "p3" || got.Rule != MergeQueueRuleAdmission || !strings.Contains(got.TrackerUnread, "timed out waiting for the store") {
+		t.Fatalf("chose %s by %q (%q), want admission order naming the tracker's error", got.Entry.EntryID, got.Rule, got.TrackerUnread)
+	}
+	if len(batches) != 1 || len(singles) != 0 {
+		t.Fatalf("asked %d batches and %v alone, want one batch and nothing after it", len(batches), singles)
+	}
+}
