@@ -182,6 +182,11 @@ type Request struct {
 	// ProjectCodeCommit is the project repository commit ProjectCode was read at.
 	ProjectCodeCommit string
 	Checks            []checks.Result
+	// ChecksBeside, where set and Checks is empty, is what the reviewer is told
+	// in place of check results: the merge queue reviews a candidate while its
+	// checks are still running on it, so there are none to show yet, and saying
+	// that none were configured or run would be false.
+	ChecksBeside string
 	// CheckPatterns is what the item's done-conditions quote, as
 	// CriterionPatterns reads it. Every line of a check's retained output that
 	// contains one is quoted beside the check, so a criterion about what a check
@@ -1273,7 +1278,11 @@ func reviewEvidencePrompt(request Request) string {
 		prompt.WriteString(trimmed)
 		prompt.WriteString("\n\n## Checks run on this machine\n\n")
 	}
-	prompt.WriteString(renderChecks(request.Checks, request.CheckPatterns, execution.EventLogOf(request.RunID)))
+	if beside := strings.TrimSpace(request.ChecksBeside); beside != "" && len(request.Checks) == 0 {
+		prompt.WriteString(beside + "\n")
+	} else {
+		prompt.WriteString(renderChecks(request.Checks, request.CheckPatterns, execution.EventLogOf(request.RunID)))
+	}
 	return prompt.String()
 }
 
