@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-19T16:00:58.157868Z
       reason: 'Coined-vocabulary replacement, one document of the architect''s part (yoyodyne-ifd.437.21): the retired word ''gate'' is replaced in its three places, each by what it meant - the scheduler holding work on a readiness judgment, and the checks a change must pass - following the register of terms. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T01:34:44.257803Z
+      reason: 'Plain wording, one more document of the architect''s part of the vocabulary replacement: words a reader would have to look up are replaced by what they mean - the inter-role ask exchange, the umbrella contract, the promotion criterion, accretes, round-capped, write-shell, lane, promote and demote, hardening step, idempotency and open consoles. The round-limit sentence states how an unresolved thread ends today. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -29,26 +33,31 @@ approvals:
       by: harness
       at: 2026-11-19T16:00:58.157868Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3089, for document-3089.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-20T01:34:44.257803Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3147, for document-3147.1 under the automatic approval policy
 ---
 # The management-loop protocol: request kinds, readiness, outcome summaries, and execution profiles
 
 ## What this is for
 
-[Management-and-supervision](management-and-supervision.md) governs the contract: typed persisted requests, the harness as only invoker, wakeups, bounded cycles, advisory readiness. This design specifies the protocol that runs under it — what the requests say, what readiness records hold, what comes back after integration, and how execution profiles are chosen — so the loop's implementations build against a vocabulary somebody ratified rather than one that accretes. It serves the autonomy goal: the operator governs outcomes, and routine coordination stops passing through them.
+[Management-and-supervision](management-and-supervision.md) governs the contract: typed persisted requests, the harness as only invoker, wakeups, bounded cycles, advisory readiness. This design specifies the protocol that runs under it — what the requests say, what readiness records hold, what comes back after integration, and how execution profiles are chosen — so the loop's implementations build against a vocabulary somebody agreed rather than one that grows by accident. It serves the autonomy goal: the operator governs outcomes, and routine coordination stops passing through them.
 
 ## Request kinds
 
-Three, deliberately: **consult** — ask another role for a judgment within that role's authority; **clarify** — request information the caller needs to complete its own judgment; **escalate** — ask the Lead Product Manager to obtain an operator decision because delegated authority or policy is insufficient. The existing inter-role ask exchange is the transport for consult and clarify, keeping its ratified properties — judgment-only, decisionless, durable and visible, round-capped with unresolved-at-cap escalation and per-exchange cost. Later kinds (`review`, `handoff`, `notify`) arrive only for demonstrated workflows with distinct semantics, never to mirror conversational phrasing. A request is accepted only when the source–target pairing, kind, scope, and requested decision fit both roles' authority; it is persisted before the target is invoked, supplied referenced evidence rather than an unbounded transcript, recorded against its id, and completed by waking the source — all per the umbrella contract.
+Three, deliberately: **consult** — ask another role for a judgment within that role's authority; **clarify** — request information the caller needs to complete its own judgment; **escalate** — ask the Lead Product Manager to obtain an operator decision because delegated authority or policy is insufficient. The existing way one role puts a question to another, carried and recorded by the harness, is how consult and clarify are sent, and it keeps the properties already agreed for it: the answer is judgment only and decides nothing, every round is recorded and visible to the operator, the number of rounds is limited and a thread that reaches the limit unresolved is reported to the Lead Product Manager, and each thread's cost is recorded. Later kinds (`review`, `handoff`, `notify`) arrive only for demonstrated workflows with distinct semantics, never to mirror conversational phrasing. A request is accepted only when the source–target pairing, kind, scope, and requested decision fit both roles' authority; it is persisted before the target is invoked, supplied referenced evidence rather than an unbounded transcript, recorded against its id, and completed by waking the source — all as the contract in management-and-supervision requires.
 
 ## Readiness
 
-Three independently owned judgments, each revision-aware and advisory first; the scheduler holds work on them only after the umbrella's promotion criterion is met:
+Three independently owned judgments, each revision-aware and advisory first; the scheduler holds work on them only after the condition management-and-supervision sets for that is met:
 
 - **Product readiness** — Lead Product Manager: intended outcome, approved goal, priority, product acceptance, source revisions.
-- **Architecture readiness** — architect, with a four-value disposition: **clear**, **design-needed**, **cross-cutting**, or **investigation-needed**, naming affected designs, decisions, invariants, interfaces, and revisions. Investigation is commissioned as bounded, read-only work — the architect gains no write-shell authority from needing evidence.
+- **Architecture readiness** — architect, with a four-value disposition: **clear**, **design-needed**, **cross-cutting**, or **investigation-needed**, naming affected designs, decisions, invariants, interfaces, and revisions. Investigation is commissioned as bounded, read-only work — the architect gains no authority to run commands that write from needing evidence.
 - **Delivery readiness** — development manager: one item or a child graph, dependencies, sequential and parallel boundaries, conflict surfaces, complexity, risk, required capabilities, execution profile, source revisions.
 
-A stale judgment blocks only the item that depends on it and wakes its owning role. Planning applies to a **bounded horizon** — the next admitted epic or the top group of ready candidates, never the whole backlog — with shared context batched across related items; the horizon and the batching are the loop's cost discipline, stated as design so no implementation treats backlog-wide review as thoroughness.
+A stale judgment blocks only the item that depends on it and wakes its owning role. Planning applies to a limited set of work — the next admitted epic or the top group of ready candidates, never the whole backlog — with shared context batched across related items; that limit and the batching are how the loop keeps its cost down, stated as design so no implementation treats backlog-wide review as thoroughness.
 
 ## Outcome summaries
 
@@ -56,16 +65,16 @@ After integration the harness derives role-specific summaries from the accepted 
 
 ## Escalation shape
 
-One coherent escalation from the Lead Product Manager, whatever roles contributed: what outcome is blocked; why the operator rather than an agent; the options in nontechnical terms; impact, cost or delay, and risk per option; the recommendation with the contributing role's concern; and what continues meanwhile. This refines the umbrella's conflict-handling section, which owns when escalation happens.
+One coherent escalation from the Lead Product Manager, whatever roles contributed: what outcome is blocked; why the operator rather than an agent; the options in nontechnical terms; impact, cost or delay, and risk per option; the recommendation with the contributing role's concern; and what continues meanwhile. This refines the conflict-handling section of management-and-supervision, which owns when escalation happens.
 
 ## Execution profiles
 
-The development manager selects among five named profiles — **mechanical-low-risk**, **standard**, **high-judgment**, **architecture-sensitive**, **specialist** — never a provider model string; operator policy maps profiles to configured agents and models, changeable without rewriting work items. Risk rules may **promote a profile and never silently demote one**; a failed low-cost attempt escalates once to a stronger profile with reason and added cost recorded; high-risk work — security-sensitive, migrations, concurrency, public interfaces, protected architecture areas — never enters the lowest-cost lane. Independent review and every deterministic check are identical across profiles, per the routing clause the Claude execution design already binds. Routing is enforced only after phase-level cost, repair, latency, and outcome evidence exists (yoyodyne-ifd.83's line).
+The development manager selects among five named profiles — **mechanical-low-risk**, **standard**, **high-judgment**, **architecture-sensitive**, **specialist** — never a provider model string; operator policy maps profiles to configured agents and models, changeable without rewriting work items. Risk rules may **move work to a stronger profile and never silently to a weaker one**; a failed low-cost attempt moves once to a stronger profile with reason and added cost recorded; high-risk work — security-sensitive, migrations, concurrency, public interfaces, protected architecture areas — never runs under the lowest-cost profile. Independent review and every deterministic check are identical across profiles, per the routing clause the Claude execution design already binds. Routing is enforced only after phase-level cost, repair, latency, and outcome evidence exists, the condition recorded on work item yoyodyne-ifd.83.
 
 ## Role boundaries, condensed
 
-The authority tables in code and in the harness design remain the enforcement; this restates the planning-level boundary each role holds in the loop: the Lead Product Manager owns intent, priority, admission, acceptance, and the planning horizon, and does not own decomposition or model choice; the architect owns designs, decisions, invariants, and the architecture disposition, and does not set priority or delivery plans; the development manager owns decomposition, shape, conflict surfaces, and profile selection, and does not redefine intent or settle architecture; the harness validates, persists, invokes, and records, and invents no judgment.
+The authority tables in code and in the harness design remain the enforcement; this restates the planning-level boundary each role holds in the loop: the Lead Product Manager owns intent, priority, admission, acceptance, and which work is planned next, and does not own decomposition or model choice; the architect owns designs, decisions, invariants, and the architecture disposition, and does not set priority or delivery plans; the development manager owns decomposition, shape, conflict surfaces, and profile selection, and does not redefine intent or settle architecture; the harness validates, persists, invokes, and records, and invents no judgment.
 
 ## The demonstration bar
 
-The loop is done when the brief's nine scenarios demonstrably pass — restart-surviving consults, cross-cutting dispositions that block only affected work, decomposition the scheduler respects, clarifications that refresh readiness, divergence reopening judgments, plain-language escalations, low-cost routing under unchanged checks, single bounded promotion on failure, and idempotency under duplicates, crashes, and open consoles. Those scenarios are this design's acceptance criteria, and the hardening step makes the autonomous path the default while direct role chat stays as inspection and recovery.
+The loop is done when the brief's nine scenarios demonstrably pass — consults that survive a restart, cross-cutting dispositions that block only affected work, decomposition the scheduler respects, clarifications that refresh readiness, divergence reopening judgments, plain-language escalations, low-cost routing under unchanged checks, a single move to a stronger profile on failure, and the same result when a request arrives twice, when a process crashes, or while a conversation is open. Those scenarios are this design's acceptance criteria, and the last step makes the autonomous path the default while direct role chat stays as inspection and recovery.
