@@ -5664,6 +5664,16 @@ has the rule.
   waiting, so that pull read full too and fired the next decision the same way,
   and ready work did not start for hours while both slots stood empty on record.
 
+  The scheduler counts a slot taken only for a run working in it. A start of
+  its own is not counted once its run is recorded waiting on GitHub's checks or
+  on other work, or once that run has ended — its approved change admitted to
+  the merge queue, or stopped with its change kept on its branch — even while
+  the run's process is still finishing, such as writing to a slow tracker. A
+  run whose change the merge queue has taken is recorded as ended before its
+  note goes to the tracker rather than after, so it holds no slot while the
+  tracker keeps it waiting. Each such item still has its run standing over it,
+  so it is never started a second time.
+
   When the scheduler's last word is that no slot stands empty, yet this reading
   finds a slot free, ready work startable, and runs waiting on GitHub's checks,
   and that has stood for five minutes, the reading says it itself: no run is

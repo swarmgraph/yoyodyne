@@ -2989,10 +2989,16 @@ pulling:
 		// A start of this session's own that has waited past the time a dispatch
 		// takes to reserve, the tracker keeping it waiting, is not counted against
 		// the slots either, and stays in occupied for the same reason
-		// (stalledStarts). uncounted is both, and is what every count of the free
-		// slots below leaves out.
+		// (stalledStarts). Nor is a start of this session's own whose run is not
+		// working in a slot any more — waiting on GitHub's checks, approved into
+		// the merge queue, stopped with its change kept — while the session has
+		// yet to collect it (idleStarts). uncounted is all of these, and is what
+		// every count of the free slots below leaves out.
 		gone := workersGone(pull.Runs, occupied, mine, s.now())
 		uncounted := slotlessStarts(occupied, mine, schedule.Started)
+		for id := range idleStarts(occupied, waitingRuns, mine, schedule.Started, handedBack.snapshot(), continuing, runHistory(pull.Runs)) {
+			uncounted[id] = true
+		}
 		for id := range stalledStarts(withoutItems(occupied, uncounted), mine, schedule.Started, pull.Capacity, s.now()) {
 			uncounted[id] = true
 		}
