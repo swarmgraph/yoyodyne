@@ -34,6 +34,13 @@
 //     the worktrees, and takes the stall reading. It is the one slow step, so
 //     it runs beside the supervisor's looks at the children rather than
 //     holding them up.
+//   - scratch: the scratch folders runs were given under the repository's
+//     .git directory before scratch moved to the state directory, removed for
+//     every run that has ended, and what was removed and left said
+//     (oldscratch.go). Nothing makes a folder there any more, so after the
+//     first pass on a build that carries the move this finds nothing, unless a
+//     run still going then kept its folder. It runs after reconcile, on the
+//     same goroutine, so a run reconcile settled is read as ended.
 //   - cleanup: the work tracker's store cleaned up, once it has grown
 //     services.maintenance.tracker_cleanup.grown_megabytes since the last
 //     cleanup left it or that section's "every" has passed since then. bd
@@ -337,6 +344,10 @@ type Pass struct {
 	// step says nothing is wired and the index is rebuilt only by the other
 	// readers that rebuild it (runstate.Store.RebuildRunIndex).
 	RunIndex RunIndex
+	// Runs is the run records the scratch step reads to tell a run that
+	// has ended from one still going; where it is nil the step says so and
+	// removes nothing.
+	Runs RunRecords
 
 	Now func() time.Time
 	Log func(format string, args ...any)
@@ -385,12 +396,14 @@ type underway struct {
 }
 
 // offGoroutine is what the pass does off the supervisor's goroutine: the run
-// index rebuilt, then reconcile, then the tracker's cleanup, with the record of the cleanup where one ran,
+// index rebuilt, then reconcile, then the old scratch folders under .git
+// cleared, then the tracker's cleanup, with the record of the cleanup where one ran,
 // then the measurement of the tracker's store, then its rebuild, and then the
 // check of its limits.
 type offGoroutine struct {
 	indexed    runstate.SweepStep
 	reconciled runstate.SweepStep
+	oldScratch runstate.SweepStep
 	cleaned    cleanedTracker
 	measured   runstate.SweepStep
 	rebuilt    runstate.SweepStep
@@ -486,6 +499,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 	go func() {
 		work := offGoroutine{indexed: p.rebuildRunIndex()}
 		work.reconciled = p.reconcile(ctx)
+		work.oldScratch = p.clearOldScratch()
 		work.cleaned = p.cleanUpTracker(ctx)
 		work.measured = p.measureTracker(ctx)
 		work.rebuilt = p.rebuildTracker(ctx)
@@ -559,6 +573,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	recorded.Steps = append(recorded.Steps, p.provider())
 	recorded.Steps = append(recorded.Steps, done.indexed)
 	recorded.Steps = append(recorded.Steps, done.reconciled)
+	recorded.Steps = append(recorded.Steps, done.oldScratch)
 	recorded.Steps = append(recorded.Steps, done.cleaned.step)
 	recorded.Steps = append(recorded.Steps, done.measured)
 	recorded.Steps = append(recorded.Steps, done.rebuilt)

@@ -464,6 +464,19 @@ Each pass takes twelve steps, in this order, and each is recorded:
   [the forge check](#the-supervisors-forge-check). It runs beside the
   supervisor's looks at the parts rather than holding them up, and is marked
   as the pass's so it is not [counted as a hand step](#counting-your-hand-steps).
+- **scratch** — the scratch folders runs were given under the repository's
+  `.git` directory before each run's scratch moved to
+  `scratch/<run id>/` in the state directory
+  ([the ruling](decisions/developer-run-scratch-outside-git.md)), removed for
+  every run that has ended. A link inside one is removed as a link, and what it
+  points at is left alone. A folder whose run is still going, which includes
+  every run holding a developer slot, is left, and so is one whose run has no
+  record or a record that will not read, because nothing shows that run ended.
+  The step names every folder it removed and every one it left with why, and
+  the supervisor's log keeps the whole list. Nothing makes a folder under
+  `.git` any more, so after the first pass on a build that carries the move
+  the step finds nothing and says so, unless it left a folder for a run still
+  going, which the first pass after that run ends removes.
 - **cleanup** — the work tracker's store in the primary checkout
   cleaned up with `bd gc --skip-decay`, which bd never does on its own. Every
   tracker call opens the whole store, so one nobody cleans up makes every call
