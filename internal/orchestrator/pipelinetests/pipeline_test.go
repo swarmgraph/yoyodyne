@@ -1044,12 +1044,17 @@ func TestTheDeveloperIsGivenAScratchDirectoryCutForItsOwnRun(t *testing.T) {
 	// is the same directory the run was handed, and asking the same way the run
 	// did is what makes the assertion about the run rather than about a second
 	// opinion of where scratch goes.
-	scratch, err := execution.PrepareScratchDirectory(pipeline.Repository, state.WorktreePath, outcome.RunID)
+	scratch, err := execution.PrepareScratchDirectory(pipeline.StateRoot, outcome.RunID)
 	if err != nil {
 		t.Fatalf("PrepareScratchDirectory() error = %v", err)
 	}
 	if !strings.Contains(requests[0].Prompt, scratch) {
 		t.Fatalf("the contract never names the run's scratch directory %q:\n%s", scratch, requests[0].Prompt)
+	}
+	// The provider is handed the same folder, which is the one its sandbox is
+	// told it may write in the state directory.
+	if requests[0].ScratchDirectory != scratch {
+		t.Fatalf("developer scratch directory = %q, want %q", requests[0].ScratchDirectory, scratch)
 	}
 	if requests[0].RepositoryRoot != pipeline.Repository {
 		t.Fatalf("developer repository root = %q, want the harness's %q", requests[0].RepositoryRoot, pipeline.Repository)
@@ -1057,8 +1062,17 @@ func TestTheDeveloperIsGivenAScratchDirectoryCutForItsOwnRun(t *testing.T) {
 	if info, err := os.Stat(scratch); err != nil || !info.IsDir() {
 		t.Fatalf("stat the named scratch directory: info = %v, err = %v", info, err)
 	}
-	if strings.HasPrefix(scratch, state.WorktreePath+string(filepath.Separator)) {
-		t.Fatalf("scratch directory %q is inside the worktree %q", scratch, state.WorktreePath)
+	// It is in the state directory, at scratch/<run id>, and nowhere in the
+	// worktree, the repository, or the repository's Git directory.
+	state0, _ := filepath.EvalSymlinks(pipeline.StateRoot)
+	if want := filepath.Join(state0, "scratch", outcome.RunID); scratch != want {
+		t.Fatalf("scratch directory = %q, want %q", scratch, want)
+	}
+	for _, root := range []string{state.WorktreePath, pipeline.Repository} {
+		resolved, _ := filepath.EvalSymlinks(root)
+		if strings.HasPrefix(scratch, resolved+string(filepath.Separator)) {
+			t.Fatalf("scratch directory %q is inside %q", scratch, root)
+		}
 	}
 	// The advisory naming convention this replaced is gone rather than left
 	// standing beside it: two mechanisms for one hazard is the one outcome the

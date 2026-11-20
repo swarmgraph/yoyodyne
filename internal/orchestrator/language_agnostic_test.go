@@ -314,5 +314,6 @@ func nonGoFixturePipeline(t *testing.T, repository string, tracker *orchestrator
 		NewRunID:   func() (string, error) { return pipelineRunID, nil },
 		Repository: repository,
 		Config:     cfg,
+		StateRoot:  t.TempDir(),
 	}, store
 }

@@ -46,7 +46,7 @@ func TestADevelopersSandboxCannotWriteTheInstallCache(t *testing.T) {
 	}
 
 	for _, session := range []string{"", "session-one"} {
-		command := sandboxCommand(t, repository, worktree, session, domain.RoleDeveloper)
+		command := sandboxCommand(t, repository, worktree, "", session, domain.RoleDeveloper)
 		granted := 0
 		for entry, access := range profileFilesystem(t, command.Args) {
 			if access != "write" || strings.HasPrefix(entry, ":") {

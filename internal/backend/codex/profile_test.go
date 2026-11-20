@@ -159,7 +159,7 @@ func TestEveryInvocationSelectsItsProfileAheadOfResumeAndNoSandboxMode(t *testin
 	for _, role := range domain.Roles() {
 		for _, session := range []string{"", "session-one"} {
 			repository, worktree := sandboxRepository(t, true)
-			command := sandboxCommand(t, repository, worktree, session, role)
+			command := sandboxCommand(t, repository, worktree, "", session, role)
 			want := profileReadOnly
 			if role == domain.RoleDeveloper {
 				want = profileDeveloper
@@ -201,7 +201,7 @@ func TestEveryProfileSwitchesItsNetworkOffAndGrantsNothingElse(t *testing.T) {
 	for _, role := range domain.Roles() {
 		for _, session := range []string{"", "session-one"} {
 			repository, worktree := sandboxRepository(t, true)
-			command := sandboxCommand(t, repository, worktree, session, role)
+			command := sandboxCommand(t, repository, worktree, "", session, role)
 			prefix := "permissions." + profileNameArgument(t, command.Args) + ".network"
 			var network []string
 			for _, value := range configValues(command.Args, "exec") {
@@ -227,7 +227,7 @@ func TestTheReadOnlyProfileWritesNothing(t *testing.T) {
 			continue
 		}
 		for _, session := range []string{"", "session-one"} {
-			command := sandboxCommand(t, repository, worktree, session, role)
+			command := sandboxCommand(t, repository, worktree, "", session, role)
 			if got := profileFilesystem(t, command.Args); !reflect.DeepEqual(got, map[string]string{":root": "read"}) {
 				t.Fatalf("read-only role %s (session %q) file system = %q, want reading only", role, session, got)
 			}
@@ -240,8 +240,8 @@ func TestTheReadOnlyProfileWritesNothing(t *testing.T) {
 func TestEachInvocationNamesItsProfileAfresh(t *testing.T) {
 	t.Parallel()
 	repository, worktree := sandboxRepository(t, true)
-	first := profileNameArgument(t, sandboxCommand(t, repository, worktree, "", domain.RoleDeveloper).Args)
-	second := profileNameArgument(t, sandboxCommand(t, repository, worktree, "session-one", domain.RoleDeveloper).Args)
+	first := profileNameArgument(t, sandboxCommand(t, repository, worktree, "", "", domain.RoleDeveloper).Args)
+	second := profileNameArgument(t, sandboxCommand(t, repository, worktree, "", "session-one", domain.RoleDeveloper).Args)
 	if first == second {
 		t.Fatalf("two invocations ran under one profile name %q", first)
 	}
@@ -358,7 +358,7 @@ func TestTheInstalledCLIResolvesEachProfileAsDeclared(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				repository, worktree := sandboxRepositoryNamed(t, true, "repository with spaces")
-				command := sandboxCommand(t, repository, worktree, "", role)
+				command := sandboxCommand(t, repository, worktree, "", "", role)
 				directory := worktree
 				if role != domain.RoleDeveloper {
 					// The read-only launch directory was removed when Run returned;

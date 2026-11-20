@@ -88,6 +88,7 @@ func TestPromotionQueueBoundSavesTheRunsStopCause(t *testing.T) {
 		Worktrees: worktrees, Backend: provider, Checks: checks.Runner{Process: process},
 		Reviewer:   review.Reviewer{Backend: provider, Model: reviewerModel},
 		Directives: directives, Holds: holds, Intake: intake, NewRunID: runstate.NewRunID,
+		StateRoot: t.TempDir(),
 	}
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err == nil || !strings.Contains(err.Error(), "another promotion held the lease") {

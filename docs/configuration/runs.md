@@ -283,7 +283,7 @@ is added to it. What those files say about `sandbox_mode` or
 | | `yoyodyne-developer` | `yoyodyne-read-only` |
 | --- | --- | --- |
 | Read | every file on the machine | every file on the machine |
-| Write | the worktree, the shared cache, this run's scratch directory, and the system and user temporary directories | nothing |
+| Write | the worktree, the shared cache, this run's own scratch folder in the harness's state directory, and the system and user temporary directories | nothing |
 | Kept read-only inside each writable directory | `.git`, `.agents`, `.codex`, `.aws` | — |
 | Network | off | off |
 | Approvals | never asked; anything the profile refuses stays refused | never asked |
@@ -297,12 +297,19 @@ launched from an empty directory outside the repository, with user
 configuration, execution rules, and external integrations switched off
 ([provider plugins](../provider-plugins.md#capability-validation)).
 
-The adapter resolves the cache and scratch paths against the harness's
-checkout, refuses escaping worktree pointers and redirected cache or scratch
-paths, creates both directories through the confined writer with a pinned
-directory handle, and sets `GOCACHE` to the same resolved cache path. It does
-not grant the whole Git directory, another run's scratch, or an inherited cache
-path.
+The adapter resolves the cache path against the harness's checkout, refuses
+escaping worktree pointers and a redirected cache path, creates the cache
+through the confined writer with a pinned directory handle, and sets `GOCACHE`
+to the same resolved cache path. The run's scratch folder is
+`scratch/<run id>/` in the harness's state directory, outside the repository
+and its `.git` directory, cut by the harness before the run starts and removed
+with the run's worktree; the adapter grants it only after confirming it is that
+one folder, reached through no link, and refuses to start the run otherwise
+([the ruling](../decisions/developer-run-scratch-outside-git.md)). It does not
+grant the whole Git directory, anything else in the state directory, another
+run's scratch, or an inherited cache path. A Claude Code developer is given the
+same folder as its sandbox's one added write path,
+`sandbox.filesystem.allowWrite`, and nothing else in the state directory.
 
 `exec resume` takes neither `--cd` nor `--sandbox`, so the profile and `--cd`
 are given to `exec`, ahead of `resume`, on every invocation. Asked without a

@@ -813,6 +813,9 @@ func rerunnerFrom(parts components) orchestrator.Rerunner {
 		Runs:    parts.store,
 		Intake:  parts.intake,
 		Reruns:  parts.store.Reruns(),
+		// Where each developer run's scratch directory is, so a stopped run's
+		// is removed with its worktree when a fresh run retires them.
+		StateRoot: parts.stateRoot,
 		// The same per-item counters the development manager's decision spends and
 		// `yoyo status` reports, so what proves the decision was made and what an
 		// operator reads about it can never be two different records.

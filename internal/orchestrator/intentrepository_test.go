@@ -115,6 +115,7 @@ checks:
 		NewRunID:   func() (string, error) { return pipelineRunID, nil },
 		Repository: repository,
 		Config:     cfg,
+		StateRoot:  t.TempDir(),
 	}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
