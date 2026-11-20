@@ -196,6 +196,11 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			RunID: "run-unreadable", Path: "/state/runs/run-unreadable.json", Reason: "invalid run state: stop_class is invalid",
 		}),
 			"the run record run-unreadable (/state/runs/run-unreadable.json) could not be read, so it is left out of the runs shown here: invalid run state: stop_class is invalid"},
+		AttentionCapacityBlocked: {CapacityBlocked{Runs: []CapacityBlockedRun{{
+			RunID: "run-parked", WorkItemID: "yoyodyne-ifd.150", State: CapacityStateWaiting, RefusedBy: "an exhausted usage limit",
+			Since: moment.Add(-time.Hour), ResetsAt: &capacity.ResetsAt, Remedy: waitingRunRemedy,
+		}}}.Attention()[0],
+			"the run run-parked for yoyodyne-ifd.150 is waiting on an exhausted usage limit, since 2026-08-30T11:00:00Z; it resets at 2026-08-30T13:00:00Z"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,

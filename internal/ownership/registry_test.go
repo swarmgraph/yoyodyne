@@ -86,6 +86,11 @@ func fixtureRecords() []Record {
 		func(r *Record) { r.RecordedOwner = MoverDevelopmentManager },
 		func(r *Record) { r.RecordedOwner = MoverUnnamed },
 		func(r *Record) { r.RecordedOwner = "not-a-mover" },
+		func(r *Record) { r.Capacity = CapacityRunWaiting },
+		func(r *Record) { r.Capacity = CapacityRunRequeued },
+		func(r *Record) { r.Capacity = CapacityRunStopped },
+		func(r *Record) { r.Capacity = CapacityTurnRefused },
+		func(r *Record) { r.Capacity = "something-else" },
 	}
 	holds := []HoldSwitch{"", OperatorHold, IntakeHold, CapacityHold, "something-else"}
 	stalls := append([]StallReason{"", "something-nobody-named"}, StallReasons()...)
@@ -307,6 +312,25 @@ func TestTheRulesFollowTheDesignsTable(t *testing.T) {
 		got := Resolve(c.kind, c.record)
 		if got.Owner != c.owner || got.Reason != c.reason {
 			t.Errorf("%s: Resolve = %+v, want owner %s reason %q", c.name, got, c.owner, c.reason)
+		}
+	}
+}
+
+// Work held on the provider's capacity is never the operator's: the harness
+// asks again or pulls the item again, a stopped run is the development
+// manager's to decide, a refused turn waits on nobody, and a stand nobody
+// named is the Lead Product Manager's to classify.
+func TestCapacityBlockedWorkIsNeverTheOperators(t *testing.T) {
+	t.Parallel()
+	for stand, want := range map[CapacityStand]Mover{
+		CapacityRunWaiting:  MoverHarness,
+		CapacityRunRequeued: MoverHarness,
+		CapacityRunStopped:  MoverDevelopmentManager,
+		CapacityTurnRefused: MoverNobody,
+		"something-else":    MoverProductManager,
+	} {
+		if got := Resolve(KindCapacityBlocked, Record{Capacity: stand}); got.Owner != want || strings.TrimSpace(got.Remedy) == "" {
+			t.Errorf("Resolve(capacity-blocked, %q) = %+v, want %s with a remedy", stand, got, want)
 		}
 	}
 }

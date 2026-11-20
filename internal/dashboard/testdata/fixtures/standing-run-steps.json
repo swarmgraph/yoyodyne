@@ -158,5 +158,189 @@
   },
   "startable": 0,
   "admitted_items": [],
-  "startable_items": []
+  "startable_items": [],
+  "problems": [
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "id": "run-cleanup",
+        "kind": "owed-step",
+        "label": "run not finished",
+        "mover": "harness",
+        "owed_step": {
+          "cleanup_failure": "remove worktree: directory busy",
+          "phase": "cleaning_up",
+          "status": "succeeded"
+        },
+        "ownership": {
+          "capability": "yoyo reconcile",
+          "owner": "harness",
+          "remedy": "settle the run"
+        },
+        "what": "cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished: remove worktree: directory busy",
+        "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it",
+        "work_item_id": "yoyodyne-ifd.222"
+      },
+      "identity": "stalled:owed-step:run-cleanup:yoyodyne-ifd.222",
+      "kind": "stalled",
+      "sources": [
+        "run-cleanup",
+        "yoyodyne-ifd.222"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "id": "run-dropped",
+        "kind": "owed-step",
+        "label": "run not finished",
+        "mover": "harness",
+        "owed_step": {
+          "cleanup_failure": "remove worktree: directory busy",
+          "merge_drop": {
+            "at": "2026-09-19T14:45:00Z",
+            "reason": "build failed"
+          },
+          "phase": "cleaning_up",
+          "pull_request": {
+            "branch": "run-dropped",
+            "checks": {
+              "failing": [
+                {
+                  "conclusion": "failure",
+                  "name": "build"
+                }
+              ],
+              "head_commit": "abc",
+              "read_at": "2026-09-19T14:50:00Z"
+            },
+            "head_commit": "def",
+            "number": 732,
+            "remote": "origin",
+            "url": "https://forge.example/pull/732"
+          },
+          "status": "succeeded",
+          "target_branch": "main"
+        },
+        "ownership": {
+          "capability": "yoyo reconcile",
+          "owner": "harness",
+          "remedy": "settle the run"
+        },
+        "what": "cleanup of the branch and worktree for yoyodyne-ifd.435.1 is not finished: remove worktree: directory busy",
+        "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it",
+        "work_item_id": "yoyodyne-ifd.435.1"
+      },
+      "identity": "stalled:owed-step:run-dropped:yoyodyne-ifd.435.1",
+      "kind": "stalled",
+      "sources": [
+        "run-dropped",
+        "yoyodyne-ifd.435.1"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "id": "run-queued",
+        "kind": "owed-step",
+        "label": "merge stuck",
+        "mover": "harness",
+        "owed_step": {
+          "phase": "complete",
+          "pull_request": {
+            "branch": "run-queued",
+            "checks": {
+              "failing": [
+                {
+                  "conclusion": "failure",
+                  "name": "build"
+                }
+              ],
+              "head_commit": "abc",
+              "read_at": "2026-09-19T14:50:00Z"
+            },
+            "head_commit": "abc",
+            "merge_queued": true,
+            "number": 700,
+            "remote": "origin",
+            "url": "https://forge.example/pull/700"
+          },
+          "status": "succeeded",
+          "target_branch": "main"
+        },
+        "ownership": {
+          "capability": "yoyo reconcile",
+          "owner": "harness",
+          "remedy": "settle the run"
+        },
+        "what": "merge of pull request 700 for yoyodyne-ifd.363 is queued; checks failing: build (naming no file); head abc level with main; read 2026-09-19T14:50:00Z",
+        "whose": "the harness's — `yoyo reconcile` reads the failed checks and withdraws the merge to update its head, wait for a target fix, or return the change for repair",
+        "work_item_id": "yoyodyne-ifd.363"
+      },
+      "identity": "stalled:owed-step:run-queued:yoyodyne-ifd.363",
+      "kind": "stalled",
+      "sources": [
+        "run-queued",
+        "yoyodyne-ifd.363"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "id": "run-dropped",
+        "kind": "publication",
+        "label": "merge stuck",
+        "mover": "development-manager",
+        "ownership": {
+          "capability": "triage decision",
+          "owner": "development-manager",
+          "remedy": "decide a repair, re-run, or re-arm"
+        },
+        "publication": {
+          "branch": "run-dropped",
+          "merge_drop": {
+            "at": "2026-09-19T14:45:00Z",
+            "reason": "build failed"
+          },
+          "pull_request": {
+            "branch": "run-dropped",
+            "head_commit": "def",
+            "number": 732,
+            "remote": "origin",
+            "url": "https://forge.example/pull/732"
+          },
+          "target_branch": "main"
+        },
+        "what": "merge of pull request 732 for yoyodyne-ifd.435.1 was dropped by the forge: build failed",
+        "whose": "the development manager's — the forge dropped the merge: build failed; she decides a repair, re-run, or re-arm, which the harness carries out; `yoyo reconcile` settles it once the forge records the merge",
+        "work_item_id": "yoyodyne-ifd.435.1"
+      },
+      "identity": "stalled:publication:run-dropped:yoyodyne-ifd.435.1",
+      "kind": "stalled",
+      "sources": [
+        "run-dropped",
+        "yoyodyne-ifd.435.1"
+      ]
+    }
+  ]
 }

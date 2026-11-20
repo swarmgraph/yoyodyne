@@ -676,8 +676,8 @@ func sharedToken(candidate, token string) bool {
 }
 
 // servePage is the shell: the page with its states — asking for the token,
-// loading, error, ready — and its nine sections, the owner summary first, each
-// with an empty, a loading, and an error state of its own, and a tenth, the
+// loading, error, ready — and its eight sections, the owner summary first, each
+// with an empty, a loading, and an error state of its own, and a ninth, the
 // merge queues, hidden until
 // the product has a merge queue record, and nothing of the read model in any of them.
 // Where services.dashboard.hide_summary is set the summary is not in it at

@@ -1115,8 +1115,8 @@ that takes a turn is told which findings they were, so the role can leave the
 trace then, and until that pass the untraced pass is an entry on the attention
 line with the role as the one to move, under `Waiting on the development
 manager` or whichever role's pass it was. It asks nothing of a person. The
-dashboard's factory-problems section, once it is built, is meant to show it as
-one of that section's problems.
+dashboard's [problems section](operations.md#watching-from-a-browser-the-dashboard) shows it as a
+broken entry with the role as the one to move.
 
 **The Lead Product Manager's sweep report carries its audit of closed work.**
 Her sweep checks the work closed since its last pass against the standing goals
@@ -1144,7 +1144,7 @@ line with the harness as the one to move. It is read by the supervisor rather
 than by any role's pass because the roles that would notice are the ones
 failing — see [saying when the factory has
 stalled](configuration.md#saying-when-the-factory-has-stalled). The
-factory-problems section, once it is built, is meant to show it too.
+dashboard's problems section shows it too, as a stalled entry.
 
 Whether it is keeping up, or whether there is no cadence at all, is a question
 about a week rather than about a moment, so every listing of the pile leads with

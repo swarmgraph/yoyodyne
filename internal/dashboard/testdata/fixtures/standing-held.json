@@ -192,5 +192,177 @@
     "yoyodyne-ifd.212": "(P2, observability) Recurring tasks say when a firing was skipped (yoyodyne-ifd.212)",
     "yoyodyne-ifd.219": "(P3) Reconcile prints the branch it caught up (yoyodyne-ifd.219)",
     "yoyodyne-ifd.230": "yoyodyne-ifd.230 (not in the tracker)"
-  }
+  },
+  "problems": [
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "stood_seconds": 57189,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "capacity_blocked": {
+          "run": {
+            "phase": "reviewing",
+            "preserved": true,
+            "refused_by": "an exhausted usage limit (five_hour)",
+            "remedy": "the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan",
+            "run_id": "run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44",
+            "since": "2026-09-18T22:12:00Z",
+            "state": "capacity-blocked",
+            "waited_seconds": 14400,
+            "work_item_id": "yoyodyne-ifd.150"
+          }
+        },
+        "id": "run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44",
+        "kind": "capacity-blocked",
+        "label": "held on provider capacity",
+        "mover": "development-manager",
+        "ownership": {
+          "capability": "triage decision",
+          "owner": "development-manager",
+          "remedy": "decide what becomes of the stopped run"
+        },
+        "what": "the run run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44 for yoyodyne-ifd.150 stopped on an exhausted usage limit (five_hour), since 2026-09-18T22:12:00Z; the provider named no reset",
+        "whose": "the development manager's — the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan",
+        "work_item_id": "yoyodyne-ifd.150"
+      },
+      "identity": "degraded:capacity-blocked:run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44:yoyodyne-ifd.150",
+      "kind": "degraded",
+      "since": "2026-09-18T22:12:00Z",
+      "sources": [
+        "run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44",
+        "yoyodyne-ifd.150"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 7389,
+        "waiting": 0
+      },
+      "count": 3,
+      "entry": {
+        "capacity_blocked": {
+          "conversation": {
+            "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
+            "model": "claude-opus-5",
+            "refusals": 3,
+            "refused_by": "an exhausted usage limit (seven_day)",
+            "remedy": "nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then",
+            "resets_at": "2026-09-19T18:50:00Z",
+            "since": "2026-09-19T12:02:00Z",
+            "state": "capacity-blocked",
+            "waiting": "the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider"
+          }
+        },
+        "id": "chat-91253e0e070c17b0663651cc48602122",
+        "kind": "capacity-blocked",
+        "label": "held on provider capacity",
+        "mover": "nobody",
+        "ownership": {
+          "owner": "nobody",
+          "remedy": "nothing: the turn is served by asking again once the limit lifts"
+        },
+        "what": "the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider: 3 turn(s) refused on an exhausted usage limit (seven_day) since 2026-09-19T12:02:00Z; it resets at 2026-09-19T18:50:00Z",
+        "whose": "nobody's — nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then"
+      },
+      "identity": "degraded:capacity-blocked:chat-91253e0e070c17b0663651cc48602122:",
+      "kind": "degraded",
+      "since": "2026-09-19T12:02:00Z",
+      "sources": [
+        "chat-91253e0e070c17b0663651cc48602122"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 7389,
+        "waiting": 0
+      },
+      "count": 7,
+      "entry": {
+        "capacity_hold": {
+          "agents": [
+            "architect",
+            "developer",
+            "development-manager",
+            "product-manager",
+            "reviewer"
+          ],
+          "holding": true,
+          "kind": "seven_day",
+          "models": [
+            "opus"
+          ],
+          "refusals": 7,
+          "resets_at": "2026-09-19T18:50:00Z",
+          "since": "2026-09-19T12:02:00Z"
+        },
+        "id": "capacity",
+        "kind": "hold",
+        "label": "work paused",
+        "mover": "harness",
+        "ownership": {
+          "owner": "harness",
+          "remedy": "resume the roles when the provider's usage limit resets"
+        },
+        "what": "every role is held by the provider's usage limit, since 2026-09-19T12:02:00Z, until 2026-09-19T18:50:00Z",
+        "whose": "the harness's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does"
+      },
+      "identity": "degraded:hold:capacity:",
+      "kind": "degraded",
+      "since": "2026-09-19T12:02:00Z",
+      "sources": [
+        "capacity"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "stood_seconds": 1509,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "capacity_blocked": {
+          "run": {
+            "phase": "developing",
+            "preserved": true,
+            "refused_by": "an exhausted usage limit (seven_day)",
+            "remedy": "nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe",
+            "resets_at": "2026-09-19T18:50:00Z",
+            "run_id": "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
+            "since": "2026-09-19T13:40:00Z",
+            "state": "waiting",
+            "waited_seconds": 1500,
+            "work_item_id": "yoyodyne-ifd.230"
+          }
+        },
+        "id": "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
+        "kind": "capacity-blocked",
+        "label": "held on provider capacity",
+        "mover": "harness",
+        "ownership": {
+          "owner": "harness",
+          "remedy": "ask the provider again at the run's next probe"
+        },
+        "what": "the run run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90 for yoyodyne-ifd.230 is waiting on an exhausted usage limit (seven_day), since 2026-09-19T13:40:00Z; it resets at 2026-09-19T18:50:00Z",
+        "whose": "the harness's — nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe",
+        "work_item_id": "yoyodyne-ifd.230"
+      },
+      "identity": "degraded:capacity-blocked:run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90:yoyodyne-ifd.230",
+      "kind": "degraded",
+      "since": "2026-09-19T13:40:00Z",
+      "sources": [
+        "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
+        "yoyodyne-ifd.230"
+      ]
+    }
+  ]
 }

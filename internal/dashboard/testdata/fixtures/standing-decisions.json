@@ -611,5 +611,423 @@
       "ask_agent": "product-manager",
       "says": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold"
     }
+  ],
+  "problems": [
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "id": "run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70",
+        "kind": "owed-step",
+        "label": "run not finished",
+        "mover": "harness",
+        "owed_step": {
+          "phase": "cleaning_up",
+          "status": "succeeded"
+        },
+        "ownership": {
+          "owner": "",
+          "remedy": ""
+        },
+        "what": "cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished",
+        "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it",
+        "work_item_id": "yoyodyne-ifd.222"
+      },
+      "identity": "stalled:owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70:yoyodyne-ifd.222",
+      "kind": "stalled",
+      "sources": [
+        "run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70",
+        "yoyodyne-ifd.222"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 709509,
+        "waiting": 2
+      },
+      "count": 2,
+      "entry": {
+        "kind": "report",
+        "label": "reports waiting",
+        "mover": "product-manager",
+        "ownership": {
+          "owner": "",
+          "remedy": ""
+        },
+        "reports": {
+          "collected": 14,
+          "oldest": "2026-09-11T09:00:00Z",
+          "oldest_age": 709509000000000,
+          "unhandled": 2,
+          "worst": "warning"
+        },
+        "what": "2 of 14 collected report(s) are unhandled, the oldest filed 8d ago, worst warning",
+        "whose": "the Lead Product Manager's — reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up"
+      },
+      "identity": "blocked:report::",
+      "kind": "blocked",
+      "since": "2026-09-11T09:00:00Z",
+      "sources": []
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 9909,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "amendment": {
+          "agent": "developer",
+          "artifact": "v1-harness-design",
+          "change": "The design should say that configuration selects sequence and never grants authority.",
+          "id": "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c",
+          "kind": "design",
+          "owner": "architect",
+          "product_id": "yoyodyne",
+          "raised_at": "2026-09-19T11:20:00Z",
+          "repository_id": "yoyodyne",
+          "role": "developer",
+          "run_id": "run-5c1e9b2d7a4f3e8c6b0d1f2a3c4e5b6d",
+          "schema_version": 1,
+          "why": "The invariant exists and the design does not cite it.",
+          "work_item_id": "yoyodyne-ifd.210"
+        },
+        "id": "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c",
+        "kind": "amendment",
+        "label": "proposed document change",
+        "mover": "architect",
+        "ownership": {
+          "capability": "amendment action",
+          "owner": "architect",
+          "remedy": "decide the proposed change from its conversation"
+        },
+        "what": "a change to v1-harness-design is proposed and undecided (amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c)",
+        "whose": "the architect's — decided from its conversation with the amendment action, and the operator is told afterwards; nothing reaches the document until it is decided",
+        "work_item_id": "yoyodyne-ifd.210"
+      },
+      "identity": "blocked:amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c:yoyodyne-ifd.210",
+      "kind": "blocked",
+      "since": "2026-09-19T11:20:00Z",
+      "sources": [
+        "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c",
+        "yoyodyne-ifd.210"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 4809,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "amendment": {
+          "agent": "developer",
+          "artifact": "v1-goals",
+          "change": "The legibility goal should say that the dashboard counts the attention line by who has to act on each entry.",
+          "id": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
+          "kind": "goals",
+          "owner": "product-manager",
+          "product_id": "yoyodyne",
+          "raised_at": "2026-09-19T12:45:00Z",
+          "repository_id": "yoyodyne",
+          "role": "developer",
+          "run_id": "run-8d2f0c3e9b1a4e7c5d6b2f8a0c1e3b5d",
+          "schema_version": 1,
+          "why": "The read model carries who acts next, and the page counts by it rather than by the words beside it.",
+          "work_item_id": "yoyodyne-ifd.432.5"
+        },
+        "id": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
+        "kind": "amendment",
+        "label": "proposed document change",
+        "mover": "operator",
+        "owner_reason": "a change to the fundamental goals, which only the operator decides",
+        "ownership": {
+          "capability": "yoyo amendment approve|decline",
+          "owner": "operator",
+          "reason": "fundamental-intent",
+          "remedy": "approve or decline the change"
+        },
+        "what": "a change to v1-goals is proposed and undecided (amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d)",
+        "whose": "the operator's — a change of fundamental intent; `yoyo amendment approve|decline` decides it, and nothing reaches the document until he does",
+        "work_item_id": "yoyodyne-ifd.432.5"
+      },
+      "identity": "blocked:amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d:yoyodyne-ifd.432.5",
+      "kind": "blocked",
+      "since": "2026-09-19T12:45:00Z",
+      "sources": [
+        "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
+        "yoyodyne-ifd.432.5"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 1509,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "directive": {
+          "id": "directive-4f2c",
+          "kind": "ambiguous",
+          "product_id": "yoyodyne",
+          "received_at": "2026-09-19T13:40:00Z",
+          "received_by": "product-manager",
+          "schema_version": 1,
+          "scope": [
+            "yoyodyne-ifd.219"
+          ],
+          "text": "which branch does this land on?",
+          "unresolved": "which branch does this land on?"
+        },
+        "id": "directive-4f2c",
+        "kind": "directive",
+        "label": "direction unresolved",
+        "mover": "operator",
+        "ownership": {
+          "owner": "",
+          "remedy": ""
+        },
+        "what": "directive directive-4f2c is unresolved: which branch does this land on?",
+        "whose": "the operator's — the work it affects waits until `yoyo directive resolve` settles it"
+      },
+      "identity": "blocked:directive:directive-4f2c:",
+      "kind": "blocked",
+      "since": "2026-09-19T13:40:00Z",
+      "sources": [
+        "directive-4f2c"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "executor": "conversation:product-manager",
+        "id": "yoyodyne-ifd.188",
+        "kind": "conversation-carried-item",
+        "label": "work in conversation",
+        "mover": "product-manager",
+        "ownership": {
+          "owner": "",
+          "remedy": ""
+        },
+        "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",
+        "whose": "the Lead Product Manager's — in conversation; no run will ever be started for it",
+        "work_item_id": "yoyodyne-ifd.188"
+      },
+      "identity": "blocked:conversation-carried-item:yoyodyne-ifd.188:yoyodyne-ifd.188",
+      "kind": "blocked",
+      "sources": [
+        "yoyodyne-ifd.188"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "document_approval": {
+          "action": "revise",
+          "agent": "product-manager",
+          "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
+          "document": "v1-non-goals",
+          "kind": "non-goals",
+          "owner": "product-manager",
+          "product_intent": true,
+          "reason": "The operator decided on October 11 that the dashboard may take his own decisions.",
+          "title": "V1 non-goals",
+          "turn": 2328,
+          "write_id": "document-2328.1"
+        },
+        "id": "chat-91253e0e070c17b0663651cc48602122/document-2328.1",
+        "kind": "document-approval",
+        "label": "document waiting for approval",
+        "mover": "operator",
+        "owner_reason": "a change to the fundamental goals, which only the operator decides",
+        "ownership": {
+          "capability": "yoyo agent chat approve|decline",
+          "owner": "operator",
+          "reason": "fundamental-intent",
+          "remedy": "approve or decline the document"
+        },
+        "what": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold",
+        "whose": "the operator's — it states the product's intent, and a change to it is his to approve; `yoyo chat --message \"approve document-2328.1\"` approves it and `yoyo chat --message \"decline document-2328.1 \u003creason\u003e\"` declines it, and it leaves this line once he has"
+      },
+      "identity": "blocked:document-approval:chat-91253e0e070c17b0663651cc48602122/document-2328.1:",
+      "kind": "blocked",
+      "sources": [
+        "chat-91253e0e070c17b0663651cc48602122/document-2328.1"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "waiting": 2
+      },
+      "count": 2,
+      "entry": {
+        "held_work": {
+          "awaiting": "decision",
+          "count": 1
+        },
+        "kind": "held-work",
+        "label": "work waiting",
+        "mover": "development-manager",
+        "ownership": {
+          "owner": "",
+          "remedy": ""
+        },
+        "what": "1 admitted item awaits the development manager's decision",
+        "whose": "the development manager's — nothing pulls a stopped item until she decides what happens to it"
+      },
+      "identity": "blocked:held-work::",
+      "kind": "blocked",
+      "sources": []
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "stood_seconds": 57189,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "capacity_blocked": {
+          "run": {
+            "phase": "reviewing",
+            "preserved": true,
+            "refused_by": "an exhausted usage limit (five_hour)",
+            "remedy": "the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan",
+            "run_id": "run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44",
+            "since": "2026-09-18T22:12:00Z",
+            "state": "capacity-blocked",
+            "waited_seconds": 14400,
+            "work_item_id": "yoyodyne-ifd.150"
+          }
+        },
+        "id": "run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44",
+        "kind": "capacity-blocked",
+        "label": "held on provider capacity",
+        "mover": "development-manager",
+        "ownership": {
+          "capability": "triage decision",
+          "owner": "development-manager",
+          "remedy": "decide what becomes of the stopped run"
+        },
+        "what": "the run run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44 for yoyodyne-ifd.150 stopped on an exhausted usage limit (five_hour), since 2026-09-18T22:12:00Z; the provider named no reset",
+        "whose": "the development manager's — the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan",
+        "work_item_id": "yoyodyne-ifd.150"
+      },
+      "identity": "degraded:capacity-blocked:run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44:yoyodyne-ifd.150",
+      "kind": "degraded",
+      "since": "2026-09-18T22:12:00Z",
+      "sources": [
+        "run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44",
+        "yoyodyne-ifd.150"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 0,
+        "stood_seconds": 7389,
+        "waiting": 0
+      },
+      "count": 3,
+      "entry": {
+        "capacity_blocked": {
+          "conversation": {
+            "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
+            "model": "claude-opus-5",
+            "refusals": 3,
+            "refused_by": "an exhausted usage limit (seven_day)",
+            "remedy": "nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then",
+            "resets_at": "2026-09-19T18:50:00Z",
+            "since": "2026-09-19T12:02:00Z",
+            "state": "capacity-blocked",
+            "waiting": "the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider"
+          }
+        },
+        "id": "chat-91253e0e070c17b0663651cc48602122",
+        "kind": "capacity-blocked",
+        "label": "held on provider capacity",
+        "mover": "nobody",
+        "ownership": {
+          "owner": "nobody",
+          "remedy": "nothing: the turn is served by asking again once the limit lifts"
+        },
+        "what": "the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider: 3 turn(s) refused on an exhausted usage limit (seven_day) since 2026-09-19T12:02:00Z; it resets at 2026-09-19T18:50:00Z",
+        "whose": "nobody's — nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then"
+      },
+      "identity": "degraded:capacity-blocked:chat-91253e0e070c17b0663651cc48602122:",
+      "kind": "degraded",
+      "since": "2026-09-19T12:02:00Z",
+      "sources": [
+        "chat-91253e0e070c17b0663651cc48602122"
+      ]
+    },
+    {
+      "cost": {
+        "money": "not recorded",
+        "runs": 1,
+        "stood_seconds": 1509,
+        "waiting": 0
+      },
+      "count": 1,
+      "entry": {
+        "capacity_blocked": {
+          "run": {
+            "phase": "developing",
+            "preserved": true,
+            "refused_by": "an exhausted usage limit (seven_day)",
+            "remedy": "nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe",
+            "resets_at": "2026-09-19T18:50:00Z",
+            "run_id": "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
+            "since": "2026-09-19T13:40:00Z",
+            "state": "waiting",
+            "waited_seconds": 1500,
+            "work_item_id": "yoyodyne-ifd.230"
+          }
+        },
+        "id": "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
+        "kind": "capacity-blocked",
+        "label": "held on provider capacity",
+        "mover": "harness",
+        "ownership": {
+          "owner": "harness",
+          "remedy": "ask the provider again at the run's next probe"
+        },
+        "what": "the run run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90 for yoyodyne-ifd.230 is waiting on an exhausted usage limit (seven_day), since 2026-09-19T13:40:00Z; it resets at 2026-09-19T18:50:00Z",
+        "whose": "the harness's — nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe",
+        "work_item_id": "yoyodyne-ifd.230"
+      },
+      "identity": "degraded:capacity-blocked:run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90:yoyodyne-ifd.230",
+      "kind": "degraded",
+      "since": "2026-09-19T13:40:00Z",
+      "sources": [
+        "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
+        "yoyodyne-ifd.230"
+      ]
+    }
   ]
 }

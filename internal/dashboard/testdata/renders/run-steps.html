@@ -373,22 +373,136 @@
             <p id="throughput-empty" class="empty">Nothing ran in the last 7 days, from 2026-09-13.</p>
           </div>
         </section>
-        <section id="capacity" class="panel capacity" data-state="empty" aria-labelledby="capacity-heading">
+        <section id="factory" class="panel factory" data-state="ready" aria-labelledby="factory-heading">
           <div class="panel-head">
-            <h2 id="capacity-heading">Provider capacity</h2>
-            <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
+            <h2 id="factory-heading">Problems: broken, stalled, blocked, or degraded</h2>
+            <p class="panel-note">everything the harness is not doing that it should, where nothing in the ordinary flow fixes it by itself, broken first; each with how long it has stood, what it has cost, who has to act next, the work item that fixes it, and how many it covers. Work held on provider capacity is listed here as degraded. The entries marked yours are the ones Needs a human counts.</p>
           </div>
-          <div class="section-empty">
-            <p id="capacity-empty" class="empty">No run or conversation is waiting on provider capacity, and no provider usage limit is holding every role.</p>
-          </div>
-        </section>
-        <section id="factory" class="panel factory" data-state="empty" aria-labelledby="factory-heading">
-          <div class="panel-head">
-            <h2 id="factory-heading">Factory problems</h2>
-            <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
-          </div>
-          <div class="section-empty">
-            <p id="factory-empty" class="empty">No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.</p>
+          <div class="section-ready">
+            <ul id="factory-problems" class="degraded" hidden></ul>
+            <div id="factory-kinds" class="problem-kinds">
+              <div class="problem-kind problem-kind-stalled">
+                <h3 class="problem-kind-heading">Stalled (4): nothing is moving that should</h3>
+                <ul class="held-list">
+                  <li class="held problem problem-stalled">
+                    <div class="held-head">
+                      <span class="held-kind">run not finished</span>
+                      <span class="held-state">stalled</span>
+                    </div>
+                    <h3 class="held-title">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished: remove worktree: directory busy</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>1</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>1 run spent on it; how long it has stood is not recorded; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the harness's — `yoyo reconcile` finishes the run's cleanup and records it</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                  <li class="held problem problem-stalled">
+                    <div class="held-head">
+                      <span class="held-kind">run not finished</span>
+                      <span class="held-state">stalled</span>
+                    </div>
+                    <h3 class="held-title">cleanup of the branch and worktree for yoyodyne-ifd.435.1 is not finished: remove worktree: directory busy</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>1</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>1 run spent on it; how long it has stood is not recorded; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the harness's — `yoyo reconcile` finishes the run's cleanup and records it</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                  <li class="held problem problem-stalled">
+                    <div class="held-head">
+                      <span class="held-kind">merge stuck</span>
+                      <span class="held-state">stalled</span>
+                    </div>
+                    <h3 class="held-title">merge of pull request 700 for yoyodyne-ifd.363 is queued; checks failing: build (naming no file); head abc level with main; read 2026-09-19T14:50:00Z</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>1</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>1 run spent on it; how long it has stood is not recorded; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the harness's — `yoyo reconcile` reads the failed checks and withdraws the merge to update its head, wait for a target fix, or return the change for repair</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                  <li class="held problem problem-stalled">
+                    <div class="held-head">
+                      <span class="held-kind">merge stuck</span>
+                      <span class="held-state">stalled</span>
+                    </div>
+                    <h3 class="held-title">merge of pull request 732 for yoyodyne-ifd.435.1 was dropped by the forge: build failed</h3>
+                    <dl class="held-facts">
+                      <div class="figure-row">
+                        <dt>Since</dt>
+                        <dd>not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Covers</dt>
+                        <dd>1</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Cost so far</dt>
+                        <dd>1 run spent on it; how long it has stood is not recorded; money not recorded</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Who acts next</dt>
+                        <dd>the development manager's — the forge dropped the merge: build failed; she decides a repair, re-run, or re-arm, which the harness carries out; `yoyo reconcile` settles it once the forge records the merge</dd>
+                      </div>
+                      <div class="figure-row">
+                        <dt>Fixed by</dt>
+                        <dd>none admitted yet</dd>
+                      </div>
+                    </dl>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </section>
         <section id="managers" class="panel managers" data-state="empty" aria-labelledby="managers-heading">

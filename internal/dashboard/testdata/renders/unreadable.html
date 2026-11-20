@@ -188,23 +188,14 @@
             <p id="throughput-remedy" class="remedy">The dashboard asks again every minute. yoyo status reads the same run records at the terminal and names what could not be read.</p>
           </div>
         </section>
-        <section id="capacity" class="panel capacity" data-state="error" aria-labelledby="capacity-heading">
+        <section id="factory" class="panel factory" data-state="error" aria-labelledby="factory-heading">
           <div class="panel-head">
-            <h2 id="capacity-heading">Provider capacity</h2>
-            <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
+            <h2 id="factory-heading">Problems: broken, stalled, blocked, or degraded</h2>
+            <p class="panel-note">everything the harness is not doing that it should, where nothing in the ordinary flow fixes it by itself, broken first; each with how long it has stood, what it has cost, who has to act next, the work item that fixes it, and how many it covers. Work held on provider capacity is listed here as degraded. The entries marked yours are the ones Needs a human counts.</p>
           </div>
           <div class="section-error" role="alert">
-            <p id="capacity-problem" class="problem">Could not be read: the run records could not be read: open runs: input/output error; the refusal log could not be read: open usage-limits.jsonl: input/output error</p>
-            <p id="capacity-remedy" class="remedy">The dashboard asks again every ten seconds. If this stays, yoyo status in the checkout says the same thing with more room, and yoyo doctor says what cannot be read.</p>
-          </div>
-        </section>
-        <section id="factory" class="panel factory" data-state="empty" aria-labelledby="factory-heading">
-          <div class="panel-head">
-            <h2 id="factory-heading">Factory problems</h2>
-            <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
-          </div>
-          <div class="section-empty">
-            <p id="factory-empty" class="empty">No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.</p>
+            <p id="factory-problem" class="problem">Could not be read: the operator's pause could not be read: open pause.json: input/output error; the run records could not be read: open runs: input/output error; the refusal log could not be read: open usage-limits.jsonl: input/output error</p>
+            <p id="factory-remedy" class="remedy">The dashboard asks again every ten seconds. If this stays, yoyo status in the checkout says the same thing with more room, and yoyo doctor says what cannot be read.</p>
           </div>
         </section>
         <section id="managers" class="panel managers" data-state="error" aria-labelledby="managers-heading">

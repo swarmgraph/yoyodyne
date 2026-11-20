@@ -130,31 +130,18 @@
       </div>
     </section>
 
-    <section id="capacity" class="panel capacity" data-state="loading" aria-labelledby="capacity-heading">
-      <div class="panel-head">
-        <h2 id="capacity-heading">Provider capacity</h2>
-        <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
-      </div>
-      <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
-      <div class="section-error" role="alert"><p id="capacity-problem" class="problem"></p><p id="capacity-remedy" class="remedy"></p></div>
-      <div class="section-empty"><p id="capacity-empty" class="empty"></p></div>
-      <div class="section-ready">
-        <p id="capacity-hold" class="hold" hidden></p>
-        <ul id="capacity-problems" class="degraded"></ul>
-        <ul id="capacity-runs" class="held-list"></ul>
-        <ul id="capacity-conversations" class="held-list"></ul>
-      </div>
-    </section>
-
     <section id="factory" class="panel factory" data-state="loading" aria-labelledby="factory-heading">
       <div class="panel-head">
-        <h2 id="factory-heading">Factory problems</h2>
-        <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
+        <h2 id="factory-heading">Problems: broken, stalled, blocked, or degraded</h2>
+        <p class="panel-note">everything the harness is not doing that it should, where nothing in the ordinary flow fixes it by itself, broken first; each with how long it has stood, what it has cost, who has to act next, the work item that fixes it, and how many it covers. Work held on provider capacity is listed here as degraded. The entries marked yours are the ones Needs a human counts.</p>
       </div>
       <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
       <div class="section-error" role="alert"><p id="factory-problem" class="problem"></p><p id="factory-remedy" class="remedy"></p></div>
       <div class="section-empty"><p id="factory-empty" class="empty"></p></div>
-      <div class="section-ready"><ul id="factory-list" class="held-list"></ul></div>
+      <div class="section-ready">
+        <ul id="factory-problems" class="degraded"></ul>
+        <div id="factory-kinds" class="problem-kinds"></div>
+      </div>
     </section>
 
     <section id="managers" class="panel managers" data-state="loading" aria-labelledby="managers-heading">

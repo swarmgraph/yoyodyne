@@ -119,6 +119,31 @@ const (
 	// past because it would not read. The run is the ID. Nothing acts on the
 	// run while it does not read, so it is said rather than left out silently.
 	KindUnreadableRun Kind = "unreadable-run"
+	// KindCapacityBlocked is one run or one conversation parked or held on the
+	// provider's capacity: a run asleep on a reset, a run the refusal stopped,
+	// or a conversation whose turn the provider is still refusing. The run or
+	// the conversation is the ID; the registry names the mover from which of
+	// those it is (CapacityStand).
+	KindCapacityBlocked Kind = "capacity-blocked"
+)
+
+// CapacityStand is where one run or conversation stands against the
+// provider's capacity, as the capacity-blocked rule reads it.
+type CapacityStand string
+
+const (
+	// CapacityRunWaiting is a run asleep on a recorded reset, which asks the
+	// provider again by itself.
+	CapacityRunWaiting CapacityStand = "run-waiting"
+	// CapacityRunRequeued is a run the usage window stopped, which gave its
+	// item back to the queue to be pulled again once the window resets.
+	CapacityRunRequeued CapacityStand = "run-requeued"
+	// CapacityRunStopped is a run the refusal stopped with its item handed to
+	// the development manager.
+	CapacityRunStopped CapacityStand = "run-stopped"
+	// CapacityTurnRefused is a conversation whose turn the provider refused and
+	// is still refusing.
+	CapacityTurnRefused CapacityStand = "turn-refused"
 )
 
 // KindStoppage is a run that stopped and left its item for somebody: the
@@ -168,6 +193,7 @@ func AttentionKinds() []Kind {
 		KindLaneHumanBlock,
 		KindDocumentApproval,
 		KindUnreadableRun,
+		KindCapacityBlocked,
 	}
 }
 

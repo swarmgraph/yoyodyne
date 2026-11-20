@@ -19,7 +19,7 @@ package readmodel
 // provider capacity, since when, until when where the provider said, and what
 // a person can do about each. It is derived once, here, from the durable run
 // records and the refusal log, for every surface that will say it — the
-// machine-readable status first, and the capacity panel after that — so a
+// machine-readable status first, and the dashboard's problems section after that — so a
 // dashboard and a script cannot come to count the parked runs differently.
 
 import (
@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -432,4 +433,85 @@ func CapacityBlockedOf(sources Sources, now time.Time) CapacityBlocked {
 	blocked.RunsProblem = joinProblems(runsProblem, evidenceProblem)
 	blocked.ConversationsProblem = joinProblems(refusalsProblem, evidenceProblem)
 	return blocked
+}
+
+// CapacityBlockedEntry is one run or one conversation of the capacity-blocked
+// state, carried on an attention entry so the problems section can list it
+// with the owner the ownership registry gives it. Exactly one of the two is
+// set.
+type CapacityBlockedEntry struct {
+	Run          *CapacityBlockedRun          `json:"run,omitempty"`
+	Conversation *CapacityBlockedConversation `json:"conversation,omitempty"`
+}
+
+// Stand is where the run or the conversation stands, as the registry's rule
+// reads it: a run asleep on a reset, a run the usage window gave back to the
+// queue, a run whose item went to the development manager, or a refused turn.
+func (e CapacityBlockedEntry) Stand() ownership.CapacityStand {
+	switch {
+	case e.Run != nil && e.Run.State == CapacityStateWaiting:
+		return ownership.CapacityRunWaiting
+	case e.Run != nil && e.Run.Remedy == windowRunRemedy:
+		return ownership.CapacityRunRequeued
+	case e.Run != nil:
+		return ownership.CapacityRunStopped
+	case e.Conversation != nil:
+		return ownership.CapacityTurnRefused
+	}
+	return ""
+}
+
+// Remedy is what a person can do about it, in the words the capacity reading
+// already wrote.
+func (e CapacityBlockedEntry) Remedy() string {
+	switch {
+	case e.Run != nil:
+		return e.Run.Remedy
+	case e.Conversation != nil:
+		return e.Conversation.Remedy
+	}
+	return "the entry's record was not carried, so what settles it cannot be said"
+}
+
+// Says is the run or the conversation in a sentence.
+func (e CapacityBlockedEntry) Says() string {
+	resets := func(at *time.Time) string {
+		if at == nil {
+			return "the provider named no reset"
+		}
+		return "it resets at " + at.UTC().Format(time.RFC3339)
+	}
+	switch {
+	case e.Run != nil:
+		run := e.Run
+		verb := "stopped on"
+		if run.State == CapacityStateWaiting {
+			verb = "is waiting on"
+		}
+		return fmt.Sprintf("the run %s for %s %s %s, since %s; %s", run.RunID, run.WorkItemID, verb, run.RefusedBy, run.Since.UTC().Format(time.RFC3339), resets(run.ResetsAt))
+	case e.Conversation != nil:
+		turn := e.Conversation
+		who := turn.Waiting
+		if who == "" {
+			who = "the conversation " + turn.ConversationID
+		}
+		return fmt.Sprintf("%s: %d turn(s) refused on %s since %s; %s", who, turn.Refusals, turn.RefusedBy, turn.Since.UTC().Format(time.RFC3339), resets(turn.ResetsAt))
+	}
+	return "work held on provider capacity, its record not carried"
+}
+
+// Attention is every run and conversation of the state as an attention entry,
+// for the problems section: each is degraded capacity, owned as the registry
+// says.
+func (c CapacityBlocked) Attention() []Attention {
+	var entries []Attention
+	for index := range c.Runs {
+		run := c.Runs[index]
+		entries = append(entries, resolved(Attention{Kind: AttentionCapacityBlocked, ID: run.RunID, WorkItemID: run.WorkItemID, CapacityBlocked: &CapacityBlockedEntry{Run: &run}}))
+	}
+	for index := range c.Conversations {
+		turn := c.Conversations[index]
+		entries = append(entries, resolved(Attention{Kind: AttentionCapacityBlocked, ID: turn.ConversationID, CapacityBlocked: &CapacityBlockedEntry{Conversation: &turn}}))
+	}
+	return entries
 }
