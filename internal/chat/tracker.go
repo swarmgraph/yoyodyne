@@ -281,7 +281,7 @@ var trackerActionArguments = map[string][]string{
 	actionRepair:       {"state", "depends_on", "goal"},
 	actionClose:        {},
 	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "hand"},
+	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "hand", "pull_request", "feedback"},
 	actionInFlight:     {"decision", "superseded_by"},
 	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason", "hand"},
 	actionBrake:        {"decision"},
@@ -612,6 +612,12 @@ type TrackerAction struct {
 	// "wait" and nothing else. A wait naming one takes its entry off the docket
 	// until that item is closed or retired rather than for a fixed window.
 	WaitsOn string `json:"waits_on,omitempty"`
+	// PullRequest and Feedback name the list entry a "repair-from-feedback"
+	// decision answers: the tracked pull request into the team's branch and the
+	// piece of feedback on it, as the report on her list names them. They are
+	// taken by that decision and by nothing else.
+	PullRequest int    `json:"pull_request,omitempty"`
+	Feedback    string `json:"feedback,omitempty"`
 	// Reason is why this is being done. It is required on everything that
 	// changes something: the operator reads the queue afterwards and is owed the
 	// reasoning, not only the edit.
@@ -1553,6 +1559,12 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.WaitsOn) != "" {
 		carried = append(carried, "waits_on")
+	}
+	if a.PullRequest != 0 {
+		carried = append(carried, "pull_request")
+	}
+	if strings.TrimSpace(a.Feedback) != "" {
+		carried = append(carried, "feedback")
 	}
 	if strings.TrimSpace(a.Decision) != "" {
 		carried = append(carried, "decision")

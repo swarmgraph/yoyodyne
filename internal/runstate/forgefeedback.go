@@ -385,6 +385,16 @@ func (s *State) forgeFeedbackTexts(unstated func(key, path string, text *string,
 			item("team_merge.pull_request.feedback.approvals[]", fmt.Sprintf("team_merge.pull_request.feedback.approvals[%d]", index), &feedback.Approvals[index])
 		}
 	}
+	if s.TeamMerge != nil {
+		for index := range s.TeamMerge.Repairs {
+			repair := &s.TeamMerge.Repairs[index]
+			path := fmt.Sprintf("team_merge.repairs[%d]", index)
+			item("team_merge.repairs[].feedback", path+".feedback", &repair.Feedback)
+			unstated("team_merge.repairs[].reason", path+".reason", &repair.Reason, MaxTeamFeedbackRepairReasonBytes)
+			unstated("team_merge.repairs[].decided_by", path+".decided_by", &repair.DecidedBy, MaxTriageDecisionByBytes)
+			unstated("team_merge.repairs[].conversation", path+".conversation", &repair.Conversation, MaxTriageDecisionConversationBytes)
+		}
+	}
 }
 
 // withoutEarlierRound clears what the round that published the head

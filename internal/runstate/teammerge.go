@@ -35,6 +35,10 @@ type TeamMerge struct {
 	PullRequest *TeamPullRequest   `json:"pull_request,omitempty"`
 	FoundBy     int                `json:"found_by_pull_request,omitempty"`
 	Returned    *TeamMergeReturned `json:"returned,omitempty"`
+
+	// Repairs are the development manager's decisions to repair this item from
+	// feedback on the tracked pull request (teamfeedbackrepair.go).
+	Repairs []TeamFeedbackRepair `json:"repairs,omitempty"`
 }
 
 // TeamMergeReturned records that the tracked pull request was closed without
@@ -92,6 +96,7 @@ func (t TeamMerge) Validate() error {
 	if t.FoundBy < 0 || (t.FoundBy > 0 && t.FoundAt == nil) {
 		problems = append(problems, errors.New("team_merge found_by_pull_request requires found_at"))
 	}
+	problems = append(problems, validateTeamFeedbackRepairs(t.Repairs)...)
 	if t.Returned != nil {
 		if t.Returned.Number <= 0 {
 			problems = append(problems, errors.New("team_merge returned number must be positive"))

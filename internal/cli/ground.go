@@ -1062,3 +1062,70 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// feedbackRepairBudget spends the attempt a repair from feedback costs, against
+// the same per-item record and the same configured caps as every other triage
+// spend, so what the development manager records and what `yoyo status` reports
+// can never be two numbers.
+type feedbackRepairBudget struct {
+	store *runstate.TriageStore
+	caps  runstate.TriageCaps
+}
+
+func (b feedbackRepairBudget) RecordFeedbackRepair(ctx context.Context, workItemID, runID string, at time.Time) (runstate.TriageCounters, error) {
+	return b.store.RecordFeedbackRepair(ctx, workItemID, runID, at, b.caps)
+}
+
+// feedbackRepairerFrom is the decision to repair an item from feedback on a
+// tracked pull request, and the carrying out of it, over the parts the rest of
+// the harness uses: the same run store, the same tracker, the same forge client
+// the forge check reads feedback with, the same intake hold, and the pipeline a
+// run starts through.
+func feedbackRepairerFrom(parts components) orchestrator.TeamFeedbackRepairer {
+	return orchestrator.TeamFeedbackRepairer{
+		Runs:  parts.store,
+		Items: parts.tracker(),
+		Feedback: publish.GitHub{
+			Runner:       parts.runner,
+			Dir:          parts.repository,
+			Remote:       parts.config.Execution.Remote,
+			PushRemote:   parts.config.Execution.PushRemote,
+			RedactValues: parts.redactValues,
+		},
+		Budget:   feedbackRepairBudget{store: parts.store.Triage(), caps: orchestrator.TriageCaps(parts.config.Execution, parts.config.Triage)},
+		Intake:   parts.intake,
+		Gates:    parts.store,
+		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		Start: func(ctx context.Context, workItemID string, selection runstate.Selection) (orchestrator.Outcome, error) {
+			pipeline := pipelineFrom(parts)
+			pipeline.Selection = selection
+			return pipeline.Run(ctx, workItemID)
+		},
+		Clock: execution.RealClock{},
+	}
+}
+
+// conversationFeedbackRepairs wires her decision to repair an item from feedback
+// on a tracked pull request, for the development manager's conversation and no
+// other.
+func conversationFeedbackRepairs(parts components, role domain.AgentRole) chat.FeedbackRepairs {
+	if role != domain.RoleDevelopmentManager || parts.store == nil {
+		return nil
+	}
+	return conversationFeedbackRepairer{repairer: feedbackRepairerFrom(parts)}
+}
+
+type conversationFeedbackRepairer struct {
+	repairer orchestrator.TeamFeedbackRepairer
+}
+
+func (c conversationFeedbackRepairer) Decide(ctx context.Context, request chat.FeedbackRepairRequest) (chat.FeedbackRepairDecided, error) {
+	decided, err := c.repairer.Decide(ctx, orchestrator.TeamFeedbackRepairRequest{
+		PullRequest: request.PullRequest, FeedbackID: request.FeedbackID, WorkItemID: request.WorkItemID, Reason: request.Reason,
+		DecidedBy: request.DecidedBy, Conversation: request.Conversation, Turn: request.Turn,
+	})
+	if err != nil {
+		return chat.FeedbackRepairDecided{}, err
+	}
+	return chat.FeedbackRepairDecided{RunID: decided.RunID}, nil
+}
