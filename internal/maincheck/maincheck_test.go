@@ -126,7 +126,11 @@ func newFixture(t *testing.T, root string) *fixture {
 func (f *fixture) look(t *testing.T) (maincheck.Outcome, bool) {
 	t.Helper()
 	f.check.Look(context.Background(), f.now)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// The wait only has to outlast a run that is making progress: the tests on
+	// real Git start a dozen processes, which on a machine running the whole
+	// race suite at once take far longer than a few seconds. A run that never
+	// ends still fails the test, just later.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	return f.check.Wait(ctx)
 }
