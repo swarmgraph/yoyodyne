@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -315,7 +316,7 @@ func TestAMissSaysWhichFiringKeptTheTaskBehindIt(t *testing.T) {
 	}
 
 	full := waitingReason(WaitingFiring{Task: "architect-amendments", Full: true}, firings)
-	if !strings.Contains(full, "firings that had waited longer") {
+	if !strings.Contains(full, "passes that had been due longer went first") || !strings.Contains(full, "recurring passes a session runs at once were already running") {
 		t.Fatalf("a firing kept by the bound says %q, want the bound and the order named", full)
 	}
 }
@@ -571,4 +572,105 @@ func TestAFiringStoppedForARedeployCarriesTheRestartToWhatRunsInsideIt(t *testin
 		t.Fatal("the firing was not stopped")
 	}
 	<-firings.done
+}
+
+// A pass that falls due while the pull is still at work below the schedule is
+// claimed inside that pull, beside the one other pass running, rather than at
+// the next pull: here the pull keeps the reason on four items the tracker does
+// not offer, each write two minutes long, and the architect's pass falls due
+// two minutes in. The development manager's own pass holds her conversation
+// the whole time, so her other task waits, and the status line says what it
+// waits on.
+func TestADuePassStartsBesideAnotherWhileThePullIsSlow(t *testing.T) {
+	t.Parallel()
+
+	blocker := beads.WorkItem{ID: "yoyodyne-blocker", Title: "Blocking work", Status: "open", Priority: 2}
+	items := []beads.WorkItem{blocker}
+	for _, id := range []string{"yoyodyne-a", "yoyodyne-b", "yoyodyne-c", "yoyodyne-d"} {
+		items = append(items, beads.WorkItem{ID: id, Title: "Waiting work " + id, Status: "open", Priority: 2,
+			Dependencies: []beads.Dependency{{ID: blocker.ID, Type: beads.BlocksDependency}}})
+	}
+	harness := newScheduleHarness(items...)
+	harness.ReadyItems = map[string]bool{blocker.ID: true}
+	opened := harness.now
+	store := sweepStore(t)
+	if _, err := store.Claim(context.Background(), "architect-pass", time.Hour, opened.Add(-58*time.Minute)); err != nil {
+		t.Fatalf("Claim() error = %v", err)
+	}
+	if _, err := store.Settle(context.Background(), "architect-pass", ""); err != nil {
+		t.Fatalf("Settle() error = %v", err)
+	}
+	roles := newSideBySideRoles(domain.RoleDevelopmentManager, domain.RoleArchitect)
+	release := make(chan struct{})
+	roles.gates[domain.RoleDevelopmentManager] = release
+	harness.recurring = Trigger{
+		Tasks: map[string]config.RecurringTask{
+			"development-manager-sweep": hourly(domain.RoleDevelopmentManager, 2),
+			"development-manager-deep":  hourly(domain.RoleDevelopmentManager, 2),
+			"architect-pass":            hourly(domain.RoleArchitect, 2),
+		},
+		Claims: store, Reports: store, Roles: roles, Clock: harnessClock(harness.clock),
+	}
+	writes := 0
+	harness.onSchedulingWait = func(h *scheduleHarness) {
+		h.mu.Lock()
+		h.now = h.now.Add(2 * time.Minute)
+		h.mu.Unlock()
+		writes++
+		if writes != 4 {
+			return
+		}
+		// The last write of the pull: the architect's pass, due since the first
+		// write ended, has to have been woken by now.
+		select {
+		case <-roles.woke[domain.RoleArchitect]:
+		case <-time.After(30 * time.Second):
+			t.Errorf("the architect's pass was not woken while the pull was keeping its reasons")
+		}
+		if got := roles.turnsOf(domain.RoleDevelopmentManager); got != 1 {
+			t.Errorf("the development manager's pass is on turn %d, want it still running beside the architect's", got)
+		}
+	}
+	released := false
+	sleep := func(ctx context.Context, interval time.Duration) bool {
+		if interval != harness.poll {
+			<-ctx.Done()
+			return false
+		}
+		if !released {
+			released = true
+			close(release)
+		}
+		return false
+	}
+
+	sessions := &recordedSessions{}
+	schedule, err := Scheduler{Open: harness.open, Watching: true, Sleep: sleep, Sessions: sessions, Now: harness.clock}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if writes < 4 {
+		t.Fatalf("the pull kept %d reason(s), want the four: %s", writes, schedule.Render())
+	}
+	recorded, _, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pass := range recorded {
+		if pass.Task == "architect-pass" && pass.StartedAt.Equal(opened) {
+			t.Errorf("the architect's pass started at %s, before it fell due", pass.StartedAt)
+		}
+	}
+	said := false
+	for _, transition := range sessions.recorded() {
+		// Neither of her tasks has fired before, so which goes first is the
+		// schedule's order, and the line says the other waits on it.
+		if strings.Contains(transition.reason, "the recurring pass of development-manager-") &&
+			strings.Contains(transition.reason, "is waiting: its conversation was in use by the recurring pass of development-manager-") {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("no status line said what the development manager's second task waits on: %+v", sessions.recorded())
+	}
 }

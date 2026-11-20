@@ -576,7 +576,7 @@ func (s Scheduler) startFirings(ctx context.Context, schedule *Schedule, recurri
 	}
 	watch.waiting = map[string]recurringHold{}
 	for _, waiting := range start.Waiting {
-		watch.waiting[waiting.Task] = recurringHold{why: waitingReason(waiting, firings), at: held.at}
+		watch.waiting[waiting.Task] = recurringHold{why: waitingReason(waiting, firings), at: held.at, due: waiting.Due}
 	}
 	switch {
 	case len(problems) > 0:
@@ -675,6 +675,42 @@ func (t Trigger) sendCapacityProbe(windows readmodel.CapacityWindows, window rea
 	return errors.Join(problems...)
 }
 
+// firingCheckEvery is how often a pull at work below the schedule goes back to
+// it to claim what has fallen due (firingsBetween in Scheduler.Schedule). A
+// claim reads the cadence and each program manager instance's streams, so it
+// is not made at every tracker call, and a minute late is well inside any
+// pass's interval.
+const firingCheckEvery = time.Minute
+
+// sayWaitingFirings writes on the session's status line each due pass that was
+// left unclaimed and what it waits on, where that differs from what it last
+// said, and returns what it said. Nothing is written where no pass is waiting,
+// because the line a pass writes as it starts is what follows a wait.
+func sayWaitingFirings(session *watchSession, waiting map[string]recurringHold, said string, running int) string {
+	if len(waiting) == 0 {
+		return ""
+	}
+	tasks := make([]string, 0, len(waiting))
+	for task := range waiting {
+		tasks = append(tasks, task)
+	}
+	sort.Strings(tasks)
+	parts := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		held := waiting[task]
+		due := "is due"
+		if !held.due.IsZero() {
+			due = "has been due since " + runstate.LocalStamp(held.due)
+		}
+		parts = append(parts, fmt.Sprintf("the recurring pass of %s %s and is waiting: %s", task, due, held.why))
+	}
+	line := strings.Join(parts, "; ")
+	if line != said && session != nil {
+		session.note(line, running)
+	}
+	return line
+}
+
 // waitingReason is what kept one due firing behind the others.
 func waitingReason(waiting WaitingFiring, firings *recurringFirings) string {
 	if waiting.Capacity != "" {
@@ -686,16 +722,16 @@ func waitingReason(waiting WaitingFiring, firings *recurringFirings) string {
 			holding = append(holding, started.Task)
 		}
 		sort.Strings(holding)
-		return fmt.Sprintf("all %d of the firings a session takes at once were in flight (%s), and the firings that had waited longer since falling due went first",
+		return fmt.Sprintf("all %d of the recurring passes a session runs at once were already running (%s), and the passes that had been due longer went first",
 			MaxConcurrentFirings, strings.Join(holding, ", "))
 	}
 	if started, held := firings.inFlight[waiting.Conversation]; held {
 		if started.beside {
-			return fmt.Sprintf("its conversation was taking the turn of %s, which had not ended", started.Task)
+			return fmt.Sprintf("its conversation was in use by %s, which had not ended", started.Task)
 		}
-		return fmt.Sprintf("its conversation was taking the turns of the recurring task %s, which had not ended", started.Task)
+		return fmt.Sprintf("its conversation was in use by the recurring pass of %s, which had not ended", started.Task)
 	}
-	return "its conversation was taking the turns of another firing, which had not ended"
+	return "its conversation was in use by another recurring pass, which had not ended"
 }
 
 // collectFirings takes every firing whose turns have ended into the schedule,

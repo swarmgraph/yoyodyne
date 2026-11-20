@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/supervise"
@@ -18,6 +19,7 @@ func machineAvailability(parts components) func(time.Time, time.Time, string) re
 		}
 		availability := readmodel.ReadWatchAvailability(readmodel.Sources{
 			Machine: freshMachine{SupervisionStore: store, runner: parts.runner}, Sessions: parts.watch, Sweeps: parts.store.Sweeps(), Now: func() time.Time { return to },
+			RecurringPassesAtOnce: orchestrator.MaxConcurrentFirings,
 		})
 		return availability.Cause(from, to, task)
 	}

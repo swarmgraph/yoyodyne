@@ -3948,6 +3948,9 @@ type scheduleHarness struct {
 	// made, which is how a test changes the configuration under a running
 	// scheduler.
 	onPull func(*scheduleHarness, int)
+	// onSchedulingWait runs, with the harness unlocked, after each reason the
+	// pull keeps on an item, which is how a test makes those writes slow.
+	onSchedulingWait func(*scheduleHarness)
 	// failList decides whether a tracker listing fails, with the number of
 	// listings already made. It stands in for the store contention a reconcile or
 	// a settling run makes, which is a reading that fails and then does not.
