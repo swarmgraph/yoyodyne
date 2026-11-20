@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -66,7 +67,7 @@ func TestFmtcheck(t *testing.T) {
 			root := writeFixture(t, map[string]string{"fixture.go": test.source})
 			command := exec.Command("make", "--no-print-directory", "-f", makefile, "fmtcheck", "VERSION=fmtcheck-test")
 			command.Dir = root
-			command.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0")
+			command.Env = append(makeEnvironment(t), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0")
 			if test.formatter != "" {
 				tools := filepath.Join(root, "tools")
 				if err := os.Mkdir(tools, 0o755); err != nil {
@@ -101,4 +102,46 @@ func TestFmtcheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// makeEnvironment is the environment a make child runs in. On macOS /usr/bin/make
+// is a shim that asks xcrun where the real tool is, and xcrun writes a cache file
+// under the user's per-user temporary directory, which does not follow TMPDIR. A
+// sandbox that grants only TMPDIR refuses that write, and xcrun then prints a
+// diagnostic these cases read as the target's own. The shim skips xcrun when
+// DEVELOPER_DIR names the toolchain, so it is set here from xcode-select, which
+// only reads a link. A developer directory the caller already set is kept.
+func makeEnvironment(t *testing.T) []string {
+	t.Helper()
+
+	environment := os.Environ()
+	if runtime.GOOS != "darwin" || os.Getenv("DEVELOPER_DIR") != "" {
+		return environment
+	}
+	out, err := exec.Command("xcode-select", "-p").Output()
+	if err != nil {
+		return environment
+	}
+	if directory := strings.TrimSpace(string(out)); directory != "" {
+		environment = append(environment, "DEVELOPER_DIR="+directory)
+	}
+	return environment
+}
+
+// A make child must not need xcrun's cache file, or the false failure this
+// guards against returns wherever the per-user temporary directory is refused.
+func TestMakeEnvironmentNamesTheToolchainOnMacOS(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the make shim that calls xcrun is macOS only")
+	}
+	requireTool(t, "xcode-select")
+	if os.Getenv("DEVELOPER_DIR") != "" {
+		t.Skip("DEVELOPER_DIR is already set by the caller")
+	}
+	for _, entry := range makeEnvironment(t) {
+		if strings.HasPrefix(entry, "DEVELOPER_DIR=") && len(entry) > len("DEVELOPER_DIR=") {
+			return
+		}
+	}
+	t.Error("makeEnvironment does not set DEVELOPER_DIR, so make would call xcrun and write its cache file")
 }
