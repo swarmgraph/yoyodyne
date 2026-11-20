@@ -13,9 +13,14 @@ package gitworktree
 //
 // What is lifted is what the branch carries past where it and the target last
 // agreed, so a target that has moved since the earlier run is merged with rather
-// than written over. A change that no longer merges cleanly is not half-applied:
-// the worktree is put back as it was cut and the conflict is the error, because a
-// developer handed conflict markers it did not write would be judged on them.
+// than written over. A change that conflicts with where the target now stands is
+// still lifted: the merge is left as Git leaves it, with conflict markers in the
+// files that conflict, and the lift names those files so the developer is told to
+// resolve them (Lift.Conflicts). Dropping the change instead started the run from
+// the target with nothing said, and a developer that then brought the change in
+// by hand committed it and had the run refused for the commit. A merge that
+// failed without leaving a conflict to resolve is not half-applied: the worktree
+// is put back as it was cut and the failure is the error.
 
 import (
 	"context"
@@ -35,21 +40,32 @@ var ErrNothingToLift = errors.New("the preserved branch carries nothing past the
 // reports. The worktree was not touched.
 var ErrLiftBranchGone = errors.New("the preserved branch is not there to lift from")
 
-// ErrLiftDoesNotApply is what a lift of a change that no longer merges cleanly
-// with the target reports, once the worktree has been put back as it was cut. A
-// lift that could not put the worktree back does not report it, because that
+// ErrLiftDoesNotApply is what a lift reports when Git could not merge the
+// change at all and left no conflict for a developer to resolve, once the
+// worktree has been put back as it was cut. A change that merely conflicts is
+// lifted with its conflicts (Lift.Conflicts) rather than reported here. A lift
+// that could not put the worktree back does not report it, because that
 // worktree is no longer one a run can start from.
 var ErrLiftDoesNotApply = errors.New("the preserved change does not apply cleanly to the target branch")
 
-// Lift is what one lift put into a fresh worktree: the branch it came from and
-// the commit that branch stood at.
+// MaxLiftConflicts bounds how many conflicting files a lift names. A lift with
+// more is still made; the files past the bound are found by the developer from
+// the markers and from git status, which lists every one.
+const MaxLiftConflicts = 200
+
+// Lift is what one lift put into a fresh worktree: the branch it came from, the
+// commit that branch stood at, and the files the merge left with conflict
+// markers, where it left any.
 type Lift struct {
-	Branch string `json:"branch"`
-	Commit string `json:"commit"`
+	Branch    string   `json:"branch"`
+	Commit    string   `json:"commit"`
+	Conflicts []string `json:"conflicts,omitempty"`
 }
 
 // LiftChange applies what branch carries past the worktree's base into the
-// worktree, uncommitted, and reports the commit it lifted.
+// worktree, uncommitted, and reports the commit it lifted. Where that change
+// conflicts with the base, the conflicts are left in the worktree for the
+// developer and named on the lift; nothing is committed either way.
 //
 // It is asked of a worktree nothing has written to yet, and refuses one that is
 // not: a lift over a developer's work would mix two changes nobody could tell
@@ -99,12 +115,43 @@ func (m *Manager) LiftChange(ctx context.Context, worktree Worktree, branch stri
 	if merged.Status != execution.ProcessSucceeded {
 		detail := fmt.Sprintf("the change on %s at %s does not apply cleanly to %s (exit code %d): %s",
 			branch, commit, worktree.BaseCommit, merged.ExitCode, strings.TrimSpace(merged.Stdout+"\n"+merged.Stderr))
+		conflicts, conflictsErr := m.unmergedPaths(ctx, path)
+		if conflictsErr == nil && len(conflicts) > 0 {
+			return Lift{Branch: branch, Commit: commit, Conflicts: conflicts}, nil
+		}
+		if conflictsErr != nil {
+			detail += fmt.Sprintf("; the conflicting files could not be listed: %v", conflictsErr)
+		}
 		if restoreErr := m.restoreLift(ctx, path); restoreErr != nil {
 			return Lift{}, errors.Join(errors.New(detail), fmt.Errorf("put the worktree back as it was cut: %w", restoreErr))
 		}
 		return Lift{}, fmt.Errorf("%w: %s", ErrLiftDoesNotApply, detail)
 	}
 	return Lift{Branch: branch, Commit: commit}, nil
+}
+
+// unmergedPaths lists the files a merge left in conflict, at most
+// MaxLiftConflicts of them.
+func (m *Manager) unmergedPaths(ctx context.Context, path string) ([]string, error) {
+	result, err := m.run(ctx, "-C", path, "diff", "--name-only", "--diff-filter=U", "-z")
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return nil, fmt.Errorf("list conflicting files failed with exit code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	var paths []string
+	for _, name := range strings.Split(result.Stdout, "\x00") {
+		// The output ends with a terminator, and may carry a newline after it.
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		if len(paths) == MaxLiftConflicts {
+			break
+		}
+		paths = append(paths, name)
+	}
+	return paths, nil
 }
 
 // restoreLift puts a worktree a lift could not complete back to its base, which

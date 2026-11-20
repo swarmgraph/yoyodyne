@@ -766,8 +766,10 @@ func raiseReleased(item beads.WorkItem, prior runstate.State) error {
 //
 // A re-run of a raise keeps to its change: it was started to carry that change
 // forward once its item was amended. A re-run of any other stopped run falls
-// back to the target where the change no longer applies cleanly or its branch
-// went in the meantime, which is where every such re-run used to start.
+// back to the target where the change's branch went in the meantime, which is
+// where every such re-run used to start. Neither drops a change that conflicts
+// with the target: it is lifted with its conflicts left for the developer
+// (liftPreserved).
 func liftOf(prior runstate.State, preserved runstate.PreservedArtifacts) *runstate.Lift {
 	if strings.TrimSpace(preserved.Branch) == "" {
 		return nil

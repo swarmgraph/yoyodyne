@@ -1697,7 +1697,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		}
 		return run.fail(err, failureStatus(ctx, err))
 	}
-	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), run.context, run.scratch, p.Config.Checks), p.Config.Install), ""); err != nil {
+	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), liftSection(run.state)+run.context, run.scratch, p.Config.Checks), p.Config.Install), ""); err != nil {
 		return run.stop(ctx, err)
 	}
 	return run.verifyReviewAndFinish(ctx)
@@ -2473,7 +2473,7 @@ func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, s
 	case state.ForgeFeedback != nil:
 		return forgeFeedbackRepairPrompt(invariants, scratchDirectory, checks, *state.ForgeFeedback, state.RepairAttempts, limit), nil
 	default:
-		return developerPrompt(persona, invariants, bundle, scratchDirectory, checks), nil
+		return developerPrompt(persona, invariants, liftSection(state)+bundle, scratchDirectory, checks), nil
 	}
 }
 
@@ -2640,7 +2640,7 @@ type SubstitutedHandbackError struct {
 
 func (e SubstitutedHandbackError) Error() string {
 	return fmt.Sprintf(
-		"run %s of %s stopped on a blocker with a failure returned to its developer and its change preserved on %s, so what that stoppage is owed is a repair of the change it already has rather than a fresh run started from nothing; no run was reserved and no worktree was created. A fresh run here hands a developer the work item and an empty worktree off the target branch, which is delivered as an empty change or as the preserved change re-derived by hand — `yoyo triage repair %s` continues the stopped run in the worktree it preserved at %s, and `yoyo triage rerun %s` is what starts a fresh run deliberately, from that preserved change and from the target branch only where it no longer applies cleanly, recording that the development manager decided the ground moved",
+		"run %s of %s stopped on a blocker with a failure returned to its developer and its change preserved on %s, so what that stoppage is owed is a repair of the change it already has rather than a fresh run started from nothing; no run was reserved and no worktree was created. A fresh run here hands a developer the work item and an empty worktree off the target branch, which is delivered as an empty change or as the preserved change re-derived by hand — `yoyo triage repair %s` continues the stopped run in the worktree it preserved at %s, and `yoyo triage rerun %s` is what starts a fresh run deliberately, from that preserved change, with any conflicts left for its developer to resolve, recording that the development manager decided the ground moved",
 		e.RunID, e.WorkItemID, e.Branch, e.RunID, e.WorktreePath, e.RunID)
 }
 
@@ -9196,8 +9196,16 @@ type ChangeLifter interface {
 // that is not a failure is a branch carrying nothing past the target: there is
 // no change to start from, so the run starts from the target as any run does.
 // A lift that may fall back to the target (runstate.Lift.FallBackToTarget) does
-// the same where the change no longer applies cleanly or its branch has gone,
-// and the record shows it by naming no lifted commit.
+// the same where its branch has gone, and the record shows it by naming no
+// lifted commit.
+//
+// A change that conflicts with the target is lifted with its conflicts left in
+// the worktree, and the files are recorded (runstate.State.LiftConflicts) so the
+// developer's prompt names them (liftSection). It is never dropped for a start
+// from the target: a developer that then found the change missing brought it in
+// by hand and committed it, and the run was refused for that commit. A merge Git
+// could not make at all, leaving nothing to resolve, ends the run here, before
+// the developer starts, with Git's own account of why.
 func (a *activeRun) liftPreserved(ctx context.Context) error {
 	selection := a.state.Selection
 	if selection == nil || selection.Lift == nil {
@@ -9212,14 +9220,47 @@ func (a *activeRun) liftPreserved(ctx context.Context) error {
 	if errors.Is(err, gitworktree.ErrNothingToLift) {
 		return nil
 	}
-	if lift.FallBackToTarget && (errors.Is(err, gitworktree.ErrLiftDoesNotApply) || errors.Is(err, gitworktree.ErrLiftBranchGone)) {
+	if lift.FallBackToTarget && errors.Is(err, gitworktree.ErrLiftBranchGone) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("start from run %s's preserved change on %s: %w", lift.RunID, lift.Branch, err)
 	}
 	a.state.LiftedCommit = lifted.Commit
+	a.state.LiftConflicts = lifted.Conflicts
 	return nil
+}
+
+// liftSection tells a developer what its worktree was given to start from,
+// where its run was selected to start from a kept change, and is empty on every
+// other run. It is read from the run's record rather than from the lift itself,
+// so a first attempt asked again after a restart is told the same thing.
+//
+// It says in every case that the change is not the developer's to bring in or
+// commit, because the harness refuses a run whose worktree moved past the
+// commit it was cut at, and a developer that went looking for a kept change it
+// had not been told about has done exactly that.
+func liftSection(state runstate.State) string {
+	if state.Selection == nil || state.Selection.Lift == nil {
+		return ""
+	}
+	lift := state.Selection.Lift
+	var section strings.Builder
+	section.WriteString("# The change this run starts from\n\n")
+	switch {
+	case state.LiftedCommit == "":
+		fmt.Fprintf(&section, "This run was asked to start from the change run %s kept on branch %s, and nothing of it was brought into your worktree: either that branch is gone or the target branch already carries everything on it. You start from the target branch. Do not bring that change in yourself, and do not commit anything: the harness makes every commit in this worktree, and refuses a run whose worktree carries a commit it did not make.\n", lift.RunID, lift.Branch)
+	case len(state.LiftConflicts) == 0:
+		fmt.Fprintf(&section, "Your worktree already holds, uncommitted, the change run %s kept on branch %s (commit %s), merged onto the target branch as it stands now. Carry that change forward rather than writing it again. Do not bring it in again and do not commit it: the harness commits it with your work, and refuses a run whose worktree carries a commit it did not make.\n", lift.RunID, lift.Branch, state.LiftedCommit)
+	default:
+		fmt.Fprintf(&section, "Your worktree already holds, uncommitted, the change run %s kept on branch %s (commit %s), merged onto the target branch as it stands now. The target branch has moved since that change was written, and the merge left conflict markers in these files:\n\n", lift.RunID, lift.Branch, state.LiftedCommit)
+		for _, path := range state.LiftConflicts {
+			fmt.Fprintf(&section, "- %s\n", path)
+		}
+		section.WriteString("\nResolving them is the first part of your work: edit each file so it keeps what the kept change meant to do on top of what the target branch now holds, and leave no conflict markers. `git status` lists every file still in conflict. Do not commit, and do not run `git merge`, `git cherry-pick`, or `git commit` to finish the merge: the harness commits the resolved files with the rest of your work, and refuses a run whose worktree carries a commit it did not make.\n")
+	}
+	section.WriteString("\n")
+	return section.String()
 }
 
 // prepareScratch cuts this run the directory its contract names, before the

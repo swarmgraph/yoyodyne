@@ -3530,8 +3530,13 @@ type State struct {
 	// was started from, where its selection asked for one and the lift was made:
 	// what that branch carried past the target was applied to this run's worktree
 	// before its developer was invoked. It is absent on every other run.
-	LiftedCommit string         `json:"lifted_commit,omitempty"`
-	Backend      domain.Backend `json:"backend"`
+	LiftedCommit string `json:"lifted_commit,omitempty"`
+	// LiftConflicts names the files the lift left with conflict markers, where
+	// the lifted change conflicted with the target: the change was brought in
+	// anyway and the developer is told to resolve them. It is absent on a lift
+	// that applied cleanly and on every run that lifted nothing.
+	LiftConflicts []string       `json:"lift_conflicts,omitempty"`
+	Backend       domain.Backend `json:"backend"`
 	// AccountAlias is the provider account this run's agents ran under, named by
 	// the alias the configuration gives it. It is written when the run is reserved
 	// and never rewritten, because it is a fact about what was spent rather than
@@ -4696,6 +4701,20 @@ func (s State) Validate() error {
 		}
 		if s.Selection == nil || s.Selection.Lift == nil {
 			problems = append(problems, errors.New("lifted_commit requires the selection that asked for the lift"))
+		}
+	}
+	if len(s.LiftConflicts) > 0 {
+		if s.LiftedCommit == "" {
+			problems = append(problems, errors.New("lift_conflicts requires the lifted_commit they came from"))
+		}
+		if len(s.LiftConflicts) > MaxLiftConflicts {
+			problems = append(problems, fmt.Errorf("lift_conflicts names %d files, more than %d", len(s.LiftConflicts), MaxLiftConflicts))
+		}
+		for _, path := range s.LiftConflicts {
+			if strings.TrimSpace(path) == "" || len(path) > maxLiftConflictPathBytes || strings.ContainsAny(path, "\x00\r\n") {
+				problems = append(problems, fmt.Errorf("lift_conflicts names %q, which is not a file path", path))
+				break
+			}
 		}
 	}
 	// All three are absent from every record written before they were carried, so
