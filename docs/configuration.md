@@ -8065,8 +8065,9 @@ document that cannot be read as rules at all — missing on the target branch, n
 and is reported once to the Lead Product Manager; its messages wait, and none
 is lost. A rules document a query names is read by the message reader and is
 not given to every role as product intent, even when it is kept under the
-product's specification home. **In this build the document is read and checked
-by the code that a query run will use; nothing runs a query yet.**
+product's specification home. **In this build queries run and record the
+messages they return, but nothing judges a message against the rules document
+yet; that waits for the message reader.**
 
 ## Slack review threads
 
