@@ -462,6 +462,11 @@ type MergeQueueReviewEvidence struct {
 	Summary      string         `json:"summary,omitempty"`
 	// Problem is why the review ended without a verdict.
 	Problem string `json:"problem,omitempty"`
+	// Unreadable is a review the reviewer answered with a reply no verdict could
+	// be read from. It is set only beside a Problem saying what was wrong with
+	// the reply, and it is what the queue counts before it hands the entry back
+	// rather than asking yet again.
+	Unreadable bool `json:"unreadable,omitempty"`
 }
 
 // MergeQueueReviewRouting is the endpoint a candidate's review is on and the
@@ -497,11 +502,32 @@ type MergeQueueInterruption struct {
 	// before passed checks were kept carries neither.
 	Binding string                  `json:"binding,omitempty"`
 	Passed  []MergeQueueCheckResult `json:"passed,omitempty"`
+	// Unreadable is, for an attempt at the review, a reply no verdict could be
+	// read from (MergeQueueReviewEvidence.Unreadable), kept so the count of such
+	// replies survives the attempt being set aside.
+	Unreadable bool `json:"unreadable,omitempty"`
 }
 
 func sameInterruption(a, b MergeQueueInterruption) bool {
 	return a.Stage == b.Stage && a.StartedAt.Equal(b.StartedAt) && a.FoundAt.Equal(b.FoundAt) &&
-		a.Problem == b.Problem && a.Binding == b.Binding && slices.Equal(a.Passed, b.Passed)
+		a.Problem == b.Problem && a.Binding == b.Binding && slices.Equal(a.Passed, b.Passed) && a.Unreadable == b.Unreadable
+}
+
+// UnreadableReviews counts the replies to this generation's review that no
+// verdict could be read from: those set aside, and the review standing now
+// where it is one. A readable verdict ends the review stage, so every one
+// counted came before any verdict on this candidate.
+func (g MergeQueueGeneration) UnreadableReviews() int {
+	count := 0
+	for _, interruption := range g.Interruptions {
+		if interruption.Stage == MergeQueueStageReview && interruption.Unreadable {
+			count++
+		}
+	}
+	if g.Review != nil && g.Review.FinishedAt != nil && g.Review.Unreadable {
+		count++
+	}
+	return count
 }
 
 // MergeQueueLaunch is one process a stage of a generation was started as.
@@ -770,6 +796,9 @@ func (g MergeQueueGeneration) validate() error {
 		if len(g.Review.Summary) > maxMergeQueueEvidenceText || len(g.Review.Problem) > maxMergeQueueEvidenceText {
 			problems = append(problems, errors.New("its review's text exceeds its bound"))
 		}
+		if g.Review.Unreadable && (g.Review.Problem == "" || g.Review.Decision != "") {
+			problems = append(problems, errors.New("its review is marked unreadable without the problem that made it so, or beside a verdict"))
+		}
 	}
 	if routing := g.ReviewRouting; routing != nil {
 		if routing.Selected != EndpointPrimary && routing.Selected != EndpointAlternate {
@@ -810,6 +839,9 @@ func (g MergeQueueGeneration) validate() error {
 		}
 		if len(interruption.Passed) > len(g.Checks.Commands) || (len(interruption.Passed) > 0 && interruption.Stage != MergeQueueStageChecks) {
 			problems = append(problems, errors.New("an interruption keeps more passed checks than its stage has"))
+		}
+		if interruption.Unreadable && interruption.Stage != MergeQueueStageReview {
+			problems = append(problems, fmt.Errorf("an interruption of the %s is marked as an unreadable review reply", interruption.Stage))
 		}
 		for _, passed := range interruption.Passed {
 			if !passed.Passed || len(passed.CouldNotRun) > maxMergeQueueEvidenceText {
@@ -1076,7 +1108,7 @@ func sameReviewEvidence(a, b *MergeQueueReviewEvidence) bool {
 	return a.Binding == b.Binding && a.StartedAt.Equal(b.StartedAt) && sameTime(a.FinishedAt, b.FinishedAt) &&
 		a.Decision == b.Decision && a.SessionID == b.SessionID && a.Model == b.Model &&
 		a.ResolvedModel == b.ResolvedModel && a.Summary == b.Summary && a.Problem == b.Problem &&
-		a.Provider == b.Provider && a.AccountAlias == b.AccountAlias && a.Choice == b.Choice
+		a.Provider == b.Provider && a.AccountAlias == b.AccountAlias && a.Choice == b.Choice && a.Unreadable == b.Unreadable
 }
 
 func samePathEvidence(a, b *MergeQueuePathEvidence) bool {

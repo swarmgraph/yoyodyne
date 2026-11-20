@@ -251,7 +251,7 @@ func TestPipelineAsksAgainInTheReviewersSessionNamingTheDecodeError(t *testing.T
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
-	}, "```json\n"+testharness.ApproveVerdict+"\n```\nHope that helps.", testharness.ApproveVerdict)
+	}, "Sure! I approve this change, and hope that helps.", testharness.ApproveVerdict)
 	pipeline, store := testharness.NewAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)

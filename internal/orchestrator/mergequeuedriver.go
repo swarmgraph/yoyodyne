@@ -379,6 +379,13 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 				return stopped(verified.Entry, err)
 			}
 			handedBack++
+		case verified.UnreadableReview != "":
+			// The reviewer kept answering with no verdict that could be read: the
+			// entry is handed back with that reason and the entries behind it go on.
+			if _, err := d.Promoter.HandBackUnreadableReview(ctx, key, verified.Entry.EntryID, verified.UnreadableReview); err != nil && !passOver(err) {
+				return stopped(verified.Entry, err)
+			}
+			handedBack++
 		case verified.Waiting != "":
 			return done(runstate.MergeQueuePassWaiting, verified.Entry, verified.Waiting)
 		case verified.Entry.EntryID == "" && promoted.Entry.EntryID == "":
