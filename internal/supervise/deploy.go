@@ -228,6 +228,7 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 	}
 	if build == "" || build == s.deployed {
 		delete(s.behindSince, child.Name())
+		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
 		state.RestartingInto = ""
 		state.Redeploy = ""
 		return
@@ -236,7 +237,10 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 	if self {
 		state.RestartingInto = s.deployed
 		state.Redeploy = behind + "; " + child.(RestartsItself).RestartsItself()
-		if !s.restartOverdue(ctx, child, state, now, build, behind) {
+		if s.restartOverdue(ctx, child, state, now, build, behind) {
+			// Winding down and stuck: that is said as its own problem.
+			state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
+		} else {
 			s.moveOverdue(ctx, child, state, now, build)
 		}
 		return
@@ -332,6 +336,7 @@ func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runsta
 		return
 	}
 	if windingDown {
+		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
 		return
 	}
 	apart := fmt.Sprintf("on build %s while the rest of the product is on the deployed build %s", short(from), short(s.deployed))
@@ -339,17 +344,19 @@ func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runsta
 	if since.After(due) {
 		due = since
 	}
+	deadline := due.Add(scheduled.MoveGrace())
+	state.MoveDue, state.MoveBy, state.MoveHeld = due, deadline, ""
 	if now.Before(due) {
 		state.Redeploy = fmt.Sprintf("%s; it moves onto it at %s, the least time after its last move (execution.build_move_interval), and goes on working on its own build until then", apart, localStamp(due))
 		return
 	}
-	deadline := due.Add(scheduled.MoveGrace())
 	if now.Before(deadline) {
 		state.Redeploy = fmt.Sprintf("%s; its move onto it was due at %s and it has not begun winding down for it; the supervisor restarts it into the deployed build at %s if it has not moved by then", apart, localStamp(due), localStamp(deadline))
 		return
 	}
 	why := fmt.Sprintf("was due to move onto a new build at %s and has not begun to, %s later", localStamp(due), now.Sub(due).Round(time.Second))
 	if held := s.restartHold(); held != "" {
+		state.MoveHeld = held
 		state.Redeploy = fmt.Sprintf("%s; it cannot move when due: it %s, and is not restarted while %s", apart, why, held)
 		return
 	}
@@ -445,6 +452,8 @@ func (s *Supervisor) restarted(child Child, state *runstate.SupervisedChild, now
 	state.BuildSince = now
 	state.RestartingInto = ""
 	state.Redeploy = ""
+	state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
+	delete(s.behindSince, child.Name())
 	s.log("the %s service %s and is on build %s: restart %d into a deployed build, a restart rather than a death, so its restart bound is untouched", child.Name(), how, short(into), state.Restarts)
 }
 

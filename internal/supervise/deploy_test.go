@@ -649,6 +649,9 @@ func TestASchedulerThatHasNotBegunADueMoveIsMovedOntoTheDeployedBuild(t *testing
 	if scheduler.stopCount() != 0 || !strings.Contains(got.Redeploy, "it moves onto it at") {
 		t.Fatalf("stops = %d, scheduler = %+v; want it left working until its move is due, and the record to say when", scheduler.stopCount(), got)
 	}
+	if !got.MoveDue.Equal(next) || !got.MoveBy.Equal(next.Add(20*time.Minute)) || got.MoveHeld != "" {
+		t.Fatalf("scheduler = %+v, want its move due at %s and the supervisor's restart twenty minutes after, recorded for every surface", got, next)
+	}
 
 	// Due, and not begun: named as left behind on both builds, not yet moved.
 	clock.advance(70 * time.Minute)
@@ -686,7 +689,7 @@ func TestASchedulerThatHasNotBegunADueMoveIsMovedOntoTheDeployedBuild(t *testing
 		t.Fatalf("stops = %d starts = %d, want the scheduler stopped once and started from the deployed binary", scheduler.stopCount(), scheduler.startCount())
 	}
 	got = child(t, loaded(t, store), config.ServiceScheduler)
-	if got.State != runstate.ChildRunning || got.Build != "2222222222222222" || got.Restarts != 1 || got.Failures != 0 || got.Redeploy != "" {
+	if got.State != runstate.ChildRunning || got.Build != "2222222222222222" || got.Restarts != 1 || got.Failures != 0 || got.Redeploy != "" || !got.MoveDue.IsZero() || !got.MoveBy.IsZero() {
 		t.Fatalf("scheduler = %+v, want it running on the deployed build after one restart and no failure", got)
 	}
 
@@ -722,6 +725,9 @@ func TestASchedulerThatCannotMoveWhenDueIsNamedWhileARestartIsHeld(t *testing.T)
 	got := child(t, loaded(t, store), config.ServiceScheduler)
 	if scheduler.stopCount() != 0 {
 		t.Fatalf("stops = %d, want nothing restarted while a restart is held", scheduler.stopCount())
+	}
+	if got.MoveHeld != "the provider cannot be reached" || got.MoveDue.IsZero() {
+		t.Fatalf("scheduler = %+v, want what holds its overdue move recorded", got)
 	}
 	for _, want := range []string{"cannot move when due", "the provider cannot be reached", short("2222222222222222")} {
 		if !strings.Contains(got.Redeploy, want) {

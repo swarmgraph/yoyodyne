@@ -274,7 +274,7 @@ the part is doing:
   session has not begun winding down, the line says the scheduler is on its
   build while the rest of the product is on the deployed one, when the move
   was due, and when the supervisor moves it; the next maintenance pass's
-  `redeploy` step and `yoyo status` both carry that line. A session that has
+  `redeploy` step and `yoyo status` both carry that line, and the development manager's health reading names the scheduler as left behind, with both builds and when the move was due. While the move is not yet due, that reading does not count the scheduler's old build as a problem. A session that has
   not begun its move by its limit for winding down and five more minutes past the
   moment it fell due is restarted the same way as one stuck winding down. That
   holds whatever build the scheduler runs, since it is the supervisor's
