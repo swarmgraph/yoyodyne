@@ -1996,6 +1996,13 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 	// the run, and the outstanding cleanup marker the interrupted process left
 	// is no longer true.
 	progress := runstate.CleanupRecorded{WorktreeRemoved: cleanup.WorktreeRemoved, BranchRemoved: cleanup.BranchRemoved, At: r.clock().Now()}
+	// A checkout holding files that exist nowhere else is kept on purpose. That
+	// is said once on the run and the run is completed over it, so no later sweep
+	// tries again and fails again. The run's branch stays with the checkout.
+	if kept, ok := gitworktree.IsKeptCheckout(cleanupErr); ok {
+		progress.Kept = keptCheckoutAccount(state.RunID, kept)
+		cleanupErr = nil
+	}
 	if cleanupErr != nil {
 		// The run stays outstanding so the next sweep tries again. Repeating
 		// cleanup is safe: it refuses anything that is not this run's proven
@@ -2035,6 +2042,9 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 		settled = "put back in the backlog undischarged"
 	}
 	result.Detail = "integrated work was " + settled + " and its artifacts removed"
+	if progress.Kept != "" {
+		result.Detail = "integrated work was " + settled + "; " + progress.Kept
+	}
 	if recovered {
 		result.Detail = "integration recovered from the repository, then " + settled + " and cleaned up"
 	}
@@ -2790,4 +2800,19 @@ func renderObservedArtifacts(state runstate.State, observation gitworktree.Obser
 		lines = append(lines, "Target branch: "+state.TargetBranch)
 	}
 	return lines
+}
+
+// keptCheckoutAccount is what the run's record and the maintenance record say
+// about a checkout the harness will not delete: whose it is and which files are
+// in it, so a person can save or discard them and remove the checkout.
+func keptCheckoutAccount(runID string, kept *gitworktree.KeptCheckoutError) string {
+	const shown = 10
+	files := kept.Files
+	more := ""
+	if len(files) > shown {
+		more = fmt.Sprintf(" and %d more", len(files)-shown)
+		files = files[:shown]
+	}
+	return fmt.Sprintf("the checkout of run %s was kept at %s because it holds files that are in no commit: %s%s; once they are saved or discarded, remove the checkout with `git worktree remove --force`",
+		runID, kept.Path, strings.Join(files, ", "), more)
 }

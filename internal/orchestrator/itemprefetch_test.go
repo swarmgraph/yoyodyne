@@ -388,3 +388,62 @@ func (w *refusingCleanup) CleanupIntegrated(ctx context.Context, request gitwork
 	}
 	return w.ReconcileWorktrees.CleanupIntegrated(ctx, request)
 }
+
+// keptCleanup answers every clean-up with a checkout that holds a file nothing
+// else has.
+type keptCleanup struct {
+	ReconcileWorktrees
+	calls int
+}
+
+func (w *keptCleanup) CleanupIntegrated(_ context.Context, request gitworktree.CleanupRequest) (gitworktree.Cleanup, error) {
+	w.calls++
+	return gitworktree.Cleanup{}, &gitworktree.KeptCheckoutError{Path: request.Worktree.Path, Files: []string{"unsaved.txt"}}
+}
+
+// A merged run whose checkout holds a file nothing else has is kept, said once
+// on its record and in the sweep's result, and is not tried or failed again by
+// the sweeps after it.
+func TestReconcileReportsAKeptCheckoutOnceAndStopsFailing(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	finished := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	halting := &haltingStore{StateStore: store, at: runstate.PhaseCleaningUp}
+	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, halting, finished, provider, []string{"exit 0"}), provider)
+	if _, err := pipeline.Run(context.Background(), finished.Item.ID); err == nil {
+		t.Fatal("interrupted Run() error = nil")
+	}
+	bd := &busyStoreBD{items: map[string]beads.WorkItem{
+		finished.Item.ID: {ID: finished.Item.ID, Title: finished.Item.Title, Status: "closed"},
+	}}
+	tracker := beads.Client{Runner: bd, Reads: &beads.ItemReads{}}
+	worktrees := &keptCleanup{ReconcileWorktrees: newObserver(t, repository, worktreeRoot)}
+	sweep := func() []Reconciliation {
+		t.Helper()
+		results, err := Reconciler{Tracker: tracker, Worktrees: worktrees, Store: store}.Reconcile(context.Background())
+		if err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+		return results
+	}
+
+	results := sweep()
+	if len(results) != 1 || results[0].Action != ActionCompleted || results[0].Failure != "" ||
+		!strings.Contains(results[0].Detail, "unsaved.txt") {
+		t.Fatalf("first sweep = %#v, want the run completed with the kept file named and no failure", results)
+	}
+	kept, err := store.Load(results[0].RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if kept.Outstanding() || kept.CleanupFailure != "" || kept.Phase != runstate.PhaseComplete || !strings.Contains(kept.KeptCheckout, "unsaved.txt") {
+		t.Fatalf("kept state = %#v, want a complete run that says which checkout it kept and why", kept)
+	}
+	if again := sweep(); len(again) != 0 || worktrees.calls != 1 {
+		t.Fatalf("second sweep = %#v after %d clean-up attempts, want no work and no second attempt", again, worktrees.calls)
+	}
+}

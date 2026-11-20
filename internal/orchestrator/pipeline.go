@@ -8564,6 +8564,12 @@ func (a *activeRun) cleanUp(ctx context.Context) error {
 	if cleanup.WorktreeRemoved {
 		a.removeScratch()
 	}
+	if kept, ok := gitworktree.IsKeptCheckout(err); ok {
+		// Kept on purpose, so the run is complete: the account is recorded once
+		// rather than owed to every later sweep (reconcile.go).
+		a.state.KeptCheckout = keptCheckoutAccount(a.state.RunID, kept)
+		err = nil
+	}
 	if err != nil {
 		return fmt.Errorf("clean up integrated run artifacts: %w", err)
 	}

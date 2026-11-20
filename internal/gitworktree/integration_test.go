@@ -1871,3 +1871,78 @@ func TestManagerSurvivesReportsWhatIsActuallyThere(t *testing.T) {
 		t.Fatal("Survives() answered for a branch the run does not own")
 	}
 }
+
+// integratedWorktree is a worktree whose change has been promoted into main,
+// ready for CleanupIntegrated.
+func integratedWorktree(t *testing.T, repository string, manager *Manager, item string) (Worktree, CleanupRequest) {
+	t.Helper()
+	worktree, err := manager.Create(context.Background(), CreateRequest{
+		RunID:        testRunID,
+		WorkItemID:   item,
+		BaseRef:      "HEAD",
+		TargetBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	writeFile(t, worktree.Path, "feature.txt", "implemented\n")
+	integration, err := manager.Integrate(context.Background(), worktree, "")
+	if err != nil {
+		t.Fatalf("Integrate() error = %v", err)
+	}
+	return worktree, CleanupRequest{Worktree: worktree, TargetBranch: worktree.TargetBranch, SourceCommit: integration.SourceCommit}
+}
+
+// A checkout whose only uncommitted changes are tracked files missing from disk
+// — what an interrupted removal leaves — holds nothing the integrated commit
+// does not, so cleanup removes it as it does a clean one.
+func TestManagerCleanupRemovesAWorktreeWithOnlyDeletedTrackedFiles(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	worktree, request := integratedWorktree(t, repository, manager, "yoyodyne-leftover")
+	if err := os.Remove(filepath.Join(worktree.Path, "feature.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanup, err := manager.CleanupIntegrated(context.Background(), request)
+	if err != nil {
+		t.Fatalf("CleanupIntegrated() error = %v", err)
+	}
+	if !cleanup.Complete() {
+		t.Fatalf("cleanup = %#v, want the worktree and branch removed", cleanup)
+	}
+	if _, err := os.Lstat(worktree.Path); !os.IsNotExist(err) {
+		t.Fatalf("worktree directory still there: %v", err)
+	}
+}
+
+// Any other uncommitted file keeps the checkout, and the refusal names that
+// file as a kept checkout and not the deleted ones beside it.
+func TestManagerCleanupKeepsAWorktreeHoldingAnotherFile(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	worktree, request := integratedWorktree(t, repository, manager, "yoyodyne-kept")
+	if err := os.Remove(filepath.Join(worktree.Path, "feature.txt")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, worktree.Path, "unsaved.txt", "half-finished\n")
+
+	cleanup, err := manager.CleanupIntegrated(context.Background(), request)
+	kept, ok := IsKeptCheckout(err)
+	if !ok {
+		t.Fatalf("CleanupIntegrated() error = %v, want a kept checkout", err)
+	}
+	if len(kept.Files) != 1 || kept.Files[0] != "unsaved.txt" {
+		t.Fatalf("kept files = %v, want only unsaved.txt", kept.Files)
+	}
+	if cleanup.WorktreeRemoved {
+		t.Fatalf("cleanup = %#v, want nothing removed", cleanup)
+	}
+	if content := readFile(t, worktree.Path, "unsaved.txt"); content != "half-finished\n" {
+		t.Fatalf("unsaved.txt = %q, want it untouched", content)
+	}
+}

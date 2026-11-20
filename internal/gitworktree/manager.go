@@ -3596,6 +3596,7 @@ func (m *Manager) removeIntegratedWorktree(ctx context.Context, worktree Worktre
 	// A registration whose directory is already gone is an interrupted removal.
 	// There is nothing on disk left to inspect, so the content checks below only
 	// apply while the worktree is still there.
+	discard := false
 	if present {
 		// The integrated worktree is left at the harness commit. Anything else is
 		// a different worktree or one that moved on, and is not ours to remove.
@@ -3609,12 +3610,11 @@ func (m *Manager) removeIntegratedWorktree(ctx context.Context, worktree Worktre
 		if strings.TrimSpace(head.Stdout) != sourceCommit {
 			return Cleanup{}, fmt.Errorf("worktree HEAD is %s, want the integrated commit %s", strings.TrimSpace(head.Stdout), sourceCommit)
 		}
-		dirty, err := m.isDirty(ctx, path)
+		// Uncommitted paths that are only the harness's own leftovers are
+		// discarded with the checkout; any other file keeps it (keptcheckout.go).
+		discard, err = m.leftoversOnly(ctx, path)
 		if err != nil {
 			return Cleanup{}, err
-		}
-		if dirty {
-			return Cleanup{}, errors.New("refusing to remove a dirty worktree")
 		}
 	}
 	// A removal unregisters an entry in the same unguarded pieces an add writes
@@ -3631,7 +3631,11 @@ func (m *Manager) removeIntegratedWorktree(ctx context.Context, worktree Worktre
 	// says nothing about the worktree below, which either exists or does not.
 	defer func() { _ = lease.release() }()
 
-	removed, err := m.run(ctx, "-C", m.repositoryRoot, "worktree", "remove", path)
+	removal := []string{"-C", m.repositoryRoot, "worktree", "remove"}
+	if discard {
+		removal = append(removal, "--force")
+	}
+	removed, err := m.run(ctx, append(removal, path)...)
 	if err != nil {
 		return Cleanup{}, err
 	}

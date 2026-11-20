@@ -1464,6 +1464,7 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	}{
 		{label: "outstanding publication", text: run.PublishFailure},
 		{label: "outstanding cleanup", text: run.CleanupFailure},
+		{label: "checkout kept", text: run.KeptCheckout},
 		{label: "completion recorded late", text: run.CompletionRecordingFailure},
 	} {
 		if account.text == "" || reason == runstate.StopReason(run.StopClass, account.text) {
