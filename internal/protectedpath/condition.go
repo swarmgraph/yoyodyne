@@ -113,9 +113,10 @@ type Document struct {
 }
 
 // Homes are the artifact homes a done-condition may not reach into, and the
-// documents they own. It is built from the configuration for the reason Set is:
-// a project that keeps its designs somewhere else has not thereby made them a
-// run's to satisfy a condition in.
+// documents they own, with the project's configuration directory beside them. It
+// is built from the configuration for the reason Set is: a project that keeps
+// its designs somewhere else has not thereby made them a run's to satisfy a
+// condition in.
 type Homes struct {
 	directories []string
 	documents   []ownedDocument
@@ -125,6 +126,12 @@ type Homes struct {
 	// place; a home whose kind no single role owns is in directories and not
 	// here, and a condition naming it is refused whoever executes the item.
 	owners map[string]domain.AgentRole
+	// configuration is the project's configuration directory when this set
+	// checks conditions against it. It is held apart from directories because
+	// no document owner's conversation writes it and no id names a file in it:
+	// a condition reaches it by path alone, and what is asked of the item is a
+	// grant or an executor, not a document owner.
+	configuration string
 }
 
 // ownedDocument is a document with the shape its id is looked for in, compiled
@@ -140,12 +147,16 @@ type ownedDocument struct {
 
 // ArtifactHomes builds the homes a configuration names — the product artifacts,
 // the designs, the decision records, and the invariants — with whichever owned
-// documents the caller read. The configuration directory is deliberately not
-// among them: it is protected in a developer's diff, but a condition naming it
-// is about the harness's own settings rather than about a document another role
-// owns, and this gate is about the second.
+// documents the caller read. The configuration directory is read beside them, by
+// path only (see Ungranted): a condition naming a file in it is as unmeetable
+// without a grant as one naming a design. The role definitions inside it are
+// left out, because no grant reaches them and a grant or change naming one is
+// refused already.
 func ArtifactHomes(cfg config.Config, documents ...Document) Homes {
 	homes := Homes{owners: map[string]domain.AgentRole{}}
+	if clean, ok := normalize(config.DirectoryName); ok {
+		homes.configuration = clean
+	}
 	for _, home := range []struct {
 		directory string
 		owner     domain.AgentRole
@@ -274,7 +285,7 @@ func (d ownedDocument) namesDocument(text string, at []int) bool {
 // that was wired none gets: such a caller refuses nothing, exactly as every
 // admission did before this existed.
 func (h Homes) Empty() bool {
-	return len(h.directories) == 0
+	return len(h.directories) == 0 && h.configuration == ""
 }
 
 // OwnedDocuments reads the documents a repository's artifact homes own, as the
@@ -325,7 +336,20 @@ type Condition struct {
 	// some conversation carries may state this condition, and what the refusal
 	// of one nobody marked names as the executor to mark it with.
 	Owner domain.AgentRole
+	// Configuration marks a path under the project's configuration directory,
+	// which no role's conversation owns: the fixes are a grant or an executor,
+	// and an item some conversation carries may state it.
+	Configuration bool
 }
+
+// ConfigurationInstruction is what a refused role is told to do about a
+// condition naming a file in the configuration directory. A run may write there
+// only where the item grants the path, so the item either carries the grant or
+// says whose conversation makes the change.
+const ConfigurationInstruction = "A developer run may write there only where the item grants the path, so a run handed this condition has its edit refused and reverted and spends its repair attempts on it. " +
+	"Either carry a grant on a line beginning \"" + GrantMarker + "\" that names the path, where the change behind it is already decided; " +
+	"or, where the change is a role's own work, mark the item as carried by that role's conversation with its executor, so it is never selected for a developer run. " +
+	"Nothing grants a role definition under " + RoleDefinitions + "/, or the settings files of a provider."
 
 // ConditionInstruction is what a refused role is told to do about it. It names
 // both fixes because both are real: a condition that belongs to the document's
@@ -354,6 +378,10 @@ func executorInstruction(owner domain.AgentRole) string {
 // Refusal is what admission says about one condition it will not admit: what the
 // clause names and where that is, the clause itself, and what to do instead.
 func (c Condition) Refusal() string {
+	if c.Configuration {
+		return fmt.Sprintf("a done-condition names %s, which is under the project's configuration directory and no %q line in the item admits: %q. %s",
+			c.Path, GrantMarker, c.Clause, ConfigurationInstruction)
+	}
 	where := c.Path
 	if c.Named != c.Path {
 		where = fmt.Sprintf("%s (%s)", c.Named, c.Path)
@@ -414,13 +442,13 @@ func (h Homes) Ungranted(description, acceptanceCriteria string, granted []strin
 			return
 		}
 		seen[key] = true
-		conditions = append(conditions, Condition{Path: path, Named: named, Clause: fold(clause, maxClauseBytes), Owner: h.ownerOf(path)})
+		conditions = append(conditions, Condition{Path: path, Named: named, Clause: fold(clause, maxClauseBytes), Owner: h.ownerOf(path), Configuration: h.configurationPath(path)})
 	}
 	for _, span := range doneConditions(description, acceptanceCriteria) {
 		for _, clause := range clauses(span) {
 			for _, cited := range standingAlone(clause, writtenPath) {
 				path, ok := normalize(strings.TrimRight(cited, trailingDecoration))
-				if !ok || !h.documentPath(path) {
+				if !ok || !(h.documentPath(path) || h.configurationPath(path)) {
 					continue
 				}
 				note(path, path, clause)
@@ -461,6 +489,18 @@ func (h Homes) documentPath(path string) bool {
 		if within(directory, []string{path}) {
 			return false
 		}
+	}
+	name := path[strings.LastIndex(path, "/")+1:]
+	return strings.LastIndex(name, ".") > 0
+}
+
+// configurationPath reports a path that names a file the configuration
+// directory holds: one with an extension, so the directory itself and the folders
+// inside it, which a done-condition lists as often as it writes in them, are not
+// read. Role definitions are left to the refusal that already covers them.
+func (h Homes) configurationPath(path string) bool {
+	if h.configuration == "" || !within(path, []string{h.configuration}) || path == h.configuration || isRoleDefinition(path) {
+		return false
 	}
 	name := path[strings.LastIndex(path, "/")+1:]
 	return strings.LastIndex(name, ".") > 0
@@ -526,7 +566,7 @@ func (h Homes) ConditionProblems(subject Subject) []error {
 	}
 	role := subject.Executor.Role()
 	for _, condition := range h.Ungranted(subject.Description, subject.AcceptanceCriteria, subject.Granted) {
-		if condition.Owner == role {
+		if condition.Owner == role || condition.Configuration {
 			continue
 		}
 		problems = append(problems, errors.New(condition.anotherRolesRefusal(subject.Executor)))
