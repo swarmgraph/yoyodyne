@@ -1169,7 +1169,7 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 	// A check a time limit left unfinished is run again only within the bounds
 	// every path shares, so a decided repair cannot reset them.
 	if spent := prior.CheckRerunSpent(); spent != "" {
-		return permanentCarryOut(triage.CarryOutCheckRerunsSpent, fmt.Errorf("run %s's checks will not be run again on this candidate: %s; a re-run of the item, which starts a new candidate from the change the stopped run kept where it still applies cleanly to the target branch and from the target branch where it does not, is what remains", prior.RunID, spent))
+		return permanentCarryOut(triage.CarryOutCheckRerunsSpent, fmt.Errorf("run %s's checks will not be run again on this candidate: %s; a re-run of the item, which starts a new candidate from the change the stopped run kept, merged onto the target branch with any conflicts left for its developer to resolve, is what remains", prior.RunID, spent))
 	}
 	// A stall or a check-stage timeout owes the run the step the harness stopped,
 	// rather than a repair of a change nobody complained about.

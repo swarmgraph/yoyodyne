@@ -2404,7 +2404,7 @@ func (e Entry) renderResumableSession() string {
 	}
 	if e.ResumesAt != "" {
 		return fmt.Sprintf(
-			"      Nothing was judged: the harness stopped this run's provider at the %s phase, after its developer attempt was complete, and no failure was ever returned to its developer. `yoyo triage repair %s` continues the run at the %s phase, asking that step again on the change the attempt left, on the branch and in the worktree above, with no developer attempt; the continuation spends no review round and no repair attempt, because a stall judges nothing. A re-run starts a fresh run instead, from the change committed on that branch where it still applies cleanly to the target branch and from the target branch where it does not, with a new developer session.\n",
+			"      Nothing was judged: the harness stopped this run's provider at the %s phase, after its developer attempt was complete, and no failure was ever returned to its developer. `yoyo triage repair %s` continues the run at the %s phase, asking that step again on the change the attempt left, on the branch and in the worktree above, with no developer attempt; the continuation spends no review round and no repair attempt, because a stall judges nothing. A re-run starts a fresh run instead, from the change committed on that branch, merged onto the target branch with any conflicts left for its developer to resolve, and from the target branch only where that branch is gone, with a new developer session.\n",
 			e.ResumesAt, e.RunID, e.ResumesAt)
 	}
 	return fmt.Sprintf(

@@ -3039,8 +3039,10 @@ carried out like any re-run, by the pass or by `yoyo triage rerun`, once the
 owner has released the parking — asked for while the raise's parking stands, it
 is refused with nothing spent, and asking again after the release carries out
 the same decision — and the item is held from a fresh pull until it starts. A
-change that no longer merges with the target fails that run rather than being
-half-applied. `retire-raise` is for when the amendment makes that change moot:
+change that conflicts with the target is merged in with its conflict markers
+left in the files that conflict, and its developer is told which files to
+resolve; only a change Git cannot merge at all ends that run, before its
+developer starts. `retire-raise` is for when the amendment makes that change moot:
 it spends nothing, is carried out as it is recorded, lifts the parking the raise
 placed and no other, clears the blocked status the raise left, closes the
 raise's entry, and the item starts from the target branch at its next pull. A
