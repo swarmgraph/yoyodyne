@@ -97,6 +97,11 @@ type Request struct {
 	// checkout, which is what a caller with no commit, such as a conversation,
 	// passes. It is unused where IntentRoot is empty or is RepositoryRoot.
 	IntentRevision *Revision
+	// Withheld are repository-relative documents of the project's repository
+	// that are not carried as product intent however they are filed: the rules
+	// documents the project's intake queries name (config.Intake.RulesPaths),
+	// which the message reader reads and no other role is given.
+	Withheld []string
 }
 
 // Revision is a recorded commit references are read at.
@@ -297,7 +302,7 @@ func Assemble(request Request) (Bundle, error) {
 	// most its share so a large home still leaves the item's references room.
 	pendingNotes -= intentReserve
 	intentBudget := max(min(maxBytes/maxIntentShareDivisor, maxBytes-bundle.Bytes-pendingNotes), intentReserve)
-	intent, intentReferences, err := renderWorkItemIntent(intentSource.root, *intentSource, request.Specifications, intentBudget)
+	intent, intentReferences, err := renderWorkItemIntent(intentSource.root, *intentSource, request.Specifications, intentBudget, request.Withheld)
 	if err != nil {
 		return Bundle{}, err
 	}

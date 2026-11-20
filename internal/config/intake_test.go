@@ -36,7 +36,7 @@ const intakeQuery = `    slack-bugs:
       fields: {id: ts, sender: user, text: text, sent_at: ts, link: permalink}
       senders: [U123, U456]
       reader: message-reader
-      rules: intake-rules
+      rules: docs/intake/rules.md
       questions: lead-product-manager
       limits: {messages_per_run: 20, messages_per_day: 100, starts_per_day: 5, questions_per_day: 5, text_bytes: 4096}
 `
@@ -80,7 +80,7 @@ func TestTheIntakeSectionLoadsEveryPartOfAQuery(t *testing.T) {
 	if strings.Join(query.Senders, ",") != "U123,U456" || query.Anyone {
 		t.Errorf("senders = %v, anyone = %v", query.Senders, query.Anyone)
 	}
-	if query.Reader != IntakeMessageReader || query.Rules != "intake-rules" || query.Questions != IntakeQuestionsLeadProductManager {
+	if query.Reader != IntakeMessageReader || query.Rules != "docs/intake/rules.md" || query.Questions != IntakeQuestionsLeadProductManager {
 		t.Errorf("reader, rules, questions = %q, %q, %q", query.Reader, query.Rules, query.Questions)
 	}
 	if query.Limits != (IntakeLimits{MessagesPerRun: 20, MessagesPerDay: 100, StartsPerDay: 5, QuestionsPerDay: 5, TextBytes: 4096}) {
@@ -156,8 +156,11 @@ func TestTheIntakeSectionIsRefusedInPlainWords(t *testing.T) {
 		{"no items", intakeWith(t, "items: messages", ""), []string{"names no items"}},
 		{"a missing field", intakeWith(t, "fields: {id: ts, sender: user, text: text, sent_at: ts, link: permalink}", "fields: {id: ts, text: text, sent_at: ts}"), []string{"fields names no sender"}},
 		{"another reader", intakeWith(t, "reader: message-reader", "reader: pm"), []string{`reader is "pm"`, `"message-reader"`}},
-		{"no rules", intakeWith(t, "rules: intake-rules", ""), []string{"names no rules"}},
-		{"a rules id that is not an id", intakeWith(t, "rules: intake-rules", "rules: ../rules.md"), []string{"intake.queries.slack-bugs.rules"}},
+		{"no rules", intakeWith(t, "rules: docs/intake/rules.md", ""), []string{"names no rules", "the path of the rules document"}},
+		{"rules outside the repository", intakeWith(t, "rules: docs/intake/rules.md", "rules: ../rules.md"), []string{`intake.queries.slack-bugs.rules "../rules.md" climbs out of the repository`}},
+		{"rules by an absolute path", intakeWith(t, "rules: docs/intake/rules.md", "rules: /etc/rules.md"), []string{`"/etc/rules.md" is absolute`}},
+		{"rules by an id rather than a path", intakeWith(t, "rules: docs/intake/rules.md", "rules: intake-rules"), []string{`"intake-rules" does not name a Markdown file ending in .md`, "by its path in the repository"}},
+		{"rules by a path not written plainly", intakeWith(t, "rules: docs/intake/rules.md", "rules: docs/./intake/rules.md"), []string{`write it as "docs/intake/rules.md"`}},
 		{"a questions setting nobody has", intakeWith(t, "questions: lead-product-manager", "questions: operator"), []string{`questions is "operator"`, `"lead-product-manager", the default, or "person"`}},
 		{"a zero limit", intakeWith(t, "limits: {messages_per_run: 20, messages_per_day: 100, starts_per_day: 5, questions_per_day: 5, text_bytes: 4096}", "limits: {starts_per_day: 0}"), []string{"limits.starts_per_day is 0; it must be at least 1"}},
 		{"a key nobody has", intakeWith(t, "items: messages", "items: messages\n      cursor: next"), []string{"field cursor not found"}},
@@ -283,13 +286,23 @@ func TestARoleMayNotApplyTheIntakeSection(t *testing.T) {
 //
 // A later piece that runs a query or reads the section anywhere else adds its
 // file here, which is where a reviewer sees that it does.
+//
+// The three orchestrator files read only Intake.RulesPaths, to keep the rules
+// documents the queries name out of the product intent a developer and a
+// reviewer are given; with no intake section it names nothing and what they
+// are given is unchanged (TestWithheldDocumentsAreNotCarriedAsIntent in
+// internal/contextbundle). The conversations' briefing reads it the same way,
+// in internal/cli/ground.go, through a field this walk does not name.
 var intakeReaders = map[string]bool{
-	"internal/config/config.go":   true,
-	"internal/config/document.go": true,
-	"internal/config/intake.go":   true,
-	"internal/config/resolve.go":  true,
-	"internal/cli/cli.go":         true,
-	"internal/cli/intake.go":      true,
+	"internal/config/config.go":                 true,
+	"internal/config/document.go":               true,
+	"internal/config/intake.go":                 true,
+	"internal/config/resolve.go":                true,
+	"internal/cli/cli.go":                       true,
+	"internal/cli/intake.go":                    true,
+	"internal/orchestrator/branchreview.go":     true,
+	"internal/orchestrator/mergequeueworker.go": true,
+	"internal/orchestrator/pipeline.go":         true,
 }
 
 // intakeNames is every exported name the section's types and values go by.
@@ -306,6 +319,23 @@ var intakeNames = map[string]bool{
 // (`<x>.Config.Intake`), or its queries (`<x>.Intake.Queries` and
 // `<x>.Intake.Declared`). Inside the configuration package nothing else is
 // called Intake, so every reference counts.
+// The rules documents the queries name are listed once each, in order, and a
+// project with no intake section lists none.
+func TestRulesPathsNamesEachQuerysRulesDocumentOnce(t *testing.T) {
+	t.Parallel()
+	if paths := (Intake{}).RulesPaths(); paths != nil {
+		t.Fatalf("RulesPaths() with no queries = %v, want none", paths)
+	}
+	intake := Intake{Queries: map[string]IntakeQuery{
+		"b": {Rules: "setup/rules.md"},
+		"a": {Rules: "docs/product/intake/rules.md"},
+		"c": {Rules: "setup/rules.md"},
+	}}
+	if got := strings.Join(intake.RulesPaths(), ","); got != "docs/product/intake/rules.md,setup/rules.md" {
+		t.Fatalf("RulesPaths() = %s", got)
+	}
+}
+
 func TestNothingOnTheLaunchRecordOrSurfacePathReadsTheIntakeSection(t *testing.T) {
 	t.Parallel()
 	root, err := filepath.Abs(filepath.Join("..", ".."))

@@ -1089,7 +1089,7 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if err != nil {
 		return generation, false, fmt.Errorf("assemble product intent for the candidate's review: %w", err)
 	}
-	intent, err := contextbundle.AssembleIntent(p.Repository, p.Config.Product.IntentRoot(p.Repository), p.Config.Product.Specifications, revision, intentRevision)
+	intent, err := contextbundle.AssembleIntent(p.Repository, p.Config.Product.IntentRoot(p.Repository), p.Config.Product.Specifications, revision, intentRevision, p.Config.Intake.RulesPaths())
 	if err != nil {
 		return generation, false, fmt.Errorf("assemble product intent for the candidate's review: %w", err)
 	}

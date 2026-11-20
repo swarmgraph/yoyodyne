@@ -39,12 +39,15 @@ const maxIntentShareDivisor = 2
 // (config.Product.IntentRoot); the home is then read there at intentRevision,
 // the commit of that repository, or as its checkout stands where that is nil,
 // because revision names a commit of the project's repository.
-func AssembleIntent(repositoryRoot, intentRoot, directory string, revision, intentRevision *Revision) (string, error) {
+//
+// withheld names documents of the project's repository that are not delivered
+// however they are filed (see withhold).
+func AssembleIntent(repositoryRoot, intentRoot, directory string, revision, intentRevision *Revision, withheld []string) (string, error) {
 	source := referenceSource{root: repositoryRoot, revision: revision}
 	if strings.TrimSpace(intentRoot) != "" && filepath.Clean(intentRoot) != filepath.Clean(repositoryRoot) {
 		source = referenceSource{root: intentRoot, revision: intentRevision, companion: true}
 	}
-	text, _, err := renderWorkItemIntent(source.root, source, directory, defaultMaxBytes/maxIntentShareDivisor)
+	text, _, err := renderWorkItemIntent(source.root, source, directory, defaultMaxBytes/maxIntentShareDivisor, withheld)
 	return text, err
 }
 
@@ -59,7 +62,7 @@ func AssembleIntent(repositoryRoot, intentRoot, directory string, revision, inte
 // directory the item never named is a run nobody can unwedge by editing the item.
 // A directory that is refused outright — one resolving outside the repository —
 // does fail, exactly as it fails the conversations' reading of it.
-func renderWorkItemIntent(repositoryRoot string, source referenceSource, directory string, budget int) (string, []Reference, error) {
+func renderWorkItemIntent(repositoryRoot string, source referenceSource, directory string, budget int, withheld []string) (string, []Reference, error) {
 	if strings.TrimSpace(directory) == "" {
 		return "", nil, nil
 	}
@@ -75,6 +78,12 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 	if err != nil {
 		return "", nil, err
 	}
+	// Withheld paths name documents of the project's own repository, so a
+	// companion intent repository's documents are never withheld by them.
+	if source.companion {
+		withheld = nil
+	}
+	paths = withhold(paths, withheld)
 
 	header := renderWorkItemIntentHeader(clean, source.revision, source.companion)
 	// A companion repository read at a commit is compared with nothing: its
@@ -90,7 +99,7 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 		if err != nil {
 			return "", nil, err
 		}
-		header += renderIntentPathChanges(paths, current)
+		header += renderIntentPathChanges(paths, withhold(current, withheld))
 	}
 	if len(header)+longestIntentOmission(paths) > budget {
 		return intentFallback(clean), nil, nil
@@ -132,6 +141,29 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 		return intentFallback(clean), nil, nil
 	}
 	return section, references, nil
+}
+
+// withhold drops the withheld documents from a listing of documents to
+// deliver. A scheduled intake query's rules document is the one kind withheld
+// today: it is read by the message reader alone and is not delivered to every
+// role, wherever the project keeps it, even under the specification home
+// (docs/designs/scheduled-message-intake.md, section 6). The listing is
+// repository-relative, and so are the withheld paths.
+func withhold(paths, withheld []string) []string {
+	if len(withheld) == 0 || len(paths) == 0 {
+		return paths
+	}
+	drop := make(map[string]bool, len(withheld))
+	for _, name := range withheld {
+		drop[path.Clean(filepath.ToSlash(strings.TrimSpace(name)))] = true
+	}
+	kept := make([]string, 0, len(paths))
+	for _, name := range paths {
+		if !drop[path.Clean(name)] {
+			kept = append(kept, name)
+		}
+	}
+	return kept
 }
 
 func specificationPaths(root repowrite.Root, revision *Revision, directory string) ([]string, error) {

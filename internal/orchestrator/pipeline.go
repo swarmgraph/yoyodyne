@@ -1764,7 +1764,7 @@ func (a *activeRun) claim(ctx context.Context) error {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
 	}
 	a.state.IntentCommit = intentCommit
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository), IntentRevision: intentRevision})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository), IntentRevision: intentRevision, Withheld: a.pipeline.Config.Intake.RulesPaths()})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
 	}
@@ -2072,7 +2072,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
 	}
 	state.IntentCommit = intentCommit
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository), IntentRevision: intentRevision})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository), IntentRevision: intentRevision, Withheld: p.Config.Intake.RulesPaths()})
 	if err != nil {
 		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
 	}
@@ -9841,7 +9841,7 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(a.worktree.Path), IntentRevision: intentRevision})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(a.worktree.Path), IntentRevision: intentRevision, Withheld: p.Config.Intake.RulesPaths()})
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}
