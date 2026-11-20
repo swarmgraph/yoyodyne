@@ -3081,7 +3081,10 @@ pulling:
 		// wait is given up: the runs it was for are stopped part-way through their
 		// check, and the restart follows at the next look (idleBesideCheckWaits).
 		if drain.boundReached {
-			if idle := s.idleBesideCheckWaits(ctx, &drain, pull, occupied, gone, mine, hosted, free, held || paused, claimed, claimedRead); idle > 0 {
+			keptDue := func() bool {
+				return s.keptWorkWaiting(ctx, pull, occupied, mine, refusedContinuations, free, len(schedule.Started))
+			}
+			if idle := s.idleBesideCheckWaits(ctx, &drain, pull, occupied, gone, mine, hosted, free, held || paused, claimed, claimedRead, keptDue); idle > 0 {
 				if runs, queued := s.cutCheckWaits(&schedule, &drain, hosted, mine, queuePasses); len(runs)+len(queued) > 0 {
 					session.draining(drain.record(running))
 					session.note(cutCheckWaitsSays(idle, runs, queued), running)
@@ -3664,8 +3667,8 @@ pulling:
 			reason := fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound is %s away, which is less than one poll, so the session that comes back pulls them; %s",
 				free, remaining.Round(time.Second), skipped.Says())
 			if drain.boundReached {
-				reason = fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound has run out and %s still going at its promotion, finishing the check it is running, landing a document, recording a finished check stage, or still being stopped, is waited out rather than joined, so the session that comes back pulls them; %s",
-					free, plural(running, "run", "runs"), skipped.Says())
+				reason = fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound has run out and the restart is waiting for %s, so the session that comes back pulls them; %s",
+					free, drain.holdingRestart(), skipped.Says())
 			}
 			if !wait(pull, runstate.WatchIdle, account{reason: reason, running: len(occupied)}) {
 				schedule.Stopped = ScheduleCancelled
@@ -7403,6 +7406,9 @@ type redeployDrain struct {
 	// verdict. Giving up a wait on a check does not bring the restart sooner
 	// while one is left (idleBesideCheckWaits).
 	unready int
+	// stopping is how many hosted runs the session has stopped for the restart
+	// and is still waiting to hear back from (stopHosted).
+	stopping int
 	// due fires when the bound runs out. It is nil until the drain is armed with
 	// a bound, and a nil channel is one a select never chooses.
 	due   <-chan time.Time
@@ -7582,6 +7588,8 @@ func (d redeployDrain) record(hosting int) *runstate.WatchDrain {
 	if d.boundReached {
 		recorded.Publishing = d.publishing
 		recorded.KeptGoing = d.keptGoing
+		recorded.Unready = d.unready
+		recorded.Stopping = d.stopping
 	}
 	recorded.PausedSince = d.pausedSince
 	return recorded
@@ -7599,6 +7607,38 @@ func (d redeployDrain) waitingOn() string {
 		parts = append(parts, wait.RunID+" "+wait.Check)
 	}
 	return fmt.Sprintf("%v promoting=%d publishing=%d", parts, d.promoting, d.publishing)
+}
+
+// holdingRestart says in plain words what the restart is waiting for past the
+// bound, as the last look found it: each run finishing a check, by run and
+// check, and how many are landing their change, landing a document, not yet at
+// a step they can be continued from, or stopped and still recording where they
+// got to.
+func (d redeployDrain) holdingRestart() string {
+	var waits []string
+	if d.promoting > 0 {
+		waits = append(waits, plural(d.promoting, "run", "runs")+" landing on the target branch")
+	}
+	for _, wait := range d.checkWaits {
+		if wait.Queue != "" {
+			waits = append(waits, fmt.Sprintf("the merge queue for %s to finish the check %s", wait.Queue, wait.Check))
+			continue
+		}
+		waits = append(waits, fmt.Sprintf("run %s for %s to finish the check %s", wait.RunID, wait.WorkItemID, wait.Check))
+	}
+	if d.publishing > 0 {
+		waits = append(waits, plural(d.publishing, "document", "documents")+" being landed")
+	}
+	if d.unready > 0 {
+		waits = append(waits, plural(d.unready, "run", "runs")+" to reach a step that can be continued from")
+	}
+	if d.stopping > 0 {
+		waits = append(waits, plural(d.stopping, "run", "runs")+" it stopped, still recording how far each got")
+	}
+	if len(waits) == 0 {
+		return "the runs it hosts to be stopped"
+	}
+	return strings.Join(waits, ", and ")
 }
 
 // waitingOnAny reports the restart waiting on a run it does not stop past the
@@ -7818,6 +7858,12 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 	slices.Sort(schedule.Drain.Landings)
 	slices.Sort(schedule.Drain.ChecksWaited)
 	drain.unready = unstopped
+	drain.stopping = 0
+	for _, index := range mine {
+		if _, live := hosted[index]; !live {
+			drain.stopping++
+		}
+	}
 	return unstopped
 }
 
@@ -7893,10 +7939,12 @@ func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings
 // such wait is going on, and nothing where giving the wait up would not let
 // the restart follow at the next look.
 //
-// Two kinds of slot count. One is a free slot while ready work waits in the
-// queue and nothing — the intake hold or the operator's pause — stops it
-// being started; a free slot with nothing ready is not kept empty by the wait,
-// so it does not count. The other is a slot still held by a run stopped for
+// Two kinds of slot count. One is a free slot while work waits for it and
+// nothing — the intake hold or the operator's pause — stops it being started:
+// ready work in the queue, or work on a change a run already wrote, which is a
+// decided re-run or repair or a paused run due to be continued
+// (keptWorkWaiting). A free slot with nothing waiting for it is not kept empty
+// by the wait, so it does not count. The other is a slot still held by a run stopped for
 // this restart, by this session or one before it, and no longer live here:
 // nothing runs in it, and only the session the restart brings up can continue
 // it, so it is as idle as a free one.
@@ -7915,7 +7963,7 @@ func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings
 // part-way, or a hosted run not yet at a phase it can be stopped at. In that
 // case the check is left to finish, and a free slot is filled meanwhile by the
 // old build (redeployDrain.declinesDeveloperStarts) rather than by cutting it.
-func (s Scheduler) idleBesideCheckWaits(ctx context.Context, drain *redeployDrain, pull Pull, occupied map[string]runstate.State, gone map[string]bool, mine map[string]int, hosted map[int]context.CancelCauseFunc, free int, closed bool, claimed []beads.WorkItem, claimedRead bool) int {
+func (s Scheduler) idleBesideCheckWaits(ctx context.Context, drain *redeployDrain, pull Pull, occupied map[string]runstate.State, gone map[string]bool, mine map[string]int, hosted map[int]context.CancelCauseFunc, free int, closed bool, claimed []beads.WorkItem, claimedRead bool, keptDue func() bool) int {
 	if len(drain.checkWaits) == 0 || drain.unstoppable > 0 {
 		return 0
 	}
@@ -7938,16 +7986,54 @@ func (s Scheduler) idleBesideCheckWaits(ctx context.Context, drain *redeployDrai
 		// A queue that cannot be read is not evidence of work waiting, so the
 		// wait goes on and the next look asks again. An entry already in flight
 		// is not work for a free slot, whatever the queue says of it.
+		waiting := false
 		if read, err := pull.queue(ctx, claimed, claimedRead); err == nil {
 			for _, entry := range read.queue.Entries {
 				if _, inFlight := occupied[entry.ID]; entry.Ready && !inFlight {
-					idle += free
+					waiting = true
 					break
 				}
 			}
 		}
+		// Work on a change a run already wrote is work for the slot too, and
+		// the work a freed slot takes first: a decided re-run or repair, or a
+		// paused run due to be continued. None of it is in the queue, because
+		// its item is claimed or its run is in flight.
+		if !waiting && keptDue != nil {
+			waiting = keptDue()
+		}
+		if waiting {
+			idle += free
+		}
 	}
 	return idle
+}
+
+// keptWorkWaiting reports work on a change a run already wrote waiting for a
+// free developer slot: a decision the development manager made about an item
+// with no run going, or a paused run due to be continued now (nextContinuations,
+// read exactly as the pull reads it). A continuation that already holds a slot
+// needs no free one, so it does not count.
+func (s Scheduler) keptWorkWaiting(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, free, started int) bool {
+	if pull.CarryOut != nil {
+		if outstanding, err := pull.CarryOut.Outstanding(); err == nil {
+			for _, task := range outstanding {
+				if _, inFlight := occupied[task.WorkItemID]; !inFlight {
+					return true
+				}
+			}
+		}
+	}
+	continuations, err := s.nextContinuations(ctx, pull, occupied, mine, refused, free, started, func(string, string) {})
+	if err != nil {
+		return false
+	}
+	for _, continuation := range continuations {
+		if !continuation.holdsOne {
+			return true
+		}
+	}
+	return false
 }
 
 // cutCheckWaits gives up every wait on a running check past the drain bound

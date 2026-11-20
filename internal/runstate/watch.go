@@ -672,6 +672,15 @@ type WatchDrain struct {
 	// was still running: stopped then, each would only have sat idle until the
 	// restart. They are stopped together once the waits end.
 	KeptGoing int `json:"kept_going,omitempty"`
+	// Unready is how many hosted runs the last look past the bound could not
+	// stop yet because none was at a step it could be continued from: one that
+	// had just started, or one recording the result of checks that had just
+	// ended. Stopping is how many the session had stopped and was waiting to
+	// hear back from as they recorded where they got to. Both take moments, and
+	// both are said so a reader of the session's line is told what the restart
+	// is waiting on rather than only that the bound has run out.
+	Unready  int `json:"unready,omitempty"`
+	Stopping int `json:"stopping,omitempty"`
 }
 
 // WatchCheckWait is one run, or one merge queue's candidate, a session past
@@ -774,6 +783,17 @@ func (d WatchDrain) Says() string {
 			return fmt.Sprintf("%s; the bound has run out, so it has been waiting out %d run(s) it hosts at their promotion since %s, because a promotion is never stopped part-way, and restarts the moment they finish; %s",
 				said, d.Promoting, LocalStamp(d.PromotingSince), unstoppableWaitRest)
 		}
+		if d.Stopping > 0 || d.Unready > 0 {
+			var waits []string
+			if d.Stopping > 0 {
+				waits = append(waits, fmt.Sprintf("%d run(s) it has stopped to finish recording where they got to", d.Stopping))
+			}
+			if d.Unready > 0 {
+				waits = append(waits, fmt.Sprintf("%d run(s) to reach a step they can be continued from, having just started or just finished their checks", d.Unready))
+			}
+			return fmt.Sprintf("%s; the bound has run out, so it is waiting for %s, which takes moments, and then restarts; the runs it hosts are stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
+				said, strings.Join(waits, ", and for "))
+		}
 		return said + "; the bound has run out, so the runs it hosts are stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing"
 	}
 	if d.PullSkipped {
@@ -821,6 +841,12 @@ func (d WatchDrain) validate() error {
 	}
 	if d.KeptGoing < 0 {
 		problems = append(problems, fmt.Errorf("draining reports %d runs kept working past the bound, which is not a count", d.KeptGoing))
+	}
+	if d.Unready < 0 {
+		problems = append(problems, fmt.Errorf("draining reports %d runs not yet at a step they can be stopped at, which is not a count", d.Unready))
+	}
+	if d.Stopping < 0 {
+		problems = append(problems, fmt.Errorf("draining reports %d stopped runs still recording where they got to, which is not a count", d.Stopping))
 	}
 	return errors.Join(problems...)
 }
