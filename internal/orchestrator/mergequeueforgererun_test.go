@@ -260,3 +260,44 @@ func TestAQueueCandidateGitHubsQueueDroppedForAnUntouchedTestIsQueuedOnceMore(t 
 		}
 	}
 }
+
+// GitHub also reports the required check as failed, which the queue alone
+// would take as a merge GitHub can never make and withdraw at once, blaming the
+// change. While the second run of the failing job is asked for or going, that
+// failure is the one being run again and the merge stays queued; once the
+// second run fails, the entry is withdrawn at once, naming the test.
+func TestARequiredCheckGitHubReportsFailedWaitsForTheSecondRunOfTheFailingJob(t *testing.T) {
+	t.Parallel()
+
+	f, withdrawer, repair, checks := heldChecksFixture(t)
+	f.promoter.Waits, f.promoter.Readings = publish.GitHub{Runner: &recordedGitHub{reply: recordedReply(t, "failed-required-check.json")}}, f.queue
+
+	// First pass: the second run is asked for, and the failed required check
+	// does not withdraw the entry.
+	pass := f.passAt(0)
+	if pass.Outcome != runstate.MergeQueuePassWaiting || !strings.Contains(pass.Says, "run the failing job once more") {
+		t.Fatalf("first Pass() = %#v, want the queue waiting on the second run", pass)
+	}
+	if len(checks.reruns) != 1 || withdrawer.count() != 0 || repair.count() != 0 {
+		t.Fatalf("re-runs %v, withdrawn %d, handed back %d; want one re-run and nothing withdrawn", checks.reruns, withdrawer.count(), repair.count())
+	}
+
+	// The reading still names only the failed run: keep waiting, ask nothing.
+	pass = f.passAt(0)
+	if pass.Outcome != runstate.MergeQueuePassWaiting || len(checks.reruns) != 1 || withdrawer.count() != 0 {
+		t.Fatalf("second Pass() = %#v, re-runs %v, withdrawn %d; want it still waiting with nothing asked again", pass, checks.reruns, withdrawer.count())
+	}
+
+	// The second run fails: the entry is withdrawn at once, naming the test.
+	checks.reading = failingBuild(9002)
+	pass = f.passAt(0)
+	if pass.Outcome != runstate.MergeQueuePassHandedBack || withdrawer.count() != 1 || repair.count() != 1 || len(checks.reruns) != 1 {
+		t.Fatalf("third Pass() = %#v, withdrawn %d, handed back %d, re-runs %v; want it withdrawn at once", pass, withdrawer.count(), repair.count(), checks.reruns)
+	}
+	reason := f.landing().Handback.Reason
+	for _, want := range []string{"TestTheTestRunsDecidedRepairTakesTheHoldsStartAndItsLandingLiftsTheHold", "it failed again"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("handback does not say %q:\n%s", want, reason)
+		}
+	}
+}
