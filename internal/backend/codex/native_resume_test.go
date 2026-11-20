@@ -93,11 +93,19 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	// tests; native execution exercises supported paths, including spaces.
 	oldRepository, oldWorktree := sandboxRepositoryNamed(t, true, "repository with spaces")
 	newRepository, newWorktree := sandboxRepositoryNamed(t, true, "repository with spaces")
-	oldPaths := nativeProbeDirectories(t, oldRepository, oldWorktree)
-	newPaths := nativeProbeDirectories(t, newRepository, newWorktree)
+	// One state directory, as one harness has, holding both turns' scratch
+	// folders, another run's, and a run record: only the turn's own folder in it
+	// may be written.
+	state := t.TempDir()
+	oldPaths := nativeProbeDirectories(t, oldRepository, oldWorktree, filepath.Join(state, "old"))
+	newPaths := nativeProbeDirectories(t, newRepository, newWorktree, filepath.Join(state, "new"))
 	outside := t.TempDir()
-	otherScratch := filepath.Join(filepath.Dir(newPaths[1]), "another-run")
-	if err := os.Mkdir(otherScratch, 0o700); err != nil {
+	otherScratch, err := execution.PrepareScratchDirectory(filepath.Join(state, "new"), "run-another")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecords := filepath.Join(state, "new", "products", "yoyodyne", "runs")
+	if err := os.MkdirAll(runRecords, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	model := &sandboxResponses{}
@@ -118,11 +126,12 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	// supports direct shell tools and has an established effort default.
 	request := backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: oldWorktree,
-		RepositoryRoot: oldRepository, AccountConfigDir: home, Model: "gpt-5.5",
+		RepositoryRoot: oldRepository, ScratchDirectory: oldPaths[1], AccountConfigDir: home, Model: "gpt-5.5",
 		Prompt:  "Execute the supplied sandbox probe, then finish.",
 		Timeout: nativeProbeSubprocessBudget, IdleTimeout: nativeProbeSubprocessBudget, AfterReplyTimeout: nativeProbeSubprocessBudget,
 	}
-	denied := []string{outside, otherScratch, filepath.Join(oldRepository, ".git"), filepath.Join(newRepository, ".git")}
+	denied := []string{outside, otherScratch, runRecords, filepath.Join(state, "new"), filepath.Join(state, "new", "scratch"),
+		filepath.Join(oldRepository, ".git"), filepath.Join(newRepository, ".git")}
 	freshProof := nativeProbeReply + ": fresh launch"
 	freshDenied := append(denied, append(newPaths, newWorktree)...)
 	model.begin(nativeProbeCommand(t, oldWorktree, oldPaths, freshDenied, freshProof))
@@ -134,7 +143,7 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	nativeProbeFiles(t, oldWorktree, oldPaths, freshDenied, freshProof)
 
 	request.SessionID = fresh.SessionID
-	request.RepositoryRoot, request.WorkingDirectory = newRepository, newWorktree
+	request.RepositoryRoot, request.WorkingDirectory, request.ScratchDirectory = newRepository, newWorktree, newPaths[1]
 	resumeProof := nativeProbeReply + ": changed grants"
 	resumeDenied := append(denied, append(oldPaths, oldWorktree)...)
 	model.begin(nativeProbeCommand(t, newWorktree, newPaths, resumeDenied, resumeProof))
@@ -182,14 +191,21 @@ func nativeProbeFiles(t *testing.T, worktree string, allowed, denied []string, p
 	}
 }
 
-func nativeProbeDirectories(t *testing.T, repository, worktree string) []string {
+func nativeProbeDirectories(t *testing.T, repository, worktree, state string) []string {
 	t.Helper()
 	for file, body := range map[string]string{"go.mod": "module sandboxprobe\n\ngo 1.23\n", "probe.go": "package sandboxprobe\n"} {
 		if err := os.WriteFile(filepath.Join(worktree, file), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	paths, err := execution.PrepareDeveloperDirectories(repository, worktree, testRunID)
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	scratch, err := execution.PrepareScratchDirectory(state, testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := execution.PrepareDeveloperDirectories(repository, worktree, testRunID, scratch)
 	if err != nil {
 		t.Fatal(err)
 	}

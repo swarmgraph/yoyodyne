@@ -3,6 +3,7 @@ package recoverytests
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -923,4 +924,49 @@ func (w *refusingCleanup) CleanupIntegrated(ctx context.Context, request gitwork
 		return gitworktree.Cleanup{}, errors.New("worktree is busy")
 	}
 	return w.ReconcileWorktrees.CleanupIntegrated(ctx, request)
+}
+
+// A landed run whose process ended before it cleaned up is cleaned up by
+// reconciliation, and its scratch directory in the state directory goes with
+// its worktree: a link the run left there is removed as a link, and what it
+// pointed at stays.
+func TestReconcileRemovesTheScratchOfARunItCleansUp(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := testharness.RestartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	target := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(target, []byte("a program\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var scratch string
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		scratch = request.ScratchDirectory
+		if err := os.Symlink(target, filepath.Join(scratch, "apply_patch")); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, testharness.ApproveVerdict)
+	halting := &testharness.HaltingStore{StateStore: store, At: runstate.PhaseCleaningUp}
+	pipeline := testharness.Automatic(testharness.NewSharedPipeline(t, repository, worktreeRoot, halting, tracker, provider, []string{"exit 0"}), provider)
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err == nil {
+		t.Fatal("interrupted Run() error = nil")
+	}
+	if _, err := os.Lstat(filepath.Join(scratch, "apply_patch")); err != nil {
+		t.Fatalf("the interrupted run's scratch link is not there before the sweep: %v", err)
+	}
+
+	results, err := orchestrator.Reconciler{Tracker: tracker, Worktrees: testharness.NewObserver(t, repository, worktreeRoot), Store: store, StateRoot: pipeline.StateRoot}.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Action != orchestrator.ActionCompleted || !results[0].WorktreeRemoved || strings.Contains(results[0].Detail, "scratch") {
+		t.Fatalf("reconciliation = %#v, want the run completed with its worktree and scratch removed", results)
+	}
+	if _, err := os.Lstat(scratch); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the run's scratch directory is still there after reconciliation cleaned it up (err = %v)", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("removing the scratch directory removed what its link pointed at: %v", err)
+	}
 }

@@ -186,6 +186,12 @@ func NewSharedPipeline(t *testing.T, repository, worktreeRoot string, store orch
 		// The reviewer configured above, invoked through the same provider.
 		Reviewer:   review.Reviewer{Backend: provider, Model: TestReviewerModel},
 		Repository: repository, Config: cfg,
+		// The directory holding the worktree root, as the harness's state
+		// directory holds its worktrees, so two pipelines built over the same
+		// worktree root share it: each developer run's scratch directory is cut
+		// there (execution.PrepareScratchDirectory), and a run picked up by a
+		// second process is handed the same one.
+		StateRoot: filepath.Dir(worktreeRoot),
 	}
 	// And every pipeline records the instance it is executing the definition
 	// through, because `declarative_delivery` is the default above and a fixture

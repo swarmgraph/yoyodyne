@@ -49,13 +49,13 @@ func sandboxRepositoryNamed(t *testing.T, linked bool, name string) (repository,
 	return repository, worktree
 }
 
-func sandboxCommand(t *testing.T, repository, worktree, session string, role domain.AgentRole) execution.Command {
+func sandboxCommand(t *testing.T, repository, worktree, scratch, session string, role domain.AgentRole) execution.Command {
 	t.Helper()
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded,
 		Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID: testRunID, Role: role, WorkingDirectory: worktree,
-		RepositoryRoot: repository, Prompt: "do the work", SessionID: session,
+		RepositoryRoot: repository, ScratchDirectory: scratch, Prompt: "do the work", SessionID: session,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,8 @@ func TestDeveloperSandboxGrantsTheDeclaredCacheAndScratchOnEveryTurn(t *testing.
 	t.Parallel()
 	for _, linked := range []bool{false, true} {
 		repository, worktree := sandboxRepository(t, linked)
-		scratch, err := execution.PrepareScratchDirectory(repository, worktree, testRunID)
+		state := t.TempDir()
+		scratch, err := execution.PrepareScratchDirectory(state, testRunID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,9 +78,22 @@ func TestDeveloperSandboxGrantsTheDeclaredCacheAndScratchOnEveryTurn(t *testing.
 		}
 		cache := filepath.Join(git, "yoyodyne", "go-build")
 		for _, session := range []string{"", "session-one"} {
-			command := sandboxCommand(t, repository, worktree, session, domain.RoleDeveloper)
-			if got, want := profileFilesystem(t, command.Args), developerFilesystem(worktree, cache, scratch); !reflect.DeepEqual(got, want) {
+			command := sandboxCommand(t, repository, worktree, scratch, session, domain.RoleDeveloper)
+			got := profileFilesystem(t, command.Args)
+			if want := developerFilesystem(worktree, cache, scratch); !reflect.DeepEqual(got, want) {
 				t.Fatalf("developer file system = %q, want only the worktree, the declared cache and scratch, and the temporary directories: %q", got, want)
+			}
+			// The scratch folder is the one place in the state directory the run
+			// may write: nothing else there, nor the state directory itself, is a
+			// writable root.
+			resolvedState, _ := filepath.EvalSymlinks(state)
+			for root, access := range got {
+				if access != "write" || root == scratch {
+					continue
+				}
+				if relative, err := filepath.Rel(resolvedState, root); err == nil && !strings.HasPrefix(relative, "..") {
+					t.Fatalf("the developer may write %q in the state directory beside its own scratch %q", root, scratch)
+				}
 			}
 			if !hasEnvironment(command.Env, "GOCACHE="+cache) {
 				t.Fatalf("the sandbox grants %q but GOCACHE names another path", cache)
@@ -108,7 +122,7 @@ func TestReadOnlyRolesNeverReceiveDeveloperDirectoryGrants(t *testing.T) {
 			continue
 		}
 		for _, session := range []string{"", "session-one"} {
-			command := sandboxCommand(t, repository, worktree, session, role)
+			command := sandboxCommand(t, repository, worktree, "", session, role)
 			if profileArgument(t, command.Args) != profileReadOnly || strings.Contains(strings.Join(command.Args, " "), `="write"`) {
 				t.Fatalf("read-only role %s received developer access: %q", role, command.Args)
 			}
@@ -130,6 +144,50 @@ func TestDeveloperSandboxRefusesAnEscapingWorktreeBeforeLaunchOrResume(t *testin
 		})
 		if err == nil || !strings.Contains(err.Error(), "not inside the repository") || len(runner.commands) != 0 {
 			t.Fatalf("Run() = %v, commands = %v, want a refusal before invocation", err, runner.commands)
+		}
+	}
+}
+
+// A scratch directory that is not this run's own folder in the state directory
+// -- another run's, the state directory itself, the scratch folders above them,
+// a link to one -- is refused before Codex starts, rather than granted.
+func TestDeveloperSandboxRefusesAnyScratchButTheRunsOwnFolder(t *testing.T) {
+	t.Parallel()
+	repository, worktree := sandboxRepository(t, true)
+	state := t.TempDir()
+	if _, err := execution.PrepareScratchDirectory(state, testRunID); err != nil {
+		t.Fatal(err)
+	}
+	other, err := execution.PrepareScratchDirectory(state, "run-another")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "scratch", testRunID)
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(resolved, link); err != nil {
+		t.Fatal(err)
+	}
+	for name, scratch := range map[string]string{
+		"another run's folder": other,
+		"the state directory":  resolved,
+		"the scratch folders":  filepath.Join(resolved, "scratch"),
+		"a link to the state":  link,
+	} {
+		for _, session := range []string{"", "session-one"} {
+			runner := &fakeRunner{}
+			_, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
+				RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+				RepositoryRoot: repository, ScratchDirectory: scratch, Prompt: "do the work", SessionID: session,
+			})
+			if err == nil || len(runner.commands) != 0 {
+				t.Fatalf("%s: Run() = %v, commands = %v, want a refusal before invocation", name, err, runner.commands)
+			}
 		}
 	}
 }

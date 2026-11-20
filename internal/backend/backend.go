@@ -72,10 +72,18 @@ type RunRequest struct {
 	// mutable worktree. Adapters use it to confine cache and scratch grants.
 	// Empty uses WorkingDirectory for standalone invocations.
 	RepositoryRoot string
-	Prompt         string
-	SystemPrompt   string
-	SessionID      string
-	Model          string
+	// ScratchDirectory is the developer run's own folder in the harness's state
+	// directory, scratch/<run id>/, cut by the harness before the run starts. A
+	// developer's sandbox may write it and nothing else in the state directory;
+	// every adapter confirms it is that one folder
+	// (execution.ConfirmScratchDirectory) and refuses to start the run where it
+	// is not, rather than granting something wider. Empty grants no scratch
+	// directory, which is an invocation the harness cut none for.
+	ScratchDirectory string
+	Prompt           string
+	SystemPrompt     string
+	SessionID        string
+	Model            string
 	// Effort is the effort level this invocation asks the provider for, and
 	// resolved to the model default for Codex when the agent configured none.
 	// Claude retains its resolution of an omitted level. A failover or a version fallback keeps it: the level is the

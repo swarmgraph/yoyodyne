@@ -28,9 +28,12 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// testStateRoot is where a pooled account's provider home would be. Nothing is
-// written there: what is under test is which directory reaches the provider, and
-// the fake provider is what receives it.
+// testStateRoot is where a pooled account's provider home would be, for a
+// pipeline that runs nothing. Nothing is written there: what is under test is
+// which directory reaches the provider, and the fake provider is what receives
+// it. A pipeline that runs a developer keeps the state directory its test
+// fixture made, where the run's scratch directory is cut, and its accounts'
+// homes are named under that one instead.
 const testStateRoot = "/state"
 
 func TestAPooledRunIsAttributableToTheAccountThatServedIt(t *testing.T) {
@@ -46,7 +49,7 @@ func TestAPooledRunIsAttributableToTheAccountThatServedIt(t *testing.T) {
 	// The pool is asked once and answers with the second account, so a run that
 	// fell back to the configuration's own answer would be visibly the wrong one:
 	// a pooled configuration names no single account.
-	served := config.AccountEndpoint{Alias: "two", Directory: filepath.Join(testStateRoot, "accounts", "two")}
+	served := config.AccountEndpoint{Alias: "two", Directory: filepath.Join(pipeline.StateRoot, "accounts", "two")}
 	pipeline.Accounts = fixedAccountChooser{endpoint: served}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
@@ -108,7 +111,7 @@ func TestTheHomeAnInvocationRunsInIsResolvedFromTheRecordedAlias(t *testing.T) {
 	// The chooser named no directory at all, and every invocation still ran in the
 	// home that alias authenticates in — which is the whole of what "resolved from
 	// the alias" means.
-	want := filepath.Join(testStateRoot, "accounts", "one")
+	want := filepath.Join(pipeline.StateRoot, "accounts", "one")
 	if len(provider.Requests) == 0 {
 		t.Fatal("the run made no provider invocation")
 	}
@@ -157,7 +160,6 @@ func TestAnUnpooledRunNamesItsAccountAndImposesNoProviderHome(t *testing.T) {
 	}, approveVerdict)
 	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
 	pipeline.Config.Accounts = map[string]config.Account{"work": {}}
-	pipeline.StateRoot = testStateRoot
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
@@ -316,7 +318,6 @@ func (p rotatingPool) ChooseAccount() (config.AccountEndpoint, error) {
 // which account a run spent.
 func pooled(pipeline Pipeline) Pipeline {
 	pipeline.Config.Accounts = map[string]config.Account{"one": {}, "two": {}}
-	pipeline.StateRoot = testStateRoot
 	return pipeline
 }
 

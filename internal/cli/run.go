@@ -995,6 +995,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		IntentWorktrees: reconcileIntentWorktreesOf(parts),
 		Store:           parts.store,
 		Repository:      parts.repository,
+		StateRoot:       parts.stateRoot,
 		ConfigFiles:     parts.worktrees,
 		ConfigReaders:   landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
 		Publisher:       forge,

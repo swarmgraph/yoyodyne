@@ -36,53 +36,41 @@ import (
 // they are never handed the same directory, which is a fact about the path
 // rather than about whether a run followed a convention.
 //
-// Where it goes is decided by the same two constraints as the build cache beside
-// it. It is outside the working tree, so nothing written there can enter the
-// change or leave the tree dirty; and it is inside the Git directory, where the
-// provider can admit it explicitly. Codex grants this run's directory rather
-// than all of Git's state, beside the worktree and temporary directory. The
-// harness's own state tree is none of those: a directory cut there is one the
-// run is refused at its first write, which is why this is not where a reader
-// might expect the harness to keep it.
+// Where it goes is the harness's state directory, at scratch/<run id>/: outside
+// the working tree, so nothing written there can enter the change or leave the
+// tree dirty, and outside the repository and its Git directory altogether.
+// docs/decisions/developer-run-scratch-outside-git.md is the ruling. A scratch
+// folder used to be cut inside the Git directory, which every worktree of the
+// repository shares, and a link a run left there made a declared git server,
+// which checks the whole of that directory before it answers, refuse every
+// call on the repository until somebody removed it. Under the state directory
+// nothing a run leaves is anywhere that check reads.
 //
-// The worktree's own administrative directory rather than the repository's is
-// the other half. Git creates it for that worktree and removes it with that
-// worktree, so a run's scratch goes when its worktree goes and nothing has to
-// remember to delete it.
+// The state directory holds the run records and every other store the harness
+// keeps, so the provider's sandbox is given this one folder and none of the
+// rest of it (scratch/<run id>/ is the whole grant; see ConfirmScratchDirectory
+// and the provider adapters that call it).
 const scratchDirectoryName = "scratch"
 
 // PrepareScratchDirectory creates the directory the run named by runID may write
-// while it works in workingDirectory, and reports where it is. It is the only
-// answer to where a run's scratch lives: making the directory and naming it are
-// one step, so nothing reads a path that disagrees with what was made.
+// while it works, under the harness's state directory stateRoot, and reports
+// where it is, with its links resolved. It is the only answer to where a run's
+// scratch lives: making the directory and naming it are one step, so nothing
+// reads a path that disagrees with what was made.
 //
-// The run id is the last element even though the directory above it already
-// belongs to one worktree. It costs nothing, it says which run a directory
-// belongs to wherever somebody finds it, and it is what makes two runs' scratch
-// distinct even where they were somehow given one Git directory to share.
+// It creates, where the build cache only names a path and lets the Go command
+// make it, because an agent handed a directory in its contract has to find one
+// there -- a contract naming a path that does not exist is a contract inviting
+// the run to go and pick somewhere else.
 //
-// It creates, where the build cache beside it only names a path and lets the Go
-// command make it. The difference is who is told: a tool asked for a cache makes
-// its own, and an agent handed a directory in its contract has to find one there
-// -- a contract naming a path that does not exist is a contract inviting the run
-// to go and pick somewhere else.
-//
-// The write goes through the confinement primitive with a root it declares,
-// because every harness-owned write does and this one has the hazard that rule
-// was written for. Where the directory goes is worked out from the `.git`
-// pointer inside the run's own worktree, which is a file the run being handed
-// the directory can write: a replaced pointer or a symlink planted along the way
-// is a path chosen by the thing the harness is cutting the directory for.
-//
-// So neither end of it is taken on trust. The declared root is the repository's
-// own Git directory, derived from the repository root the harness was configured
-// with rather than from anything inside a worktree, and the worktree's
-// administrative directory is named as a path relative to that root -- so a
-// pointer aimed anywhere else is a relative path that climbs out of the root and
-// is refused before anything is created, and every existing component below the
-// root is resolved against the filesystem on the way down.
-func PrepareScratchDirectory(repositoryRoot, workingDirectory, runID string) (string, error) {
-	root, relative, err := scratchLocation(repositoryRoot, workingDirectory, runID)
+// The write goes through the confinement primitive with the state directory as
+// its declared root, as every harness-owned write does: a `scratch` that is a
+// link out of the state directory is refused before anything is created.
+// Preparing the same run again is the same directory with what the run wrote
+// still in it, because a run resumed by a second process is handed the
+// directory the first one was.
+func PrepareScratchDirectory(stateRoot, runID string) (string, error) {
+	root, relative, err := scratchUnder(stateRoot, runID)
 	if err != nil {
 		return "", err
 	}
@@ -90,54 +78,179 @@ func PrepareScratchDirectory(repositoryRoot, workingDirectory, runID string) (st
 	if err != nil {
 		return "", fmt.Errorf("create the scratch directory for run %s: %w", runID, err)
 	}
+	if want := filepath.Join(root.Path(), filepath.FromSlash(relative)); created != want {
+		return "", fmt.Errorf("the scratch directory for run %s is redirected by a symlink to %s", runID, created)
+	}
 	return created, nil
 }
 
-// PrepareDeveloperDirectories names only the shared build cache and this run's
-// scratch directory. Resolving them through the same root as scratch creation
-// refuses a worktree pointer or symlink that would grant access outside the
-// repository's Git directory. Both directories are created through the confined
-// writer so native sandbox policies can admit them on the first run of a repository.
-func PrepareDeveloperDirectories(repositoryRoot, workingDirectory, runID string) ([]string, error) {
-	if _, found := repositoryGitDirectory(repositoryRoot); !found {
-		return nil, nil
-	}
-	root, relative, err := scratchLocation(repositoryRoot, workingDirectory, runID)
+// RemoveScratchDirectory removes the scratch directory of the run named by
+// runID, and everything in it, from under stateRoot. A directory already gone
+// is a removal already made.
+//
+// It removes through held directories and never follows a link: a link the run
+// left inside its folder is removed as a link and what it points at is left
+// alone, and a `scratch` directory, or the run's own folder, that has been
+// replaced by a link is removed as that link or refused, never followed out of
+// the state directory.
+func RemoveScratchDirectory(stateRoot, runID string) error {
+	root, _, err := scratchUnder(stateRoot, runID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	cache, err := root.Resolve(path.Join(harnessGitSubdirectory, "go-build"))
+	id, _ := scratchRunID(runID)
+	state, err := repowrite.OpenPinnedRoot(root.Path())
 	if err != nil {
-		return nil, fmt.Errorf("confine the build cache for run %s: %w", runID, err)
+		return fmt.Errorf("open the state directory to remove run %s's scratch: %w", runID, err)
 	}
-	scratch, err := root.Resolve(relative)
+	defer state.Close()
+	scratch, err := state.OpenDirectory(scratchDirectoryName)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("confine the scratch directory for run %s: %w", runID, err)
+		return fmt.Errorf("open the scratch folders to remove run %s's: %w", runID, err)
 	}
-	// A link to another directory inside .git is still a wider grant than the
-	// declared cache or scratch. In particular, a cache linked to .git itself
-	// must not make all Git state writable.
-	if cache != filepath.Join(root.Path(), harnessGitSubdirectory, "go-build") || scratch != filepath.Join(root.Path(), filepath.FromSlash(relative)) {
-		return nil, fmt.Errorf("developer cache or scratch directory for run %s is redirected by a symlink", runID)
+	defer scratch.Close()
+	if err := scratch.RemoveAll(id); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove the scratch directory of run %s: %w", runID, err)
 	}
-	cache, err = prepareDirectory(root, path.Join(harnessGitSubdirectory, "go-build"))
-	if err != nil {
-		return nil, fmt.Errorf("prepare the build cache for run %s: %w", runID, err)
-	}
-	scratch, err = prepareDirectory(root, relative)
-	if err != nil {
-		return nil, fmt.Errorf("prepare the scratch directory for run %s: %w", runID, err)
-	}
-	if cache != filepath.Join(root.Path(), harnessGitSubdirectory, "go-build") || scratch != filepath.Join(root.Path(), filepath.FromSlash(relative)) {
-		return nil, fmt.Errorf("developer cache or scratch directory for run %s is redirected by a symlink", runID)
-	}
-	return []string{cache, scratch}, nil
+	return nil
 }
 
-// ClearOutwardScratchLinks removes from the scratch directory of the run named
-// by runID every symbolic link that leads outside the repository's Git
+// ConfirmScratchDirectory checks that directory is a scratch directory
+// PrepareScratchDirectory cut for the run named by runID, before a provider's
+// sandbox is given write access to it: an absolute path with no link anywhere
+// along it, ending in scratch/<run id>, that is a directory and not a link, and
+// that is neither inside the repository nor inside the repository's Git
+// directory. A provider adapter is handed the path on the request rather than
+// the state directory, so this is how it knows the grant it is about to make is
+// the one folder and not a wider one.
+func ConfirmScratchDirectory(directory, runID, repositoryRoot string) error {
+	id, named := scratchRunID(runID)
+	if !named {
+		return fmt.Errorf("run id %q is not a name a scratch directory can be cut for", runID)
+	}
+	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+		return fmt.Errorf("the scratch directory %q for run %s is not an absolute, clean path", directory, runID)
+	}
+	if filepath.Base(directory) != id || filepath.Base(filepath.Dir(directory)) != scratchDirectoryName {
+		return fmt.Errorf("the scratch directory %q is not scratch/%s under the state directory", directory, id)
+	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return fmt.Errorf("inspect the scratch directory for run %s: %w", runID, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("the scratch directory %q for run %s is not a directory", directory, runID)
+	}
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return fmt.Errorf("resolve the scratch directory for run %s: %w", runID, err)
+	}
+	if resolved != directory {
+		return fmt.Errorf("the scratch directory %q for run %s is reached through a symlink to %q", directory, runID, resolved)
+	}
+	for _, outside := range []string{repositoryRoot, gitDirectoryOf(repositoryRoot)} {
+		if strings.TrimSpace(outside) == "" {
+			continue
+		}
+		boundary, err := filepath.EvalSymlinks(outside)
+		if err != nil {
+			continue
+		}
+		if relative, err := filepath.Rel(boundary, resolved); err == nil && relative != ".." && !strings.HasPrefix(filepath.ToSlash(relative), "../") {
+			return fmt.Errorf("the scratch directory %q for run %s is inside the repository at %q", directory, runID, boundary)
+		}
+	}
+	return nil
+}
+
+func gitDirectoryOf(repositoryRoot string) string {
+	directory, _ := repositoryGitDirectory(repositoryRoot)
+	return directory
+}
+
+// scratchUnder is the state directory as a confinement root and the run's
+// scratch folder as a path relative to it.
+func scratchUnder(stateRoot, runID string) (repowrite.Root, string, error) {
+	id, named := scratchRunID(runID)
+	if !named {
+		return repowrite.Root{}, "", fmt.Errorf("run id %q is not a name a scratch directory can be cut for", runID)
+	}
+	if strings.TrimSpace(stateRoot) == "" {
+		return repowrite.Root{}, "", fmt.Errorf("no state directory was given to cut run %s a scratch directory in", runID)
+	}
+	root, err := repowrite.NewRoot(stateRoot)
+	if err != nil {
+		return repowrite.Root{}, "", fmt.Errorf("confine the scratch directory for run %s to the state directory: %w", runID, err)
+	}
+	return root, path.Join(scratchDirectoryName, id), nil
+}
+
+// PrepareDeveloperDirectories names the shared build cache, inside the
+// repository's Git directory, and, where scratch is not empty, the run's own
+// scratch directory, as the folders beside its worktree a developer's sandbox
+// may write. Resolving the cache through the repository's Git directory refuses
+// a worktree pointer or symlink that would grant access outside it, and the
+// scratch directory is confirmed to be the one folder cut for this run
+// (ConfirmScratchDirectory). The cache is created through the confined writer so
+// native sandbox policies can admit it on the first run of a repository.
+func PrepareDeveloperDirectories(repositoryRoot, workingDirectory, runID, scratch string) ([]string, error) {
+	var directories []string
+	if _, found := repositoryGitDirectory(repositoryRoot); found {
+		cache, err := prepareBuildCache(repositoryRoot, workingDirectory, runID)
+		if err != nil {
+			return nil, err
+		}
+		directories = append(directories, cache)
+	}
+	if scratch != "" {
+		if err := ConfirmScratchDirectory(scratch, runID, repositoryRoot); err != nil {
+			return nil, err
+		}
+		directories = append(directories, scratch)
+	}
+	return directories, nil
+}
+
+func prepareBuildCache(repositoryRoot, workingDirectory, runID string) (string, error) {
+	if _, named := scratchRunID(runID); !named {
+		return "", fmt.Errorf("run id %q is not a name a developer directory can be granted for", runID)
+	}
+	root, _, err := worktreeLocation(repositoryRoot, workingDirectory, runID)
+	if err != nil {
+		return "", err
+	}
+	relative := path.Join(harnessGitSubdirectory, "go-build")
+	want := filepath.Join(root.Path(), harnessGitSubdirectory, "go-build")
+	// A link to another directory inside .git is still a wider grant than the
+	// declared cache. In particular, a cache linked to .git itself must not make
+	// all Git state writable.
+	cache, err := root.Resolve(relative)
+	if err != nil {
+		return "", fmt.Errorf("confine the build cache for run %s: %w", runID, err)
+	}
+	if cache != want {
+		return "", fmt.Errorf("the build cache for run %s is redirected by a symlink", runID)
+	}
+	cache, err = prepareDirectory(root, relative)
+	if err != nil {
+		return "", fmt.Errorf("prepare the build cache for run %s: %w", runID, err)
+	}
+	if cache != want {
+		return "", fmt.Errorf("the build cache for run %s is redirected by a symlink", runID)
+	}
+	return cache, nil
+}
+
+// ClearOutwardScratchLinks removes from the scratch directory the run named by
+// runID was given inside the repository's Git directory, before scratch moved to
+// the state directory, every symbolic link that leads outside the Git
 // directory, and returns the paths it removed. A scratch directory that was
-// never made has nothing to clear.
+// never made there, which is every run's since the move, has nothing to clear.
+// It goes with the maintenance pass that clears what earlier runs left under
+// `.git` (docs/decisions/developer-run-scratch-outside-git.md, Consequences).
 //
 // The scratch directory sits inside the Git directory, and a tool confined to
 // the repository can refuse it whole for one link that leads out. The git MCP
@@ -154,7 +267,7 @@ func PrepareDeveloperDirectories(repositoryRoot, workingDirectory, runID string)
 // is still a link, so nothing outside the scratch directory and nothing that
 // is not a link is ever removed.
 func ClearOutwardScratchLinks(repositoryRoot, workingDirectory, runID string) ([]string, error) {
-	root, relative, err := scratchLocation(repositoryRoot, workingDirectory, runID)
+	root, relative, err := worktreeLocation(repositoryRoot, workingDirectory, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +371,13 @@ func prepareDirectory(root repowrite.Root, relative string) (string, error) {
 	return root.Resolve(relative)
 }
 
-func scratchLocation(repositoryRoot, workingDirectory, runID string) (repowrite.Root, string, error) {
+// worktreeLocation is the repository's Git directory as a confinement root and,
+// relative to it, where the worktree's scratch directory was cut before scratch
+// moved to the state directory. Where the worktree's administrative directory
+// is is worked out from the `.git` pointer inside the worktree, which the run
+// can write, so a pointer aimed outside the repository's Git directory is
+// refused here rather than followed.
+func worktreeLocation(repositoryRoot, workingDirectory, runID string) (repowrite.Root, string, error) {
 	id, named := scratchRunID(runID)
 	if !named {
 		return repowrite.Root{}, "", fmt.Errorf("run id %q is not a name a scratch directory can be cut for", runID)

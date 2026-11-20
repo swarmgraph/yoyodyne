@@ -449,15 +449,21 @@ untracked content in anybody's checkout, and every
 worktree of one repository shares it — so a run's own execution probe and the
 checks the harness then applies to its change compile against one cache rather
 than two. `internal/execution/gocache.go` names that path without creating it.
-For Codex developers, the adapter creates and explicitly admits only that cache
-and the assigned scratch directory through the confined filesystem writer,
-on initial launch and native resume. It sets `GOCACHE` to the resolved path it
+For Codex developers, the adapter creates and explicitly admits only that cache,
+through the confined filesystem writer, and the run's own scratch folder,
+`scratch/<run id>/` in the harness's state directory, which the harness cut
+before the run started, on initial launch and native resume. It sets `GOCACHE` to the resolved path it
 admits; it grants no write to the rest of `.git`. See
 [the environment a check runs in](configuration/runs.md#the-environment-a-check-runs-in)
 for the native sandbox regression and its execution requirements.
 
-For Claude Code developers nothing in the harness grants the write to that
-cache: the CLI's own sandbox admits the repository's Git directory, and yoyo
+For Claude Code developers the harness grants one write path, the run's own
+scratch folder in the state directory, as the sandbox's
+`filesystem.allowWrite`; a developer with it is probed against the installed CLI
+by `TestLocalConformanceADeveloperWritesOnlyItsOwnScratchInTheStateDirectory`,
+which also fails if another run's folder, a run record's folder, or the state
+directory itself is writable. Nothing in the harness grants the write to the
+build cache: the CLI's own sandbox admits the repository's Git directory, and yoyo
 depends on it without controlling it. It depends on a second thing the same way — that a
 developer run can read absolute paths outside its worktree, the primary
 checkout's tracker export among them. A Claude Code release that took either
