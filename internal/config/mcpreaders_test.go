@@ -41,6 +41,10 @@ import (
 // internal/config/intake.go reads the mcp section only to check that a
 // scheduled query names a tool declared there as read.
 //
+// internal/cli/intakequeries.go builds the call path an intake query's calls
+// go through, with the same credential stores as internal/cli/mcppath.go, and
+// only where the project declares a query; it reaches no launch or prompt.
+//
 // A later piece that hands any of this to a launch or a prompt adds its file
 // here, which is where a reviewer sees that it does.
 var mcpReaders = map[string]bool{
@@ -51,6 +55,7 @@ var mcpReaders = map[string]bool{
 	"internal/cli/cli.go":              true,
 	"internal/cli/mcp.go":              true,
 	"internal/cli/mcppath.go":          true,
+	"internal/cli/intakequeries.go":    true,
 	"internal/doctor/mcp.go":           true,
 	"internal/cli/chatmcp.go":          true,
 	"internal/chat/mcp.go":             true,

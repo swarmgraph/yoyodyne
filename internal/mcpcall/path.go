@@ -129,6 +129,9 @@ type Caller struct {
 	tools  map[string]config.MCPTool
 	limits Limits
 	spent  *spent
+	// withhold says the record keeps no result for this caller's calls: only
+	// its size, its digest, and what was cut (IntakeQueryCaller).
+	withhold bool
 }
 
 type spent struct {
@@ -217,6 +220,30 @@ func ScheduledCaller(cfg config.Config, task string, names []string) (Caller, er
 	}
 	return newCaller(CallerRecord{Kind: CallerScheduled, Task: task}, "task:"+task, tools), nil
 }
+
+// IntakeQueryCaller is the recurring task that runs one intake query
+// (docs/designs/scheduled-message-intake.md, sections 1 and 4). It is a
+// recurring task holding the one read tool the query names, and it differs from
+// every other caller in one way: the record keeps the size and digest of each
+// of its results and what was cut, and never the result. The messages in a
+// result are written to the intake record and nowhere else, so a sender who is
+// not listed has their text kept nowhere, and the intake record holds the only
+// copy of any message.
+func IntakeQueryCaller(cfg config.Config, query string) (Caller, error) {
+	declared, ok := cfg.Intake.Queries[query]
+	if !ok {
+		return Caller{}, fmt.Errorf("there is no intake query %q in the configuration to make MCP calls for", query)
+	}
+	caller, err := ScheduledCaller(cfg, IntakeQueryTask(query), []string{declared.Tool})
+	if err != nil {
+		return Caller{}, err
+	}
+	caller.withhold = true
+	return caller, nil
+}
+
+// IntakeQueryTask is the name an intake query's calls are recorded under.
+func IntakeQueryTask(query string) string { return "intake:" + query }
 
 func agentTools(cfg config.Config, agent string, role domain.AgentRole, readOnly bool) map[string]config.MCPTool {
 	tools := map[string]config.MCPTool{}
@@ -912,11 +939,18 @@ func (d *doing) settle(item *pending) {
 		}
 		record.ToolError, record.Dropped = item.result.IsError, dropped
 		record.ResultBytes, record.ResultDigest = len(scrubbed), digest([]byte(scrubbed))
-		record.Result = cutUTF8(scrubbed, maxRecordedResultBytes)
-		record.ResultCut = len(record.Result) < len(scrubbed)
-		// What reached the caller is the start of the result, so the record can
-		// say which part of it that was without keeping it twice.
-		record.ShownBytes = min(len(item.shown), len(record.Result))
+		if d.caller.withhold {
+			// The result is held in memory by the caller only until what it holds
+			// is written down where it belongs; the record says how large it was,
+			// its digest, and whether what reached the caller was cut.
+			record.ResultWithheld, record.AnswerCut = true, item.cut
+		} else {
+			record.Result = cutUTF8(scrubbed, maxRecordedResultBytes)
+			record.ResultCut = len(record.Result) < len(scrubbed)
+			// What reached the caller is the start of the result, so the record can
+			// say which part of it that was without keeping it twice.
+			record.ShownBytes = min(len(item.shown), len(record.Result))
+		}
 		answer.Result, answer.Cut = item.shown, item.cut
 		answer.ResultBytes, answer.Dropped, answer.ToolError = len(scrubbed), dropped, item.result.IsError
 	case item.err != nil:

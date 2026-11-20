@@ -392,6 +392,9 @@ type Sources struct {
 	// MCPCalls is the record of the MCP calls the harness made, counted with no
 	// content (mcpcalls.go); nil reads none.
 	MCPCalls MCPCallRecord
+	// IntakeQueries is the intake record, counted with no content
+	// (intakequeries.go); nil reads none.
+	IntakeQueries IntakeRecord
 	// MainChecks is the record of the checks run on the head of the target
 	// branch (maincheck.go); nil reads none.
 	MainChecks MainCheckRecord
@@ -1079,6 +1082,10 @@ type Standing struct {
 	// content; nil where the product has made none. See mcpcalls.go.
 	MCPCalls        *MCPCalls `json:"mcp_calls,omitempty"`
 	MCPCallsProblem string    `json:"mcp_calls_problem,omitempty"`
+	// IntakeQueries is each scheduled intake query, counted with no content;
+	// nil where the product has none. See intakequeries.go.
+	IntakeQueries        *IntakeQueries `json:"intake_queries,omitempty"`
+	IntakeQueriesProblem string         `json:"intake_queries_problem,omitempty"`
 	// MainChecks is when the target branch last passed the checks run on its
 	// head, and what the latest run came to; nil where none has run. See
 	// maincheck.go.
@@ -1398,6 +1405,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
 	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
+	standing.IntakeQueries, standing.IntakeQueriesProblem = ReadIntakeQueries(sources.IntakeQueries)
 	standing.MainChecks, standing.MainChecksProblem = ReadMainChecks(sources.MainChecks)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
