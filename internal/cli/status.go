@@ -1271,8 +1271,8 @@ func printItemTriage(writer io.Writer, counters runstate.TriageCounters, caps ru
 		// an operator who reads a cap at its limit is entitled to know the item may
 		// move without them. An override recorded anywhere else — the item's own
 		// notes included, which is where two of them went — reaches no guard.
-		fmt.Fprintf(writer, "    `yoyo triage override --budget %q --cap <n> --by \"<you>\" --reason \"<why>\" %s` crosses it to any ceiling; the development manager may also cross it far enough for one more decision, %d times per item, and each of those reaches you in the channel as it happens\n",
-			runstate.TriageReviewRoundBudget, counters.WorkItemID, runstate.MaxDelegatedCapCrossings)
+		fmt.Fprintf(writer, "    `yoyo triage override --budget %q --cap <n> --by \"<you>\" --reason \"<why>\" %s` crosses it to any ceiling; the development manager may also cross it far enough for one more decision, %d times per item, and the Lead Product Manager may grant %d more past those, and each of those reaches you in the channel as it happens\n",
+			runstate.TriageReviewRoundBudget, counters.WorkItemID, runstate.MaxDelegatedCapCrossings, runstate.MaxLeadCapGrants)
 	default:
 		fmt.Fprintf(writer, "  review rounds: %d spent across every run of this item, under the cap of %d\n",
 			counters.ReviewRounds, caps.ReviewRounds)
@@ -1317,14 +1317,21 @@ func printItemTriage(writer io.Writer, counters runstate.TriageCounters, caps ru
 	// much of the delegation it has used without counting lines.
 	for _, override := range counters.Overrides {
 		label := "operator override"
-		if override.Delegated() {
+		switch {
+		case override.Granted():
+			label = "raise granted by the Lead Product Manager"
+		case override.Delegated():
 			label = "cap crossed on delegated authority"
 		}
 		fmt.Fprintf(writer, "  %s: %s\n", label, override.Describe())
 	}
 	if crossings := counters.DelegatedCrossings(); crossings > 0 {
-		fmt.Fprintf(writer, "  %d of %d cap crossing(s) the development manager may take himself are recorded; past that the caps are yours again\n",
-			crossings, runstate.MaxDelegatedCapCrossings)
+		fmt.Fprintf(writer, "  %d of %d cap crossing(s) the development manager may take herself are recorded; past those the Lead Product Manager may grant %d more, and no role raises the item past %d in all\n",
+			crossings, runstate.MaxDelegatedCapCrossings, runstate.MaxLeadCapGrants, runstate.MaxRoleCapRaises)
+	}
+	if grants := counters.LeadGrants(); grants > 0 {
+		fmt.Fprintf(writer, "  %d of %d raise(s) the Lead Product Manager may grant past those are recorded; you are told of each afterwards, and none is asked of you\n",
+			grants, runstate.MaxLeadCapGrants)
 	}
 	fmt.Fprintln(writer, "  waiting, re-scoping, and escalating spend nothing and stay available; a re-arm spends only its own budget, whatever the rounds say")
 }

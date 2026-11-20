@@ -450,6 +450,35 @@ func (b conversationTriageBudgets) CrossCap(ctx context.Context, workItemID, bud
 	return b.store.CrossCap(ctx, workItemID, domain.RoleDevelopmentManager, budget, reason, b.clock.Now(), b.caps)
 }
 
+// conversationCapGrants wires the Lead Product Manager's grant of a further raise
+// of an item's limit, for her conversation and for no other. It writes to the same
+// triage record and measures against the same configured caps the development
+// manager's crossings do, so the two roles' raises are counted together against
+// the limit of ten.
+func conversationCapGrants(parts components, role domain.AgentRole) chat.CapGrants {
+	if role != domain.RoleProductManager {
+		return nil
+	}
+	return conversationCapGrantor{
+		store: parts.store.Triage(),
+		caps:  orchestrator.TriageCaps(parts.config.Execution, parts.config.Triage),
+		clock: execution.RealClock{},
+	}
+}
+
+// conversationCapGrantor is what the Lead Product Manager's conversation
+// supplies that she does not get to assert: the configured caps, the clock, and
+// that the grant is recorded under her role.
+type conversationCapGrantor struct {
+	store *runstate.TriageStore
+	caps  runstate.TriageCaps
+	clock execution.Clock
+}
+
+func (g conversationCapGrantor) GrantCap(ctx context.Context, workItemID, budget, reason string) (runstate.TriageCrossing, error) {
+	return g.store.GrantCap(ctx, workItemID, budget, reason, g.clock.Now(), g.caps)
+}
+
 // conversationStoppages wires the durable run records a triage decision is
 // checked against, and that a decomposition's substrate gate is decided from,
 // for the role that does both and for no other. It is the same store the docket

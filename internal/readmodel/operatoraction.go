@@ -165,7 +165,7 @@ func reportFindings(reports []report.Report, handlings []report.Handling) []Oper
 			continue
 		}
 		handling, done := handled[reported.ID]
-		if done && (handling.NeedsOperator || handling.Hand.Valid()) {
+		if done && (handling.NeedsOperator || handling.Hand.Known()) {
 			action := OperatorAction{
 				Key:        operatorActionKey(reported.ID),
 				Subject:    reported.ID,
@@ -182,7 +182,7 @@ func reportFindings(reports []report.Report, handlings []report.Handling) []Oper
 			switch {
 			case !handling.NeedsOperator:
 				action.Hand, action.DecidedBy = handling.Hand, handling.Role
-			case !handling.OperatorReason.Valid() && !handling.Hand.Valid():
+			case !handling.OperatorReason.Valid() && !handling.Hand.Known():
 				// A handling recording no role is the Lead Product Manager's, who
 				// handles the pile, as the registry reads one.
 				action.Returned, action.DecidedBy = true, handling.Role
@@ -313,9 +313,12 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 			Ends:    escalationFindingEnds,
 			Since:   decision.DecidedAt,
 		}
-		if decision.Hand.Valid() {
+		if decision.Hand.Known() {
 			action.Hand, action.DecidedBy = decision.Hand, domain.RoleDevelopmentManager
 			action.FoundBy = "the development manager, handing her decision about the stopped run to the operator's hand"
+			if decision.Hand == ownership.HandCapCrossing {
+				action.FoundBy = "the development manager, asking for a raise past her own five, which the Lead Product Manager now grants"
+			}
 		}
 		actions = append(actions, action)
 	}
@@ -356,7 +359,7 @@ func escalationEnding(run runstate.State, decision runstate.TriageDecision, item
 	// An escalation handing her own decision to the operator's hand stays hers
 	// rather than going back to her: it names no reason because the decision is
 	// not his.
-	if !decision.OperatorReason.Valid() && !decision.Hand.Valid() {
+	if !decision.OperatorReason.Valid() && !decision.Hand.Known() {
 		return unreasonedEscalationEnding(run.RunID), false, MoverDevelopmentManager
 	}
 	return "", false, ""

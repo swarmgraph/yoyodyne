@@ -30,6 +30,7 @@ import (
 // cannot outlive what it declares.
 var templateOnlyPassages = map[string]map[string]string{
 	"development-manager.md": {
+		"Escalate to him with `\"to\": \"operator\"`":  "The Lead Product Manager's grant of raises past the development manager's five (yoyodyne-ifd.432.25.13) rewords this passage to send such a raise to her instead of the operator's hand, but grants no write to .yoyodyne/personas/development-manager.md. The compiled contract carries the change and the harness refuses the old escalation with the new path; remove this declaration once an authorized change carries the rewording into the bound copy.",
 		"- Check what appears to wait on the operator": "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"whose move\", but grants no write to .yoyodyne/personas/development-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
 	},
 	"product-manager.md": {

@@ -77,10 +77,10 @@ func TestTheDevelopmentManagerCrossesTheCapTheOperatorWasBeingWokenFor(t *testin
 }
 
 // Five is the delegation and the sixth is the escalation. The refusal names the
-// operator's command rather than only saying no, because an item that has been
-// crossed five times is one where something other than the budget is wrong and
-// the next reader has to be a person.
-func TestASixthCrossingOfOneItemIsRefusedAndNamesTheOperatorAsThePath(t *testing.T) {
+// Lead Product Manager rather than only saying no, because past the development
+// manager's five a raise is hers to grant, and it no longer names a command for
+// the operator to type.
+func TestASixthCrossingOfOneItemIsRefusedAndNamesTheLeadProductManager(t *testing.T) {
 	t.Parallel()
 
 	store := newTriageStore(t)
@@ -105,8 +105,8 @@ func TestASixthCrossingOfOneItemIsRefusedAndNamesTheOperatorAsThePath(t *testing
 	if !errors.As(err, &spent) || !errors.Is(err, ErrTriageCrossingsSpent) {
 		t.Fatalf("the sixth CrossCap() error = %v, want the delegated bound refusing it", err)
 	}
-	if !strings.Contains(err.Error(), "yoyo triage override") {
-		t.Fatalf("the sixth CrossCap() error does not name the operator's path:\n%s", err)
+	if !strings.Contains(err.Error(), "Lead Product Manager") || strings.Contains(err.Error(), "yoyo triage override") {
+		t.Fatalf("the sixth CrossCap() error does not name the Lead Product Manager as the one deciding, or still names the operator's command:\n%s", err)
 	}
 	if spent.Crossings != MaxDelegatedCapCrossings || spent.Bound != MaxDelegatedCapCrossings {
 		t.Fatalf("the refusal reports %d of %d, want %d of %d", spent.Crossings, spent.Bound, MaxDelegatedCapCrossings, MaxDelegatedCapCrossings)
@@ -172,6 +172,8 @@ func TestOnlyTheDevelopmentManagerCrossesACapAndOnlyByOneStep(t *testing.T) {
 	const item = "yoyodyne-ifd.279"
 	at := time.Date(2026, 9, 6, 9, 0, 0, 0, time.UTC)
 
+	// The Lead Product Manager's raises are granted through GrantCap, never through
+	// the development manager's crossing.
 	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer, domain.RoleProductManager, ""} {
 		if _, err := store.CrossCap(ctx, item, role, TriageRerunBudget, "because", at, overrideCaps); err == nil {
 			t.Fatalf("CrossCap() as %q was permitted, want only the development manager", role)
@@ -346,5 +348,101 @@ func TestACrossingOfTheRearmCapStepsFromThePublicationThatRefused(t *testing.T) 
 	}
 	if _, err := store.RecordMergeRearm(ctx, item, "publication:run-a#7", triageDecided(TriageDecisionRearm, "run-aaaa2222333344445555666677778888"), time.Now(), overrideCaps); !errors.Is(err, ErrTriageCapReached) {
 		t.Fatalf("RecordMergeRearm() a second time past the crossing error = %v, want the crossed cap refusing it", err)
+	}
+}
+
+// Past the development manager's five, the Lead Product Manager grants up to five
+// more, each the same size as one of hers, recorded as her decision with her
+// reason; the harness carries it out with nobody typing anything. Ten in all is
+// the limit no role may pass, and the refusal says so.
+func TestTheLeadProductManagerGrantsUpToFiveRaisesPastTheDevelopmentManagersFive(t *testing.T) {
+	t.Parallel()
+
+	store := newTriageStore(t)
+	ctx := context.Background()
+	const item = "yoyodyne-ifd.430.38"
+	at := time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
+
+	// Before the development manager's five are used, a raise is still hers.
+	if _, err := store.GrantCap(ctx, item, TriageReviewRoundBudget, "worth more than the work behind it", at, overrideCaps); !errors.Is(err, ErrTriageGrantEarly) {
+		t.Fatalf("GrantCap() with none of the development manager's raises used error = %v, want it refused as hers", err)
+	}
+	for crossing := 1; crossing <= MaxDelegatedCapCrossings; crossing++ {
+		if _, err := store.CrossCap(ctx, item, domain.RoleDevelopmentManager, TriageReviewRoundBudget, "narrow findings", at, overrideCaps); err != nil {
+			t.Fatalf("CrossCap() %d error = %v", crossing, err)
+		}
+	}
+
+	var last TriageCrossing
+	for grant := 1; grant <= MaxLeadCapGrants; grant++ {
+		granted, err := store.GrantCap(ctx, item, TriageReviewRoundBudget, "the item is worth more than the work waiting behind it", at, overrideCaps)
+		if err != nil {
+			t.Fatalf("GrantCap() %d error = %v", grant, err)
+		}
+		if granted.Number != grant || granted.Bound != MaxLeadCapGrants {
+			t.Fatalf("GrantCap() %d reported grant %d of %d", grant, granted.Number, granted.Bound)
+		}
+		// The same size as one of the development manager's: one past what stands.
+		if last.Cap != 0 && granted.Cap != last.Cap+1 {
+			t.Fatalf("GrantCap() %d raised the cap to %d, want one step past %d", grant, granted.Cap, last.Cap)
+		}
+		last = granted
+	}
+	recorded, _ := last.Counters.OverrideOf(TriageReviewRoundBudget)
+	if recorded.CrossedBy != domain.RoleProductManager || !recorded.Granted() || recorded.Reason == "" {
+		t.Fatalf("the last grant is recorded as %+v, want the Lead Product Manager's decision with her reason", recorded)
+	}
+	if described := recorded.Describe(); !strings.Contains(described, "granted by the Lead Product Manager") {
+		t.Fatalf("the grant describes itself as %q", described)
+	}
+	if last.Counters.RoleRaises() != MaxRoleCapRaises || last.Counters.LeadGrants() != MaxLeadCapGrants || last.Counters.DelegatedCrossings() != MaxDelegatedCapCrossings {
+		t.Fatalf("after ten raises the counts are %d in all, %d granted, %d crossed",
+			last.Counters.RoleRaises(), last.Counters.LeadGrants(), last.Counters.DelegatedCrossings())
+	}
+
+	// The eleventh is refused whichever role asks, and the refusal says ten is the
+	// limit no role may pass.
+	for name, raise := range map[string]func() error{
+		"GrantCap": func() error {
+			_, err := store.GrantCap(ctx, item, TriageReviewRoundBudget, "one more", at, overrideCaps)
+			return err
+		},
+		"CrossCap": func() error {
+			_, err := store.CrossCap(ctx, item, domain.RoleDevelopmentManager, TriageReviewRoundBudget, "one more", at, overrideCaps)
+			return err
+		},
+	} {
+		err := raise()
+		if !errors.Is(err, ErrTriageRaiseLimit) || !strings.Contains(err.Error(), "ten is the limit no role may pass") {
+			t.Fatalf("an eleventh raise through %s error = %v, want the limit of ten refusing it", name, err)
+		}
+	}
+	counters, err := store.Counters(item)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+	if counters.RoleRaises() != MaxRoleCapRaises {
+		t.Fatalf("a refused raise left %d raises recorded, want %d", counters.RoleRaises(), MaxRoleCapRaises)
+	}
+
+	// A grant carrying no reason is refused like a crossing carrying none.
+	if _, err := newTriageStore(t).GrantCap(ctx, item, TriageReviewRoundBudget, " ", at, overrideCaps); !errors.Is(err, ErrTriageCrossingUnjustified) {
+		t.Fatalf("GrantCap() with no reason error = %v, want it refused", err)
+	}
+
+	// A record hand-edited past her five is refused as it is read.
+	grants := make([]TriageOverride, 0, MaxLeadCapGrants+1)
+	for step := 1; step <= MaxLeadCapGrants+1; step++ {
+		grants = append(grants, TriageOverride{
+			Budget:    TriageReviewRoundBudget,
+			Cap:       overrideCaps.ReviewRounds + step,
+			DecidedBy: domain.RoleProductManager.Title(),
+			DecidedAt: at,
+			Reason:    "because",
+			CrossedBy: domain.RoleProductManager,
+		})
+	}
+	if problems := errors.Join(validateTriageOverrides(grants)...); problems == nil || !strings.Contains(problems.Error(), "granted by the Lead Product Manager") {
+		t.Fatalf("validateTriageOverrides() over %d grants = %v, want her bound refusing the record", len(grants), problems)
 	}
 }

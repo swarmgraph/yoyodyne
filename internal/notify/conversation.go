@@ -70,6 +70,10 @@ const (
 	// delegated on condition of hearing about it, and the hearing is the veto.
 	trackerTriage = "triage"
 	triageCross   = "cross"
+	// The Lead Product Manager's grant of a further raise past the development
+	// manager's five, reported for the reason a crossing is: the harness carries
+	// it out without asking the operator, so he is told afterwards.
+	trackerGrant = "grant"
 )
 
 // exchangeUnresolved is the outcome an ask exchange records when it reaches the
@@ -609,6 +613,16 @@ func fromTrackerAction(conversation runstate.Conversation, earlier []execution.E
 			detail.Cap = crossing.Cap
 			detail.Crossing = crossing.Crossing
 			detail.Crossings = crossing.Crossings
+		}
+	case recorded.Action.Action == trackerGrant:
+		kind = KindCapGranted
+		severity = report.SeverityWarning
+		detail.Budget = strings.TrimSpace(recorded.Action.Budget)
+		if granted := recorded.Crossing; granted != nil {
+			detail.Budget = strings.TrimSpace(granted.Budget)
+			detail.Cap = granted.Cap
+			detail.Crossing = granted.Crossing
+			detail.Crossings = granted.Crossings
 		}
 	default:
 		return Notification{}, nil

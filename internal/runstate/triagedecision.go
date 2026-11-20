@@ -246,7 +246,7 @@ func (d TriageDecision) Validate() error {
 	case d.OperatorReason != "" && d.Hand != "":
 		problems = append(problems, errors.New("an escalation gives the operator a reason of his own or hands him her decision, and this one does both"))
 	case d.Hand != "":
-		if err := d.Hand.Check(); err != nil {
+		if err := d.Hand.CheckStored(); err != nil {
 			problems = append(problems, err)
 		}
 	case d.EscalatedTo != "" && !slices.Contains(ownership.EscalatesTo(domain.RoleDevelopmentManager), d.EscalatedTo):

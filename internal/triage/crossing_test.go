@@ -61,7 +61,7 @@ func TestARenderedEntrySaysWhereTheDelegatedCrossingsStand(t *testing.T) {
 	for _, want := range []string{
 		"A further cap crossing for yoyodyne-task is not yours",
 		"5 of 5 crossing(s) on your own authority are recorded",
-		"past the bound a crossing is not a development manager's to record. Escalate to the Lead Product Manager",
+		"past the bound a raise is the Lead Product Manager's to grant, up to five more and never past ten in all. Escalate to her",
 		"and say which cap and why.",
 	} {
 		if !strings.Contains(rendered, want) {

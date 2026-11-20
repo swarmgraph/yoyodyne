@@ -37,9 +37,9 @@ package chat
 // role's now. It is narrow on purpose: far enough for the one decision that was
 // refused, five times per item, and only with the argument for it, which lands on
 // the item and reaches the operator in the channel as the crossing happens. That
-// is a veto by reading rather than a permission to ask for. Past the five, and
-// for any ceiling beyond the one that permits the decision, the caps are the
-// operator's again and the refusal says so.
+// is a veto by reading rather than a permission to ask for. Past the five, a
+// raise is the Lead Product Manager's to grant, up to five more and never past
+// ten in all (capgrant.go), and the refusal says so.
 //
 // Escalation is the one decision that asks the operator for something, and it is
 // deliberately more than prose: a durable blocker on the item, so the item
@@ -1368,8 +1368,8 @@ func (s *Session) refuseTransposedStoppage(ctx context.Context, workItemID, runI
 // costs nobody a wait: every override recorded in the week to 2026-09-06 was
 // granted, most within minutes, and the operator step was latency rather than
 // judgement. So what the refusal offers is the crossing verb, bounded and
-// justified; the operator's command is what it offers after that, for the item
-// that has already had its five and for the raise nobody delegated.
+// justified; past the item's five it offers the escalation to the Lead Product
+// Manager, whose grant the harness carries out with nobody typing anything.
 //
 // It names commands rather than remedies, and that is the whole of what this text
 // got wrong twice. "The operator can record an override against the item" was
@@ -1383,8 +1383,9 @@ func refusedPastCap(err error) error {
 	if !errors.Is(err, runstate.ErrTriageCapReached) {
 		return err
 	}
-	return fmt.Errorf("%w. Nothing written into the item's notes crosses that cap — no guard reads prose. What crosses it from here is %s, up to %d times per item and only with the reason it is being crossed for, which is recorded on the item and reported to the operator as you record it; once the crossing is recorded, asking for this same decision again records it. Past those %d, or for a ceiling beyond the one that permits it, the crossing is still your decision and only the operator's keyboard can record it: escalate with \"to\": \"operator\" and \"hand\": \"cap-crossing\", and he types %s",
-		err, crossingDecisions(err), runstate.MaxDelegatedCapCrossings, runstate.MaxDelegatedCapCrossings, overrideCommands(err))
+	return fmt.Errorf("%w. Nothing written into the item's notes crosses that cap — no guard reads prose. What crosses it from here is %s, up to %d times per item and only with the reason it is being crossed for, which is recorded on the item and reported to the operator as you record it; once the crossing is recorded, asking for this same decision again records it. Past those %d, a raise is the %s's to grant, up to %d more for the item: escalate to her with \"to\": %q, naming the cap and why, and once she has granted it, asking for this same decision again records it. Ten raises in all is the limit no role may pass",
+		err, crossingDecisions(err), runstate.MaxDelegatedCapCrossings, runstate.MaxDelegatedCapCrossings,
+		domain.RoleProductManager.Title(), runstate.MaxLeadCapGrants, string(domain.RoleProductManager))
 }
 
 // crossingDecisions are the crossings that would clear one refusal, written as
@@ -1414,43 +1415,6 @@ func crossingDecisions(err error) string {
 		return crossings[0]
 	}
 	return strings.Join(crossings[:len(crossings)-1], ", ") + " and " + crossings[len(crossings)-1] + " — both are needed, since either budget alone still refuses it"
-}
-
-// overrideCommands are the commands that cross the caps one refusal came from,
-// with the budget, the work item, and the ceiling already filled in, so what
-// reaches the operator is something to run rather than something to reconstruct.
-//
-// One per budget that refused, because an action can stand behind two of them and
-// crossing one leaves the same decision refused by the other. Both in one message
-// is one sitting rather than two: the alternative is what actually happened on
-// 2026-09-05, when two items each took two override ceremonies minutes apart
-// because the first refusal named only the first budget.
-//
-// The ceiling is filled in rather than left as a placeholder for the same reason
-// the budget is. An operator handed `--cap <n>` has to go and find what the item
-// has spent before they can type a number, and the refusal beside this sentence
-// is the only place that figure appears.
-//
-// A refusal carrying no budget to name falls back to the shape of the command
-// rather than to a description of it. Nothing produces one today — every cap
-// refusal here is a TriageCapError — but a refusal that lost the detail must
-// still leave the operator holding a verb.
-func overrideCommands(err error) string {
-	var capped runstate.TriageCapError
-	if !errors.As(err, &capped) || len(capped.Refusals) == 0 {
-		return "`yoyo triage override --budget \"<budget>\" --cap <n> --by \"<operator>\" --reason \"<why>\" <work item>`"
-	}
-	commands := make([]string, 0, len(capped.Refusals))
-	for _, refusal := range capped.Refusals {
-		commands = append(commands, fmt.Sprintf("`yoyo triage override --budget %q --cap %d --by \"<operator>\" --reason \"<why>\" %s`",
-			refusal.Budget, refusal.Permits(), capped.WorkItemID))
-	}
-	if len(commands) == 1 {
-		return commands[0]
-	}
-	// Both are required rather than either, and the sentence says so: a decision
-	// two budgets refuse is permitted by neither override alone.
-	return strings.Join(commands[:len(commands)-1], ", ") + " and " + commands[len(commands)-1] + " — both are needed, since either budget alone still refuses it"
 }
 
 // triageSpend is what a decision cost the item's durable budget, said twice: as

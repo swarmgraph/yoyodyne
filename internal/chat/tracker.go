@@ -60,6 +60,14 @@ const (
 // does not have.
 const maxDelegatedCapCrossingsText = "five"
 
+// maxLeadCapGrantsText is runstate.MaxLeadCapGrants as the Lead Product
+// Manager's contract spells it, and grantBudgetsText the caps a grant may name,
+// held to the store's list by a test for the reason the bound above is.
+const (
+	maxLeadCapGrantsText = "five"
+	grantBudgetsText     = `"review round", "repair grant", "re-run", or "merge re-arm"`
+)
+
 // MaxTrackerBlockBytes bounds the untrusted action payload one turn may carry.
 const MaxTrackerBlockBytes = 32 << 10
 
@@ -253,6 +261,11 @@ const (
 	// queue stopped at its head held its own fix behind the stop, and only a
 	// person merging by hand let it out. See queuehead.go.
 	actionQueue = "queue"
+	// actionGrant is the Lead Product Manager's grant of a further raise of one
+	// item's limit, once the development manager's own five are used: up to five
+	// more for the item, never past ten in all. It names the item and the cap, and
+	// the harness carries it out as it is recorded. See capgrant.go.
+	actionGrant = "grant"
 	// handleNeedsOperator is the one value "needs" takes on a handling: the
 	// report asks for a change only the operator can make, and the handling is
 	// a finding for him rather than a decision that closes the report.
@@ -289,6 +302,7 @@ var trackerActionArguments = map[string][]string{
 	actionDirective:    {"directive", "decision", "became"},
 	actionAmendment:    {"amendment", "decision"},
 	actionQueue:        {"entry", "decision"},
+	actionGrant:        {"budget"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -354,6 +368,11 @@ var trackerCapabilities = map[string]capability.Capability{
 	// Releasing a stopped queue entry is deciding what becomes of work that
 	// stopped moving, which is triage's authority and its holder's alone.
 	actionQueue: capability.WorkTriage,
+	// Granting an item another raise past the development manager's own is a
+	// judgment of the item's worth against the other work waiting, which is what
+	// admitting and retiring work are, and it is the Lead Product Manager's alone,
+	// so it has no lane-scoped name.
+	actionGrant: capability.BacklogAdmit,
 }
 
 // laneCapabilities is the lane-scoped name of each operation that has one: the
@@ -385,7 +404,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
-	actionDirective, actionAmendment, actionQueue,
+	actionDirective, actionAmendment, actionQueue, actionGrant,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -1318,6 +1337,8 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, a.repairProblems()...)
 	case actionTriage:
 		problems = append(problems, a.triageProblems()...)
+	case actionGrant:
+		problems = append(problems, a.grantProblems()...)
 	case actionInFlight:
 		problems = append(problems, a.inFlightProblems()...)
 	case actionHandle:
@@ -1963,6 +1984,8 @@ func refuseWhenClosed(action, id, status string) string {
 		return fmt.Sprintf("%s is closed, so what becomes of the work that stopped is no longer a decision; nothing was recorded, and a note about it is what \"update\" is for", id)
 	case actionInFlight:
 		return fmt.Sprintf("%s is closed and has left the backlog, so there is no work in flight on it to decide about; nothing was recorded", id)
+	case actionGrant:
+		return fmt.Sprintf("%s is closed and has left the backlog, so another raise of its limit would buy nothing; nothing was recorded", id)
 	default:
 		return ""
 	}
@@ -2416,6 +2439,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.decideBrake(outcome)
 	case actionQueue:
 		s.releaseQueueHead(ctx, outcome)
+	case actionGrant:
+		s.carryOutCapGrant(ctx, outcome)
 	case actionWithdraw:
 		s.withdrawProposal(outcome)
 	case actionDirective:

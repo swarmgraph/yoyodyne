@@ -565,6 +565,13 @@ func operatorActionRule(r Record) (Answer, bool) {
 	if r.Reason.Valid() {
 		return operator(r.Reason, "do what the finding asks", "the step the finding names")
 	}
+	// A raise of an item's cap past the development manager's five was once a
+	// hand on the operator's keyboard. It is the Lead Product Manager's to grant
+	// now, and the harness carries her grant out, so a record written before
+	// names her as the one deciding and carries nothing for him to type.
+	if r.Hand == HandCapCrossing && (r.FromEscalation || r.FromReport) {
+		return owned(MoverProductManager, "decide whether to grant the item another raise of its limit, up to five past the development manager's and never past ten", "grant action")
+	}
 	// A finding recorded as a role's decision needing the operator's hand stays
 	// with the role that decided it: the development manager for her escalation,
 	// and the role that handled the report, or the Lead Product Manager where the

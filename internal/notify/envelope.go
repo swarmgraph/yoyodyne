@@ -75,6 +75,11 @@ const (
 	// argument for it. A crossing nobody was told about is the delegation without
 	// the condition it was granted under.
 	KindCapCrossed Kind = "cap.crossed"
+	// KindCapGranted is the Lead Product Manager's grant of a further raise of an
+	// item's limit past the development manager's own five. The harness carries
+	// it out as she records it, so the operator is told afterwards, with the cap,
+	// which of her five grants it was, and her reason.
+	KindCapGranted Kind = "cap.granted"
 	// KindRunStarted carries the recorded selection reason with it, so the fact
 	// the selected-work-passes-intake-and-records-why invariant makes durable is
 	// the fact an operator actually reads.
@@ -448,6 +453,7 @@ func Kinds() []Kind {
 		KindWorkPickedUp,
 		KindWorkCarriedOut,
 		KindCapCrossed,
+		KindCapGranted,
 		KindRunStarted,
 		KindChecksPassed,
 		KindChecksFailed,
@@ -520,7 +526,7 @@ func (k Kind) Valid() bool {
 	switch k {
 	case KindItemAdmitted, KindItemDecomposed, KindItemAttributed, KindItemReprioritized,
 		KindTrackerBlockRefused, KindTrackerRefusalUnresolved, KindWorkApproved, KindWorkDeclined,
-		KindWorkHandedOff, KindWorkPickedUp, KindWorkCarriedOut, KindCapCrossed,
+		KindWorkHandedOff, KindWorkPickedUp, KindWorkCarriedOut, KindCapCrossed, KindCapGranted,
 		KindRunStarted, KindChecksPassed, KindChecksFailed, KindPathRefused,
 		KindReviewApproved, KindReviewRepairs,
 		KindRaceLost, KindPromoted, KindPublished, KindMergeQueued, KindMergeCompleted, KindMergeDropped, KindMergeWaitingOnTarget,
@@ -1102,7 +1108,7 @@ type Detail struct {
 	Refused int    `json:"refused,omitempty"`
 	Asking  string `json:"asking,omitempty"`
 	// Budget, Cap, Crossing, and Crossings are the delegated cap crossing, read by
-	// KindCapCrossed: which cap was crossed, the ceiling now in force for it, which
+	// KindCapCrossed, and the Lead Product Manager's grant, read by KindCapGranted: which cap was crossed, the ceiling now in force for it, which
 	// of the item's permitted crossings this was, and how many the role gets.
 	//
 	// All four are carried rather than derived, because the operator's veto rests

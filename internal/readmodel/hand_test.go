@@ -15,9 +15,8 @@ import (
 
 // handEntries is one of each record the read model derives a role's decision
 // needing the operator's hand from, beside one entry that is his to decide: a
-// report the Lead Product Manager handled as her configuration decision, the
-// development manager's escalation of a cap crossing past her own, and a design
-// the architect wrote from a conversation.
+// report the Lead Product Manager handled as her configuration decision, and a
+// design the architect wrote from a conversation.
 func handEntries(t *testing.T) (operator Attention, hands []Attention) {
 	t.Helper()
 	stopped := moment.Add(-24 * time.Hour)
@@ -31,22 +30,11 @@ func handEntries(t *testing.T) (operator Attention, hands []Attention) {
 		t.Fatalf("OperatorActions() = %#v, want the handling as the Lead Product Manager's decision needing a hand", configured)
 	}
 
-	run := heldRun("run-451a", "yoyodyne-ifd.451", stopped)
-	decisions := recordedDecisions{"yoyodyne-ifd.451": {Decisions: []runstate.TriageDecision{{
-		Decision: runstate.TriageDecisionEscalate, RunID: run.RunID, Reason: "cross the review-rounds cap to 8: the last round found the cause",
-		DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 3, DecidedAt: stopped.Add(time.Hour),
-		Hand: ownership.HandCapCrossing,
-	}}}}
-	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil)
-	if problem != "" || len(ended) != 0 || len(standing) != 1 || standing[0].Hand != ownership.HandCapCrossing {
-		t.Fatalf("Escalations() = %#v, %#v, %q, want the cap crossing standing and not sent back for giving no reason", standing, ended, problem)
-	}
-
 	design := documentApprovalAttention(DocumentApproval{
 		WriteID: "document-7.1", ConversationID: "chat-arch", Agent: "architect", Owner: domain.RoleArchitect,
 		Action: "revise", Document: "ownership-and-the-operator", Reason: "the hand field", Turn: 7, WrittenAt: stopped,
 	})
-	hands = []Attention{operatorActionAttention(configured[0]), operatorActionAttention(standing[0]), design}
+	hands = []Attention{operatorActionAttention(configured[0]), design}
 	operator = operatorHoldAttention(runstate.OperatorHold{SchemaVersion: runstate.OperatorHoldSchemaVersion, HeldAt: stopped})
 	return operator, hands
 }
@@ -57,7 +45,7 @@ func handEntries(t *testing.T) (operator Attention, hands []Attention) {
 func TestAnEntryCarryingAHandNeverRendersUnderYoursToDecide(t *testing.T) {
 	t.Parallel()
 	operator, hands := handEntries(t)
-	wantOwners := []Mover{MoverProductManager, MoverDevelopmentManager, MoverArchitect}
+	wantOwners := []Mover{MoverProductManager, MoverArchitect}
 	for i, entry := range hands {
 		if entry.Mover != wantOwners[i] || entry.Mover.IsOperator() || !entry.Ownership.NeedsHand() {
 			t.Fatalf("entry %s %s resolves to %s with %+v, want the deciding role's with a hand", entry.Kind, entry.ID, entry.Mover, entry.Ownership)
@@ -66,8 +54,8 @@ func TestAnEntryCarryingAHandNeverRendersUnderYoursToDecide(t *testing.T) {
 	rendered := Standing{NeedsHuman: append([]Attention{hands[0], operator}, hands[1:]...)}.renderNeedsHuman()
 
 	yours := strings.Index(rendered, "  "+YoursToDecide+" (1):\n")
-	hand := strings.Index(rendered, "  "+NeedsYourHand+" (3)")
-	if !strings.HasPrefix(rendered, "Needs a human (1, and 3 decisions roles made that need your hand, counted as the harness's missing capability):\n") || yours < 0 || hand < yours {
+	hand := strings.Index(rendered, "  "+NeedsYourHand+" (2)")
+	if !strings.HasPrefix(rendered, "Needs a human (1, and 2 decisions roles made that need your hand, counted as the harness's missing capability):\n") || yours < 0 || hand < yours {
 		t.Fatalf("rendered:\n%s\nwant the operator's count alone on the line, then the two heads in order", rendered)
 	}
 	underYours := rendered[yours:hand]
@@ -87,13 +75,13 @@ func TestAnEntryCarryingAHandNeverRendersUnderYoursToDecide(t *testing.T) {
 			t.Fatalf("hand %q does not name the deciding role", entry.Ownership.Hand.Says(entry.Mover))
 		}
 	}
-	for _, want := range []string{"yoyodyne-ifd.434.8", "yoyodyne-ifd.433.21", "yoyo triage override", "yoyo agent chat architect --message \"approve document-7.1\""} {
+	for _, want := range []string{"yoyodyne-ifd.434.8", "yoyodyne-ifd.433.21", "yoyo agent chat architect --message \"approve document-7.1\""} {
 		if !strings.Contains(underHand, want) {
 			t.Fatalf("rendered:\n%s\nthe hand head does not carry %q", rendered, want)
 		}
 	}
 	// Each is printed once: not again under its role's head.
-	for _, head := range []string{"Waiting on the Lead Product Manager", "Waiting on the development manager", "Waiting on the architect"} {
+	for _, head := range []string{"Waiting on the Lead Product Manager", "Waiting on the architect"} {
 		if strings.Contains(rendered, head) {
 			t.Fatalf("rendered:\n%s\nprints a hand entry again under %q", rendered, head)
 		}
@@ -108,11 +96,11 @@ func TestHandEntriesAreNotCountedAsTheOperators(t *testing.T) {
 	_, hands := handEntries(t)
 	standing := Standing{NeedsHuman: hands}
 	rendered := standing.renderNeedsHuman()
-	if !strings.HasPrefix(rendered, "Needs a human (0, and 3 decisions roles made that need your hand, counted as the harness's missing capability):\n  "+YoursToDecide+": nothing\n") {
+	if !strings.HasPrefix(rendered, "Needs a human (0, and 2 decisions roles made that need your hand, counted as the harness's missing capability):\n  "+YoursToDecide+": nothing\n") {
 		t.Fatalf("rendered:\n%s\nwant nothing of the operator's counted, and the hands counted apart", rendered)
 	}
 	brief := brief(rendered)
-	if brief != "Needs a human (0, and 3 decisions roles made that need your hand, counted as the harness's missing capability)\n" {
+	if brief != "Needs a human (0, and 2 decisions roles made that need your hand, counted as the harness's missing capability)\n" {
 		t.Fatalf("brief = %q, want the head with both counts and no entries", brief)
 	}
 	for _, entry := range hands {
@@ -175,7 +163,7 @@ func TestTheItemThatEndsTheNeedIsNamedWithItsTitle(t *testing.T) {
 			t.Fatalf("rendered:\n%s\nwant the item that ends the need named as %q", rendered, want)
 		}
 	}
-	design := hands[2]
+	design := hands[1]
 	encoded, err := json.Marshal(design)
 	if err != nil {
 		t.Fatal(err)
@@ -193,5 +181,32 @@ func TestTheItemThatEndsTheNeedIsNamedWithItsTitle(t *testing.T) {
 	var decoded Attention
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("reading %s back: %v", encoded, err)
+	}
+}
+
+// The development manager's escalation of a raise past her own five, recorded
+// when that raise was a hand on the operator's keyboard, now names the Lead
+// Product Manager as the one deciding. It carries no step for the operator to
+// type and is not on his needs-your-hand line.
+func TestAnEscalatedCapRaiseWaitsOnTheLeadProductManagerAndLeavesTheOperatorsLine(t *testing.T) {
+	t.Parallel()
+	stopped := moment.Add(-24 * time.Hour)
+	run := heldRun("run-451a", "yoyodyne-ifd.451", stopped)
+	decisions := recordedDecisions{"yoyodyne-ifd.451": {Decisions: []runstate.TriageDecision{{
+		Decision: runstate.TriageDecisionEscalate, RunID: run.RunID, Reason: "cross the review-rounds cap to 8: the last round found the cause",
+		DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 3, DecidedAt: stopped.Add(time.Hour),
+		Hand: ownership.HandCapCrossing,
+	}}}}
+	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil)
+	if problem != "" || len(ended) != 0 || len(standing) != 1 {
+		t.Fatalf("Escalations() = %#v, %#v, %q, want the escalation standing and not sent back for giving no reason", standing, ended, problem)
+	}
+	entry := operatorActionAttention(standing[0])
+	if entry.Mover != MoverProductManager || entry.Ownership.NeedsHand() || entry.Ownership.Hand != nil {
+		t.Fatalf("the escalated raise resolves to %s with %+v, want the Lead Product Manager deciding with no hand", entry.Mover, entry.Ownership)
+	}
+	rendered := Standing{NeedsHuman: []Attention{entry}}.renderNeedsHuman()
+	if strings.Contains(rendered, NeedsYourHand) || strings.Contains(rendered, "yoyo triage override") {
+		t.Fatalf("rendered:\n%s\nwant no needs-your-hand entry and no command for the operator", rendered)
 	}
 }

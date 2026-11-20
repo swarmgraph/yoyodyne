@@ -1052,7 +1052,8 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// It is wired for that role alone, like the docket those decisions are
 		// about, so a repair grant or a re-run is bounded by what the operator
 		// configured wherever it is decided from.
-		Triage: conversationTriage(parts, role),
+		Triage:    conversationTriage(parts, role),
+		CapGrants: conversationCapGrants(parts, role),
 		// The run records those decisions are checked against, so a decision lands
 		// on the item whose work actually stopped: the run a docket entry names is
 		// the run the decision has to be about. They are also what says where a

@@ -6403,8 +6403,9 @@ func decidedRecovery(decision string) bool {
 //     bounded by the run's integration resumptions (ResumptionsLeft).
 //   - a decided repair, where the stopped run's branch or worktree is still
 //     there. Bounded by the item's repair grant cap, which the development
-//     manager may cross five times (runstate.MaxDelegatedCapCrossings) and the
-//     operator beyond that.
+//     manager may cross five times (runstate.MaxDelegatedCapCrossings), the
+//     Lead Product Manager five more (runstate.MaxLeadCapGrants), and the
+//     operator by his own override.
 //   - a decided re-run, where the stopped run's branch is still there, whatever
 //     stopped that run: the re-run starts from that kept change (liftOf). A
 //     re-run whose earlier change is gone starts from the target and is fresh
