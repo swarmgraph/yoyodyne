@@ -3613,15 +3613,26 @@ func (m *Manager) removeIntegratedWorktree(ctx context.Context, worktree Worktre
 		// there; any other commit is work nothing else holds, and keeps the
 		// checkout (keptcheckout.go).
 		var unmerged []string
+		var reason string
 		if headCommit := strings.TrimSpace(head.Stdout); headCommit != sourceCommit {
 			unmerged, err = m.unmergedCommits(ctx, headCommit, target)
 			if err != nil {
 				return Cleanup{}, err
 			}
+			// A HEAD the target already contains was moved off the integrated
+			// commit rather than brought up to date, which the branch's own
+			// deletion refuses; the checkout stays with it so the two agree.
+			contained, err := m.contains(ctx, headCommit, target)
+			if err != nil {
+				return Cleanup{}, err
+			}
+			if contained {
+				reason = fmt.Sprintf("a branch at %s rather than the integrated commit %s", headCommit, sourceCommit)
+			}
 		}
 		// Uncommitted paths that are only the harness's own leftovers are
 		// discarded with the checkout; any other file keeps it (keptcheckout.go).
-		discard, err = m.leftoversOnly(ctx, path, unmerged)
+		discard, err = m.leftoversOnly(ctx, path, unmerged, reason)
 		if err != nil {
 			return Cleanup{}, err
 		}

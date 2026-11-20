@@ -2807,12 +2807,22 @@ func renderObservedArtifacts(state runstate.State, observation gitworktree.Obser
 // in it, so a person can save or discard them and remove the checkout.
 func keptCheckoutAccount(runID string, kept *gitworktree.KeptCheckoutError) string {
 	const shown = 10
-	files := kept.Files
-	more := ""
-	if len(files) > shown {
-		more = fmt.Sprintf(" and %d more", len(files)-shown)
-		files = files[:shown]
+	list := func(items []string) string {
+		if len(items) <= shown {
+			return strings.Join(items, ", ")
+		}
+		return fmt.Sprintf("%s and %d more", strings.Join(items[:shown], ", "), len(items)-shown)
 	}
-	return fmt.Sprintf("the checkout of run %s was kept at %s because it holds files that are in no commit: %s%s; once they are saved or discarded, remove the checkout with `git worktree remove --force`",
-		runID, kept.Path, strings.Join(files, ", "), more)
+	var holds []string
+	if len(kept.Files) > 0 {
+		holds = append(holds, "files that are in no commit: "+list(kept.Files))
+	}
+	if len(kept.Commits) > 0 {
+		holds = append(holds, "commits whose change is not in the target branch: "+list(kept.Commits))
+	}
+	if kept.Reason != "" {
+		holds = append(holds, kept.Reason)
+	}
+	return fmt.Sprintf("the checkout of run %s was kept at %s because it holds %s; once what it holds is saved or discarded, remove the checkout with `git worktree remove --force`",
+		runID, kept.Path, strings.Join(holds, " and "))
 }

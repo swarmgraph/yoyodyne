@@ -25,6 +25,9 @@ type KeptCheckoutError struct {
 	// whose change is not in the target branch, which a catch-up of a change a
 	// person was merging leaves behind.
 	Commits []string
+	// Reason says why the checkout stays where neither files nor unmerged
+	// commits do: its branch was moved to a commit other than the integrated one.
+	Reason string
 }
 
 func (e *KeptCheckoutError) Error() string {
@@ -34,6 +37,9 @@ func (e *KeptCheckoutError) Error() string {
 	}
 	if len(e.Commits) > 0 {
 		holds = append(holds, "commits not in the target branch: "+strings.Join(e.Commits, "; "))
+	}
+	if e.Reason != "" {
+		holds = append(holds, e.Reason)
 	}
 	return fmt.Sprintf("refusing to remove a dirty worktree: %s holds %s", e.Path, strings.Join(holds, " and "))
 }
@@ -96,7 +102,7 @@ func (m *Manager) dirtyPaths(ctx context.Context, path string) ([]dirtyPath, err
 // leftoversOnly says whether a checkout's uncommitted paths are all ones the
 // harness may discard, and otherwise returns the error naming the files that
 // make it stay. Nothing is deleted here.
-func (m *Manager) leftoversOnly(ctx context.Context, path string, commits []string) (bool, error) {
+func (m *Manager) leftoversOnly(ctx context.Context, path string, commits []string, reason string) (bool, error) {
 	paths, err := m.dirtyPaths(ctx, path)
 	if err != nil {
 		return false, err
@@ -111,8 +117,8 @@ func (m *Manager) leftoversOnly(ctx context.Context, path string, commits []stri
 			kept = append(kept, entry.path)
 		}
 	}
-	if len(kept) > 0 || len(commits) > 0 {
-		return false, &KeptCheckoutError{Path: path, Files: kept, Commits: commits}
+	if len(kept) > 0 || len(commits) > 0 || reason != "" {
+		return false, &KeptCheckoutError{Path: path, Files: kept, Commits: commits, Reason: reason}
 	}
 	return len(paths) > 0, nil
 }

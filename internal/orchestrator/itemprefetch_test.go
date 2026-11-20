@@ -447,3 +447,22 @@ func TestReconcileReportsAKeptCheckoutOnceAndStopsFailing(t *testing.T) {
 		t.Fatalf("second sweep = %#v after %d clean-up attempts, want no work and no second attempt", again, worktrees.calls)
 	}
 }
+
+// The recorded account names what keeps the checkout: files, commits, or both,
+// and never an empty list.
+func TestKeptCheckoutAccountNamesWhatKeepsTheCheckout(t *testing.T) {
+	t.Parallel()
+
+	commitsOnly := keptCheckoutAccount("run-a", &gitworktree.KeptCheckoutError{Path: "/w/a", Commits: []string{"abc123 a later change"}})
+	if !strings.Contains(commitsOnly, "abc123 a later change") || strings.Contains(commitsOnly, "files that are in no commit") {
+		t.Fatalf("account = %q, want the commit named and no empty file list", commitsOnly)
+	}
+	both := keptCheckoutAccount("run-b", &gitworktree.KeptCheckoutError{Path: "/w/b", Files: []string{"x.txt"}, Commits: []string{"def456 other"}})
+	if !strings.Contains(both, "x.txt") || !strings.Contains(both, "def456 other") {
+		t.Fatalf("account = %q, want the file and the commit named", both)
+	}
+	moved := keptCheckoutAccount("run-c", &gitworktree.KeptCheckoutError{Path: "/w/c", Reason: "a branch at aaa rather than the integrated commit bbb"})
+	if !strings.Contains(moved, "a branch at aaa") {
+		t.Fatalf("account = %q, want the reason named", moved)
+	}
+}

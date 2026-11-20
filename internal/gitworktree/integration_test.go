@@ -2010,3 +2010,26 @@ func TestManagerCleanupKeepsAWorktreeHoldingACommitTheTargetLacks(t *testing.T) 
 		t.Fatalf("the unmerged file is gone: %v", err)
 	}
 }
+
+// A checkout moved back to a commit the target already contains is kept and
+// named, so the checkout and the branch are not left in disagreement.
+func TestManagerCleanupKeepsAWorktreeMovedBackToACommitTheTargetContains(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	worktree, request := integratedWorktree(t, repository, manager, "yoyodyne-movedback")
+	runGit(t, worktree.Path, "reset", "--hard", worktree.BaseCommit)
+
+	cleanup, err := manager.CleanupIntegrated(context.Background(), request)
+	kept, ok := IsKeptCheckout(err)
+	if !ok || kept.Reason == "" {
+		t.Fatalf("CleanupIntegrated() error = %v, want a kept checkout with a reason", err)
+	}
+	if cleanup.WorktreeRemoved {
+		t.Fatalf("cleanup = %#v, want the worktree kept", cleanup)
+	}
+	if _, err := os.Stat(worktree.Path); err != nil {
+		t.Fatalf("the worktree is gone: %v", err)
+	}
+}
