@@ -58,6 +58,14 @@ mcp:
   as its working directory and its home. `url` is a server somewhere else, at
   an `https` address with no user name or password in it. A server has one or
   the other.
+- **Which repository it reads.** A server the harness starts is given the
+  repository its caller works in, in the variable `YOYODYNE_REPOSITORY`: a
+  developer run's own worktree, or the main checkout for a role in a
+  conversation. A server confined to one repository should name it from that
+  variable, for example
+  `command: [sh, -c, 'exec mcp-server-git --repository "$YOYODYNE_REPOSITORY"']`,
+  so a developer reads its own branch and nobody else's. A fixed path there is
+  read by everyone, and a developer's own worktree is refused.
 - **Its tools, each marked by you.** `read` means a call changes nothing
   outside the harness; `act` means it may, such as sending a message. You mark
   them, not the server, because what a server says about its own tools cannot

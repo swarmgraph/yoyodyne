@@ -107,6 +107,9 @@ func developerMCPContract(caller mcpcall.Caller) string {
 	for _, tool := range caller.Tools() {
 		fmt.Fprintf(&text, "- `%s` (%s)\n", tool.Name(), tool.Class)
 	}
+	// Which path the tools read is the harness's to say, never the role's to
+	// choose (mcpcall.RepositoryVariable).
+	fmt.Fprintf(&text, "\nThe repository these tools read is your own worktree, `%s`, and never the main checkout: the harness starts each server with that path as its repository, in the variable %s. Where a tool takes a repository path, give it that path. A server confined to its repository refuses any other checkout, the main checkout and other runs' worktrees included.\n", caller.Repository(), mcpcall.RepositoryVariable)
 	text.WriteString("\nTo ask, end your turn with exactly one block of this shape and nothing after it:\n\n")
 	text.WriteString(mcpcall.Fence + "\n")
 	text.WriteString(`{"requests":[{"tool":"server.tool","arguments":{"name":"value"},"why":"what this settles"}]}` + "\n")
