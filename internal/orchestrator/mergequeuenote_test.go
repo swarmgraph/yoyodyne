@@ -142,6 +142,56 @@ func TestAnAdmissionNoteRefusedSeveralTimesLandsAndTheRunStaysInTheQueue(t *test
 	}
 }
 
+// Once the queue holds the change the run's work is done, so while the tracker
+// keeps it waiting on the note the run is already recorded as ended, waiting on
+// the queue, and holds no developer slot: neither the scheduler nor the
+// reservation counts a slot taken for it.
+func TestARunWaitingOnTheTrackerAfterItsAdmissionHoldsNoDeveloperSlot(t *testing.T) {
+	t.Parallel()
+
+	r := newQueueRun(t, false)
+	r.pipeline.Config.Execution.MergeQueue = true
+	tracker := &admissionNoteTracker{Tracker: r.tracker, failures: 2}
+	var mu sync.Mutex
+	var seen []string
+	tracker.onFailure = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		incomplete, err := r.runs.Incomplete()
+		if err != nil {
+			seen = append(seen, "the runs in flight could not be read: "+err.Error())
+			return
+		}
+		for _, state := range incomplete {
+			if state.HoldsDeveloperSlot() {
+				seen = append(seen, state.RunID+" holds a developer slot as "+string(state.Status))
+			}
+		}
+		latest, err := r.runs.Latest("yoyodyne-task")
+		if err != nil || !latest.AwaitingMergeQueue() {
+			seen = append(seen, "the run is not recorded as waiting on the queue")
+		}
+	}
+	r.pipeline.Tracker = tracker
+	r.pipeline.Sleep = (&sleeps{}).sleep
+
+	outcome, err := r.pipeline.Run(context.Background(), "yoyodyne-task")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || outcome.MergeQueue == nil || outcome.MergeQueueNoteOwed != "" {
+		t.Fatalf("Run() = status %s, queue %#v, owed %q; want the run ended waiting on the queue with its note written", outcome.Status, outcome.MergeQueue, outcome.MergeQueueNoteOwed)
+	}
+	if tracker.refused != 2 {
+		t.Fatalf("refused %d, want the note refused twice", tracker.refused)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) > 0 {
+		t.Fatalf("while the note waited on the tracker: %v; want the run ended waiting on the queue, holding no slot", seen)
+	}
+}
+
 // A write the tracker keeps refusing is tried for at least one tracker call's
 // bound, then left owed on the run, which ends waiting on the queue as it
 // would have; the next sweep writes the note once the tracker answers.
