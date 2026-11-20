@@ -222,6 +222,35 @@ non-zero when any check fails. Run any other way, the Go test skips, so
 because it takes a minute or two and vouches for the team-mode work only, and
 CI does not run it yet.
 
+`scripts/teambranch/validate.sh` is the validation for integrating to a local
+branch ([the design](designs/integrating-to-a-local-branch.md), piece 6). [The
+script](../scripts/teambranch/validate.sh) takes one item through the whole
+flow against a scratch Git repository with `execution.upstream_branch` set, and
+fails if any step does not happen. It needs no outside account and no network:
+the checks are the Go test in [`scripts/teambranch`](../scripts/teambranch/teambranch_test.go),
+which drives the harness's own pipeline, forge check, update of the target
+branch and run store over real Git, with the stand-in forge, tracker and
+provider the harness's own tests use, in a temporary root it removes on exit
+and with `HOME` pointed there, so the real `~/.yoyodyne` is never read or
+written. It prints each step by number and name as it passes or fails, in this
+order: an item runs and lands on the project's own branch and not the team's;
+it is left open, waiting for the team's merge, with its developer slot freed;
+the pull request into the team's branch is refused where it is wrong and
+recorded where the forge confirms it; requested changes on it reach the
+development manager's list naming the item and start no run; the pull request
+still open leaves the item waiting; the team's branch moves and the target
+branch gains one merge that passed the checks and the independent review; the
+team merges the pull request and the item closes naming the merge commit; and
+nothing is left waiting afterwards. A step that fails stops the ones after it,
+which are reported as not run, and the script exits non-zero unless every step
+passed. Run any other way, the Go test skips, so `make test` keeps it
+compiling without running it. It stays out of `check` because it takes about
+half a minute and vouches for the work on the team's branch only, and CI does not run it
+yet. Its last result, on 2026-11-19, was all eight steps passed.
+The landing hold (piece 5) and the development manager's decision to repair
+from feedback are not steps of it: the first is held by its own tests in
+`internal/orchestrator`, and the second is not built yet.
+
 ## What a document landing runs: `make doccheck`
 
 A design, a decision, or the goals a role writes in conversation lands through a
