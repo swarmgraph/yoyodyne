@@ -419,10 +419,17 @@ func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn
 		problem  string
 	}
 	read := make(map[string]state)
-	items := make(map[string]beads.WorkItem)
+	// What is asked about below is read ahead together where the tracker can
+	// (waitreads.go), so a pull asks once for each level rather than once for
+	// each item.
+	ahead := readWaitsAhead(ctx, held, waited)
+	items := ahead.items
 	show := func(id string) (beads.WorkItem, bool, error) {
 		if item, seen := items[id]; seen {
 			return item, true, nil
+		}
+		if ahead.failed != nil {
+			return beads.WorkItem{}, false, ahead.failed
 		}
 		item, err := waited.Show(ctx, id)
 		if err != nil {
@@ -436,8 +443,14 @@ func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn
 			return known
 		}
 		var found state
-		if waited == nil {
+		if item, seen := items[waitsOn]; seen {
+			if strings.TrimSpace(item.Status) == "closed" {
+				found.closed, found.closedAt = true, item.ClosedAt
+			}
+		} else if waited == nil {
 			found.problem = "nothing was wired to read the tracker"
+		} else if ahead.failed != nil {
+			found.problem = fmt.Sprintf("the tracker could not show it: %v", ahead.failed)
 		} else if item, err := waited.Show(ctx, waitsOn); err != nil {
 			found.problem = fmt.Sprintf("the tracker could not show it: %v", err)
 		} else if strings.TrimSpace(item.Status) == "closed" {

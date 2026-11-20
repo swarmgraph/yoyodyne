@@ -142,14 +142,11 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	blocked := map[string]bool{}
 	readErrors := 0
 	var firstReadError error
+	read := o.readEntryItems(ctx, waiting)
 	for _, entry := range waiting {
 		r := rankedEntry{entry: entry, inProgress: started[entry.EntryID]}
 		r.document, r.architect = o.documentKind(ctx, entry)
-		var item beads.WorkItem
-		err := errNoQueueTracker
-		if o.pipeline.Tracker != nil {
-			item, err = o.pipeline.Tracker.Show(ctx, entry.WorkItemID)
-		}
+		item, err := read.item(ctx, o.pipeline.Tracker, entry.WorkItemID)
 		if err != nil {
 			readErrors++
 			if firstReadError == nil {
@@ -188,6 +185,66 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	}
 	chosen, rule, placed := rank(candidates, o.now)
 	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry), PlacedFirst: placed}
+}
+
+// entryItems is what pick read of the waiting entries' work items together.
+//
+// The order is chosen every time the worker or the promoter looks for the next
+// entry, in every pass of a queue, and a waiting queue goes round once a
+// minute (mergeQueueAgainEvery). Reading each entry's item with a `bd show` of
+// its own made a queue of ten entries twenty reads a pass, one after another,
+// and on bd's one-command-at-a-time store every listing waited behind them
+// (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md). Read together,
+// a choice asks once.
+//
+// failed is the error of a batch that went unanswered: every entry is then
+// unread with it, rather than read again one at a time from a store that has
+// just not answered, and the choice falls to admission order as it does when
+// no entry could be read. An entry the batch left out is read on its own,
+// which says why.
+type entryItems struct {
+	items  map[string]beads.WorkItem
+	failed error
+}
+
+// readEntryItems reads the waiting entries' items in one call where the
+// queue's tracker can, and reads nothing ahead where it cannot.
+func (o queueOrder) readEntryItems(ctx context.Context, waiting []runstate.MergeQueueEntry) entryItems {
+	batch, ok := o.pipeline.Tracker.(itemBatchReader)
+	if !ok {
+		return entryItems{}
+	}
+	ids := make([]string, 0, len(waiting))
+	for _, entry := range waiting {
+		// An id the tracker would refuse to be asked about would refuse the
+		// whole batch; it is read on its own, which says so for that entry.
+		if beads.ValidIssueID(entry.WorkItemID) {
+			ids = append(ids, entry.WorkItemID)
+		}
+	}
+	if len(ids) == 0 {
+		return entryItems{}
+	}
+	items, err := batch.ShowMany(ctx, ids)
+	if err != nil {
+		return entryItems{failed: err}
+	}
+	return entryItems{items: items}
+}
+
+// item is one entry's work item: as the batch read it, the batch's failure,
+// or read on its own where the batch did not answer for it.
+func (e entryItems) item(ctx context.Context, tracker WorkTracker, id string) (beads.WorkItem, error) {
+	if item, read := e.items[id]; read {
+		return item, nil
+	}
+	if e.failed != nil {
+		return beads.WorkItem{}, e.failed
+	}
+	if tracker == nil {
+		return beads.WorkItem{}, errNoQueueTracker
+	}
+	return tracker.Show(ctx, id)
 }
 
 func queuePassedOver(waiting []runstate.MergeQueueEntry, chosen runstate.MergeQueueEntry) []string {
