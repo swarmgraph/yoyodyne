@@ -2,42 +2,36 @@ package beads
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
 
-// maxItemsPerShow is how many work items one batched `bd show` names. It keeps
-// the command line and bd's answer a modest size however many items a caller
-// asks for; a caller asking for more is answered by one call per batch.
+// maxItemsPerShow is how many work items one batched read names. It keeps the
+// command line and bd's answer a modest size however many items a caller asks
+// for; a caller asking for more is answered by one call per batch.
 const maxItemsPerShow = 50
 
-// noneOfTheItems is what bd says when it holds none of the items a `bd show`
-// named: `Error fetching <id>: no issue found matching "<id>"` on its standard
-// error for each, and an error naming none of them on its standard output. It
-// exits non-zero for that and for nothing else a batched read can meet that is
-// not the tracker failing: an id it holds no item under among others it does
-// hold is said on its standard error, and the rest are answered with a
-// successful exit (TestShowManyConformance). The client keeps standard error
-// where bd wrote any, so both forms are looked for.
-var noneOfTheItems = []string{"no issue found matching", "no issues found matching the provided IDs"}
+// itemsByID is the `bd list` flag that narrows a listing to the items named,
+// comma-separated. bd matches each id exactly and leaves out one it holds
+// nothing under, answering the rest (TestShowManyConformance).
+const itemsByID = "--id="
 
-// ShowMany reads the work items named, in one `bd show` for each
-// maxItemsPerShow of them, and reports what it read by id. An id the tracker
-// holds no item under is simply absent from the answer: a caller that needs to
-// know why reads it with Show, which tells a missing item from a tracker that
-// did not answer.
+// ShowMany reads the work items named and reports what it read by id, each
+// exactly as Show reads it alone. An id the tracker holds no item under is
+// simply absent from the answer: a caller that needs to know why reads it with
+// Show, which tells a missing item from a tracker that did not answer.
 //
-// It exists because bd lets one command into its store at a time, reads
-// included, so on a busy store what a read costs is the wait to be let in
-// rather than the reading (docs/diagnoses/yoyodyne-ifd-428-126-4-14-1-reconcile-tracker-waits.md):
-// eleven items read together wait once, where eleven reads of one item wait
-// eleven times. bd answers each item exactly as a `bd show` of that item alone
-// does.
+// It reads them with `bd list --id=…` and not with `bd show` of every id,
+// because bd lets one command into its store at a time, reads included, and
+// `bd show` holds the store for about half a second for each item it names: a
+// show of twenty items held it for over ten seconds, and every listing waited
+// behind it, where a listing of the same twenty holds it for under half a
+// second (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md). A listing
+// states each link as an edge, naming the item linked but not its status or
+// title, so the items linked to are read the same way in one more call and each
+// link is given what `bd show` gives it (asShown).
 //
 // It asks once and does not ask again on a timeout: its callers read ahead of
 // need (PrefetchItems), and one whose batch went unanswered reads each item as
@@ -54,40 +48,87 @@ func (c Client) ShowMany(ctx context.Context, ids []string) (map[string]WorkItem
 			wanted = append(wanted, id)
 		}
 	}
-	read := make(map[string]WorkItem, len(wanted))
-	for start := 0; start < len(wanted); start += maxItemsPerShow {
-		batch := wanted[start:min(start+maxItemsPerShow, len(wanted))]
-		args := append([]string{"show"}, batch...)
-		data, err := c.run(ctx, append(args, "--json")...)
-		if err != nil {
-			var refused processFailure
-			if errors.As(err, &refused) && refused.status != execution.ProcessTimedOut && foundNone(refused.message) {
+	read, err := c.listByID(ctx, wanted)
+	if err != nil {
+		return nil, err
+	}
+	for id := range read {
+		if !seen[id] {
+			delete(read, id)
+		}
+	}
+	linked := make(map[string]WorkItem, len(read))
+	var unread []string
+	for _, item := range read {
+		for _, dependency := range ownDependencies(item) {
+			if _, have := read[dependency.ID]; have || seen[dependency.ID] {
 				continue
 			}
+			seen[dependency.ID] = true
+			unread = append(unread, dependency.ID)
+		}
+	}
+	if len(unread) > 0 {
+		if linked, err = c.listByID(ctx, unread); err != nil {
 			return nil, err
 		}
-		items, err := decodeWorkItems(data)
+	}
+	for id, item := range read {
+		read[id] = asShown(item, read, linked)
+	}
+	return read, nil
+}
+
+// listByID reads the items named with `bd list`, maxItemsPerShow to a call,
+// closed ones included. Validated ids carry no comma, so each is one id to bd.
+func (c Client) listByID(ctx context.Context, ids []string) (map[string]WorkItem, error) {
+	read := make(map[string]WorkItem, len(ids))
+	for start := 0; start < len(ids); start += maxItemsPerShow {
+		batch := ids[start:min(start+maxItemsPerShow, len(ids))]
+		data, err := c.run(ctx, "list", "--json", unboundedListing, everyStatus, itemsByID+strings.Join(batch, ","))
+		if err != nil {
+			return nil, err
+		}
+		items, err := decodeWorkListing(data, "list", c.writerZone())
 		if err != nil {
 			return nil, err
 		}
 		for _, item := range items {
-			if seen[item.ID] {
-				read[item.ID] = item
-			}
+			read[item.ID] = item
 		}
 	}
 	return read, nil
 }
 
-// foundNone reports a refusal that is bd saying it holds none of the items
-// named, rather than failing to answer.
-func foundNone(message string) bool {
-	for _, said := range noneOfTheItems {
-		if strings.Contains(message, said) {
-			return true
+// ownDependencies is the links a listing carried for item that are item's own:
+// an edge naming another item as the one it belongs to is that item's link,
+// which `bd show` of item does not list.
+func ownDependencies(item WorkItem) []Dependency {
+	own := make([]Dependency, 0, len(item.Dependencies))
+	for _, dependency := range item.Dependencies {
+		if dependency.IssueID == "" || dependency.IssueID == item.ID {
+			own = append(own, dependency)
 		}
 	}
-	return false
+	return own
+}
+
+// asShown gives item's links the form `bd show` gives them: the linked item's
+// status and title, and neither the edge's owner nor its stamp, which a show
+// does not carry. A link to an item neither reading found keeps its id and
+// type and says nothing of its status, rather than being dropped.
+func asShown(item WorkItem, read, linked map[string]WorkItem) WorkItem {
+	own := ownDependencies(item)
+	shown := make([]Dependency, 0, len(own))
+	for _, dependency := range own {
+		target, found := read[dependency.ID]
+		if !found {
+			target = linked[dependency.ID]
+		}
+		shown = append(shown, Dependency{ID: dependency.ID, Type: dependency.Type, Status: target.Status, Title: target.Title})
+	}
+	item.Dependencies = shown
+	return item
 }
 
 // itemReadsMaxAge is how long an item read ahead of need is given out for. A
@@ -222,12 +263,19 @@ func readsOnly(verb string) bool {
 	return false
 }
 
-// describeShow says what a `bd show` was asked for: one item by its id, or how
-// many items read together and the first of them.
+// describeShow says what a read of named items was asked for: one item by its
+// id, or how many items read together and the first of them. The items are the
+// ids a `bd show` names, or the ones a `bd list` is narrowed to (ShowMany); a
+// listing narrowed to items is a read of those items and not a listing of open
+// work, so it is described as one and the listing bound does not hold it.
 func describeShow(args []string) string {
 	var ids []string
 	for _, arg := range args[1:] {
-		if ValidIssueID(arg) && strings.Contains(arg, "-") {
+		if named, narrowed := strings.CutPrefix(arg, itemsByID); narrowed && args[0] == "list" {
+			ids = append(ids, strings.Split(named, ",")...)
+			continue
+		}
+		if args[0] == "show" && ValidIssueID(arg) && strings.Contains(arg, "-") {
 			ids = append(ids, arg)
 		}
 	}

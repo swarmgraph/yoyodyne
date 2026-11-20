@@ -49,6 +49,8 @@ func TestATrackerWithinItsLimitsIsSaidSo(t *testing.T) {
 		listing(f.now.Add(-2*time.Hour), "yoyo watch", time.Minute),
 		// Not a listing of open or ready work.
 		beads.LoggedCall{At: f.now.Add(-10 * time.Minute), Call: "listing the work items of every status", Verb: "list", Took: time.Minute},
+		// A listing narrowed to named items is a read of them (ShowMany).
+		beads.LoggedCall{At: f.now.Add(-5 * time.Minute), Call: "reading 12 work items in one call, calc-1 first", Verb: "list", Took: time.Minute},
 	)
 
 	step := stepNamed(t, f.pass1(t), StepTrackerLimits)
