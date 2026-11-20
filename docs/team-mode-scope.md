@@ -65,6 +65,12 @@ pauses the machine it is on. The design answers it with
 
 ## A recorded gap: per-item budgets are per machine
 
+With team mode on this gap is closed: every spend of an item's budgets is a
+record in the shared records reference, the count a spend is held to is the
+count across every factory, only the factory holding the item's claim spends,
+and a spend that cannot be pushed is not made. With team mode off, which is the
+default, what follows still holds.
+
 What triage has spent on one work item — the repair grants it has been given, the
 re-runs it has caused, the merge re-arms it has made (bounded once per
 publication rather than per item, but counted in the same record), and the review

@@ -95,6 +95,11 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		shared, syncErr := sharer.Sync(ctx)
 		output.Records = &shared
 		err = errors.Join(err, syncErr)
+		// The spends this machine counted before it joined are pushed once. A remote
+		// that cannot be reached leaves that for the next check.
+		if joinErr := joinTeamSpends(ctx, parts); joinErr != nil {
+			fmt.Fprintf(stderr, "the spends this machine counted before joining the team are not shared yet: %v\n", joinErr)
+		}
 	}
 	if !*jsonOutput {
 		printForgeCheckFindings(stdout, stderr, output)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/teamrecords"
 )
@@ -23,7 +24,7 @@ func teamRecords(ctx context.Context, parts components) (teamrecords.Sharer, boo
 	if err != nil {
 		return teamrecords.Sharer{}, false, err
 	}
-	remote, err := parts.worktrees.RecordsRepository(ctx, state.RepositoryDirectory())
+	remote, err := openRecordsRepository(ctx, parts, state)
 	if err != nil {
 		return teamrecords.Sharer{}, false, err
 	}
@@ -49,4 +50,11 @@ func teamRecords(ctx context.Context, parts components) (teamrecords.Sharer, boo
 		State:      state,
 		Factory:    factory,
 	}, true, nil
+}
+
+// openRecordsRepository opens the bare repository the shared records are fetched
+// into and built in. It is the one place the records repository is opened, for
+// the sharing of records and the counting of spends alike.
+func openRecordsRepository(ctx context.Context, parts components, state *runstate.SharedRecordsStore) (*gitworktree.RecordsRepository, error) {
+	return parts.worktrees.RecordsRepository(ctx, state.RepositoryDirectory())
 }

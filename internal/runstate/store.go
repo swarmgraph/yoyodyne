@@ -49,6 +49,9 @@ const (
 type Store struct {
 	root      string
 	productID domain.ProductID
+	// sharedSpends is the team's shared record of what each item has spent, handed
+	// to every triage store this store makes. It is nil with team mode off.
+	sharedSpends SharedSpends
 	// promotionWait bounds how long LeasePromotion waits its turn. It is a field
 	// only so a test can drive the bound without spending it; every store the
 	// harness builds gets promotionQueueWait.
