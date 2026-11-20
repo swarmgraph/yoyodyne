@@ -2297,6 +2297,9 @@ func (s *State) recordedTexts() []recordedText {
 			unstated("subagents.instruction.file", "subagents.instruction.file", &s.Subagents.Instruction.File, MaxRecordedTextBytes)
 		}
 	}
+	for index := range s.LiftConflicts {
+		unstated("lift_conflicts[]", fmt.Sprintf("lift_conflicts[%d]", index), &s.LiftConflicts[index], maxLiftConflictPathBytes)
+	}
 	if s.SlotRelease != nil {
 		unstated("slot_release.says", "slot_release.says", &s.SlotRelease.Says, MaxRecordedTextBytes)
 		for index := range s.SlotRelease.EndedAttempts {
@@ -4711,7 +4714,7 @@ func (s State) Validate() error {
 			problems = append(problems, fmt.Errorf("lift_conflicts names %d files, more than %d", len(s.LiftConflicts), MaxLiftConflicts))
 		}
 		for _, path := range s.LiftConflicts {
-			if strings.TrimSpace(path) == "" || len(path) > maxLiftConflictPathBytes || strings.ContainsAny(path, "\x00\r\n") {
+			if strings.TrimSpace(path) == "" || len(path) > maxLiftConflictPathBytes {
 				problems = append(problems, fmt.Errorf("lift_conflicts names %q, which is not a file path", path))
 				break
 			}
