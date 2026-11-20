@@ -667,7 +667,14 @@ environment and not the change, so the approval stands through it. A tracker,
 GitHub, or network that did not answer needs nobody: the harness tries the
 resume itself at each pull and resumes the run once they answer
 ([the conversation guide](conversation.md#resuming-an-approved-change-the-environment-stopped)
-says how). `yoyo triage resume
+says how). A refused credential needs nobody to say it is settled either: the
+harness asks GitHub with the same identity on its regular look at held work,
+never on a clock, and resumes the run itself at its promotion the first time
+GitHub answers (and takes up a run that stopped while pushing its branch,
+before its checks, at its checks instead). It takes a run up this way only
+while its branch and checkout are both still there; one whose branch or
+checkout is gone is left for the development manager, with the reason said.
+`yoyo triage resume
 <run-id>` resumes the run at the promotion it stopped short of — replay onto
 where the target now stands, push, merge request — with its approval standing,
 and it charges the item nothing: no review round, no repair grant, no re-run.
