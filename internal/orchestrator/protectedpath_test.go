@@ -117,6 +117,9 @@ func TestTheDeveloperContractDecidesAndReportsRatherThanRoutingApprovals(t *test
 	if !strings.Contains(developerContract(scratchForTest, nil), ownership.OperatorReasonsInContract) {
 		t.Fatal("the developer contract does not name the operator's closed list of reasons")
 	}
+	for _, short := range ownership.ShortReasonLists(developerContract(scratchForTest, nil)) {
+		t.Errorf("the developer contract gives a shorter list of the operator's reasons than the resolver accepts:\n%s", short)
+	}
 }
 
 func TestTheDeveloperContractAppliesStandingGoals(t *testing.T) {
