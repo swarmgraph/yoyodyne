@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/testharness"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -227,6 +228,7 @@ func (f *flow) reconciler(t *testing.T) orchestrator.Reconciler {
 		TeamPullRequests: f.forge,
 		Feedback:         f.forge,
 		Reports:          f.reports,
+		LandingPaths:     f.pipeline.Worktrees.(orchestrator.LandingPathReader),
 	}
 }
 
@@ -292,6 +294,12 @@ func (f *flow) runOf(t *testing.T, id string) runstate.State {
 	return runs[0]
 }
 
+// statusLines is what `yoyo status` renders from the read model over this
+// project's run store and update records.
+func (f *flow) statusLines() string {
+	return readmodel.ReadStanding(context.Background(), readmodel.Sources{Runs: f.store, TeamBranchUpdates: f.records, Capacity: 1}).RenderLines()
+}
+
 func (f *flow) run(t *testing.T) runstate.State {
 	t.Helper()
 	return testharness.LoadRun(t, f.store, f.runID)
@@ -342,7 +350,8 @@ var steps = []step{
 	{name: "14 squash merging a tracked pull request closes its items", own: caseSquash},
 	{name: "15 a conflict while bringing the target branch up to date reaches the development manager's list, and landing carries on", own: caseConflict},
 	{name: "16 with a landing hold set nothing lands, checks and reviews carry on, and the hold ends at its expiry", own: caseHold},
-	{name: "17 the development manager's decision to repair an item whose run has ended starts a new run bound to the feedback entry", waitsOn: "the decision to repair an item whose run has ended, from feedback on a tracked pull request (build item 3 of docs/designs/integrating-to-a-local-branch.md, designed under yoyodyne-ifd.429.176 and ruled under yoyodyne-ifd.429.198; no work item to build it is admitted yet)"},
+	{name: "17 a comment on a line of a file reaches the development manager's list naming the items whose landed commits touched that file and no others, and an ordinary comment names none", own: caseLineComment},
+	{name: "18 the development manager's decision to repair an item whose run has ended starts a new run bound to the feedback entry", waitsOn: "the decision to repair an item whose run has ended, from feedback on a tracked pull request (build item 3 of docs/designs/integrating-to-a-local-branch.md, designed under yoyodyne-ifd.429.176 and ruled under yoyodyne-ifd.429.198; no work item to build it is admitted yet)"},
 }
 
 // TestTeamBranchFlow runs every step.
@@ -425,6 +434,18 @@ func stepWaiting(t *testing.T, f *flow) {
 	waiting, err := f.store.WaitingForTeamMerge()
 	if err != nil || len(waiting) != 1 || waiting[0].RunID != f.runID {
 		t.Fatalf("the runs waiting for the team's merge are %v (error %v); expected this one alone", waiting, err)
+	}
+
+	// The item is not pulled again: asking the pipeline to run it once more
+	// starts nothing, and it still has the one run.
+	if outcome, err := f.pipeline.Run(context.Background(), itemID); err == nil && outcome.Integration != nil {
+		t.Fatalf("running the waiting item again gave %#v; expected it refused", outcome)
+	}
+	if runs, err := f.store.Runs(itemID); err != nil || len(runs) != 1 {
+		t.Fatalf("the item has %d run(s) after being asked for again (error %v); expected the one", len(runs), err)
+	}
+	if line := f.statusLines(); !strings.Contains(line, "waiting for the team to merge it into "+team) || !strings.Contains(line, itemID) {
+		t.Fatalf("the status line reads:\n%s\nexpected it to name %s as landed on %s and waiting for the team to merge it into %s", line, itemID, target, team)
 	}
 }
 
@@ -561,6 +582,10 @@ func stepMovedTarget(t *testing.T, f *flow) {
 	}
 	if landed.Review == nil || landed.Review.Decision != "approve" {
 		t.Fatalf("the update's review is %#v; expected an approval by the independent reviewer", landed.Review)
+	}
+	// The status line says when the target branch was last brought up to date.
+	if line := f.statusLines(); !strings.Contains(line, target+" was last brought up to date with "+team) || !strings.Contains(line, merged[:12]) {
+		t.Fatalf("the status line reads:\n%s\nexpected it to say %s was last brought up to date with %s, by merge %s", line, target, team, merged[:12])
 	}
 	// The merge brought nothing of the item's closing with it: the team has not
 	// merged the item yet.
@@ -897,5 +922,49 @@ func caseHold(t *testing.T) {
 	}
 	if !tracker.Claimed {
 		t.Fatal("the held item was never claimed")
+	}
+}
+
+// caseLineComment is step 17.
+func caseLineComment(t *testing.T) {
+	f := newFlow(t)
+	touchesA, _ := f.land(t, "touches-a")
+	touchesB, _ := f.land(t, "touches-b")
+	f.opens(touchesA.TeamMerge.LandingCommit, touchesB.TeamMerge.LandingCommit)
+	if _, err := f.track(t, false, "touches-a", "touches-b"); err != nil {
+		t.Fatalf("recording the pull request failed: %v", err)
+	}
+	at := touchesB.TeamMerge.Since.Add(10 * time.Minute).UTC().Truncate(time.Second)
+	f.forge.set(func(g *forge) {
+		g.feedback = publish.FeedbackReading{
+			LineComments: []publish.FeedbackComment{{ID: 21, Author: "grace", Body: "This leaks a file handle.", At: at, Path: "touches-a.txt", Line: 1}},
+			Comments:     []publish.FeedbackComment{{ID: 31, Author: "linus", Body: "Why this approach?", At: at.Add(time.Minute)}},
+		}
+	})
+	before, err := f.store.Recorded()
+	if err != nil {
+		t.Fatalf("list the runs: %v", err)
+	}
+	settled, err := f.reconciler(t).TakeUpTeamFeedback(context.Background())
+	if err != nil || len(settled) != 1 || settled[0].Requested != 1 || settled[0].Listed != 1 || settled[0].Failure != "" {
+		t.Fatalf("reading feedback gave %#v (error %v); expected one line comment and one ordinary comment listed", settled, err)
+	}
+	var lineEntry, plainEntry *report.Report
+	for _, each := range f.toldTheDevelopmentManager(t) {
+		switch {
+		case strings.Contains(each.Message, "This leaks a file handle."):
+			lineEntry = &each
+		case strings.Contains(each.Message, "Why this approach?"):
+			plainEntry = &each
+		}
+	}
+	if lineEntry == nil || !strings.Contains(lineEntry.Message, "touches-a") || strings.Contains(lineEntry.Message, "touches-b") {
+		t.Fatalf("the entry for the line comment is %#v; expected it to name touches-a, which touched touches-a.txt, and not touches-b", lineEntry)
+	}
+	if plainEntry == nil || strings.Contains(plainEntry.Message, "touches-a") || strings.Contains(plainEntry.Message, "touches-b") {
+		t.Fatalf("the entry for the ordinary comment is %#v; expected it to name no item", plainEntry)
+	}
+	if after, err := f.store.Recorded(); err != nil || len(after) != len(before) {
+		t.Fatalf("there were %d runs and now there are %d (error %v); expected the feedback to start none", len(before), len(after), err)
 	}
 }

@@ -237,16 +237,18 @@ or written. It prints each step by number and name as it passes or fails.
 
 Steps 1 to 8 follow one item from its start to its closing, in order: it runs
 and lands on the project's own branch and not the team's; it is left open,
-waiting for the team's merge, with its developer slot freed; the pull request
+waiting for the team's merge, with its developer slot freed, the status line
+saying so, and asking for it to run again starts nothing; the pull request
 into the team's branch is refused where it is wrong and recorded where the forge
 confirms it; requested changes on it reach the development manager's list naming
 the item and start no run; the pull request still open leaves the item waiting;
 the team's branch moves and the target branch gains one merge that passed the
-checks and the independent review; the team merges the pull request and the item
+checks and the independent review, with the status line saying when the target
+branch was last brought up to date; the team merges the pull request and the item
 closes naming the merge commit; and nothing is left waiting afterwards. A step
 that fails stops the ones after it, which are reported as not run.
 
-Steps 9 to 16 are cases of their own, each against a project of its own, so one
+Steps 9 to 17 are cases of their own, each against a project of its own, so one
 failing hides no other: with the team's branch unset an item closes when it
 lands; an item depending on a waiting item starts on the same target branch and
 one depending on any other open item does not; naming an item whose landing
@@ -259,17 +261,20 @@ commits; a conflict while bringing the target branch up to date reaches the
 development manager's list naming the path and the item, while landing carries
 on and she is not told twice; and with a landing hold set nothing lands while
 the run's checks and review finish, and landing resumes when the hold expires
-with nobody releasing it.
+with nobody releasing it (step 16); and a comment on a line of a file reaches
+the development manager's list naming the items whose landed commits touched that
+file and not the others, while an ordinary comment names none and no run starts
+(step 17).
 
-Step 17, the development manager's decision to repair an item whose run has
+Step 18, the development manager's decision to repair an item whose run has
 ended, is reported as not yet built, naming the work it waits on, and counted as
 neither passed nor failed: the harness does not have that decision yet. When it
 lands, its case is written in `scripts/teambranch` and the line naming what it
 waits on goes. The script exits non-zero when any step fails or is not run, and
 zero otherwise. Run any other way, the Go test skips, so `make test` keeps it
-compiling without running it. It stays out of `check` because it takes about
-half a minute and vouches for the work on the team's branch only, and CI does not
-run it yet. Its last result, on 2026-11-19, was sixteen steps passed and one not
+compiling without running it. It stays out of `check` because it takes from half
+a minute to two minutes, depending on the machine's load, and vouches for the
+work on the team's branch only, and CI does not run it yet. Its last result, on 2026-11-19, was seventeen steps passed and one not
 yet built.
 
 ## What a document landing runs: `make doccheck`
