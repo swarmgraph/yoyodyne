@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
@@ -244,111 +245,125 @@ func prepareBuildCache(repositoryRoot, workingDirectory, runID string) (string, 
 	return cache, nil
 }
 
-// ClearOutwardScratchLinks removes from the scratch directory the run named by
-// runID was given inside the repository's Git directory, before scratch moved to
-// the state directory, every symbolic link that leads outside the Git
-// directory, and returns the paths it removed. A scratch directory that was
-// never made there, which is every run's since the move, has nothing to clear.
-// It goes with the maintenance pass that clears what earlier runs left under
-// `.git` (docs/decisions/developer-run-scratch-outside-git.md, Consequences).
+// OldScratchFolder is one scratch folder a run was given inside the
+// repository's Git directory before scratch moved to the state directory: the
+// run it was cut for, named by the folder, and where it is.
+type OldScratchFolder struct {
+	RunID string
+	Path  string
+	// Why says why a folder was left, and is empty for one removed.
+	Why string
+}
+
+// OldScratchClearing is what one clearing of the old scratch folders came to:
+// the folders it removed and the folders it left, each left one with why.
+type OldScratchClearing struct {
+	Removed []OldScratchFolder
+	Left    []OldScratchFolder
+}
+
+// ClearOldScratchFolders removes the scratch folders runs were given inside the
+// repository's Git directory before scratch moved to the state directory, for
+// every run that has ended, and reports what it removed and what it left. It is
+// the clearing the ruling on scratch outside Git names as its second piece
+// (docs/decisions/developer-run-scratch-outside-git.md, Consequences): nothing
+// makes a folder there any more, so once these are gone a declared git server's
+// check of `.git` finds nothing a run left.
 //
-// The scratch directory sits inside the Git directory, and a tool confined to
-// the repository can refuse it whole for one link that leads out. The git MCP
-// server does: given `--repository`, it walks every directory of the
-// repository's Git directory, every worktree's scratch included, and refuses
-// every call while any link there leads outside the repository. A run writes
-// such links without meaning to, the Codex CLI's `tmp/arg0` links to its own
-// program under a provider home made in scratch among them, and nothing else
-// removes them while the worktree is kept. So the harness clears them at the
-// end of each developer turn, before any call that turn asked for is made. A
-// link inside the Git directory, and every file, is left as it is.
+// The folders were cut at yoyodyne/scratch/<run id>/ under each worktree's
+// administrative directory, .git/worktrees/<name>/, and under the Git directory
+// itself for a run in the checkout. ended answers, for the run a folder is
+// named for, whether that run has ended, and where it has not, why the folder
+// is left; a folder whose run has not ended, or whose run cannot be shown to
+// have ended, is left untouched.
 //
-// Each removal goes through a held directory and is made only while the entry
-// is still a link, so nothing outside the scratch directory and nothing that
-// is not a link is ever removed.
-func ClearOutwardScratchLinks(repositoryRoot, workingDirectory, runID string) ([]string, error) {
-	root, relative, err := worktreeLocation(repositoryRoot, workingDirectory, runID)
-	if err != nil {
-		return nil, err
+// Every removal goes through held directories and never follows a link: a
+// link inside a folder is removed as a link and what it points at is left, a
+// run's folder that is itself a link is removed as that link, and a directory
+// on the way to the folders that is a link is not entered. A `scratch` folder
+// left empty is removed too, so the next clearing finds nothing to say.
+func ClearOldScratchFolders(repositoryRoot string, ended func(runID string) (bool, string)) (OldScratchClearing, error) {
+	var clearing OldScratchClearing
+	repositoryGit, found := repositoryGitDirectory(repositoryRoot)
+	if !found {
+		return clearing, fmt.Errorf("no Git directory holds the repository %q", repositoryRoot)
 	}
-	boundary, err := filepath.EvalSymlinks(root.Path())
+	root, err := repowrite.NewRoot(repositoryGit)
 	if err != nil {
-		return nil, fmt.Errorf("resolve the Git directory for run %s: %w", runID, err)
+		return clearing, fmt.Errorf("confine the clearing of old scratch folders to the Git directory %s: %w", repositoryGit, err)
 	}
 	gitDirectory, err := repowrite.OpenPinnedRoot(root.Path())
 	if err != nil {
-		return nil, fmt.Errorf("open the Git directory for run %s: %w", runID, err)
+		return clearing, fmt.Errorf("open the repository's Git directory %s: %w", repositoryGit, err)
 	}
 	defer gitDirectory.Close()
-	scratch, err := gitDirectory.OpenDirectory(relative)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("open the scratch directory for run %s: %w", runID, err)
-	}
-	defer scratch.Close()
-	var removed []string
-	err = clearOutwardLinks(scratch, boundary, &removed)
-	return removed, err
-}
 
-func clearOutwardLinks(directory *repowrite.PinnedRoot, boundary string, removed *[]string) error {
-	entries, err := directory.ReadDirectory(".")
-	if err != nil {
-		return fmt.Errorf("read %s: %w", directory.Path(), err)
+	holders := []string{"."}
+	worktrees, err := gitDirectory.ReadDirectory("worktrees")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return clearing, fmt.Errorf("read the worktrees under %s: %w", repositoryGit, err)
+	}
+	for _, worktree := range worktrees {
+		if worktree.IsDir() {
+			holders = append(holders, path.Join("worktrees", worktree.Name()))
+		}
 	}
 	var problems []error
+	for _, holder := range holders {
+		problems = append(problems, clearOldScratchIn(gitDirectory, holder, ended, &clearing))
+	}
+	return clearing, errors.Join(problems...)
+}
+
+// clearOldScratchIn clears the old scratch folders under one administrative
+// directory, holder, relative to the Git directory.
+func clearOldScratchIn(gitDirectory *repowrite.PinnedRoot, holder string, ended func(string) (bool, string), clearing *OldScratchClearing) error {
+	harness, err := gitDirectory.OpenDirectory(path.Join(holder, harnessGitSubdirectory))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open %s: %w", filepath.Join(gitDirectory.Path(), holder, harnessGitSubdirectory), err)
+	}
+	defer harness.Close()
+	scratch, err := harness.OpenDirectory(scratchDirectoryName)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open %s: %w", filepath.Join(harness.Path(), scratchDirectoryName), err)
+	}
+	defer scratch.Close()
+	entries, err := scratch.ReadDirectory(".")
+	if err != nil {
+		return fmt.Errorf("read %s: %w", scratch.Path(), err)
+	}
+	var problems []error
+	left := 0
 	for _, entry := range entries {
-		name := entry.Name()
-		switch {
-		case entry.Type()&fs.ModeSymlink != 0:
-			if !leadsOutside(filepath.Join(directory.Path(), name), boundary) {
-				continue
-			}
-			info, err := directory.Lstat(name)
-			if err != nil || info.Mode()&fs.ModeSymlink == 0 {
-				continue
-			}
-			if err := directory.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				problems = append(problems, fmt.Errorf("remove the link %s: %w", filepath.Join(directory.Path(), name), err))
-				continue
-			}
-			*removed = append(*removed, filepath.Join(directory.Path(), name))
-		case entry.IsDir():
-			child, err := directory.OpenDirectory(name)
-			if err != nil {
-				problems = append(problems, fmt.Errorf("open %s: %w", filepath.Join(directory.Path(), name), err))
-				continue
-			}
-			problems = append(problems, clearOutwardLinks(child, boundary, removed))
-			child.Close()
+		folder := OldScratchFolder{RunID: entry.Name(), Path: filepath.Join(scratch.Path(), entry.Name())}
+		over, why := ended(folder.RunID)
+		if !over {
+			folder.Why = why
+			clearing.Left = append(clearing.Left, folder)
+			left++
+			continue
+		}
+		if err := scratch.RemoveAll(folder.RunID); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			problems = append(problems, fmt.Errorf("remove %s: %w", folder.Path, err))
+			left++
+			continue
+		}
+		clearing.Removed = append(clearing.Removed, folder)
+	}
+	if left == 0 {
+		// Remove refuses a directory that is not empty, so a folder a run made
+		// since the listing keeps it.
+		if err := harness.Remove(scratchDirectoryName); err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) && !errors.Is(err, syscall.EEXIST) {
+			problems = append(problems, fmt.Errorf("remove the emptied %s: %w", scratch.Path(), err))
 		}
 	}
 	return errors.Join(problems...)
-}
-
-// leadsOutside reports whether the link at path resolves outside boundary. A
-// link whose target does not exist is judged by where it names, as the git
-// server judges it.
-func leadsOutside(path, boundary string) bool {
-	target, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		named, readErr := os.Readlink(path)
-		if readErr != nil {
-			return false
-		}
-		if !filepath.IsAbs(named) {
-			named = filepath.Join(filepath.Dir(path), named)
-		}
-		target = filepath.Clean(named)
-	}
-	relative, err := filepath.Rel(boundary, target)
-	if err != nil {
-		return true
-	}
-	slashed := filepath.ToSlash(relative)
-	return slashed == ".." || strings.HasPrefix(slashed, "../")
 }
 
 // Directory creation holds the root's handle across the write. Resolve alone

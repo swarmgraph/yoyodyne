@@ -381,78 +381,144 @@ func resolve(t *testing.T, path string) string {
 	return resolved
 }
 
-// The git MCP server, confined to a repository, walks the repository's whole Git
-// directory and refuses every call while any link there leads outside it. The
-// Codex CLI leaves exactly such links in a provider home made in scratch: under
-// tmp/arg0, to its own program. Those go, and with them a relative link that
-// climbs out and one whose target is gone; a link to somewhere inside the Git
-// directory, and every file, stay.
-func TestLinksLeadingOutOfTheGitDirectoryAreClearedFromScratch(t *testing.T) {
+// The scratch folders runs were given under `.git` before scratch moved to the
+// state directory are cleared for every run that has ended, in a worktree's
+// administrative directory and in the checkout's own: a link inside is removed
+// as a link and what it points at stays, and a run's folder that is itself a
+// link is removed as that link. A folder whose run still holds a developer
+// slot is left, with why, and everything else in the Git directory, the shared
+// build cache beside the folders included, is untouched.
+func TestOldScratchFoldersOfEndedRunsAreClearedFromTheGitDirectory(t *testing.T) {
 	t.Parallel()
 
-	checkout, worktree := repositoryWithWorktree(t)
-	// Where a run's scratch was cut before it moved to the state directory,
-	// which is what this clearing still reaches.
-	directory := filepath.Join(checkout, ".git", "worktrees", "one", "yoyodyne", "scratch", "run-one")
-	makeDirectory(t, directory)
+	checkout, _ := repositoryWithWorktree(t)
+	git := filepath.Join(checkout, ".git")
+	worktreeScratch := filepath.Join(git, "worktrees", "one", "yoyodyne", "scratch")
+	checkoutScratch := filepath.Join(git, "yoyodyne", "scratch")
+	writeFile(t, filepath.Join(git, "HEAD"), "ref: refs/heads/main\n")
+	cache := filepath.Join(git, "yoyodyne", "go-build", "README")
+	makeDirectory(t, filepath.Dir(cache))
+	writeFile(t, cache, "the shared build cache\n")
+
 	program := filepath.Join(t.TempDir(), "codex")
 	writeFile(t, program, "a program outside the repository\n")
-	arg0 := filepath.Join(directory, "home", "tmp", "arg0", "codex-arg0abc")
-	makeDirectory(t, arg0)
-	writeFile(t, filepath.Join(directory, "check.log"), "a log\n")
-	writeFile(t, filepath.Join(checkout, ".git", "HEAD"), "ref: refs/heads/main\n")
+	elsewhere := t.TempDir()
+	writeFile(t, filepath.Join(elsewhere, "kept"), "outside the repository\n")
 
-	outward := []string{
-		filepath.Join(arg0, "apply_patch"),
-		filepath.Join(arg0, "codex-execve-wrapper"),
-		filepath.Join(directory, "climbs-out"),
-		filepath.Join(directory, "gone"),
-	}
-	links := map[string]string{
-		outward[0]:                        program,
-		outward[1]:                        program,
-		outward[2]:                        "../../../../../../../elsewhere",
-		outward[3]:                        filepath.Join(t.TempDir(), "nothing-here"),
-		filepath.Join(directory, "head"):  filepath.Join(checkout, ".git", "HEAD"),
-		filepath.Join(directory, "local"): "check.log",
-	}
-	for link, target := range links {
+	ended := filepath.Join(worktreeScratch, "run-ended")
+	arg0 := filepath.Join(ended, "home", "tmp", "arg0", "codex-arg0abc")
+	makeDirectory(t, arg0)
+	writeFile(t, filepath.Join(ended, "check.log"), "a log\n")
+	live := filepath.Join(worktreeScratch, "run-live")
+	makeDirectory(t, live)
+	writeFile(t, filepath.Join(live, "check.log"), "a live run's log\n")
+	inCheckout := filepath.Join(checkoutScratch, "run-checkout")
+	makeDirectory(t, inCheckout)
+	linkedFolder := filepath.Join(checkoutScratch, "run-linked")
+	for link, target := range map[string]string{
+		filepath.Join(arg0, "apply_patch"):   program,
+		filepath.Join(ended, "head"):         filepath.Join(git, "HEAD"),
+		filepath.Join(live, "apply_patch"):   program,
+		filepath.Join(inCheckout, "outside"): elsewhere,
+		linkedFolder:                         elsewhere,
+	} {
 		if err := os.Symlink(target, link); err != nil {
 			t.Skipf("this filesystem does not support symlinks: %v", err)
 		}
 	}
 
-	removed, err := ClearOutwardScratchLinks(checkout, worktree, "run-one")
+	asked := map[string]bool{}
+	clearing, err := ClearOldScratchFolders(checkout, func(runID string) (bool, string) {
+		asked[runID] = true
+		if runID == "run-live" {
+			return false, "it still holds a developer slot"
+		}
+		return true, ""
+	})
 	if err != nil {
-		t.Fatalf("ClearOutwardScratchLinks() error = %v", err)
+		t.Fatalf("ClearOldScratchFolders() error = %v", err)
 	}
-	if len(removed) != len(outward) {
-		t.Errorf("removed %d links %v, want the %d leading out", len(removed), removed, len(outward))
-	}
-	for _, link := range outward {
-		if _, err := os.Lstat(link); !os.IsNotExist(err) {
-			t.Errorf("the link %s, leading out of the Git directory, is still there (err = %v)", link, err)
+	for _, runID := range []string{"run-ended", "run-live", "run-checkout", "run-linked"} {
+		if !asked[runID] {
+			t.Errorf("whether %s ended was never asked", runID)
 		}
 	}
-	for _, kept := range []string{filepath.Join(directory, "head"), filepath.Join(directory, "local"), filepath.Join(directory, "check.log"), program} {
+	removed := map[string]bool{}
+	for _, folder := range clearing.Removed {
+		removed[folder.RunID] = true
+	}
+	if len(clearing.Removed) != 3 || !removed["run-ended"] || !removed["run-checkout"] || !removed["run-linked"] {
+		t.Errorf("removed %+v, want the three ended runs' folders", clearing.Removed)
+	}
+	if len(clearing.Left) != 1 || clearing.Left[0].RunID != "run-live" || clearing.Left[0].Why != "it still holds a developer slot" || clearing.Left[0].Path != resolve(t, live) {
+		t.Errorf("left %+v, want only run-live's folder, at %s, with why", clearing.Left, live)
+	}
+	for _, gone := range []string{ended, inCheckout, linkedFolder, checkoutScratch} {
+		if _, err := os.Lstat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s is still there (err = %v)", gone, err)
+		}
+	}
+	for _, kept := range []string{program, filepath.Join(elsewhere, "kept"), filepath.Join(git, "HEAD"), cache, filepath.Join(live, "check.log"), filepath.Join(live, "apply_patch")} {
 		if _, err := os.Lstat(kept); err != nil {
-			t.Errorf("%s was removed, and it leads nowhere outside: %v", kept, err)
+			t.Errorf("%s was removed: %v", kept, err)
 		}
 	}
 
-	again, err := ClearOutwardScratchLinks(checkout, worktree, "run-one")
-	if err != nil || len(again) != 0 {
-		t.Fatalf("a second clearing removed %v (err = %v), want nothing", again, err)
+	// Once the live run has ended, the next clearing takes its folder, and the
+	// one after that finds nothing.
+	again, err := ClearOldScratchFolders(checkout, func(string) (bool, string) { return true, "" })
+	if err != nil || len(again.Removed) != 1 || again.Removed[0].RunID != "run-live" || len(again.Left) != 0 {
+		t.Fatalf("the second clearing = %+v, %v; want run-live's folder removed", again, err)
+	}
+	if _, err := os.Stat(program); err != nil {
+		t.Fatalf("removing the live run's folder removed what its link pointed at: %v", err)
+	}
+	last, err := ClearOldScratchFolders(checkout, func(string) (bool, string) { return true, "" })
+	if err != nil || len(last.Removed) != 0 || len(last.Left) != 0 {
+		t.Fatalf("a clearing with nothing left = %+v, %v; want nothing", last, err)
 	}
 }
 
-// A run whose scratch directory was never made has nothing to clear.
-func TestClearingScratchThatWasNeverMadeIsNothing(t *testing.T) {
+// A Git directory whose harness folder, or whose scratch folder, has been
+// replaced by a link leading out of it is not entered, so nothing the link
+// reaches is removed.
+func TestOldScratchClearingDoesNotFollowALinkedScratchFolder(t *testing.T) {
 	t.Parallel()
 
-	checkout, worktree := repositoryWithWorktree(t)
-	removed, err := ClearOutwardScratchLinks(checkout, worktree, "run-one")
-	if err != nil || len(removed) != 0 {
-		t.Fatalf("ClearOutwardScratchLinks() = %v, %v; want nothing and no error", removed, err)
+	checkout, _ := repositoryWithWorktree(t)
+	elsewhere := t.TempDir()
+	makeDirectory(t, filepath.Join(elsewhere, "run-one"))
+	writeFile(t, filepath.Join(elsewhere, "run-one", "kept"), "outside the repository\n")
+	makeDirectory(t, filepath.Join(checkout, ".git", "worktrees", "one", "yoyodyne"))
+	if err := os.Symlink(elsewhere, filepath.Join(checkout, ".git", "worktrees", "one", "yoyodyne", "scratch")); err != nil {
+		t.Skipf("this filesystem does not support symlinks: %v", err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(checkout, ".git", "yoyodyne")); err != nil {
+		t.Fatal(err)
+	}
+
+	clearing, err := ClearOldScratchFolders(checkout, func(string) (bool, string) { return true, "" })
+	if err == nil {
+		t.Error("a scratch folder that is a link was passed over without saying so")
+	}
+	if len(clearing.Removed) != 0 {
+		t.Errorf("removed %+v through a link", clearing.Removed)
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, "run-one", "kept")); err != nil {
+		t.Fatalf("a file the link reached was removed: %v", err)
+	}
+}
+
+// A repository with no old scratch folders has nothing to clear.
+func TestClearingOldScratchWhereThereIsNoneIsNothing(t *testing.T) {
+	t.Parallel()
+
+	checkout, _ := repositoryWithWorktree(t)
+	clearing, err := ClearOldScratchFolders(checkout, func(runID string) (bool, string) {
+		t.Errorf("asked about %s, with no folder for it", runID)
+		return true, ""
+	})
+	if err != nil || len(clearing.Removed) != 0 || len(clearing.Left) != 0 {
+		t.Fatalf("ClearOldScratchFolders() = %+v, %v; want nothing and no error", clearing, err)
 	}
 }

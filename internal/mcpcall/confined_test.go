@@ -21,8 +21,9 @@ import (
 // repository as its argument, with USER expanded, and a call's repository path
 // reaches it unchanged: nothing in how the harness starts a server or passes a
 // call puts a program's path where the repository's belongs. The refusal the
-// real server gave was about links in the repository's Git directory, which
-// execution.ClearOutwardScratchLinks clears.
+// real server gave was about links in the repository's Git directory, where no
+// run's scratch folder is made any more, and from which
+// execution.ClearOldScratchFolders clears the folders earlier runs were given.
 func TestAServerDeclaredWithItsRepositoryIsHandedThatRepository(t *testing.T) {
 	t.Setenv("USER", "yoyo-test-user")
 	base := t.TempDir()
