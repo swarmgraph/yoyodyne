@@ -11,18 +11,27 @@ revisions:
       by: architect
       at: 2026-11-20T22:38:04.74506Z
       reason: 'Mason asked on November 20 for research into reducing what the factory costs, with his assistant''s measurements of Nov 6 to 20 as evidence. Orders seven changes by saving and risk: reuse of the unchanging opening of each pass, skipping passes with nothing new, a diagnosis of the development manager''s rise in sessions, cheaper developer and review models behind trials, Sonnet passes, and a read helper for conversation roles. Written from passcontext.go and freshness.go at main ed9451a8.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T23:31:58.620995Z
+      reason: 'yoyodyne-ifd.435.83: adds section 8, answering Mason''s question of November 20 on what a project can configure: each setting with its default, bounds held in code and who decides it, models named by kind per provider, and the choices kept fixed and why. Sections 2, 4, 5 and 7 and the build pieces now point to it. The earlier rewrite was refused because the design already existed.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-20T22:38:04.74506Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3250, for document-3250.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-20T23:31:58.620995Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3267, for document-3267.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
 ## What this is for
 
-Mason asked on November 20, 2026 for research into ways to reduce what the factory costs to run. His examples were developers using Sonnet or Opus as the work needs, and the Lead Product Manager and the architect using cheaper helpers for searches. This design records what the research found and what is decided, in order of saving and risk, and names the build pieces.
+Mason asked on November 20, 2026 for research into ways to reduce what the factory costs to run. His examples were developers using Sonnet or Opus as the work needs, and the Lead Product Manager and the architect using cheaper helpers for searches. This design records what the research found and what is decided, in order of saving and risk, says which of its choices a project can configure and who decides each, and names the build pieces.
 
 It serves the goal that spend follows the work: the model, the context and the number of provider calls a task costs are chosen for that task. It also serves the goal that the operator can see what the harness spends, and the milestone measure of useful software per hour of the owner's attention, whose internal week holds the management roles to at most 40% of known spend. It must not break independent review, the traceable chain, or the rule that conversation roles hold no tools of their own.
 
@@ -74,7 +83,7 @@ The bound on what a pass starts from, a third of the provider's window, counts b
 - a deadline passed on a follow-up the role owns;
 - for the development manager, a change to her list of stopped runs or to the factory's health problems; for a program manager, a change in its lane or in the health problems its lane covers.
 
-Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has at least one full pass every four hours, whatever the check finds, so a change the check does not cover is never left longer than that. Passes woken by an event, rather than by the schedule, are not affected. The four hours is a numeric limit the development manager sets under section 6 of portable agent configuration.
+Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has a full pass at least every four hours by default, whatever the check finds, so a change the check does not cover is never left longer than that. Passes woken by an event, rather than by the schedule, are not affected. Whether skipping is on, and the longest time between full passes, are settings in section 8.
 
 A check in the harness was chosen over a first look by a cheaper model, because the check costs nothing and the things it reads are already records. A cheaper first look can be weighed later for whatever the check cannot decide.
 
@@ -92,12 +101,12 @@ This is a diagnosis for the development manager to admit and a developer to carr
 
 **The decision.** The management loop protocol already decides that the development manager chooses among execution profiles, that a failed attempt at low cost moves once to a stronger profile with the reason and added cost recorded, and that high risk work never runs on the cheapest. That was never built. It is built narrowly now, for developer runs:
 
-- an item the development manager marks eligible starts on Sonnet;
-- after its first failed review or failed checks, the run moves once to Opus for the rest of its attempts, and the move and its cost are recorded on the run;
+- an item the development manager marks eligible starts on the cheaper model;
+- after its first failed review or failed checks, the run moves once to the stronger model for the rest of its attempts, and the move and its cost are recorded on the run;
 - priority 0 items, and work on security, migrations, concurrency or public interfaces, are never eligible;
-- which items are eligible, and which models the two steps use, is the development manager's to decide, as developer models already are.
+- which items are eligible is the development manager's to decide, and which models the two steps use comes from the settings in section 8.
 
-It goes in by trial. For at least 40 eligible runs, the development manager alternates eligible items between starting on Sonnet and starting on Opus, and compares cost per merged change, how often the first review approves, repair rounds and defects found after landing. The rule is kept only where cost per merged change falls and the first review approves no less often. It stops at once on a defect after landing traced to a Sonnet run that an Opus run would have caught.
+It goes in by trial. For at least 40 eligible runs, the development manager alternates eligible items between starting on the cheaper model and starting on the stronger one, and compares cost per merged change, how often the first review approves, repair rounds and defects found after landing. The rule is kept only where cost per merged change falls and the first review approves no less often. It stops at once on a defect after landing traced to a run on the cheaper model that a run on the stronger one would have caught.
 
 [Developer sub-agents](developer-sub-agents.md) is a separate trial already decided, for runs that keep Opus to plan and hand writing to a cheaper model; it is unchanged.
 
@@ -105,13 +114,13 @@ It goes in by trial. For at least 40 eligible runs, the development manager alte
 
 **What was found.** 982 reviews cost $864: code at a median $0.93 and published documents at $0.66. 49 items took five or more reviews each, 35% of all reviews.
 
-**The decision.** Independent review requires a role that did not write the change, not a particular model. Reviews of a document publication run on Sonnet after a trial of at least 30 publications reviewed on both models, kept only where the Sonnet reviewer refuses what the Opus reviewer refuses. Code reviews stay on Opus. The reviewer's model by kind of change becomes one of the values the development manager decides under section 6 of portable agent configuration, beside developer models, because it changes how work is reviewed and not who may review. That design is revised to say so in its own revision.
+**The decision.** Independent review requires a role that did not write the change, not a particular model. Reviews of a document publication run on the cheaper model after a trial of at least 30 publications reviewed on both models, kept only where the cheaper reviewer refuses what the stronger reviewer refuses. Code reviews stay on the stronger model. The reviewer's model by kind of change is a setting in section 8, because it changes how work is reviewed and not who may review.
 
 Why some items took five or more reviews is a question for the development manager's diagnosis in section 3, which also lists those items.
 
 ## 6. Passes on the cheaper model where the work allows it
 
-The development manager already decides the model of a recurring task under section 6. As a trial, the factory-flow program manager's scheduled passes run on Sonnet for one week, compared with the week before on how many findings it filed that a role then acted on, and on what it missed that the development manager later found. They return to Opus if fewer of its findings are acted on. The management roles' own conversation turns, and the models their agents name, are unchanged by this design.
+The development manager already decides the model of a recurring task under section 6 of [portable agent configuration](portable-agent-configuration.md). As a trial, the factory-flow program manager's scheduled passes run on Sonnet for one week, compared with the week before on how many findings it filed that a role then acted on, and on what it missed that the development manager later found. They return to Opus if fewer of its findings are acted on. The management roles' own conversation turns, and the models their agents name, are unchanged by this design.
 
 ## 7. A helper that reads for a conversation role
 
@@ -120,11 +129,36 @@ The development manager already decides the model of a recurring task under sect
 **The decision.** A new tool, `repository.ask`, class `read`, under [the tool interface](tool-interface.md):
 
 - a role asks one question, with optional path prefixes;
-- the harness runs one Haiku session that can only read the repository at the commit the turn reads at, with no write, no network and no MCP tools, and with a time limit;
-- the answer comes back as paths, line ranges and at most 4 KiB of text, framed as untrusted evidence, and its cost is recorded against the asking role;
+- the harness runs one session on the lightest model that can only read the repository at the commit the turn reads at, with no write, no network and no MCP tools, and with a time limit;
+- the answer comes back as paths, line ranges and a bounded amount of text, framed as untrusted evidence, and its cost is recorded against the asking role;
 - an answer is a pointer and not evidence: a role that rules on a passage reads that passage itself first.
 
 It is held first by the architect, the Lead Product Manager and the program manager. Its saving is the smallest here, so it is built last. The conversation roles still hold no tools of their own: the session belongs to the harness, as research does.
+
+## 8. What can be configured, and who decides
+
+Mason asked which of these choices a project can change. Every setting below lives with the values the development manager decides under section 6 of [portable agent configuration](portable-agent-configuration.md), which says how such a value is set and recorded; that design is revised in its own revision to name them. Each limit has bounds held in code, and a value outside them is refused when the configuration loads, as for every other limit there.
+
+| Setting | What it decides | Default | Bounds held in code | Who decides |
+| --- | --- | --- | --- | --- |
+| `model_kinds` | For each provider, which model is the stronger, the cheaper and the lightest | Claude Code: Opus, Sonnet and Haiku. Codex: none named | A named model must be one the provider's adapter accepts | Development manager |
+| `developer_cheaper_first` | Whether eligible developer runs start on the cheaper model and move to the stronger once (section 4) | Off until the trial keeps it | None | Development manager |
+| `high_risk_labels` | Labels that make an item never eligible to start on the cheaper model, beside the fixed kinds | None | Adds only; cannot remove a fixed kind | Development manager |
+| `reviewer_models` | The model a review uses for code and for a document publication (section 5) | The stronger model for both | Code reviews cannot be set below the stronger model | Development manager |
+| `skip_when_unchanged` | Whether a scheduled pass with nothing new is skipped (section 2) | On, once piece 3 lands | None | Development manager |
+| `full_pass_every` | The longest a role goes without a full pass while skipping is on | 4 hours | At least 1 hour, at most 12 hours | Development manager |
+| `repository_ask` | The read helper's time limit and the size of its answer (section 7) | 5 minutes and 4 KiB | At most 15 minutes and 8 KiB | Development manager |
+
+Where a provider names no model of a kind, a choice that needs that kind does nothing for that provider, and its runs keep the model already configured for them. With the Codex defaults above, sections 4, 5 and 7 change nothing on Codex until its kinds are named.
+
+Some choices are deliberately not settings:
+
+- **Reuse of the unchanging part of each pass (section 1).** It changes no role's result, so there is nothing a project gains by turning it off. The cache's lifetime of one hour is fixed for the reason given in section 1.
+- **What the skip check reads (section 2).** A project that narrowed the list could skip passes that have work waiting. The list is changed only by revising this design.
+- **The fixed kinds that are never eligible.** Priority 0 items and work on security, migrations, concurrency or public interfaces stay on the stronger model whatever the configuration says; a project may add labels to them and never take one away.
+- **Who holds `repository.ask`.** Which roles hold a tool is trusted code, and configuration never grants authority. A project can narrow a role's tools as it can today, never widen them.
+
+Each setting is built in the build piece that uses it, with its default, its bounds and a test that a value outside them is refused.
 
 ## What is measured
 
@@ -136,17 +170,18 @@ Each week the harness records, from the spend record, the cost per closed item a
 - **Fewer passes by a longer schedule alone.** A pass with work to do would wait; skipping only the passes with nothing new saves the same without that wait.
 - **Giving conversation roles sub-agents of their own.** It would give them tools, which the safety boundaries rule out.
 - **Capping spend for each item and stopping work at the cap.** It stops work without saying why it was dear; the diagnosis in section 3 and the move up in section 4 address the cause.
+- **Naming models directly in each setting instead of by kind.** A project moving to a new model would then change every setting; naming the kinds once per provider keeps that to one place.
 
 ## Build pieces, in order, for the Lead Product Manager to admit
 
 1. **Measure what a pass reuses.** For every pass, record the digest of each part of its start in order and the cached and fresh tokens the provider reports, and name the first part that differs from the role's previous pass. No provider call is added. Then confirm with two passes whether the separately sent block is read from the cache and the message is not.
 2. **Send the unchanging part apart.** Build the unchanging part byte for byte the same across passes and send it as the separately cached block, with a test that two passes with the same instructions and intent produce identical bytes. Needs 1.
-3. **Skip passes with nothing new.** The check, the skipped record, the four hour floor as a numeric limit, and a test for each thing checked.
+3. **Skip passes with nothing new.** The check, the skipped record, `skip_when_unchanged` and `full_pass_every` with their bounds, and a test for each thing checked.
 4. **The diagnosis of the development manager's sessions, messages and repeated reviews,** with a fix named for each cause.
-5. **Developers starting cheap and moving up once,** with the trial and its record.
-6. **Reviewer model by kind of change** as a value under section 6, and the trial for document reviews.
+5. **Developers starting cheap and moving up once,** with `model_kinds`, `developer_cheaper_first` and `high_risk_labels`, the trial and its record.
+6. **Reviewer model by kind of change,** with `reviewer_models`, and the trial for document reviews. Needs the `model_kinds` setting from 5.
 7. **The factory-flow program manager on Sonnet for a week,** set by the development manager, with the comparison recorded.
-8. **`repository.ask`,** its grants and its tests.
+8. **`repository.ask`,** with its `repository_ask` setting, its grants and its tests.
 9. **The weekly figures** on cost per closed item and per landed code change.
 
 Pieces 1, 3, 4 and 9 can start at once. Pieces 5, 6 and 7 are trials the development manager runs.
@@ -155,6 +190,7 @@ Pieces 1, 3, 4 and 9 can start at once. Pieces 5, 6 and 7 are trials the develop
 
 - After piece 2, two passes of one role with unchanged instructions and intent send identical bytes in the unchanging part, and the provider reports it read from the cache on the second.
 - No pass sends less evidence than before: every part it started from is still sent.
-- A skipped pass is recorded with its reason, and no role goes more than four hours without a full pass.
-- A developer run that moved to Opus records why, when and what it cost.
+- A skipped pass is recorded with its reason, and no role goes longer than `full_pass_every` without a full pass.
+- A developer run that moved to the stronger model records why, when and what it cost.
+- Every setting in section 8 has its default and bounds, a value outside them is refused at load, and no setting lets a project remove a fixed kind, put code reviews below the stronger model, or grant `repository.ask` to a role.
 - No trial's change is kept without the comparison its section names.
