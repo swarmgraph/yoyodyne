@@ -3055,8 +3055,10 @@ carried out like any re-run, by the pass or by `yoyo triage rerun`, once the
 owner has released the parking — asked for while the raise's parking stands, it
 is refused with nothing spent, and asking again after the release carries out
 the same decision — and the item is held from a fresh pull until it starts. A
-change that no longer merges with the target fails that run rather than being
-half-applied. `retire-raise` is for when the amendment makes that change moot:
+change that conflicts with the target is merged in with its conflict markers
+left in the files that conflict, and its developer is told which files to
+resolve; only a change Git cannot merge at all ends that run, before its
+developer starts. `retire-raise` is for when the amendment makes that change moot:
 it spends nothing, is carried out as it is recorded, lifts the parking the raise
 placed and no other, clears the blocked status the raise left, closes the
 raise's entry, and the item starts from the target branch at its next pull. A
@@ -3234,10 +3236,11 @@ to it uncommitted before the developer is invoked, and the run records the
 commit it started from. So a change that was finished and stopped only on
 something outside the work, such as a refused push, is carried forward rather
 than written again. Where the branch is gone, the fresh run starts from the
-target branch. Where the kept change no longer applies cleanly to the target, a
-re-run of a stopped run starts from the target branch instead, as every re-run
-of one used to, and records no commit it started from; a re-run of a raise ends
-there, because carrying that change forward is what it was for. It takes the run and nothing else: why the run exists is read from
+target branch. Where the kept change conflicts with the target, it is merged in
+anyway with its conflict markers left in the files that conflict, the run
+records those files, and the developer is told to resolve them and not to
+commit; a change Git cannot merge at all ends the run before the developer
+starts, saying why. It takes the run and nothing else: why the run exists is read from
 the recorded decision and cites it, so the account is one you can check.
 **Your hold on intake applies to it**,
 because the harness is the one choosing here and the exemption for an item named
@@ -3431,8 +3434,9 @@ run stopped with its change preserved on a branch does not get started over from
 nothing, because a clean worktree off the target branch looks perfectly valid and
 is caught by nothing downstream. The refusal names the branch and both ways out,
 and `yoyo triage rerun` is the one that starts a fresh run deliberately: it
-carries the kept change forward into the fresh run, falling back to the target
-branch only where that change no longer applies cleanly, and a claimed re-run is
+carries the kept change forward into the fresh run, with any conflicts left for
+its developer to resolve, falling back to the target branch only where that
+change's branch is gone, and a claimed re-run is
 exactly what lets a fresh run through.
 
 The repair is also dispatched to the run it is about rather than to the item:

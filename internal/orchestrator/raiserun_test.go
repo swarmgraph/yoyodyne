@@ -233,8 +233,8 @@ func TestARerunOfARaiseWaitsForTheOwnerToReleaseItsParking(t *testing.T) {
 // A re-run starts from the change its earlier run kept wherever that run's
 // branch is still there, whatever ended the run. A re-run of a raise keeps to
 // that change; a re-run of any other stopped run falls back to the target where
-// the change no longer applies, which is where it always used to start. A run
-// whose branch is gone leaves nothing to lift.
+// the branch went before the lift, which is where it always used to start. A
+// run whose branch is gone leaves nothing to lift.
 func TestARerunStartsFromTheChangeItsEarlierRunKept(t *testing.T) {
 	t.Parallel()
 
@@ -268,9 +268,12 @@ func (l refusingLifter) LiftChange(context.Context, gitworktree.Worktree, string
 }
 
 // A lift that may fall back starts the run from the target where the kept
-// change no longer applies or its branch has gone, and records no lifted
-// commit; a lift that may not ends the run, and any other failure ends either.
-func TestALiftThatMayFallBackStartsFromTheTargetWhenTheChangeNoLongerApplies(t *testing.T) {
+// change's branch has gone, and records no lifted commit. A change Git could not
+// merge at all ends the run before its developer starts, whether or not the lift
+// may fall back: starting from the target with the change silently dropped is
+// what left a developer to bring it in by hand and commit it. A change that only
+// conflicts is lifted with its conflicts (TestALiftThatConflictsIsRecordedWithItsFiles).
+func TestALiftThatMayFallBackStartsFromTheTargetOnlyWhenTheBranchIsGone(t *testing.T) {
 	t.Parallel()
 
 	other := errors.New("the repository could not be read")
@@ -280,10 +283,10 @@ func TestALiftThatMayFallBackStartsFromTheTargetWhenTheChangeNoLongerApplies(t *
 		err      error
 		ends     bool
 	}{
-		{name: "does-not-apply-falls-back", fallBack: true, err: fmt.Errorf("%w: conflict in README.txt", gitworktree.ErrLiftDoesNotApply)},
+		{name: "does-not-apply-ends", fallBack: true, err: fmt.Errorf("%w: unrelated histories", gitworktree.ErrLiftDoesNotApply), ends: true},
 		{name: "branch-gone-falls-back", fallBack: true, err: fmt.Errorf("%w: yoyodyne/xdj/01234567", gitworktree.ErrLiftBranchGone)},
 		{name: "other-failure-ends", fallBack: true, err: other, ends: true},
-		{name: "raise-does-not-apply-ends", err: fmt.Errorf("%w: conflict in README.txt", gitworktree.ErrLiftDoesNotApply), ends: true},
+		{name: "raise-does-not-apply-ends", err: fmt.Errorf("%w: unrelated histories", gitworktree.ErrLiftDoesNotApply), ends: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

@@ -71,27 +71,41 @@ func TestALiftOfABranchCarryingNothingSaysSo(t *testing.T) {
 	}
 }
 
-// A change that no longer merges with where the target now stands is not
-// half-applied: the worktree goes back to exactly what was cut, and the conflict
-// is the error.
-func TestALiftThatConflictsLeavesTheWorktreeAsItWasCut(t *testing.T) {
+// A change that conflicts with where the target now stands is still lifted: the
+// merge is left with its conflict markers for the developer, the files are named
+// on the lift, HEAD stays where the harness cut it, and once the files are
+// resolved the harness's own commit carries the resolution.
+func TestALiftThatConflictsLeavesTheConflictsForTheDeveloper(t *testing.T) {
 	t.Parallel()
 
 	repository := newRepository(t)
 	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
-	raisedBranch(t, repository, "yoyodyne/raised/bbbb", "README.txt", "the raising run's README\n")
+	commit := raisedBranch(t, repository, "yoyodyne/raised/bbbb", "README.txt", "the raising run's README\n")
 	writeFile(t, repository, "README.txt", "main moved on\n")
 	runGit(t, repository, "commit", "--quiet", "-am", "main moved on")
 	worktree := preservedWorktree(t, manager, "yoyodyne-raised")
 
-	_, err := manager.LiftChange(context.Background(), worktree, "yoyodyne/raised/bbbb")
-	if !errors.Is(err, ErrLiftDoesNotApply) || !strings.Contains(err.Error(), "does not apply cleanly") {
-		t.Fatalf("LiftChange() error = %v, want the conflict named as ErrLiftDoesNotApply", err)
+	lifted, err := manager.LiftChange(context.Background(), worktree, "yoyodyne/raised/bbbb")
+	if err != nil {
+		t.Fatalf("LiftChange() error = %v, want the conflicting change lifted", err)
 	}
-	if status := strings.TrimSpace(gitOutput(t, worktree.Path, "status", "--porcelain")); status != "" {
-		t.Fatalf("status = %q, want the worktree back as it was cut", status)
+	if lifted.Commit != commit || len(lifted.Conflicts) != 1 || lifted.Conflicts[0] != "README.txt" {
+		t.Fatalf("lifted = %#v, want %s with README.txt in conflict", lifted, commit)
 	}
-	if got := readFile(t, worktree.Path, "README.txt"); got != "main moved on\n" {
-		t.Fatalf("README.txt = %q, want the target's", got)
+	got := readFile(t, worktree.Path, "README.txt")
+	if !strings.Contains(got, "<<<<<<<") || !strings.Contains(got, "main moved on") || !strings.Contains(got, "the raising run's README") {
+		t.Fatalf("README.txt = %q, want both sides between conflict markers", got)
+	}
+	if head := strings.TrimSpace(gitOutput(t, worktree.Path, "rev-parse", "HEAD")); head != worktree.BaseCommit {
+		t.Fatalf("HEAD = %s, want the base %s the harness cut", head, worktree.BaseCommit)
+	}
+
+	writeFile(t, worktree.Path, "README.txt", "resolved\n")
+	committed, err := manager.CommitAttempt(context.Background(), worktree, "")
+	if err != nil {
+		t.Fatalf("CommitAttempt() after resolving the lift error = %v", err)
+	}
+	if got := gitOutput(t, worktree.Path, "show", committed+":README.txt"); got != "resolved\n" {
+		t.Fatalf("committed README.txt = %q, want the resolution", got)
 	}
 }

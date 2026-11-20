@@ -82,14 +82,23 @@ type Lift struct {
 	RunID  string `json:"run_id"`
 	Branch string `json:"branch"`
 	// FallBackToTarget says the run starts from the target branch alone when the
-	// change no longer applies cleanly to it or its branch has gone, rather than
-	// ending. A re-run of a run that stopped is given it: re-running from the
-	// target is what such a re-run did before it started from the kept change, so
-	// a change the target has moved past costs the re-run nothing. A re-run of a
-	// raise is not, because it was started to carry that change forward once its
-	// item was amended.
+	// change's branch has gone, rather than ending. A re-run of a run that
+	// stopped is given it: re-running from the target is what such a re-run did
+	// before it started from the kept change. A re-run of a raise is not, because
+	// it was started to carry that change forward once its item was amended. It
+	// never drops a change that conflicts with the target: that change is lifted
+	// with its conflicts left for the developer to resolve.
 	FallBackToTarget bool `json:"fall_back_to_target,omitempty"`
 }
+
+// MaxLiftConflicts bounds how many conflicting files a run records its lift
+// left, and maxLiftConflictPathBytes how long each name may be. A lift past the
+// count records the first of them; the rest are in the worktree for the
+// developer to find.
+const (
+	MaxLiftConflicts         = 200
+	maxLiftConflictPathBytes = 4096
+)
 
 // maxLiftBranchBytes bounds the branch a lift names, which is a branch the
 // harness cut for an earlier run and so far shorter than this.
