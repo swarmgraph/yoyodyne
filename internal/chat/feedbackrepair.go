@@ -1,7 +1,8 @@
 package chat
 
 // The development manager's decision to repair an item whose run has ended, from
-// feedback on a pull request into the team's branch that the harness tracks
+// feedback on a pull request into the team's branch that the harness tracks, or on
+// a pull request the harness opened for a person to merge
 // (docs/designs/integrating-to-a-local-branch.md, section 2).
 //
 // It is not one of the decisions about a stopped run: the run that landed the
@@ -43,8 +44,12 @@ type FeedbackRepairRequest struct {
 
 // FeedbackRepairDecided is what recording it came to.
 type FeedbackRepairDecided struct {
-	// RunID is the run that landed the item, which holds the decision.
+	// RunID is the run that landed the item, or published its pull request, which
+	// holds the decision.
 	RunID string
+	// OnPersonsPullRequest says the pull request is one the harness opened for a
+	// person to merge, so the new run starts from that request's branch.
+	OnPersonsPullRequest bool
 }
 
 // FeedbackRepairs records the decision. It is satisfied in the harness by an
@@ -57,7 +62,7 @@ type FeedbackRepairs interface {
 func (a TrackerAction) feedbackRepairProblems() []error {
 	var problems []error
 	if a.PullRequest <= 0 {
-		problems = append(problems, fmt.Errorf("%s requires \"pull_request\", the number of the tracked pull request the feedback is on, as the report on your list names it", decisionRepairFromFeedback))
+		problems = append(problems, fmt.Errorf("%s requires \"pull_request\", the number of the pull request the feedback is on, as the report on your list names it", decisionRepairFromFeedback))
 	}
 	if strings.TrimSpace(a.Feedback) == "" {
 		problems = append(problems, fmt.Errorf("%s requires \"feedback\", the identifier of the piece of feedback, such as line-comment-21, as the report on your list names it", decisionRepairFromFeedback))
@@ -81,7 +86,7 @@ func (s *Session) carryOutFeedbackRepair(ctx context.Context, outcome *TrackerOu
 	action := outcome.Action
 	id := strings.TrimSpace(action.ID)
 	if s.options.FeedbackRepairs == nil {
-		outcome.refused(errors.New("this conversation cannot record a repair from feedback on a tracked pull request, so nothing was decided"))
+		outcome.refused(errors.New("this conversation cannot record a repair from feedback on a pull request, so nothing was decided"))
 		return
 	}
 	decided, err := s.options.FeedbackRepairs.Decide(ctx, FeedbackRepairRequest{
@@ -96,6 +101,11 @@ func (s *Session) carryOutFeedbackRepair(ctx context.Context, outcome *TrackerOu
 	if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note}); err != nil {
 		outcome.fail(err)
 		s.settleTrackerNote(ctx, outcome, id, note, "the decision recorded on the item")
+		return
+	}
+	if decided.OnPersonsPullRequest {
+		outcome.applied("decided to repair %s from %s on pull request #%d, recorded on run %s and one of the item's attempts spent; a new run of it starts at the harness's next pass from the change that pull request's branch carries, applied onto the target branch as it stands, and updates the same pull request, which stays waiting for a person to merge it",
+			id, strings.TrimSpace(action.Feedback), action.PullRequest, decided.RunID)
 		return
 	}
 	outcome.applied("decided to repair %s from %s on pull request #%d, recorded on run %s and one of the item's attempts spent; a new run of it starts from the target branch at the harness's next pass, and it stays waiting for the team's merge",

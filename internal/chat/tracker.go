@@ -639,8 +639,8 @@ type TrackerAction struct {
 	// until that item is closed or retired rather than for a fixed window.
 	WaitsOn string `json:"waits_on,omitempty"`
 	// PullRequest and Feedback name the list entry a "repair-from-feedback"
-	// decision answers: the tracked pull request into the team's branch and the
-	// piece of feedback on it, as the report on her list names them. They are
+	// decision answers: the pull request, one the harness tracks into the team's
+	// branch or one it opened for a person to merge, and the piece of feedback on it, as the report on her list names them. They are
 	// taken by that decision and by nothing else.
 	PullRequest int    `json:"pull_request,omitempty"`
 	Feedback    string `json:"feedback,omitempty"`

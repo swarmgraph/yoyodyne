@@ -39,6 +39,18 @@ type PersonMerge struct {
 	// developer session. While it is set the wait is the development manager's
 	// to decide, not only the person's to merge.
 	UpdateRefused string `json:"update_refused,omitempty"`
+	// Repairs are the development manager's decisions to repair the item from
+	// feedback on this request, each bound to the list entry it answers
+	// (personmergerepair.go). They are kept here, beside the request the
+	// feedback is about, so they go where the run's record goes and are refused
+	// once the wait ends.
+	Repairs []TeamFeedbackRepair `json:"repairs,omitempty"`
+	// ContinuedBy is the later run that took this request over when it carried a
+	// decided repair onto the request's own branch, and ContinuedAt when. The
+	// request is then that run's wait, and this one is over: two runs never wait
+	// on one request, so the forge check settles it once.
+	ContinuedBy string     `json:"continued_by,omitempty"`
+	ContinuedAt *time.Time `json:"continued_at,omitempty"`
 }
 
 // maxForgeLoginBytes bounds the forge account a closing is recorded under. A
@@ -53,7 +65,11 @@ func (p PersonMerge) Merged() bool { return p.MergedAt != nil }
 func (p PersonMerge) Returned() bool { return p.ReturnedAt != nil }
 
 // Waiting reports a wait that has not ended.
-func (p PersonMerge) Waiting() bool { return !p.Merged() && !p.Returned() }
+func (p PersonMerge) Waiting() bool { return !p.Merged() && !p.Returned() && p.ContinuedBy == "" }
+
+// Continued reports a wait handed to the later run that carried a repair onto
+// the request's branch.
+func (p PersonMerge) Continued() bool { return p.ContinuedBy != "" }
 
 // Says is the wait in the words every surface uses for it.
 func (p PersonMerge) Says() string {
@@ -84,6 +100,13 @@ func (p PersonMerge) Validate() error {
 	}
 	if len(p.UpdateRefused) > MaxSelectionReasonBytes {
 		problems = append(problems, fmt.Errorf("person_merge update_refused exceeds %d bytes", MaxSelectionReasonBytes))
+	}
+	problems = append(problems, validateTeamFeedbackRepairs("person_merge", p.Repairs)...)
+	if (p.ContinuedBy == "") != (p.ContinuedAt == nil) {
+		problems = append(problems, errors.New("a continued person_merge records the run that took it over and when, together"))
+	}
+	if p.ContinuedBy != "" && !ValidRunID(p.ContinuedBy) {
+		problems = append(problems, fmt.Errorf("person_merge continued_by %q is not a run identifier", p.ContinuedBy))
 	}
 	if !p.Returned() && (p.ClosedAt != nil || strings.TrimSpace(p.ClosedBy) != "") {
 		problems = append(problems, errors.New("person_merge closed_at and closed_by require returned_at"))

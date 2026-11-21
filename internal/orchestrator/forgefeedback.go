@@ -135,12 +135,29 @@ func (r Reconciler) feedbackRuns() ([]runstate.State, error) {
 	}
 	waiting := make([]runstate.State, 0)
 	for _, state := range listed {
-		if state.WaitingOnAPersonsMerge() {
+		// A decided repair that has not reached the request yet is the request's
+		// next change, so a repair round of the run's own is not started beside
+		// it from feedback left meanwhile.
+		if state.WaitingOnAPersonsMerge() && !repairInFlight(state) {
 			waiting = append(waiting, state)
 		}
 	}
 	sort.Slice(waiting, func(i, j int) bool { return waiting[i].RunID < waiting[j].RunID })
 	return waiting, nil
+}
+
+// repairInFlight reports a run whose wait holds a decision to repair that has
+// been taken or started and not yet carried onto the request.
+func repairInFlight(state runstate.State) bool {
+	if state.PersonMerge == nil {
+		return false
+	}
+	for _, repair := range state.PersonMerge.Repairs {
+		if repair.Started() || repair.TakenAt != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // takeUpFeedback reads one request's feedback and acts on what is new, under
@@ -478,6 +495,8 @@ func (r Reconciler) listComment(state runstate.State, comment runstate.ForgeFeed
 	}
 	message := fmt.Sprintf("%s commented on pull request #%d of %s%s at %s, which waits for a person to merge it: %q. It is a comment rather than a requested change, so no repair round was started; whether it calls for one is yours to decide.",
 		comment.Author, state.PullRequest.Number, state.WorkItemID, title, localTime(comment.At), oneline.Bound(comment.Body, 1500))
+	message += fmt.Sprintf(" To repair %s from it, record the decision %q naming pull_request %d, feedback %q and the item; that starts a new run from the change the pull request's branch carries, spends one of the item's attempts, and answers this entry once.",
+		state.WorkItemID, "repair-from-feedback", state.PullRequest.Number, comment.ID)
 	entry := report.Entry{Severity: report.SeverityNote, Message: oneline.Fold(message, report.MaxMessageBytes), For: domain.RoleDevelopmentManager}
 	collected, err := report.Collect([]report.Entry{entry}, report.Attribution{
 		Role: report.HarnessReporter, RunID: state.RunID, WorkItemID: state.WorkItemID, Build: state.Build,

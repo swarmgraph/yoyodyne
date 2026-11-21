@@ -1173,5 +1173,5 @@ func (c conversationFeedbackRepairer) Decide(ctx context.Context, request chat.F
 	if err != nil {
 		return chat.FeedbackRepairDecided{}, err
 	}
-	return chat.FeedbackRepairDecided{RunID: decided.RunID}, nil
+	return chat.FeedbackRepairDecided{RunID: decided.RunID, OnPersonsPullRequest: decided.OnPersonsPullRequest}, nil
 }

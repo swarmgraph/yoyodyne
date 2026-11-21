@@ -71,6 +71,44 @@ type Selection struct {
 	// rest of the selection because what a run was given to start from is part of
 	// why it came out the way it did.
 	Lift *Lift `json:"lift,omitempty"`
+	// Continues names the pull request this run's change goes onto, where the
+	// development manager decided to repair an item whose change waits on a pull
+	// request the harness opened. It is set with Lift, which starts the run from
+	// the change that request's branch carries. The run publishes by replacing
+	// that branch's head, so the same request is updated and no other is opened.
+	Continues *Continuation `json:"continues,omitempty"`
+}
+
+// Continuation is the pull request a repair run's change replaces the head of:
+// the earlier run that published it, the request, its branch, and the head the
+// harness last put on that branch. The branch is replaced only from exactly that
+// head, so a commit anybody else pushed there is refused and never overwritten.
+type Continuation struct {
+	RunID      string `json:"run_id"`
+	Number     int    `json:"number"`
+	Branch     string `json:"branch"`
+	HeadCommit string `json:"head_commit"`
+}
+
+// Validate refuses a continuation that names nothing to replace.
+func (c Continuation) Validate() error {
+	var problems []error
+	if !ValidRunID(strings.TrimSpace(c.RunID)) {
+		problems = append(problems, fmt.Errorf("continued run %q is not a run identifier", c.RunID))
+	}
+	if c.Number <= 0 {
+		problems = append(problems, errors.New("a continuation names the pull request it updates"))
+	}
+	switch branch := strings.TrimSpace(c.Branch); {
+	case branch == "":
+		problems = append(problems, errors.New("a continuation names the branch it replaces the head of"))
+	case len(branch) > maxLiftBranchBytes || strings.ContainsAny(branch, " \t\r\n"):
+		problems = append(problems, fmt.Errorf("continued branch %q is not a branch name the harness cut", c.Branch))
+	}
+	if !commitPattern.MatchString(c.HeadCommit) {
+		problems = append(problems, fmt.Errorf("continued head %q is not a commit", c.HeadCommit))
+	}
+	return errors.Join(problems...)
 }
 
 // Lift is the preserved change a run starts from: the earlier run that made it
@@ -141,6 +179,14 @@ func (s Selection) Validate() error {
 			problems = append(problems, err)
 		}
 	}
+	if s.Continues != nil {
+		if err := s.Continues.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+		if s.Lift == nil {
+			problems = append(problems, errors.New("a selection that continues a pull request starts from the change its branch carries"))
+		}
+	}
 	return errors.Join(problems...)
 }
 
@@ -165,7 +211,7 @@ func (s Selection) Stamped(at time.Time) (Selection, bool) {
 	if !s.Stated() {
 		return Selection{}, false
 	}
-	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At, Lift: s.Lift}
+	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At, Lift: s.Lift, Continues: s.Continues}
 	if stamped.At.IsZero() {
 		stamped.At = at.UTC()
 	}

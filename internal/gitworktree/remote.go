@@ -238,30 +238,9 @@ func (m *Manager) remoteConfigured(ctx context.Context, remote string) (bool, er
 // published branch nobody can explain is exactly the thing a person has to look
 // at.
 func (m *Manager) PublishBranch(ctx context.Context, worktree Worktree, message string) (Publication, error) {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		message = defaultCommitMessage(worktree)
-	}
-	path, head, err := m.verifyOwnedHead(ctx, worktree)
+	commit, err := m.commitForPublication(ctx, worktree, message)
 	if err != nil {
 		return Publication{}, err
-	}
-	dirty, err := m.isDirty(ctx, path)
-	if err != nil {
-		return Publication{}, err
-	}
-	if !dirty && head == worktree.BaseCommit {
-		return Publication{}, ErrNoChanges
-	}
-	commit := head
-	if dirty {
-		commit, err = m.commitWorktree(ctx, path, message)
-		if err != nil {
-			return Publication{}, err
-		}
-	}
-	if commit == worktree.BaseCommit {
-		return Publication{}, ErrNoChanges
 	}
 	publication := Publication{Remote: m.pushRemote, Branch: worktree.Branch, Commit: commit}
 	// The commit is reported even when the push fails, because it exists either
@@ -270,6 +249,118 @@ func (m *Manager) PublishBranch(ctx context.Context, worktree Worktree, message 
 	// to tell apart from an agent's own commit.
 	if err := m.pushBranch(ctx, worktree.Branch, commit); err != nil {
 		return publication, err
+	}
+	return publication, nil
+}
+
+// commitForPublication commits whatever the developer left in the worktree as
+// one harness-owned commit and returns the commit to publish, or ErrNoChanges
+// where the run changed nothing.
+func (m *Manager) commitForPublication(ctx context.Context, worktree Worktree, message string) (string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = defaultCommitMessage(worktree)
+	}
+	path, head, err := m.verifyOwnedHead(ctx, worktree)
+	if err != nil {
+		return "", err
+	}
+	dirty, err := m.isDirty(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	if !dirty && head == worktree.BaseCommit {
+		return "", ErrNoChanges
+	}
+	commit := head
+	if dirty {
+		commit, err = m.commitWorktree(ctx, path, message)
+		if err != nil {
+			return "", err
+		}
+	}
+	if commit == worktree.BaseCommit {
+		return "", ErrNoChanges
+	}
+	return commit, nil
+}
+
+// RemoteBranchMoved is the refusal of a push that replaces a branch the harness
+// published, because the branch is no longer at the commit the harness last put
+// there. Found is the commit the remote holds instead, empty where the branch is
+// gone. It is an ErrRemotePushRejected.
+type RemoteBranchMoved struct {
+	Branch   string
+	Expected string
+	Found    string
+	Detail   string
+}
+
+func (e *RemoteBranchMoved) Error() string {
+	found := "no branch of that name"
+	if e.Found != "" {
+		found = "commit " + e.Found
+	}
+	return fmt.Sprintf("%v: %s is not at %s, where the harness left it; the remote holds %s. %s", ErrRemotePushRejected, e.Branch, e.Expected, found, e.Detail)
+}
+
+func (e *RemoteBranchMoved) Is(target error) bool { return target == ErrRemotePushRejected }
+
+// PublishOnto commits what the developer left in the worktree, as PublishBranch
+// does, and puts that commit at the head of an existing remote branch the
+// harness published earlier, rather than on a branch of this run's own. It is
+// how a repair run updates the pull request it repairs: the request carries the
+// kept branch, and a request is updated by moving its branch.
+//
+// The push is a compare-and-swap on previousCommit, the head the harness last
+// put on that branch. A branch holding anything else, such as a commit a person
+// pushed to it, is refused with a *RemoteBranchMoved naming what is there, and
+// nothing on the remote is overwritten. The commit exists either way and is
+// reported with the error. A branch already at the commit, from a push whose
+// answer was lost, is a success.
+func (m *Manager) PublishOnto(ctx context.Context, worktree Worktree, message, branch, previousCommit string) (Publication, error) {
+	if !commitPattern.MatchString(previousCommit) {
+		return Publication{}, fmt.Errorf("published commit %q is invalid", previousCommit)
+	}
+	if err := validateRef(branch); err != nil {
+		return Publication{}, err
+	}
+	commit, err := m.commitForPublication(ctx, worktree, message)
+	if err != nil {
+		return Publication{}, err
+	}
+	return m.replaceBranch(ctx, branch, previousCommit, commit)
+}
+
+// replaceBranch moves a published remote branch from previousCommit to commit.
+func (m *Manager) replaceBranch(ctx context.Context, branch, previousCommit, commit string) (Publication, error) {
+	publication := Publication{Remote: m.pushRemote, Branch: branch, Commit: commit}
+	if commit == previousCommit {
+		return publication, nil
+	}
+	result, err := m.runRemote(ctx, "-C", m.repositoryRoot,
+		"-c", "core.hooksPath="+os.DevNull,
+		"push", "--force-with-lease=refs/heads/"+branch+":"+previousCommit,
+		m.pushRemote, commit+":refs/heads/"+branch)
+	if err != nil {
+		return publication, err
+	}
+	if result.Status != execution.ProcessSucceeded {
+		found, exists, lookErr := m.remoteCommit(ctx, m.pushRemote, branch)
+		if lookErr == nil && exists && found == commit {
+			return publication, nil
+		}
+		if lookErr != nil {
+			return publication, fmt.Errorf("%w: replace %s with %s on %s failed with exit code %d: %s", ErrRemotePushRejected, previousCommit, commit, branch, result.ExitCode, strings.TrimSpace(result.Stderr))
+		}
+		return publication, &RemoteBranchMoved{Branch: branch, Expected: previousCommit, Found: found, Detail: strings.TrimSpace(result.Stderr)}
+	}
+	published, exists, err := m.remoteCommit(ctx, m.pushRemote, branch)
+	if err != nil {
+		return publication, err
+	}
+	if !exists || published != commit {
+		return publication, fmt.Errorf("%w: %s on %s is at %q after the push, want %s", ErrRemotePushRejected, branch, m.pushRemote, published, commit)
 	}
 	return publication, nil
 }
@@ -287,39 +378,25 @@ func (m *Manager) PublishBranch(ctx context.Context, worktree Worktree, message 
 // run's own branch, never a target branch and never work the harness did not
 // author.
 func (m *Manager) RepublishBranch(ctx context.Context, worktree Worktree, previousCommit string) (Publication, error) {
+	return m.RepublishBranchAs(ctx, worktree, worktree.Branch, previousCommit)
+}
+
+// RepublishBranchAs is RepublishBranch for a branch other than the run's own:
+// the head of the worktree replaces that remote branch from previousCommit. A
+// repair run that updates the pull request of an earlier run uses it, because
+// the request's branch is that run's, not its own.
+func (m *Manager) RepublishBranchAs(ctx context.Context, worktree Worktree, branch, previousCommit string) (Publication, error) {
 	if !commitPattern.MatchString(previousCommit) {
 		return Publication{}, fmt.Errorf("published commit %q is invalid", previousCommit)
 	}
-	if err := validateRef(worktree.Branch); err != nil {
+	if err := validateRef(branch); err != nil {
 		return Publication{}, err
 	}
 	_, head, err := m.verifyOwnedHead(ctx, worktree)
 	if err != nil {
 		return Publication{}, err
 	}
-	publication := Publication{Remote: m.pushRemote, Branch: worktree.Branch, Commit: head}
-	if head == previousCommit {
-		return publication, nil
-	}
-	result, err := m.runRemote(ctx, "-C", m.repositoryRoot,
-		"-c", "core.hooksPath="+os.DevNull,
-		"push", "--force-with-lease=refs/heads/"+worktree.Branch+":"+previousCommit,
-		m.pushRemote, head+":refs/heads/"+worktree.Branch)
-	if err != nil {
-		return publication, err
-	}
-	if result.Status != execution.ProcessSucceeded {
-		return publication, fmt.Errorf("%w: replace %s with %s on %s failed with exit code %d: %s",
-			ErrRemotePushRejected, previousCommit, head, worktree.Branch, result.ExitCode, strings.TrimSpace(result.Stderr))
-	}
-	published, exists, err := m.remoteCommit(ctx, m.pushRemote, worktree.Branch)
-	if err != nil {
-		return publication, err
-	}
-	if !exists || published != head {
-		return publication, fmt.Errorf("%w: %s on %s is at %q after the push, want %s", ErrRemotePushRejected, worktree.Branch, m.pushRemote, published, head)
-	}
-	return publication, nil
+	return m.replaceBranch(ctx, branch, previousCommit, head)
 }
 
 // VerifyRemoteTarget checks that the remote target branch can still receive the

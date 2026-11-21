@@ -172,6 +172,11 @@ func (a *activeRun) publishAttempt(ctx context.Context) error {
 	if a.reconcilingPublishedBranch() {
 		return a.republishRebase(ctx, gitworktree.Rebase{HeadCommit: a.state.HarnessCommit})
 	}
+	// A repair run that updates the pull request of an earlier run replaces that
+	// request's branch rather than publishing one of its own (continuation.go).
+	if cont := a.continuation(); cont != nil {
+		return a.publishContinuation(ctx, *cont)
+	}
 	// The push is the first place a run touches the network, and a reset one is
 	// what killed a run at this exact step. Asking again is safe as well as
 	// necessary: commitAttempt has already recorded the work, so a second attempt
@@ -266,6 +271,10 @@ func (a *activeRun) republishRebase(ctx context.Context, rebase gitworktree.Reba
 		return nil
 	}
 	publication, err := recoveringValue(ctx, a, runstate.RetryRepublishBranch, func(ctx context.Context) (gitworktree.Publication, error) {
+		// A run that continues another's request replaces that request's branch.
+		if publisher, ok := a.pipeline.Worktrees.(ContinuationPublisher); ok && a.continuation() != nil && published.Branch != a.worktree.Branch {
+			return publisher.RepublishBranchAs(ctx, a.worktree, published.Branch, published.HeadCommit)
+		}
 		return a.pipeline.Worktrees.RepublishBranch(ctx, a.worktree, published.HeadCommit)
 	})
 	if err != nil {

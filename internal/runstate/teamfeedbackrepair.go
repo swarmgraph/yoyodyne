@@ -144,20 +144,20 @@ func (t TeamMerge) RepairsTaken() []TeamFeedbackRepair {
 	return taken
 }
 
-func validateTeamFeedbackRepairs(repairs []TeamFeedbackRepair) []error {
+func validateTeamFeedbackRepairs(owner string, repairs []TeamFeedbackRepair) []error {
 	var problems []error
 	if len(repairs) > MaxTeamFeedbackRepairs {
-		problems = append(problems, fmt.Errorf("team_merge carries %d repairs, which exceeds the bound of %d", len(repairs), MaxTeamFeedbackRepairs))
+		problems = append(problems, fmt.Errorf("%s carries %d repairs, which exceeds the bound of %d", owner, len(repairs), MaxTeamFeedbackRepairs))
 	}
 	seen := map[string]bool{}
 	for index, repair := range repairs {
 		if err := repair.Validate(); err != nil {
-			problems = append(problems, fmt.Errorf("team_merge repairs[%d]: %w", index, err))
+			problems = append(problems, fmt.Errorf("%s repairs[%d]: %w", owner, index, err))
 			continue
 		}
 		key := fmt.Sprintf("%d/%s", repair.PullRequest, repair.FeedbackID)
 		if seen[key] {
-			problems = append(problems, fmt.Errorf("team_merge repairs[%d]: feedback %s on pull request #%d is already answered", index, repair.FeedbackID, repair.PullRequest))
+			problems = append(problems, fmt.Errorf("%s repairs[%d]: feedback %s on pull request #%d is already answered", owner, index, repair.FeedbackID, repair.PullRequest))
 		}
 		seen[key] = true
 	}
