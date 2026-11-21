@@ -112,3 +112,22 @@ func TestAnEntryWhoseReviewerNeverAnswersReadablyIsHandedBackAndTheQueueGoesOn(t
 		t.Fatalf("reviewer asked %d times, want %d for the first entry and once for the one behind", f.reviewer.calls(), maxMergeQueueUnreadableReviews+1)
 	}
 }
+
+// Each candidate the queue builds is recorded with the rule that chose its
+// entry and why.
+func TestTheQueueRecordsWhichRuleChoseTheEntryOnItsCandidate(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t, approveVerdict)
+	if _, err := f.work(); err != nil {
+		t.Fatalf("Work() error = %v", err)
+	}
+	generations := f.generations()
+	if len(generations) == 0 || generations[0].Selection == nil {
+		t.Fatalf("generations = %#v, want the first to record how its entry was chosen", generations)
+	}
+	selection := generations[0].Selection
+	if selection.Rule != MergeQueueRuleOnlyWaiting || !strings.Contains(selection.Why, "only entry waiting") {
+		t.Fatalf("selection = %#v, want the only-entry rule and its reason", selection)
+	}
+}

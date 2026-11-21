@@ -12,9 +12,11 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -34,7 +36,6 @@ const (
 	MergeQueueRuleDocument    = "document"
 	MergeQueueRulePriority    = "code, by priority"
 	MergeQueueRuleUnreadable  = "code whose priority could not be read"
-	MergeQueueRuleAdmission   = "admission order, because the tracker could not be read"
 	MergeQueueRuleOnlyWaiting = "the only entry waiting"
 )
 
@@ -51,6 +52,109 @@ type MergeQueueChoice struct {
 	// entry's work item first among its priority decided the choice: without
 	// it, an entry admitted earlier under the same rule would have been chosen.
 	PlacedFirst bool
+	// Priority is the chosen entry's priority where it was known, and
+	// PriorityLastRead says it is the one last read from the tracker rather than
+	// read now.
+	Priority         int
+	PriorityKnown    bool
+	PriorityLastRead bool
+}
+
+// QueueReadings remembers, for each work item the queue holds, what the
+// tracker last said that the order uses — its priority, whether the Lead
+// Product Manager placed it first, and which other items hold it back — and
+// when it said it. A pick made while the tracker cannot be read orders entries
+// by these, under the same rules as if they had just been read. One value is
+// shared by every pass of a watch session, so a pass that cannot read the
+// tracker still has what the passes before it read; a process that has read
+// nothing yet remembers nothing, and its entries then go last, in admission
+// order, as code whose priority could not be read.
+type QueueReadings struct {
+	mu   sync.Mutex
+	seen map[string]queueReading
+}
+
+// queueReading is one work item as the tracker last said it.
+type queueReading struct {
+	priority int
+	placed   *time.Time
+	// blockers are the items the tracker named as holding this one back, in the
+	// listing's own terms; which of them are queue entries is decided at use.
+	blockers []string
+	readAt   time.Time
+}
+
+func (q *QueueReadings) remember(id string, reading queueReading) {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.seen == nil {
+		q.seen = map[string]queueReading{}
+	}
+	q.seen[id] = reading
+}
+
+func (q *QueueReadings) recall(id string) (queueReading, bool) {
+	if q == nil {
+		return queueReading{}, false
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	reading, ok := q.seen[id]
+	return reading, ok
+}
+
+// Why says in ordinary words why the rule chose this entry: what the rule is,
+// which waiting entries it went ahead of, and what could not be read.
+func (c MergeQueueChoice) Why() string {
+	var why string
+	switch c.Rule {
+	case MergeQueueRuleOnlyWaiting:
+		why = "it was the only entry waiting"
+	case MergeQueueRuleInProgress:
+		why = "its checks or review had already begun, and they are not thrown away for another entry"
+	case MergeQueueRuleAged:
+		why = "it had waited eight hours or more, and an entry that has waited that long goes ahead of everything else whatever its priority"
+	case MergeQueueRuleUrgent:
+		why = "it is priority 0 code, or the architect's oldest document, which go ahead of other entries"
+	case MergeQueueRuleDocument:
+		why = "it is a document, and documents go ahead of code that is not priority 0"
+	case MergeQueueRulePriority:
+		why = "it is code, and the most urgent priority waiting is taken first"
+	case MergeQueueRuleUnreadable:
+		why = "it is code whose priority could not be read, so the oldest is taken"
+	default:
+		why = c.Rule
+	}
+	if c.PriorityKnown {
+		source := "read now"
+		if c.PriorityLastRead {
+			source = "as last read, because the tracker could not be read this time"
+		}
+		why += fmt.Sprintf("; its priority is %d (%s)", c.Priority, source)
+	}
+	if c.PlacedFirst {
+		why += "; the Lead Product Manager placed its work item first among its priority, which put it ahead of entries admitted earlier"
+	}
+	if n := len(c.Passed); n > 0 {
+		noun := "entries"
+		if n == 1 {
+			noun = "entry"
+		}
+		why += fmt.Sprintf("; it went ahead of %d %s admitted earlier (%s)", n, noun, strings.Join(c.Passed, ", "))
+	}
+	if c.TrackerUnread != "" {
+		why += "; " + c.TrackerUnread
+	}
+	return why
+}
+
+// Selection is the choice as a generation records it.
+func (c MergeQueueChoice) Selection() *runstate.MergeQueueSelection {
+	why := oneline.Bound(c.Why(), runstate.MaxMergeQueueTextBytes)
+	return &runstate.MergeQueueSelection{Rule: c.Rule, Why: why}
 }
 
 // rankedEntry is a waiting entry with what the order decides by.
@@ -61,6 +165,10 @@ type rankedEntry struct {
 	architect  bool
 	priority   int
 	readable   bool
+	// lastRead says the priority is the one remembered from an earlier read,
+	// because the tracker could not be read for this entry now.
+	lastRead bool
+	readAt   time.Time
 	// placed is when the Lead Product Manager placed the entry's work item
 	// first among its priority (docs/designs/placing-an-item-first.md), and nil
 	// where no placement orders it.
@@ -140,27 +248,39 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	}
 	ranked := make([]rankedEntry, 0, len(waiting))
 	blocked := map[string]bool{}
-	readErrors := 0
 	var firstReadError error
+	var remembered, forgotten []string
 	read := o.readEntryItems(ctx, waiting)
 	for _, entry := range waiting {
 		r := rankedEntry{entry: entry, inProgress: started[entry.EntryID]}
 		r.document, r.architect = o.documentKind(ctx, entry)
+		var reading queueReading
 		item, err := read.item(ctx, o.pipeline.Tracker, entry.WorkItemID)
-		if err != nil {
-			readErrors++
+		if err == nil {
+			reading = queueReading{priority: item.Priority, placed: nil, blockers: item.WaitingOn(admitted), readAt: o.now}
+			if placement := item.PlacedFirst(); placement != nil {
+				at := placement.At
+				reading.placed = &at
+			}
+			o.pipeline.QueueReadings.remember(entry.WorkItemID, reading)
+			r.readable = true
+		} else {
 			if firstReadError == nil {
 				firstReadError = err
 			}
-		} else {
-			r.priority, r.readable = item.Priority, true
-			if placement := item.PlacedFirst(); placement != nil {
-				at := placement.At
-				r.placed = &at
+			var known bool
+			if reading, known = o.pipeline.QueueReadings.recall(entry.WorkItemID); known {
+				r.readable, r.lastRead, r.readAt = true, true, reading.readAt
+				remembered = append(remembered, fmt.Sprintf("%s (priority %d, read at %s)", entry.EntryID, reading.priority, reading.readAt.Local().Format("15:04 MST")))
+			} else {
+				forgotten = append(forgotten, entry.EntryID)
 			}
+		}
+		if r.readable {
+			r.priority, r.placed = reading.priority, reading.placed
 			// WaitingOn also names open items that are not in the queue; only
 			// another admitted entry's item holds this one back.
-			for _, id := range item.WaitingOn(admitted) {
+			for _, id := range reading.blockers {
 				if _, inQueue := admitted[id]; inQueue && id != entry.WorkItemID {
 					blocked[entry.EntryID] = true
 				}
@@ -168,9 +288,15 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 		}
 		ranked = append(ranked, r)
 	}
-	if readErrors == len(waiting) {
-		return MergeQueueChoice{Entry: waiting[0], Rule: MergeQueueRuleAdmission, Passed: queuePassedOver(waiting, waiting[0]),
-			TrackerUnread: fmt.Sprintf("the tracker could not be read: %v", firstReadError)}
+	unread := ""
+	if firstReadError != nil {
+		unread = fmt.Sprintf("the tracker could not be read: %v", firstReadError)
+		if len(remembered) > 0 {
+			unread += "; ordered by what was last read for entries " + strings.Join(remembered, ", ")
+		}
+		if len(forgotten) > 0 {
+			unread += "; nothing had been read for entries " + strings.Join(forgotten, ", ") + ", which go last among code, oldest first"
+		}
 	}
 	// An entry waiting on another waiting entry's item waits for it, unless
 	// every entry does, which would be a cycle that nothing could break.
@@ -184,7 +310,8 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 		candidates = ranked
 	}
 	chosen, rule, placed := rank(candidates, o.now)
-	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry), PlacedFirst: placed}
+	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry), PlacedFirst: placed,
+		Priority: chosen.priority, PriorityKnown: chosen.readable, PriorityLastRead: chosen.lastRead, TrackerUnread: unread}
 }
 
 // entryItems is what pick read of the waiting entries' work items together.

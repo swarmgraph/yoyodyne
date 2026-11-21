@@ -696,6 +696,11 @@ func buildPipeline(configPath string) (orchestrator.Pipeline, error) {
 // pipelineFrom wires the run pipeline over parts that are already built, so a
 // command that needs more than one of them — a conversation that also steers
 // work — builds the repository and state boundaries exactly once.
+// sessionQueueReadings is what the merge queue last read from the tracker. The
+// scheduler builds a pipeline for each pass, so the readings are kept here, once
+// for the process, for a pass that cannot read the tracker to order by.
+var sessionQueueReadings = &orchestrator.QueueReadings{}
+
 func pipelineFrom(parts components) orchestrator.Pipeline {
 	cfg := parts.config
 	processRunner := parts.runner
@@ -729,6 +734,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	return orchestrator.Pipeline{
 		Availability: machineAvailability(parts),
 		Tracker:      parts.tracker(),
+		// The priorities the merge queue last read, which order its entries while
+		// the tracker cannot be read.
+		QueueReadings: sessionQueueReadings,
 		// What finds the work items a developer's or reviewer's report names, as
 		// the report is collected.
 		ReferenceFinder: referenceFinder(parts),

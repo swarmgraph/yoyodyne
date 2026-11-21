@@ -251,8 +251,8 @@ func TestATrackerThatCannotBeReadGivesAdmissionOrderAndSaysSo(t *testing.T) {
 		orderEntry{id: "p3", paths: code, priority: 3},
 		orderEntry{id: "p0", paths: code, priority: 0},
 	)
-	if got.Entry.EntryID != "p3" || got.Rule != MergeQueueRuleAdmission || got.TrackerUnread == "" {
-		t.Fatalf("chose %s by %q (%q), want admission order with the tracker named", got.Entry.EntryID, got.Rule, got.TrackerUnread)
+	if got.Entry.EntryID != "p3" || got.Rule != MergeQueueRuleUnreadable || got.TrackerUnread == "" {
+		t.Fatalf("chose %s by %q (%q), want the oldest, as code whose priority could not be read, with the tracker named", got.Entry.EntryID, got.Rule, got.TrackerUnread)
 	}
 }
 
@@ -445,10 +445,158 @@ func TestTheQueueReadsItsEntriesItemsInOneCall(t *testing.T) {
 	}
 
 	got, batches, singles = choose(true)
-	if got.Entry.EntryID != "p3" || got.Rule != MergeQueueRuleAdmission || !strings.Contains(got.TrackerUnread, "timed out waiting for the store") {
-		t.Fatalf("chose %s by %q (%q), want admission order naming the tracker's error", got.Entry.EntryID, got.Rule, got.TrackerUnread)
+	if got.Entry.EntryID != "p3" || got.Rule != MergeQueueRuleUnreadable || !strings.Contains(got.TrackerUnread, "timed out waiting for the store") {
+		t.Fatalf("chose %s by %q (%q), want the oldest naming the tracker's error", got.Entry.EntryID, got.Rule, got.TrackerUnread)
 	}
 	if len(batches) != 1 || len(singles) != 0 {
 		t.Fatalf("asked %d batches and %v alone, want one batch and nothing after it", len(batches), singles)
+	}
+}
+
+// A pick made while the tracker cannot be read orders entries by the priority
+// last read for each, rather than by admission alone, so a priority 0 fix is
+// not passed over for an older priority 1 change because the tracker was slow.
+func TestAnUnreadableTrackerOrdersEntriesByTheirLastReadPriority(t *testing.T) {
+	items := map[string]beads.WorkItem{
+		"item-p1": {ID: "item-p1", Priority: 1},
+		"item-p0": {ID: "item-p0", Priority: 0},
+	}
+	waiting := []runstate.MergeQueueEntry{
+		{EntryID: "p1", Order: 1, WorkItemID: "item-p1", RunID: "p1", ApprovedHead: "p1", AdmittedAt: orderNow.Add(-2 * time.Hour)},
+		{EntryID: "p0", Order: 2, WorkItemID: "item-p0", RunID: "p0", ApprovedHead: "p0", AdmittedAt: orderNow.Add(-time.Hour)},
+	}
+	memory := &QueueReadings{}
+	choose := func(down bool, memory *QueueReadings) MergeQueueChoice {
+		o := queueOrder{
+			pipeline: &Pipeline{Store: orderRuns{}, QueueReadings: memory, Tracker: orderTracker{items: items, down: down}},
+			paths:    orderPaths{paths: map[string][]string{"p1": code, "p0": code}}.CandidatePaths,
+			now:      orderNow,
+		}
+		return o.choose(context.Background(), waiting, map[string]bool{})
+	}
+
+	// Nothing has been read yet: admission order, and it says so.
+	if got := choose(true, memory); got.Entry.EntryID != "p1" || got.Rule != MergeQueueRuleUnreadable || got.TrackerUnread == "" {
+		t.Fatalf("chose %s by %q (%q), want the oldest before any priority was read", got.Entry.EntryID, got.Rule, got.TrackerUnread)
+	}
+	// A read while the tracker answers is remembered.
+	if got := choose(false, memory); got.Entry.EntryID != "p0" || got.Rule != MergeQueueRuleUrgent || got.TrackerUnread != "" {
+		t.Fatalf("chose %s by %q (%q), want the priority 0 entry with the tracker read", got.Entry.EntryID, got.Rule, got.TrackerUnread)
+	}
+	got := choose(true, memory)
+	if got.Entry.EntryID != "p0" || got.Rule != MergeQueueRuleUrgent || !got.PriorityKnown || !got.PriorityLastRead {
+		t.Fatalf("chose %s by %q, want the priority 0 entry by its last read priority", got.Entry.EntryID, got.Rule)
+	}
+	why := got.Why()
+	for _, want := range []string{"priority 0 code", "as last read", "the tracker could not be read", "ordered by what was last read for entries", "p0 (priority 0, read at"} {
+		if !strings.Contains(why, want) {
+			t.Fatalf("reason %q does not say %q", why, want)
+		}
+	}
+	if got.Selection() == nil || got.Selection().Rule != MergeQueueRuleUrgent || got.Selection().Why != strings.Join(strings.Fields(why), " ") {
+		t.Fatalf("selection = %#v, want the rule and reason recorded", got.Selection())
+	}
+	// A pick with the tracker unreadable and nothing remembered for p0 still
+	// takes the entry whose priority is remembered.
+	other := &QueueReadings{}
+	other.remember("item-p1", queueReading{priority: 1, readAt: orderNow})
+	if got := choose(true, other); got.Entry.EntryID != "p1" || got.Rule != MergeQueueRulePriority {
+		t.Fatalf("chose %s by %q, want the entry with a remembered priority", got.Entry.EntryID, got.Rule)
+	}
+}
+
+func TestEveryRuleThatChoosesAnEntryHasAReasonInPlainWords(t *testing.T) {
+	for rule, want := range map[string]string{
+		MergeQueueRuleOnlyWaiting: "only entry waiting",
+		MergeQueueRuleInProgress:  "already begun",
+		MergeQueueRuleAged:        "waited eight hours or more",
+		MergeQueueRuleUrgent:      "priority 0 code",
+		MergeQueueRuleDocument:    "it is a document",
+		MergeQueueRulePriority:    "most urgent priority",
+		MergeQueueRuleUnreadable:  "priority could not be read",
+	} {
+		choice := MergeQueueChoice{Rule: rule, Passed: []string{"a", "b"}}
+		why := choice.Why()
+		if !strings.Contains(why, want) || !strings.Contains(why, "went ahead of 2 entries admitted earlier (a, b)") {
+			t.Errorf("reason for %q = %q, want it to say %q and what it passed over", rule, why, want)
+		}
+		if selection := choice.Selection(); selection == nil || selection.Rule != rule || selection.Why == "" {
+			t.Errorf("selection for %q = %#v, want the rule and a reason", rule, selection)
+		}
+	}
+}
+
+// A pick with the tracker unreadable applies every rule as it would have with
+// the tracker read: an entry with nothing remembered goes last among code, and
+// an aged entry or a document is still taken ahead of it.
+func TestAnUnreadableTrackerWithNothingRememberedStillAppliesTheOtherRules(t *testing.T) {
+	got := chooseFrom(t, false,
+		orderEntry{id: "code", paths: code, age: time.Hour},
+		orderEntry{id: "doc", paths: intent, age: time.Hour},
+	)
+	if got.Entry.EntryID != "doc" || got.Rule != MergeQueueRuleDocument || got.TrackerUnread == "" {
+		t.Fatalf("chose %s by %q, want the document ahead of code whose priority is unknown", got.Entry.EntryID, got.Rule)
+	}
+	got = chooseFrom(t, false,
+		orderEntry{id: "new", paths: code, age: time.Hour},
+		orderEntry{id: "aged", paths: code, age: 9 * time.Hour},
+	)
+	if got.Entry.EntryID != "aged" || got.Rule != MergeQueueRuleAged {
+		t.Fatalf("chose %s by %q, want the entry that waited eight hours", got.Entry.EntryID, got.Rule)
+	}
+	got = chooseFrom(t, false,
+		orderEntry{id: "new", paths: code, age: time.Hour},
+		orderEntry{id: "checking", paths: code, age: 2 * time.Hour, started: true},
+	)
+	if got.Entry.EntryID != "checking" || got.Rule != MergeQueueRuleInProgress {
+		t.Fatalf("chose %s by %q, want the entry already being checked", got.Entry.EntryID, got.Rule)
+	}
+}
+
+// Placement and dependencies are remembered with the priority, and a pick with
+// the tracker unreadable uses them, and names the entries it ordered that way
+// with when each was read.
+func TestAnUnreadableTrackerUsesRememberedPlacementAndDependencies(t *testing.T) {
+	readAt := orderNow.Add(-10 * time.Minute)
+	placedAt := orderNow.Add(-time.Hour)
+	waiting := []runstate.MergeQueueEntry{
+		{EntryID: "a", Order: 1, WorkItemID: "item-a", RunID: "a", ApprovedHead: "a", AdmittedAt: orderNow.Add(-3 * time.Hour)},
+		{EntryID: "b", Order: 2, WorkItemID: "item-b", RunID: "b", ApprovedHead: "b", AdmittedAt: orderNow.Add(-2 * time.Hour)},
+		{EntryID: "c", Order: 3, WorkItemID: "item-c", RunID: "c", ApprovedHead: "c", AdmittedAt: orderNow.Add(-time.Hour)},
+	}
+	pick := func(memory *QueueReadings) MergeQueueChoice {
+		o := queueOrder{
+			pipeline: &Pipeline{Store: orderRuns{}, QueueReadings: memory, Tracker: orderTracker{down: true}},
+			paths:    orderPaths{paths: map[string][]string{"a": code, "b": code, "c": code}}.CandidatePaths,
+			now:      orderNow,
+		}
+		return o.choose(context.Background(), waiting, map[string]bool{})
+	}
+
+	memory := &QueueReadings{}
+	memory.remember("item-a", queueReading{priority: 2, readAt: readAt})
+	memory.remember("item-b", queueReading{priority: 2, placed: &placedAt, readAt: readAt})
+	memory.remember("item-c", queueReading{priority: 2, readAt: readAt})
+	got := pick(memory)
+	if got.Entry.EntryID != "b" || got.Rule != MergeQueueRulePriority || !got.PlacedFirst {
+		t.Fatalf("chose %s by %q (placed first %v), want the remembered placement to put b first within its priority", got.Entry.EntryID, got.Rule, got.PlacedFirst)
+	}
+	if want := "b (priority 2, read at " + readAt.Local().Format("15:04 MST") + ")"; !strings.Contains(got.TrackerUnread, want) || !strings.Contains(got.Why(), want) {
+		t.Fatalf("record %q does not name the entry and when it was read, want %q", got.Why(), want)
+	}
+
+	memory = &QueueReadings{}
+	memory.remember("item-a", queueReading{priority: 2, blockers: []string{"item-b"}, readAt: readAt})
+	memory.remember("item-b", queueReading{priority: 2, readAt: readAt})
+	if got := pick(memory); got.Entry.EntryID != "b" {
+		t.Fatalf("chose %s, want b: a remembered dependency still holds a back", got.Entry.EntryID)
+	}
+
+	// An entry nothing is remembered for goes last, and the record says so.
+	memory = &QueueReadings{}
+	memory.remember("item-b", queueReading{priority: 3, readAt: readAt})
+	got = pick(memory)
+	if got.Entry.EntryID != "b" || !strings.Contains(got.TrackerUnread, "nothing had been read for entries a, c") {
+		t.Fatalf("chose %s (%q), want b ahead of entries with nothing remembered, named", got.Entry.EntryID, got.TrackerUnread)
 	}
 }

@@ -273,7 +273,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 // refuses, to a wait, or to the target moving under it, which is reported by
 // returning with neither a verdict nor a refusal so the caller builds again.
 func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, author string, configured runstate.MergeQueueCheckConfiguration, outcome MergeQueueVerification, ahead *aheadCheck) (MergeQueueVerification, error) {
-	generation, err := w.current(ctx, lease, key, entry, author, configured, &outcome.CheckoutRetries)
+	generation, err := w.current(ctx, lease, key, entry, author, configured, outcome.Choice.Selection(), &outcome.CheckoutRetries)
 	outcome.Generation = generation
 	if err != nil {
 		return outcome, err
@@ -425,7 +425,7 @@ func (w MergeQueueWorker) now() time.Time {
 //
 // Each checkout attempt that failed outside the change and was tried again is
 // added to retried.
-func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, retried *[]string) (runstate.MergeQueueGeneration, error) {
+func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, selection *runstate.MergeQueueSelection, retried *[]string) (runstate.MergeQueueGeneration, error) {
 	generations, err := w.Queue.Generations(key, entry.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, err
@@ -468,14 +468,14 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 			return standing, err
 		}
 	}
-	return w.build(ctx, lease, key, entry, author, configured, uint64(len(generations)+1), nil, retried)
+	return w.build(ctx, lease, key, entry, author, configured, uint64(len(generations)+1), nil, selection, retried)
 }
 
 // build builds the entry's candidate and records it as generation number: on
 // the target as it stands, or, for a candidate checked ahead, on the candidate
 // of the entry ahead of it. Each checkout attempt that failed outside the
 // change and was tried again is added to retried.
-func (w MergeQueueWorker) build(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, number uint64, ahead *runstate.MergeQueueAhead, retried *[]string) (runstate.MergeQueueGeneration, error) {
+func (w MergeQueueWorker) build(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, number uint64, ahead *runstate.MergeQueueAhead, selection *runstate.MergeQueueSelection, retried *[]string) (runstate.MergeQueueGeneration, error) {
 	request := gitworktree.QueueCandidateRequest{
 		Entry:        entry.EntryID,
 		TargetBranch: key.TargetBranch,
@@ -526,6 +526,7 @@ func (w MergeQueueWorker) build(ctx context.Context, lease *runstate.Lease, key 
 		AuthorSession: author,
 		CreatedAt:     w.now(),
 		BuiltAhead:    ahead,
+		Selection:     selection,
 		Checkout:      candidate.Path,
 	}
 	// The generation is on the record before anything judges it, so whatever
