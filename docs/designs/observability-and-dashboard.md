@@ -78,6 +78,10 @@ revisions:
       by: architect
       at: 2026-10-25T20:20:02.180936Z
       reason: 'Approved amendment-9f56f450, second half: the read model''s list of queries gains the summary query that the dashboard section''s opening summary already describes, built from the standing, throughput and spend answers and keeping no figure of its own. Only the new list entry changes; everything else in this section, including the work item references subsection, is copied unchanged. Written from main at b877e026.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T02:18:48.716843Z
+      reason: 'Third of three passages reconciling the observability and dashboard design with its reading of what the spend accomplished, for the reviewer''s finding on that design (yoyodyne-ifd.437.61): the deferred section now names all three readings that serve a date range the operator chooses, and its other entries are put in plain words. Only this section changes. Written from main at b5457cf3. The dashboard address passage the same item was widened to cover follows in its own revision.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -134,6 +138,11 @@ approvals:
       by: harness
       at: 2026-10-25T20:20:02.180936Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1746, for document-1746.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 18
+      by: harness
+      at: 2026-11-21T02:18:48.716843Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3286, for document-3286.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -411,4 +420,11 @@ This governs only the token generated for a loopback bind. A token supplied for 
 
 ## Deferred, deliberately
 
-Deep drilldowns; rich timelines and custom historical windows, beyond the backlog and delivery charts above; readiness and conflict visualizations; push infrastructure; multi-account pool controls; acts beyond those named under acting from the dashboard, each to be added by its own revision.
+These are left out of v1 on purpose. Each arrives by a revision of this design that names it, and until then no surface offers it.
+
+- Pages that open further detail beneath each figure.
+- Timelines and charts over a date range the operator chooses, except the three readings that serve one: the backlog chart, the delivery charts, and the reading of what the spend accomplished, each described above. Every other section shows the fixed windows it names: the last 24 hours, the last seven local days, and the daily listing of the last 30 days behind the spend box.
+- Pictures of which work is ready and which changes would conflict.
+- Pushing updates to the page. The page polls, and keeps polling until polling proves inadequate.
+- Controls over a pool of several accounts.
+- Acts beyond those named under acting from the dashboard, each to be added by its own revision.
