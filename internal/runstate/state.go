@@ -2626,6 +2626,9 @@ func (s *State) recordedTexts() []recordedText {
 			unstated("ci_wait_end.late.says", "ci_wait_end.late.says", &s.CIWaitEnd.Late.Says, MaxRecordedTextBytes)
 		}
 	}
+	if s.SpendWait != nil {
+		nested("spend_wait.failure", "spend_wait.failure", &s.SpendWait.Failure, MaxRetryFailureBytes)
+	}
 	if s.TrackerPause != nil {
 		nested("tracker_pause.failure", "tracker_pause.failure", &s.TrackerPause.Failure, MaxRetryFailureBytes)
 	}
@@ -3113,6 +3116,61 @@ func (t TrackerPause) Validate() error {
 	}
 	if len(t.Failure) > MaxRetryFailureBytes {
 		problems = append(problems, fmt.Errorf("failure is %d bytes, which exceeds the %d byte bound", len(t.Failure), MaxRetryFailureBytes))
+	}
+	return errors.Join(problems...)
+}
+
+// SpendWait is a run, in team mode, waiting for the shared remote to take the
+// record of a review round it has made (SpendNotSharedError). The round is not
+// charged until the remote has it, so the run asks again every minute and goes on
+// only once it does; this is what says so, since nothing else about the run
+// changes while it waits and it would read as one that is working.
+//
+// It is written on every refused try and cleared when one succeeds. The run
+// keeps its developer slot and its process throughout, so it is no pause: a
+// process that dies mid-wait leaves a run the sweep settles as it settles any
+// other, and the next process starts the count again.
+type SpendWait struct {
+	// Since is when the first try was refused.
+	Since time.Time `json:"since"`
+	// Tries is how many times the remote has refused the record, counting the
+	// latest.
+	Tries int `json:"tries"`
+	// Failure is the last thing the remote said, bounded like every recorded failure.
+	Failure string `json:"failure,omitempty"`
+}
+
+// Waited is how long the run has been waiting.
+func (w SpendWait) Waited(now time.Time) time.Duration {
+	if now.Before(w.Since) {
+		return 0
+	}
+	return now.Sub(w.Since)
+}
+
+// Summary says what the run is waiting for, in one line a person reads: what the
+// remote has not taken, since when, and how many tries have been refused.
+func (w SpendWait) Summary() string {
+	summary := fmt.Sprintf("the shared remote has not taken this run's review round: waiting since %s, %d tries so far, asking again every minute",
+		w.Since.Local().Format(personTime), w.Tries)
+	if strings.TrimSpace(w.Failure) != "" {
+		summary += "; last answer: " + w.Failure
+	}
+	return summary
+}
+
+// Validate rejects a wait that cannot say when it began or that no try was
+// refused for.
+func (w SpendWait) Validate() error {
+	var problems []error
+	if w.Since.IsZero() {
+		problems = append(problems, errors.New("since is required"))
+	}
+	if w.Tries <= 0 {
+		problems = append(problems, errors.New("tries must name at least one refused try"))
+	}
+	if len(w.Failure) > MaxRetryFailureBytes {
+		problems = append(problems, fmt.Errorf("failure is %d bytes, which exceeds the %d byte bound", len(w.Failure), MaxRetryFailureBytes))
 	}
 	return errors.Join(problems...)
 }
@@ -4424,6 +4482,9 @@ type State struct {
 	// step for GitHub to be reachable again (forgewait.go). The run holds no
 	// developer slot while it is set. It is cleared once the step answers.
 	ForgeWait *ForgeWait `json:"forge_wait,omitempty"`
+	// SpendWait records, while it lasts, that the shared remote will not take
+	// this run's review round (SpendWait). It is cleared when the remote does.
+	SpendWait *SpendWait `json:"spend_wait,omitempty"`
 	// RedeployStop records that the watch session hosting this run stopped it
 	// in order to restart into a build deployed over it, once the drain the
 	// session was given ran out with this run still going. Like a recorded
@@ -5204,6 +5265,11 @@ func (s State) Validate() error {
 		}
 		if s.Status.Terminal() {
 			problems = append(problems, errors.New("ci_wait requires a run that is still in flight"))
+		}
+	}
+	if s.SpendWait != nil {
+		if err := s.SpendWait.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("spend_wait: %w", err))
 		}
 	}
 	if s.TrackerPause != nil {
