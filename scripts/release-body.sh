@@ -18,7 +18,11 @@
 # release page is already titled with the tag and the same words twice reads
 # like a mistake.
 #
-# A tag with no notes file publishes the preamble alone rather than failing. A
+# A tagged commit whose tree has no notes takes them from the default branch
+# where they landed afterwards, as long as they name that commit; that is how
+# every release the harness cuts is published, since it tags the commit the
+# notes name. A tag with notes in neither place publishes the preamble alone
+# rather than failing. A
 # release with thin notes is worth more than a pushed tag with no release behind
 # it, and the tags cut before the notes home existed are exactly the ones that
 # would otherwise turn a rerun of this workflow into a red build.
@@ -36,8 +40,9 @@
 # RELEASE_BODY_LIMIT and RELEASE_BODY_WARN_PERCENT -- so the suite can exercise
 # them against notes a few hundred bytes long.
 #
-# Requires bash. Nothing in the repository is written: the only thing written is
-# the destination the caller named.
+# Requires bash and git. Nothing in the repository is written: the only thing
+# written is the destination the caller named, and a temporary copy of notes
+# read from the default branch, removed on exit.
 
 set -euo pipefail
 
@@ -66,18 +71,50 @@ esac
 [ -f "$preamble" ] || refuse "$preamble is missing, so there is no install section to publish"
 
 notes="$notes_home/$tag.md"
+# A release covers everything up to a commit its notes name and is tagged at
+# that commit, and the notes land on the default branch after it, so the
+# tagged commit's own tree usually has no notes. Then they are read from the
+# default branch -- RELEASE_NOTES_FROM, origin/main unless the workflow names
+# another -- and used only where they name the commit the tag names, in the
+# words docs/releases/README.md gives: "up to and including commit `<sha>`".
+notes_from="${RELEASE_NOTES_FROM:-origin/main}"
+fetched=""
+trap '[ -z "$fetched" ] || rm -f "$fetched"' EXIT
+source=""
+if [ -f "$notes" ]; then
+  source="$notes"
+else
+  tagged="$(git -C "$repository" rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null || true)"
+  fetched="$(mktemp "${TMPDIR:-/tmp}/release-body-notes.XXXXXX")"
+  if [ -z "$tagged" ]; then
+    printf 'no %s, and no tag %s here to match notes on %s against\n' "$notes" "$tag" "$notes_from" >&2
+  elif git -C "$repository" show "$notes_from:docs/releases/$tag.md" > "$fetched" 2>/dev/null; then
+    named="$(grep -oE 'up to and including commit `[0-9a-f]{40}([0-9a-f]{24})?`' "$fetched" | head -1 | grep -oE '[0-9a-f]{40,64}' || true)"
+    if [ "$named" = "$tagged" ]; then
+      printf 'the notes for %s are read from %s, where they landed after %s\n' "$tag" "$notes_from" "$tagged" >&2
+      source="$fetched"
+      notes="$notes_from:docs/releases/$tag.md"
+    elif [ -z "$named" ]; then
+      printf 'docs/releases/%s.md on %s names no commit, so it is not taken as the notes of %s, which names %s\n' "$tag" "$notes_from" "$tag" "$tagged" >&2
+    else
+      printf 'docs/releases/%s.md on %s names %s, not %s, which %s names, so it is not taken as its notes\n' "$tag" "$notes_from" "$named" "$tagged" "$tag" >&2
+    fi
+  else
+    printf 'docs/releases/%s.md is not on %s either\n' "$tag" "$notes_from" >&2
+  fi
+fi
 : > "$destination"
 
-if [ -f "$notes" ]; then
+if [ -n "$source" ]; then
   # Drop a leading `# <anything>` and keep everything else. Done by reading the
   # first line rather than with sed's addressed-block syntax, which BSD and GNU
   # sed disagree about often enough that a release page is the wrong place to
   # find out which one the runner has.
   first=""
-  IFS= read -r first < "$notes" || true
+  IFS= read -r first < "$source" || true
   case "$first" in
-    ("# "*) tail -n +2 "$notes" >> "$destination" ;;
-    (*)     cat "$notes" >> "$destination" ;;
+    ("# "*) tail -n +2 "$source" >> "$destination" ;;
+    (*)     cat "$source" >> "$destination" ;;
   esac
   printf '\n' >> "$destination"
 else

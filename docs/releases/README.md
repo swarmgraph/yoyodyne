@@ -4,9 +4,8 @@
 [yoyo's documentation](../../README.md#further-reading).*
 
 `v0.3.1.md` is what changed in `v0.3.1`. The file is written before the tag
-exists and committed with the commit the tag names, so the release page and the
-repository tell one story rather than two: the
-[release workflow](../../.github/workflows/release.yml) publishes this file as
+exists, so the release page and the repository tell one story rather than two:
+the [release workflow](../../.github/workflows/release.yml) publishes this file as
 the release's body, with the install preamble under it and nothing else — the
 forge's own commit-derived changelog is never appended, because a commit says
 what one change did and these notes say what somebody wanted. The forge
@@ -26,18 +25,21 @@ describe shipped in `v0.7.0`, whose notes, [`v0.7.0.md`](v0.7.0.md), carry it
 and cover everything from `v0.5.0`. The file stays as the record of what was
 prepared, and says at its top that it was never tagged.
 
-[`v0.7.0.md`](v0.7.0.md) is an exception the other way: its notes exist
-before its tag, but not at the commit the tag names. They cover everything
-merged into `main` up to a named commit, so that work landing while they wait
-in review cannot make them wrong, and the tag is cut from that commit, which
-the notes landed after. The release workflow reads the notes from the tagged
-commit, does not find them, and publishes the install instructions alone, so
-whoever cuts the tag puts the notes on the release page afterwards, from a
-checkout of `main` that carries them:
+From [`v0.7.0.md`](v0.7.0.md) on, a release's notes exist before its tag but
+are not at the commit the tag names. They cover everything merged into `main`
+up to a commit they name, in the words "up to and including commit `<the
+commit's whole name>`", so that work landing while they wait in review cannot
+make them wrong, and the tag is cut at that commit, which the notes landed
+after. The harness's cut reads the commit from the notes on `main` and refuses
+notes that name none, or one `main` does not hold
+([cutting a decided release](../operations.md#cutting-a-decided-release)).
+The release workflow finds no notes in the tagged commit's tree, so it reads
+them from `main` and publishes them as the page's text, taking them only where
+they name the tagged commit. To see the body a page will carry, from a
+checkout that has fetched `main`:
 
 ```sh
 bash scripts/release-body.sh v0.7.0 body.md      # these notes, install instructions under them
-gh release edit v0.7.0 --notes-file body.md
 ```
 
 ## The shape
