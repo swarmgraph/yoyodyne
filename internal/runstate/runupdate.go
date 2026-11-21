@@ -579,3 +579,25 @@ func (u QueueRerunRecorded) apply(state *State) (bool, error) {
 	state.UpdatedAt = u.At
 	return true, nil
 }
+
+// WorktreeRebuilt records that the checkout the maintenance sweep removed from a
+// run was put back at the path the run records, from its branch at the head the
+// run recorded, so the record no longer says it is gone. It changes nothing on a
+// run whose record already says the checkout is there, and is refused on a run
+// whose branch is recorded gone, since nothing could have been rebuilt from it.
+type WorktreeRebuilt struct {
+	At time.Time
+}
+
+func (u WorktreeRebuilt) apply(state *State) (bool, error) {
+	if !state.WorktreeRemoved && state.WorktreeSweptAt == nil {
+		return false, nil
+	}
+	if state.BranchRemoved {
+		return false, fmt.Errorf("run %s records its branch %s as removed, so no checkout was rebuilt from it", state.RunID, state.Branch)
+	}
+	state.WorktreeRemoved = false
+	state.WorktreeSweptAt = nil
+	state.UpdatedAt = u.At
+	return true, nil
+}

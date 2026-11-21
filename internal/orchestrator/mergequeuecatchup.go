@@ -52,6 +52,7 @@ import (
 type MergeQueueCatchUpRuns interface {
 	AdoptRun(ctx context.Context, runID string) (runstate.State, *runstate.Lease, error)
 	ReserveLive(ctx context.Context, live runstate.State, maxConcurrent int) error
+	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
 }
 
 // MergeQueueCatchUpCheckouts rebuilds a run's checkout that the maintenance
@@ -215,7 +216,9 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 
 // rebuildCheckout puts back the checkout the sweep removed from a run waiting on
 // the queue, from its branch at the head the run recorded, and records on the
-// run that it is there again. It is called under the run's lease, after every
+// run that it is there again, through the run store's narrow update
+// (runstate.WorktreeRebuilt), so nothing another writer changed meanwhile is
+// overwritten. It is called under the run's lease, after every
 // other refusal and before the run is made live, and the record is written at
 // once rather than with the put-back: a slot that went elsewhere meanwhile then
 // leaves a waiting run whose record says, truly, that its checkout is back, and
@@ -228,11 +231,8 @@ func (h MergeQueueRunHandback) rebuildCheckout(ctx context.Context, state runsta
 		return state, fmt.Sprintf("the run's worktree is gone and could not be rebuilt from its branch %s at its approved head %s: %v",
 			state.Branch, shortCommit(state.HarnessCommit), err), nil
 	}
-	rebuilt := state
-	rebuilt.WorktreeRemoved = false
-	rebuilt.WorktreeSweptAt = nil
-	rebuilt.UpdatedAt = h.now()
-	if err := h.Store.Save(rebuilt); err != nil {
+	rebuilt, err := h.CatchUp.Update(ctx, state.RunID, runstate.WorktreeRebuilt{At: h.now()})
+	if err != nil {
 		return state, "", fmt.Errorf("record that the worktree of run %s was rebuilt at %s: %w", state.RunID, state.WorktreePath, err)
 	}
 	return rebuilt, "", nil

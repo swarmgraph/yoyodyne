@@ -152,3 +152,45 @@ func TestALostMergeQueueEntryStopsOnlyARunWaitingOnTheQueue(t *testing.T) {
 		t.Fatalf("the run stopped for a lost entry as %+v", stopped)
 	}
 }
+
+func TestARebuiltWorktreeIsRecordedOnlyWhereItsBranchWasKept(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := publishedRun(t, store)
+	swept := updateAt.Add(-time.Hour)
+	state.WorktreeRemoved = true
+	state.WorktreeSweptAt = &swept
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	state = load(t, store, state.RunID)
+
+	rebuilt, err := store.Update(context.Background(), state.RunID, WorktreeRebuilt{At: updateAt})
+	if err != nil {
+		t.Fatalf("Update(WorktreeRebuilt) error = %v", err)
+	}
+	if rebuilt.WorktreeRemoved || rebuilt.WorktreeSweptAt != nil || rebuilt.Revision != state.Revision+1 {
+		t.Fatalf("rebuilt = removed %t, swept %v, revision %d; want the checkout recorded back at revision %d", rebuilt.WorktreeRemoved, rebuilt.WorktreeSweptAt, rebuilt.Revision, state.Revision+1)
+	}
+	// Recording it again changes nothing.
+	if again, err := store.Update(context.Background(), state.RunID, WorktreeRebuilt{At: updateAt}); err != nil || again.Revision != rebuilt.Revision {
+		t.Fatalf("Update(WorktreeRebuilt) again = revision %d, %v; want nothing written", again.Revision, err)
+	}
+
+	// A run whose branch is recorded gone had nothing to rebuild from.
+	other := publishedRun(t, store)
+	other.WorktreeRemoved = true
+	other.WorktreeSweptAt = &swept
+	other.BranchRemoved = true
+	other.BranchSweptAt = &swept
+	if err := store.Save(other); err != nil {
+		t.Fatal(err)
+	}
+	other = load(t, store, other.RunID)
+	if _, err := store.Update(context.Background(), other.RunID, WorktreeRebuilt{At: updateAt}); err == nil || !strings.Contains(err.Error(), "as removed") {
+		t.Fatalf("Update(WorktreeRebuilt) on a run without its branch: error = %v, want it refused", err)
+	}
+	if stored := load(t, store, other.RunID); !stored.WorktreeRemoved || stored.Revision != other.Revision {
+		t.Fatalf("a refused update wrote %+v", stored)
+	}
+}
