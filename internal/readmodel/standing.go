@@ -636,6 +636,13 @@ type RunningRun struct {
 	// a run holds no developer slot, so it is carried on Standing.PausedRuns,
 	// with PausedSince when its first try failed.
 	WaitingForGitHub string `json:"waiting_for_github,omitempty"`
+	// WaitingForRemote is set on a run in team mode that holds its developer slot
+	// and waits for the shared remote to take the record of its review round: the
+	// run's own account of it (runstate.SpendWait.Summary), with how long it has
+	// waited and how many tries the remote has refused. Carried on Standing.Running.
+	WaitingForRemote string        `json:"waiting_for_remote,omitempty"`
+	RemoteWaited     time.Duration `json:"remote_waited,omitempty"`
+	RemoteTries      int           `json:"remote_tries,omitempty"`
 }
 
 // DeveloperSlotStanding is one configured developer slot as the standing status
@@ -1805,6 +1812,11 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, []
 			}
 			paused = append(paused, run)
 			continue
+		}
+		if state.SpendWait != nil {
+			run.WaitingForRemote = state.SpendWait.Summary()
+			run.RemoteWaited = state.SpendWait.Waited(now)
+			run.RemoteTries = state.SpendWait.Tries
 		}
 		running = append(running, run)
 	}
