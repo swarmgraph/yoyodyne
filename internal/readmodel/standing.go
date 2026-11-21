@@ -630,6 +630,14 @@ type RunningRun struct {
 	// checks and the commit.
 	WaitingForCI bool          `json:"waiting_for_ci,omitempty"`
 	CIWaited     time.Duration `json:"ci_waited,omitempty"`
+	// CIDecided is the forge's decision on that commit as the scheduler recorded
+	// it while the run waited (runstate.CIWait.DecidedSays), and empty while the
+	// forge has not decided: a run carrying it is due to be continued.
+	CIDecided string `json:"ci_decided,omitempty"`
+	// ContinuationWaiting is what a continuation the development manager asked
+	// for on this run was last found waiting on, with the request it answers, and
+	// empty where none is outstanding or nothing has been found in its way.
+	ContinuationWaiting string `json:"continuation_waiting,omitempty"`
 	// WaitingForGitHub is a run whose approved change is waiting at its merge
 	// step for GitHub to be reachable again, said as its record says it
 	// (runstate.ForgeWait.Says): what it was doing and when it next tries. Such
@@ -1798,6 +1806,10 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, []
 				run.WaitingOn = state.CIWait.Summary()
 				run.WaitingForCI = true
 				run.CIWaited = state.CIWait.Waited(now)
+				run.CIDecided = state.CIWait.DecidedSays()
+			}
+			if asked := state.RecoveryContinuation; state.RecoveryContinuationOutstanding(runstate.RecoverContinue) && asked.Waiting != "" {
+				run.ContinuationWaiting = fmt.Sprintf("the development manager's request %s to continue it has not started: %s", asked.RequestID, asked.Waiting)
 			}
 			if state.ForgeWait != nil {
 				run.WaitingForGitHub = state.ForgeWait.Says()

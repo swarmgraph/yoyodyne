@@ -284,13 +284,14 @@ func TestAMovePastItsLimitSaysWhatItIsWaitingOn(t *testing.T) {
 	}
 }
 
-// Two decided runs that each keep the endpoint pair of developer slot 2 are
-// taken up only in that slot, so one pass continues one of them and passes the
-// other over without spending a free slot on it: a free slot spent on a start
-// the store would refuse is a slot left idle for the pass, which is how the
-// continuation for yoyodyne-ifd.429.95 waited beside the one for
-// yoyodyne-ifd.428.114 on November 20 while other slots stood free.
-func TestTwoContinuationsPinnedToOneSlotSpendOneFreeSlot(t *testing.T) {
+// Two decided runs that each keep the endpoint pair of developer slot 2 both
+// go on in one pass where two slots are free: the store moves whichever finds
+// slot 2 taken to a free slot on that slot's own endpoints (runstate's
+// takeUpSlot), so neither waits for slot 2 while another slot stands free, as
+// the continuation for yoyodyne-ifd.429.95 did beside the one for
+// yoyodyne-ifd.428.114 on November 20. With one slot free, the older goes on
+// and the newer is passed over for the first free slot, ahead of new work.
+func TestTwoContinuationsPinnedToOneSlotEachTakeAFreeSlot(t *testing.T) {
 	t.Parallel()
 
 	harness := newScheduleHarness()
@@ -312,16 +313,25 @@ func TestTwoContinuationsPinnedToOneSlotSpendOneFreeSlot(t *testing.T) {
 	}
 	pull.CIWaits = gitHubDecidesLater{decided: &decided}
 	pull.Continuations = waitingContinuations{}
-	passed := map[string]string{}
-	got, err := Scheduler{Now: harness.clock}.nextContinuations(context.Background(), pull, map[string]runstate.State{}, map[string]int{}, map[string]refusedContinuation{}, 2, 0,
-		func(id, reason string) { passed[id] = reason })
-	if err != nil {
-		t.Fatal(err)
+	continueWith := func(free int) ([]pausedContinuation, map[string]string) {
+		t.Helper()
+		passed := map[string]string{}
+		got, err := Scheduler{Now: harness.clock}.nextContinuations(context.Background(), pull, map[string]runstate.State{}, map[string]int{}, map[string]refusedContinuation{}, free, 0,
+			func(id, reason string) { passed[id] = reason })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got, passed
 	}
+	got, passed := continueWith(2)
+	if len(got) != 2 || got[0].state.RunID != "run-older" || got[1].state.RunID != "run-newer" || len(passed) != 0 {
+		t.Fatalf("continued %d runs, passed over %v; want both, the older first, with two slots free", len(got), passed)
+	}
+	got, passed = continueWith(1)
 	if len(got) != 1 || got[0].state.RunID != "run-older" {
-		t.Fatalf("continued %d runs, want only the older one, which keeps slot 2 first", len(got))
+		t.Fatalf("continued %d runs with one slot free, want only the older one", len(got))
 	}
-	if reason := passed["yoyodyne-ifd.428.114"]; !strings.Contains(reason, "developer slot 2") || !strings.Contains(reason, "run-older") {
-		t.Fatalf("pass-over reason = %q, want it to name slot 2 and the run taking it", reason)
+	if reason := passed["yoyodyne-ifd.428.114"]; !strings.Contains(reason, "continued at the first pull with a developer slot free, ahead of any new work") {
+		t.Fatalf("pass-over reason = %q, want it to say it goes on at the first free slot", reason)
 	}
 }

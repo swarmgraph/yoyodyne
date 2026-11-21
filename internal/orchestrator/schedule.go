@@ -2988,6 +2988,12 @@ pulling:
 				if _, ours := mine[id]; ours || (state.RedeployStop == nil && !asked && !parked) {
 					continue
 				}
+				// A run she asked about that waits on GitHub's checks is the
+				// continuations' below, which wait for a slot it can take and say on
+				// her request what it waits on (askedContinuationLeftToThePull).
+				if asked && state.RedeployStop == nil && askedContinuationLeftToThePull(pull.Runs, state, s.now()) {
+					continue
+				}
 				if !asked && state.RedeployStop != nil && s.SessionID != "" && state.RedeployStop.SessionID == s.SessionID {
 					continue
 				}
@@ -3505,6 +3511,22 @@ pulling:
 				// Hosted like any run this session starts, so a drain bound that runs
 				// out stops a continued run exactly as it stops a chosen one.
 				s.host(session.dispatching(ctx, workItemID), pull, workItemID, index, selection, hosted, landings, deliver)
+			}
+		} else {
+			// Nothing is continued, but what GitHub has decided on a waiting run is
+			// still read and recorded on it, and a continuation the development
+			// manager asked for says what it waits on.
+			waits := "the operator has paused everything the harness spends, so nothing is continued until that lifts"
+			switch {
+			case declining:
+				waits = "this session is stepping down to restart on a newly deployed build, so the session that replaces it continues it"
+			case held:
+				waits = "the operator has held what the harness chooses, so nothing is continued until the hold lifts"
+			}
+			if err := s.recordCIDecisions(ctx, pull, waits); err != nil {
+				schedule.ContinuationProblem = err.Error()
+			} else {
+				schedule.ContinuationProblem = ""
 			}
 		}
 

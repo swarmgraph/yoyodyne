@@ -1109,9 +1109,17 @@ The one move is a run taken up again — a repair, a continuation, or a run pick
 up by a new worker after a restart — while another run holds its recorded slot:
 it goes on in the lowest free slot instead of waiting, records that slot, the
 one it moved from, when, and why, says so in its history and on its status line,
-and reads its sub-agent setting from the new slot. A run that
-keeps its slot's endpoint pair is never moved; it waits for that slot, and the
-wait names the slot, the run holding it, and why.
+and reads its sub-agent setting from the new slot. A run that keeps its slot's
+endpoint pair moves the same way and is switched to the new slot's own
+endpoints — that slot's pair, or the developer's own endpoint where the slot has
+none — so no slot runs another slot's pair; the earlier and the new endpoints
+and the configuration revision of each are recorded with the move, its
+unfinished developer operation is kept as it stood, and its next developer
+attempt starts a new session on the new endpoints rather than resuming the old
+one. Only a run taken up without the slots' endpoints being handed to the
+store (a repair or other continuation started outside the pipeline's own
+path) still waits for its own slot, naming the slot, the run holding it, and
+why.
 A run the scheduler pulled into a slot records that slot in every project, or
 the first free one, in the order below, where that was taken by the time the run recorded it, and
 then its selection reason names the slot it runs in. The recorded slot is also

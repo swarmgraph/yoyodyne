@@ -561,10 +561,14 @@ type CIWaitReader interface {
 	Decided(ctx context.Context, state runstate.State) (bool, string, error)
 }
 
+// ciAllPassed is what a pull's reading says of a commit on which every required
+// check passed, and what marks a recorded decision as a pass.
+const ciAllPassed = "every required check passed on the commit pushed"
+
 // ciWaitDecided is the rule a pull applies to one reading of a waiting run.
 func ciWaitDecided(wait runstate.CIWait, reading publish.RequiredCheckReading, now time.Time) (bool, string) {
 	if reading.AllPassed() {
-		return true, "every required check passed on the commit pushed"
+		return true, ciAllPassed
 	}
 	for _, check := range reading.Checks {
 		switch check.Result {
