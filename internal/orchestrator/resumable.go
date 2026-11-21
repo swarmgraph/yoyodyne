@@ -48,6 +48,12 @@ var resumeShapes = []func(runstate.State) bool{
 // resumable reports whether Pipeline.Run may take up this in-flight run from
 // its record: whether it matches one of resumeShapes.
 func resumable(state runstate.State) bool {
+	// A run that resolves a team branch conflict hands its merge to the update
+	// and is never a change for the pipeline to promote, so whatever paused it,
+	// Run does not take it up (teambranchresolve.go).
+	if state.TeamConflict != nil {
+		return false
+	}
 	for _, shape := range resumeShapes {
 		if shape(state) {
 			return true

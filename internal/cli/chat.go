@@ -1070,6 +1070,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// The hand that releases the entry at the head of a merge queue she
 		// decides to release. Wired for that role alone.
 		QueueHeads: conversationQueueHeads(parts, role),
+		// The hand that records her decision that a run of one item resolves a
+		// conflict in bringing the target branch up to date with the team's
+		// branch. Wired for that role alone.
+		TeamConflicts: conversationTeamConflicts(parts, role),
 		// The hand that carries out her retry or retirement of a stopped document
 		// publication, which has no work item to record either on. Wired for that
 		// role alone.
