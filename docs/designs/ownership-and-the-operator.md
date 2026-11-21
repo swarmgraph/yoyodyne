@@ -66,6 +66,10 @@ revisions:
       by: architect
       at: 2026-11-21T09:30:27.692321Z
       reason: 'Follows the stale build row (revision 13, from the developer''s amendment-df79a1a6 on the build for a watch session left on an older build, yoyodyne-ifd.431.13): the list of kinds names stale build, as the sentence under the table promised. Nothing else in the section changes. The pointer sentence under the table is dropped in the next revision. Written against main at 3387420c.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T11:36:59.86487Z
+      reason: 'Follows revision 14, which added stale build to the list of kinds under One registry, one resolver: the sentence under the table promising that addition is now false and is dropped. The table is copied exactly; nothing else in the section changes. Written against main at 485dc5bb.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -137,6 +141,11 @@ approvals:
       by: harness
       at: 2026-11-21T09:30:27.692321Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3310, for document-3310.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 15
+      by: harness
+      at: 2026-11-21T11:36:59.86487Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3317, for document-3317.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -227,8 +236,6 @@ her pass, and she files it against the registry.
 | follow-up | the owner the follow-up recorded when it was written, which the rule for what it is about resolved then; the operator only with a reason from the closed list; a follow-up the operator or his assistant records is never owned by the operator, and is the Lead Product Manager's unless it names another role |
 | intake question | as the query's `questions` setting says, in [scheduled message intake](scheduled-message-intake.md): the Lead Product Manager by default; the operator only under `questions: person`, which only he can set, reason `human-gate` |
 | pile or queue age | the role that works that pile or queue |
-
-The stale build kind joins the kinds the registry names, with the rule in its row above; the list of kinds under *One registry, one resolver* gains it in the next revision of that section.
 
 ## Who decides a proposed change
 
