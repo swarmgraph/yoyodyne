@@ -260,3 +260,66 @@ this fix still finds listings over their bound, the waits recorded with each
 call say whether the time went in the line, which would mean the harness's own
 calls are too many, or inside bd, which would mean those outside processes are
 holding the store; the slow-call records name them.
+
+## After the fourth fix: calls the harness repeated for nothing
+
+The fourth fix landed at 23:18 on November 20 (pull request #2419) and the
+scheduler ran it from 02:17 on November 21. It did what it was for: from 03:00
+to 05:40 no two of the harness's bd calls ran at once, and a harness bd was
+running about 60% of the time. Listings over 10 seconds fell to 6 of 220 in
+the forty minutes from 02:20, but rose again to 45 of 149 in the forty minutes from
+05:00, when developer runs and their checks were loading the machine and a
+single read that costs 0.44 seconds on an idle machine took several seconds.
+With every call in one line, whatever the harness asks the store for, it asks
+in turn, so the number of calls it makes is what decides how long the line
+behind a listing is.
+
+Read by what they asked, the records from 03:00 to 05:40 show two callers
+making a third of all the harness's calls without any effect:
+
+| Hour from | All calls | Landing sweep writes | Red-target reads |
+| --- | --- | --- | --- |
+| 02:00 | 1,548 | 215 | 186 |
+| 03:00 | 1,924 | 406 | 324 |
+| 04:00 | 1,742 | 243 | 216 |
+
+- **The landing sweep's writes** (`ConversationLander.Settle`,
+  `internal/orchestrator/conversationlanding.go`). Three items the architect's
+  conversation carries, yoyodyne-ifd.437.33, 437.42 and 437.82, had their
+  revisions in the designs, so every pull wrote the revision onto each,
+  asked bd to close it, was refused because each waits on an open item
+  (yoyodyne-ifd.430.57 or 436.15), and wrote the record off again: nine
+  writes a pull, each a commit to the store, for as long as the blockers
+  stood.
+- **The red-target reads** (`CarryOut.targetRedAnswered`,
+  `Rearmer.targetRedAnswered`, `Reconciler.openRedTargetItems`). A merge
+  withdrawn because its target's check was red waits on the items filed for
+  that check, yoyodyne-ifd.436.4 and 141.5. Each pass of the carry-out, and
+  each reconcile, read whether they were closed with one `bd show` per item:
+  each of the two was read 307 times between 03:00 and 05:40.
+
+Neither the store's own automatic backup nor bd's git hooks was the holder:
+bd backs the store up every fifteen minutes from whichever command runs
+next, and a backup was being written during only 11 of the 142 harness calls
+since midnight whose bd ran past 30 seconds; the hooks open no store with
+this configuration. The slow-call records still name `bd --sandbox` reads
+from outside the harness beside most calls stopped at their limit, and the
+harness made 103 reads of a run identifier (run-c722ce64…) as if it were a
+work item, which is yoyodyne-ifd.428.174's to fix.
+
+## The fifth fix
+
+The landing sweep now leaves an item that waits on unfinished work open
+without writing anything, using the same reading of its blockers the queue
+and the claim make (`beads.WorkItem.WaitingOn`), and says so beside the pull;
+the first pull after the blocker closes closes it.
+
+The three red-target readers now read every item a merge waits on with one
+listing (`beads.Client.Statuses`, a `bd list --id=…` that does not read the
+items they link to), and read an item alone only where that listing does not
+answer for it. Between them the two changes take out about a third of the
+harness's tracker calls in the hours measured.
+
+Whether every listing of open or ready work then stays within 10 seconds for
+a full hour of ordinary work, with developer runs loading the machine, needs a
+build carrying this running on the live factory, and is recorded after that.

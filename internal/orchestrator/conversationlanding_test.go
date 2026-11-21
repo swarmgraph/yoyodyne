@@ -566,3 +566,71 @@ func TestNamesDocument(t *testing.T) {
 		}
 	}
 }
+
+// An item whose landing is in the repository and which waits on unfinished work
+// is one the tracker refuses to close. Asking anyway recorded the revision, was
+// refused, and cleared the record again, three writes at every pull for as long
+// as the blocker stood — a fifth of the harness's tracker calls in the hour from
+// 03:00 on November 21. So nothing is written, the item is named with what it
+// waits on, and the first pull after the blocker closes closes it.
+func TestALandedItemWaitingOnUnfinishedWorkIsNotWrittenUntilItCanClose(t *testing.T) {
+	t.Parallel()
+
+	for _, shape := range []struct {
+		name  string
+		entry func(backlog.Entry) backlog.Entry
+		item  func(beads.WorkItem) beads.WorkItem
+	}{
+		{
+			name:  "the queue names the blocker",
+			entry: func(e backlog.Entry) backlog.Entry { e.WaitingOn = []string{"yoyodyne-ifd.430.57"}; return e },
+			item:  func(i beads.WorkItem) beads.WorkItem { return i },
+		},
+		{
+			name:  "the tracker's reading of the item names it, with its status",
+			entry: func(e backlog.Entry) backlog.Entry { return e },
+			item: func(i beads.WorkItem) beads.WorkItem {
+				i.Dependencies = []beads.Dependency{{ID: "yoyodyne-ifd.430.57", Type: beads.BlocksDependency, Status: "in_progress"}}
+				return i
+			},
+		},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			t.Parallel()
+			tracker := &orchestratortest.LandingTracker{Refused: map[string]error{"yoyodyne-ifd.330": errors.New("cannot close yoyodyne-ifd.330: blocked by open issues [yoyodyne-ifd.430.57]")}}
+			lander := ConversationLander{Tracker: tracker, Repository: landingRepository(t), Product: landingProduct()}
+			entry := shape.entry(architectEntry("yoyodyne-ifd.330"))
+			items := itemsFor([]backlog.Entry{entry})
+			items[entry.ID] = shape.item(items[entry.ID])
+
+			for pull := 0; pull < 3; pull++ {
+				sweep, err := lander.Settle(context.Background(), []backlog.Entry{entry}, items)
+				if err != nil {
+					t.Fatalf("Settle() error = %v", err)
+				}
+				if len(sweep.Landed) != 0 || len(sweep.Problems) != 1 {
+					t.Fatalf("Settle() = %#v, want nothing closed and one problem", sweep)
+				}
+				for _, want := range []string{"yoyodyne-ifd.330", "yoyodyne-ifd.430.57", "was not closed"} {
+					if !strings.Contains(sweep.Problems[0], want) {
+						t.Fatalf("problem %q does not name %q", sweep.Problems[0], want)
+					}
+				}
+			}
+			if len(tracker.Landings) != 0 || len(tracker.Closed) != 0 {
+				t.Fatalf("three pulls wrote landings %v and closes %v, want no write while the blocker stands", tracker.Landings, tracker.Closed)
+			}
+
+			// The blocker closes: the next pull closes the item.
+			entry.WaitingOn = nil
+			unblocked := items[entry.ID]
+			unblocked.Dependencies = []beads.Dependency{{ID: "yoyodyne-ifd.430.57", Type: beads.BlocksDependency, Status: "closed"}}
+			items[entry.ID] = unblocked
+			tracker.Refused = nil
+			sweep, err := lander.Settle(context.Background(), []backlog.Entry{entry}, items)
+			if err != nil || len(sweep.Landed) != 1 || len(tracker.Closed) != 1 {
+				t.Fatalf("Settle() after the blocker closed = %#v, %v, closed %v; want the item closed", sweep, err, tracker.Closed)
+			}
+		})
+	}
+}

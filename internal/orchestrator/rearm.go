@@ -169,6 +169,65 @@ type RearmItems interface {
 	Show(ctx context.Context, id string) (beads.WorkItem, error)
 }
 
+// itemStatusReader reads the status of several work items in one call. The
+// tracker client satisfies it (beads.Client.Statuses); a reader that does not is
+// asked item by item.
+type itemStatusReader interface {
+	Statuses(ctx context.Context, ids []string) (map[string]string, error)
+}
+
+// itemStatuses reads the status of every item in ids. Where the reader can, it
+// reads them all in one call, because the passes that ask this ask it about the
+// same items every few seconds and a call per item was a sixth of the harness's
+// tracker calls (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md). An
+// item that reading does not answer for is read alone with Show, so an item the
+// tracker holds nothing under fails the way it always did. A failed reading
+// names the item it was about: the first of them for the one call.
+func itemStatuses(ctx context.Context, reader RearmItems, ids []string) (map[string]string, error) {
+	statuses := make(map[string]string, len(ids))
+	if many, batched := reader.(itemStatusReader); batched && len(ids) > 1 {
+		read, err := many.Statuses(ctx, ids)
+		if err != nil {
+			return nil, statusReadError{id: ids[0], err: err}
+		}
+		for _, id := range ids {
+			if status, known := read[id]; known {
+				statuses[id] = status
+			}
+		}
+	}
+	for _, id := range ids {
+		if _, known := statuses[id]; known {
+			continue
+		}
+		item, err := reader.Show(ctx, id)
+		if err != nil {
+			return nil, statusReadError{id: id, err: err}
+		}
+		statuses[id] = item.Status
+	}
+	return statuses, nil
+}
+
+// statusReadError is a failed itemStatuses reading, naming the item it was
+// reading so each caller can say which.
+type statusReadError struct {
+	id  string
+	err error
+}
+
+func (e statusReadError) Error() string { return e.err.Error() }
+func (e statusReadError) Unwrap() error { return e.err }
+
+// statusReadID is the item a failed itemStatuses reading names.
+func statusReadID(err error) string {
+	var read statusReadError
+	if errors.As(err, &read) {
+		return read.id
+	}
+	return ""
+}
+
 // RearmRequest is one decision to carry out: the run whose publication the
 // docket entry names, and the reasoning the development manager recorded for
 // deciding a re-arm of it.
@@ -456,14 +515,15 @@ func (r Rearmer) targetRedAnswered(ctx context.Context, waiting runstate.TargetR
 	if r.Items == nil {
 		return errors.New("nothing is wired to this harness to read whether the items this merge waits on are closed, and the harness arms a merge withdrawn for its target's red check only once they are; nothing was spent")
 	}
-	for _, id := range waiting.WaitingOn() {
-		item, err := r.Items.Show(ctx, id)
-		if err != nil {
-			return fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w; nothing was spent", id, waiting.TargetBranch, err)
-		}
-		if !strings.EqualFold(item.Status, "closed") {
+	ids := waiting.WaitingOn()
+	statuses, err := itemStatuses(ctx, r.Items, ids)
+	if err != nil {
+		return fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w; nothing was spent", statusReadID(err), waiting.TargetBranch, err)
+	}
+	for _, id := range ids {
+		if status := statuses[id]; !strings.EqualFold(status, "closed") {
 			return fmt.Errorf("refused because the target is red: this merge waits on %s, filed for a red check on %s, which is %s; the harness arms it once that closes, and nothing was spent",
-				id, waiting.TargetBranch, nonEmpty(item.Status, "not closed"))
+				id, waiting.TargetBranch, nonEmpty(status, "not closed"))
 		}
 	}
 	return nil
