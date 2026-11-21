@@ -661,7 +661,10 @@ Each pass takes thirteen steps, in this order, and each is recorded:
 - **limits** — the live tracker store held to
   `services.maintenance.tracker_limits`: its size on disk against
   `store_megabytes`, and how long the harness's own listings of open and ready
-  work took over the hour before against `listing_seconds`. It asks the store
+  work took over the hour before against `listing_seconds`. A listing's time is
+  what its caller waited for the answer: its wait for its turn behind the
+  harness's other tracker calls and bd's own time together, and a listing whose
+  turn never came counts as past the bound. It asks the store
   nothing: the size is read from the disk and the listing times from the log of
   calls every harness process keeps. Within both, the step says the figures;
   past either, it begins `THE TRACKER IS PAST ITS LIMITS`, says which and by how
@@ -3167,8 +3170,22 @@ they waited. It asks the tracker nothing.
 from the moment it loads the product's configuration, appends every tracker
 call it makes to a file of its own for each hour under
 `projects/<product-id>/state/tracker-calls/`: when it started, whom it was
-for, what it asked, how long it took, and whether it was stopped at its limit,
-with the command the process was started as. The maintenance pass reads it to
+for, what it asked, how long it waited for its turn and then took, and whether
+it was stopped at its limit, with the command the process was started as.
+
+**The harness's tracker calls take turns, in the order they asked.** bd lets
+one process into the store at a time, and a bd that finds it taken sleeps and
+tries again rather than waiting in line, so with a few calls waiting the one
+that has waited longest can lose to newcomers until its limit stops it
+([the diagnosis](diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md)). So
+every harness process takes a ticket under the store's `yoyodyne-writes/turns/`
+before it starts bd, and starts it only when no earlier ticket is still held;
+at most one of the harness's bd processes is then waiting on bd at a time. A
+ticket left by a process that died is removed by the next caller. A call whose
+turn does not come within its two minutes is not made, says that the harness's
+calls ahead of it did not finish and what held the turn ahead, and is logged
+as stopped at its limit. A `bd` someone runs at a terminal, or another program
+reading the store, takes no ticket and still meets bd's own lock. The maintenance pass reads it to
 count the harness's own calls over an hour by caller, on each measurement of
 the store, and to check how long the listings took, on every pass. Calls on a
 measurement's copy of the store are not logged, and nor is the export the

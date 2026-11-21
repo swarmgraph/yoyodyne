@@ -21,3 +21,9 @@ func unlockWriteFile(*os.File) error {
 // lockStoreFile is not available here; a call runs without the store lock, as
 // it did before there was one.
 func lockStoreFile(context.Context, *os.File, bool) error { return nil }
+
+// turnsSupported says calls take no turns here: there is no lock to hold a
+// ticket with, so each runs as it did before there was a line (turns.go).
+const turnsSupported = false
+
+func turnHeld(string) (bool, error) { return false, nil }

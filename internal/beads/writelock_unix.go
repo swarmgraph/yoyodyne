@@ -52,3 +52,30 @@ func unlockWriteFile(file *os.File) error {
 		}
 	}
 }
+
+// turnsSupported says the harness's bd calls take turns here (turns.go).
+const turnsSupported = true
+
+// probeLockFile says whether another open file holds a lock on file, by taking
+// it shared without waiting and letting go at once.
+func probeLockFile(file *os.File) (bool, error) {
+	err := syscall.Flock(int(file.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, unlockWriteFile(file)
+}
+
+// turnHeld says whether the ticket at path is held by a call (turns.go), by
+// trying to take it shared without waiting and letting go at once.
+func turnHeld(path string) (bool, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	return probeLockFile(file)
+}
