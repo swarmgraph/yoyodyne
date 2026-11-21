@@ -273,16 +273,43 @@ func (s *Store) developerSlotsFull(active []State, runID string, maxConcurrent i
 	return nil
 }
 
+// SlotPairs resolves the endpoint pair a run is pinned to when it is taken up
+// in a developer slot other than the one it recorded: the slot's explicit pair
+// where it configures one, and the developer's own endpoint where it does not,
+// read from the configuration as it stands now and for the run's own labels.
+// The store reads no configuration, so whoever takes a run up and knows it
+// hands this over on the context (WithSlotPairs).
+type SlotPairs func(state State, slot int) (RoutingSnapshot, error)
+
+type slotPairsKey struct{}
+
+// WithSlotPairs carries the resolver for the pairs of the developer slots on
+// the context a run is taken up under, so a run that keeps its slot's pair is
+// moved to a free slot and pinned to that slot's pair rather than wait for its
+// own (takeUpSlot).
+func WithSlotPairs(ctx context.Context, pairs SlotPairs) context.Context {
+	return context.WithValue(ctx, slotPairsKey{}, pairs)
+}
+
+func slotPairsOf(ctx context.Context) SlotPairs {
+	pairs, _ := ctx.Value(slotPairsKey{}).(SlotPairs)
+	return pairs
+}
+
 // takeUpSlot is how a run taken up again comes to record a developer slot
 // number no other run holding a slot now records (slotNumberHolder). A run
 // holding no slot — paused on work its item waits on, released for want of a
 // live worker, or not in flight — keeps nobody out of its number, so another
 // run may have claimed it meanwhile. Where that happened the run is moved to
-// the lowest number free within capacity and records it (RunRouting.MoveSlot),
-// so ready work never waits behind one busy slot while another sits idle. The
-// one exception is a run pinned to its slot's endpoint pair: the pair is that
-// slot's and is never renumbered, so it waits for the number rather than run
-// on it beside the other, and the refusal names the slot and why.
+// the lowest number free within capacity, a slot kept for one kind of work
+// included, and records it, so ready work never waits behind one busy slot
+// while another sits idle and work on a change already written is taken ahead
+// of fresh work by the first slot to free. A run with no endpoint pair is
+// renumbered (RunRouting.MoveSlot). A run pinned to its slot's pair is moved
+// and pinned to the new slot's own pair (RunRouting.MoveSlotRepinned), with the
+// earlier and the new pair recorded, so no slot runs another slot's pair; that
+// needs the slots' pairs (WithSlotPairs), and a caller that hands none over
+// leaves such a run waiting for its own slot, the refusal naming the slot.
 //
 // A capacity below one is a caller that does not know the configured limit
 // (Adopt); it cannot choose a number within it, so the run waits for its own.
@@ -305,13 +332,31 @@ func (s *Store) takeUpSlot(ctx context.Context, active []State, state State, cap
 		return state, nil
 	}
 	pinned := state.Routing.Developer != nil
+	pairs := slotPairsOf(ctx)
 	refusal := CapacityError{Limit: capacity, Active: s.HoldingDeveloperSlotsNow(active, now), Slot: number, HeldBy: holder, Pinned: pinned}
-	if pinned || capacity < 1 {
+	if (pinned && pairs == nil) || capacity < 1 {
 		return state, refusal
 	}
 	for free := 1; free <= capacity; free++ {
 		if _, busy := taken[free]; busy {
 			continue
+		}
+		if pinned {
+			snapshot, err := pairs(state, free)
+			if err != nil {
+				return state, fmt.Errorf("resolve developer slot %d's endpoints for run %s, taken up again while slot %d is held by run %s: %w", free, state.RunID, number, holder, err)
+			}
+			snapshot.RecordedAt = now.UTC()
+			because := fmt.Sprintf("developer slot %d was held by run %s when this run was taken up again, so it runs in free developer slot %d ahead of new work, on slot %d's own endpoints (%s) instead of slot %d's (%s)",
+				number, holder, free, free, snapshot.DescribePair(), number, state.Routing.Developer.DescribePair())
+			moved, err := s.UpdateRouting(ctx, state, func(routing *RunRouting) (bool, error) {
+				return routing.MoveSlotRepinned(free, snapshot, because, now)
+			})
+			if err != nil {
+				return state, fmt.Errorf("record developer slot %d and its endpoints for run %s, taken up again while slot %d is held by run %s: %w", free, state.RunID, number, holder, err)
+			}
+			state.Routing = moved.Routing
+			return state, nil
 		}
 		because := fmt.Sprintf("developer slot %d was held by run %s when this run was taken up again, and this run keeps no endpoint pair that would make it wait for that slot", number, holder)
 		moved, err := s.UpdateRouting(ctx, state, func(routing *RunRouting) (bool, error) {

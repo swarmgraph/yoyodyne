@@ -653,6 +653,79 @@ func (r *RunRouting) MoveSlot(number int, because string, at time.Time) (bool, e
 	return true, nil
 }
 
+// MoveSlotRepinned records another developer slot for a run taken up again
+// while the slot it recorded is held by another run, for a run that keeps an
+// endpoint pair: it is moved to the free slot and pinned to that slot's own
+// pair, snapshot, as the slot resolves it now — the slot's explicit pair where
+// it configures one, and the developer's own endpoint where it does not — so it
+// never carries one slot's pair into another. The move is recorded on the slot
+// (MovedFrom, MovedBecause) and as a reconfiguration naming the earlier and the
+// new pair and the configuration revision of each. Every logical operation is
+// kept as it stands — its identity, attempts, deadlines, budgets and switch —
+// and the next developer attempt, being on another endpoint than the last one,
+// starts a new session rather than being handed the old one (the orchestrator's
+// prepareDeveloperAttempt). Nothing may still be executing under the old pair.
+// Moving to the slot already recorded changes nothing.
+func (r *RunRouting) MoveSlotRepinned(number int, snapshot RoutingSnapshot, because string, at time.Time) (bool, error) {
+	if number < 1 {
+		return false, fmt.Errorf("developer slot %d is not a positive slot number", number)
+	}
+	if r.Slot != nil && r.Slot.Number == number {
+		return false, nil
+	}
+	if r.Developer == nil {
+		return false, conflict("the run keeps no developer endpoint pair to move; MoveSlot moves it")
+	}
+	if snapshot.Role != domain.RoleDeveloper || snapshot.Slot != number {
+		return false, conflict("the pair a run is moved to is developer slot %d's", number)
+	}
+	snapshot.Origin = RoutingReconfigured
+	if err := snapshot.validate(); err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(because) == "" || len(because) > maxRoutingText {
+		return false, errors.New("a move to another slot states a reason within its bound")
+	}
+	for _, operation := range r.Operations {
+		if operation.Role != domain.RoleDeveloper {
+			continue
+		}
+		if attempt, ok := operation.executingAttempt(); ok {
+			return false, conflict("attempt %s may still be executing on developer slot %d's pair; reconcile it before moving the run", attempt.ID, r.Developer.Slot)
+		}
+	}
+	if len(r.Reconfigurations) >= maxRoutingReconfigurations {
+		return false, conflict("the run has reached its bound of %d reconfigurations", maxRoutingReconfigurations)
+	}
+	from := 0
+	if r.Slot != nil {
+		from = r.Slot.Number
+	}
+	r.Reconfigurations = append(r.Reconfigurations, RoutingReconfiguration{
+		Role: domain.RoleDeveloper, FromDigest: r.Developer.Digest, ToDigest: snapshot.Digest,
+		FromConfig: r.Developer.ConfigRevision, ToConfig: snapshot.ConfigRevision, Reason: because, At: at.UTC(),
+	})
+	r.Slot = &RoutedSlot{Number: number, Origin: RoutingClaimed, RecordedAt: at.UTC(), MovedFrom: from, MovedBecause: because}
+	r.Developer = &snapshot
+	return true, nil
+}
+
+// DescribePair names a pinned pair's primary endpoint, and its alternate where
+// it has one, in words a person reads, for the record of a move.
+func (s RoutingSnapshot) DescribePair() string {
+	describe := func(e RoutedEndpoint) string {
+		return fmt.Sprintf("%s model %s on account %s", e.Provider, e.Model, e.AccountAlias)
+	}
+	says := describe(s.Primary)
+	if s.Alternate != nil {
+		says += ", with " + describe(*s.Alternate) + " as its alternate"
+	}
+	if s.ConfigRevision != "" {
+		says += ", configuration revision " + s.ConfigRevision
+	}
+	return says
+}
+
 // RecordSnapshot pins the run's role to a snapshot. Recording the same pair
 // again changes nothing, whatever reload produced it; a different pair is
 // refused, because replacing a pinned pair is Reconfigure's alone.

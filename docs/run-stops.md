@@ -153,7 +153,11 @@ candidate commit parks while the forge's required checks run, holding no
 developer slot; a later pull reads the forge and continues it, ahead of new
 work, and so does the first pull of a scheduler restarted while the run waits —
 including one whose program ended after it had taken the run's slot back and
-before it read the forge. The wait limit
+before it read the forge. Every pull also records the forge's decision on the
+waited commit on the run (`ci_wait.decided`) the first time it finds one,
+whether or not the run can be continued yet, and does so under a pause, a held
+intake, or a restart drain too, so a run left waiting for a slot says GitHub
+has answered. The wait limit
 passing, a required check ending cancelled, skipped or in another state that is
 neither a pass nor a failure, a forge that stays unreadable, and the setting
 being switched off each end the wait with the full checks on this machine,

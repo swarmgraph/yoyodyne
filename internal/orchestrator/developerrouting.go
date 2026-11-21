@@ -215,6 +215,28 @@ func (p Pipeline) slotPair(slot int, labels []string) (config.ResolvedEndpointPa
 	return pair, pair.Explicit, nil
 }
 
+// withSlotPairs hands the store the endpoints of every developer slot, as the
+// configuration resolves them now, on the context a run is taken up under. A
+// run that keeps its slot's pair and finds that slot held by another run is
+// then moved to a free slot and pinned to that slot's own endpoints — its
+// explicit pair, or the developer's own endpoint where it configures none —
+// rather than waiting for its own slot while the free one goes to fresh work
+// (runstate.Store.takeUpSlot).
+func (p Pipeline) withSlotPairs(ctx context.Context) context.Context {
+	return runstate.WithSlotPairs(ctx, p.slotSnapshot)
+}
+
+// slotSnapshot is the pair a run is pinned to in a developer slot it is moved
+// to, resolved now for the run's labels: the slot's explicit pair, or the
+// developer's own endpoint where the slot configures none.
+func (p Pipeline) slotSnapshot(state runstate.State, slot int) (runstate.RoutingSnapshot, error) {
+	pair, err := (config.Resolved{Config: p.Config}).ResolveDeveloperEndpoints(slot, p.developerName(), state.WorkItemLabels)
+	if err != nil {
+		return runstate.RoutingSnapshot{}, err
+	}
+	return runstate.RoutingSnapshotOf(pair, runstate.RoutingReconfigured, p.clock().Now()), nil
+}
+
 // dispatchBackend is the adapter and backend a dispatch into the slot the
 // scheduler chose will first invoke: the slot's primary where it has a pair,
 // and the configured developer's otherwise. It is what is asked whether it is
@@ -278,8 +300,8 @@ func sameEndpoint(a, b runstate.RoutedEndpoint) bool {
 // it into. A slot another run holding a slot now records is never taken from
 // it; one recorded by a run holding none — paused, or released for want of a
 // live worker — is free, and that run is taken up again in another free slot,
-// or waits for this one where it keeps its endpoint pair (runstate's
-// takeUpSlot).
+// switched to that slot's own endpoints where it keeps an endpoint pair
+// (runstate's takeUpSlot, given the slots' endpoints by withSlotPairs).
 func claimDeveloperSlot(ctx context.Context, store RoutingStore, held runstate.State, requested, capacity int, preferences []domain.DeveloperSlot, at time.Time) (runstate.State, int, error) {
 	order := make([]int, 0, capacity)
 	if requested >= 1 && requested <= capacity {

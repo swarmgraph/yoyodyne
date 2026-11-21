@@ -5884,9 +5884,9 @@ has the rule.
   with a new worker. If another run has claimed its slot number by then, it goes
   on in the lowest free slot and records that slot, the one it moved from, and
   why, which its history and its status line say too;
-  only a run that keeps its slot's endpoint pair waits for that slot rather than
-  run beside the other on the same endpoints, and the wait names the slot, the
-  run holding it, and why. The pass's summary names each release, and the health
+  a run that keeps its slot's endpoint pair moves too and is switched to the
+  new slot's own endpoints, with both recorded, so no slot runs another slot's
+  pair. The pass's summary names each release, and the health
   check the development manager's passes carry lists the run as a condition of
   hers, beside the list of what holds each developer slot, since when, and why.
 

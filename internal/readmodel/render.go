@@ -303,6 +303,12 @@ func (s Standing) renderPaused() string {
 		if run.WaitingForCI {
 			fmt.Fprintf(&rendered, "  %s — waiting for CI: %s, waited %s\n",
 				s.named(run.WorkItemID, ""), run.WaitingOn, age(run.CIWaited))
+			if run.CIDecided != "" {
+				fmt.Fprintf(&rendered, "    GitHub has decided: %s; the run is continued ahead of new work\n", run.CIDecided)
+			}
+			if run.ContinuationWaiting != "" {
+				fmt.Fprintf(&rendered, "    %s\n", run.ContinuationWaiting)
+			}
 			continue
 		}
 		if run.WaitingForGitHub != "" {
