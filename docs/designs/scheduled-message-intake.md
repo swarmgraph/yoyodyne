@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-11-20T23:17:13.017143Z
       reason: 'report-03f1ccef: the query kept only the last window size that fit, so a run stopped partway through halving restarted at a size known to be too large and a busy minute was never reached, skipped or warned about. The query now keeps the size it will ask for next after every call, so halving carries on in the next run; seven calls narrow an hour to a minute, so it may take two runs and always ends. Written from a read of the whole design at main 725f326f; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T01:12:30.385869Z
+      reason: Answers report f5c2d5e7. The intake edits to the MCP and ownership designs were checked at main 725f326f and both are already there, in revisions of November 7. This section now says each change is an architect revision and where it stands, and the MCP bullet says the link and the reader's line go by direct message or on the operator's list where Slack is not in use, never a channel, matching section 7. Nothing else changes.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -88,6 +92,11 @@ approvals:
       by: harness
       at: 2026-11-20T23:17:13.017143Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3258, for document-3258.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-21T01:12:30.385869Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3265, for document-3265.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -350,10 +359,12 @@ The rules that could be broken from outside this design are already held: no ses
 
 ## Documents this changes
 
-- [The MCP design](mcp-tools-through-the-harness.md): the table of role bundles gains the message reader, holding neither class. Section 4's record gains the one exception of this design's section 4, and section 7's sentence that records apply unchanged says so. Its rule on Slack names the two exceptions of section 7 here: the link to the source message and the reader's line, both sent only by direct message.
-- [Who owns what](ownership-and-the-operator.md): the table gains the kind for an intake question, owned as the query says. The wording of `human-gate` covers a step a query reserved for a person, and the wording of `protected-file` covers a section of the configuration that every role's write refuses.
-- [The artifact contract](artifact-contract.md): the rules kind gains one sentence for any rules document an intake query names by its path, wherever the project files it: such a document is read by the message reader, at the commit the query run records, and is not delivered to every role as product intent. The sentence names no fixed place, because section 6 lets the project choose one.
-- [Portable agent configuration](portable-agent-configuration.md): section 6's refused list names `intake`.
+Each change below is a revision of a document the architect owns, made by the architect through the ordinary route for designs. None of them is another role's to make, and none waits on the operator.
+
+- [The MCP design](mcp-tools-through-the-harness.md): the table of role bundles gains the message reader, holding neither class. Section 4's record gains the one exception of this design's section 4, and section 7's sentence that records apply unchanged says so. Its rule that nothing from a result reaches Slack names the two exceptions of section 7 here: the link to the source message and the reader's line, both sent only to the operator, by direct message or on the line listing what needs him where Slack is not in use, and never to a channel. All of this is in that design's revision of November 7, 2026.
+- [Who owns what](ownership-and-the-operator.md): the table gains the kind for an intake question, owned as the query says. The wording of `human-gate` covers a step a query reserved for a person, and the wording of `protected-file` covers a section of the configuration that every role's write refuses. All of this is in that design's revision of November 7, 2026.
+- [The artifact contract](artifact-contract.md): the rules kind gains one sentence for any rules document an intake query names by its path, wherever the project files it: such a document is read by the message reader, at the commit the query run records, and is not delivered to every role as product intent. The sentence names no fixed place, because section 6 lets the project choose one. It is written in a revision of the contract that is finished and waiting to be sent; until that lands, the contract does not yet say it.
+- [Portable agent configuration](portable-agent-configuration.md): section 6's refused list names `intake`. Whether that design already says so was not checked when this list was last revised.
 
 ## Build pieces, for the Lead Product Manager to admit
 
