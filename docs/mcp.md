@@ -149,7 +149,12 @@ the agent is an AI model run by a provider, such as Anthropic or OpenAI. So:
 - **The record stays on this machine.** The harness keeps up to 256 KiB of each
   result, under the product's state directory, so you can see what an agent was
   given. It is never copied into the work tracker, Slack, or the dashboard,
-  which show only tool names, how each call ended, and counts.
+  which show only tool names, how each call ended, and counts. A scheduled
+  intake query's calls are the one exception: the record keeps each answer's
+  size, its digest and whether it was cut, and never the answer, so `yoyo mcp
+  calls` shows those calls with no content. The messages a query reads are kept
+  only in the intake record ([scheduled message
+  intake](configuration.md#scheduled-message-intake)).
 - **An agent could still copy what it read into something it writes.** The
   harness cannot tell when an agent puts a private result into the work
   tracker, whose export is committed to the repository. A conversation role
