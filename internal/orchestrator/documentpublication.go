@@ -1175,7 +1175,7 @@ func (a *activeRun) reviewDocument(ctx context.Context) (Outcome, error) {
 		if err := a.verify(ctx); err != nil {
 			var failing checkFailure
 			if errors.As(err, &failing) {
-				a.recordCheckFailure(failing.result)
+				a.recordCheckFailure(failing)
 			}
 			return a.stop(ctx, err)
 		}

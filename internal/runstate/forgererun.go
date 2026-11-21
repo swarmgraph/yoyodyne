@@ -18,13 +18,15 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 )
 
 const (
 	// MaxUntouchedForgeTests is how many failing tests a failure may name and
-	// still count as confined to tests the change does not touch. More than
-	// this failing at once is not a flaky test.
-	MaxUntouchedForgeTests = 5
+	// still count as confined to tests the change does not touch: the same bound
+	// a failed check on this machine is held to.
+	MaxUntouchedForgeTests = checks.MaxUntouchedFailingTests
 	// maxRecordedForgeTests bounds the failing tests one judgment keeps.
 	maxRecordedForgeTests = 20
 	// maxForgeTestNameBytes bounds a test's or a package's name.

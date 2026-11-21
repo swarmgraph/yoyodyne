@@ -32,20 +32,21 @@ package orchestrator
 //
 // Test names are read from Go's test output, which is what this repository's
 // checks print; a check printing anything else names no test, and its failure is
-// an ordinary one. The project-declared reading of a check's failing tests, and
-// the change-aware analyser's evidence of which tests a change touches, are
-// later work (yoyodyne-ifd.429.87.1 and yoyodyne-ifd.429.87.6): until they land
-// the path rule here is the whole judgment, and it can only err towards a
-// failure being the change's.
+// an ordinary one. A failed check on this machine is judged instead from the
+// failing tests and files the project's declared reading names, by
+// checks.JudgeTouched, which shares this file's directory rule
+// (checks.ChangedPathWhere) and adds the change-aware analyser's evidence where
+// a project has one. Here the path rule is the whole judgment, and it can only
+// err towards a failure being the change's.
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -160,24 +161,18 @@ func containsString(values []string, value string) bool {
 // touches every test, and so does go.mod or go.sum, which reach every package.
 // A deleted file and a renamed file's old path count, where the list carries
 // them.
+//
+// It is the directory rule checks.ChangedPathWhere applies to a failed local
+// check's tests (checks.JudgeTouched), read through a package's import path
+// rather than a test's file, because GitHub's log names no file.
 func forgeTestTouched(pkg string, changed []string) bool {
-	for _, file := range changed {
-		file = strings.Trim(strings.TrimSpace(file), "/")
-		if file == "" {
-			continue
-		}
-		directory := path.Dir(file)
+	_, touched := checks.ChangedPathWhere(changed, func(directory, file string) bool {
 		if directory == "." {
-			if strings.HasSuffix(file, ".go") || file == "go.mod" || file == "go.sum" {
-				return true
-			}
-			continue
+			return strings.HasSuffix(file, ".go") || file == "go.mod" || file == "go.sum"
 		}
-		if pkg == directory || strings.HasSuffix(pkg, "/"+directory) {
-			return true
-		}
-	}
-	return false
+		return pkg == directory || strings.HasSuffix(pkg, "/"+directory)
+	})
+	return touched
 }
 
 // judgeForgeTests reads GitHub's log of every failing check for the tests it
