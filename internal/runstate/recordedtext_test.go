@@ -81,6 +81,7 @@ var structuredStrings = map[string]string{
 	"product_id":                                  "a validated identifier",
 	"repository_id":                               "an identifier the configuration names",
 	"work_item_id":                                "the tracker's identifier",
+	"document_item":                               "the tracker's identifier, checked by Validate",
 	"work_item_labels[]":                          "the tracker's label identifiers",
 	"selection.by":                                "who chose the work, in the harness's fixed vocabulary",
 	"selection.lift.run_id":                       "matched against the run id pattern",

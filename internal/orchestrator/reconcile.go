@@ -587,8 +587,12 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 		}
 	}
 	if state.Document != nil {
+		tracker := r.Tracker
 		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
 		r.Docket = nil
+		if documentProcessGone(state) {
+			return r.settleDocumentProcessGone(ctx, tracker, state)
+		}
 		if state.Integration == nil {
 			result := reconciliationOf(state, ActionResumable)
 			result.Detail = "the owning conversation resumes this document publication; no developer is invoked"

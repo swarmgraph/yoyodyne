@@ -171,11 +171,13 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		}
 		p = p.intentRoute()
 	}
-	// The tracker and docket below are replaced for the run itself, which has
-	// no backlog item; the real ones are kept for the two things a document run
-	// does write there — the start and end of each run, on the work item its
-	// document's revision names, and a run handed to the development manager.
-	record := documentItemRecorder{tracker: p.Tracker, document: document}
+	// The tracker and docket below are replaced for the run itself, which is
+	// recorded under a bookkeeping item of its own; the real ones are kept for
+	// what a document run does write there — the start, stops and end of each
+	// run, on the work item its document's revision names or the one filed for
+	// the publication (documentItemRecorder), and a run handed to the
+	// development manager.
+	record := newDocumentItemRecorder(p, document)
 	docket := p.Docket
 	p.Docket, p.Prices = nil, nil
 	p.Selection = runstate.Selection{By: runstate.SelectedByConversation, Reason: fmt.Sprintf("Document %s was supplied, %s, and %s; publish its exact content through independent review.", document.WriteID, document.Origin(), confirmed)}
@@ -196,6 +198,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if err != nil {
 		return runstate.DocumentDelivery{}, err
 	}
+	record.carry(previous)
 	if attempt == runstate.MaxDocumentAttempts {
 		// Every attempt is spent, so no slot will start another.
 		p.clearDocumentWait(document)
@@ -845,6 +848,7 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 		if !reflect.DeepEqual(state.Document, &document) {
 			return runstate.State{}, false, errors.New("the run already records a different document handoff")
 		}
+		record.carry(&state)
 		if state.Status.Terminal() {
 			return state, true, nil
 		}
@@ -865,7 +869,7 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 		if err != nil {
 			return runstate.State{}, false, err
 		}
-		state = runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: runID, ProductID: p.Config.Product.ID, RepositoryID: string(p.Config.Product.RepositoryID), WorkItemID: item.ID, WorkItemTitle: item.Title, Backend: p.reviewer().Backend, ConfigRevision: p.Config.Revision(), Build: p.Build, Status: runstate.StatusPending, Document: &document, TargetBranch: target}
+		state = runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: runID, ProductID: p.Config.Product.ID, RepositoryID: string(p.Config.Product.RepositoryID), WorkItemID: item.ID, WorkItemTitle: item.Title, Backend: p.reviewer().Backend, ConfigRevision: p.Config.Revision(), Build: p.Build, Status: runstate.StatusPending, Document: &document, TargetBranch: target, DocumentItem: *record.filed}
 		if p.intentLanding {
 			// The run is in the companion intent repository, reads the project's
 			// intent at that repository's own target commit, and is reviewed beside
@@ -892,6 +896,12 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 		defer lease.Release()
 		p.clearDocumentWait(document)
 		started = true
+		if filed := record.file(ctx, runID); filed != "" {
+			state.DocumentItem = filed
+			if err := p.Store.Save(state); err != nil {
+				return runstate.State{}, false, err
+			}
+		}
 		record.note(ctx, fmt.Sprintf("Yoyodyne started run %s to publish document %s (%s), %s; attempt %d of at most %d.", runID, document.WriteID, document.Candidate.Artifact.Title, document.Origin(), attempt+1, runstate.MaxDocumentAttempts))
 	}
 	tracker.item.Status = "in_progress"
@@ -965,8 +975,13 @@ func (p Pipeline) settledDocumentAttempt(ctx context.Context, runID string, ran 
 	}
 	d := saved.Document
 	switch {
+	case saved.MergeQueueSays() != "":
+		// The run ended once its change was queued, which is not a stop: the
+		// queue lands it or hands it back, and the item is told which then.
+		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not lose document %s (%s): %s. It is published when the queue merges it, and nothing needs writing again.", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, saved.MergeQueueSays()))
 	case saved.Status == runstate.StatusSucceeded && saved.Integration != nil:
 		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s published document %s (%s) at %s.", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, d.Candidate.Artifact.Path))
+		record.complete(ctx, fmt.Sprintf("Document %s (%s) landed at %s through run %s.", d.WriteID, d.Candidate.Artifact.Title, d.Candidate.Artifact.Path, saved.RunID))
 	case saved.DocumentJudged():
 		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not publish document %s (%s), and handed it back to the %s to revise: %s", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, d.Owner.Title(), documentStopSays(saved)))
 	default:
@@ -1204,9 +1219,17 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 	result.Passed = state.Status == runstate.StatusSucceeded
 	result.Judged = !result.Landed && state.DocumentJudged()
 	// A document waiting in a merge queue — the harness's, or the forge's — has
-	// not landed yet, and its conversation keeps it until it has.
-	if state.AwaitingMergeQueue() || (state.PullRequest != nil && state.PullRequest.MergeQueued) {
+	// not landed yet, and its conversation keeps it until it has. Its role is
+	// told once where it waits, naming the entry and the pull request, so a run
+	// that ended once its change was queued is not read as one that lost it. A
+	// run that ended any other way is settled whatever its pull request last
+	// said: a queued merge left on the record of a run that failed holds
+	// nothing, and keeping it unsettled would hold every later revision of the
+	// document behind a run that has ended.
+	if queued := state.MergeQueueSays(); queued != "" {
 		result.Settled = false
+		result.Queued = queued
+		result.Retrying = fmt.Sprintf("Document %s (%s) is on its way and is not handed back: in run %s %s. It lands when the queue merges it, and you are told then; it does not need writing again.\n", d.WriteID, d.Candidate.Artifact.Title, state.RunID, queued)
 		return result
 	}
 	switch {
@@ -1247,39 +1270,103 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 }
 
 // documentItemRecorder writes a document run's start and end onto the work item
-// the document's latest revision names, so a reader of that item sees its
-// document being published without finding the run. The item is named by the
-// revision reason's first word, which is how an owning role records the item a
-// revision was written for ("yoyodyne-ifd.433.11: ..."); a first word the
-// tracker holds no item under names nothing, and nothing is written.
+// the run is recorded against, so a reader of that item sees its document being
+// published without finding the run. That is the item the document's latest
+// revision names (runstate.DocumentAnswers), or, where it names none, an item
+// the harness files for the publication when its first run starts (file), so
+// every publication is recorded against an item and a stop reaches the item's
+// owner like any stopped run's.
 //
 // The writes are bounded and never stop the run: the run's own record is the
 // account, and a tracker too busy to take a note costs the note.
 type documentItemRecorder struct {
 	tracker  WorkTracker
+	filer    WorkFiler
 	document runstate.DocumentPublication
+	// filed is the item the harness filed for this publication, shared by every
+	// copy of the recorder so the item filed when the run starts is the one its
+	// end is written to. Empty where the revision names its own item.
+	filed *string
+}
+
+func newDocumentItemRecorder(p Pipeline, document runstate.DocumentPublication) documentItemRecorder {
+	filed := ""
+	return documentItemRecorder{tracker: p.Tracker, filer: p.Filer, document: document, filed: &filed}
+}
+
+// recordedDocumentItem is the recorder for a document run read back from its
+// record, with the item the harness filed for it where it filed one.
+func recordedDocumentItem(tracker WorkTracker, state runstate.State) documentItemRecorder {
+	filed := state.DocumentItem
+	return documentItemRecorder{tracker: tracker, document: *state.Document, filed: &filed}
 }
 
 // documentWorkItem is the work item a document's latest revision names, or
 // empty where it names none.
 func documentWorkItem(document artifact.ConfirmedDocument) string {
-	revisions := document.Artifact.Revisions
-	if len(revisions) == 0 {
+	return runstate.DocumentAnswers(document)
+}
+
+// item is the work item the publication is recorded against, or empty where
+// the revision names none and none was filed.
+func (r documentItemRecorder) item() string {
+	if id := documentWorkItem(r.document.Candidate); id != "" {
+		return id
+	}
+	if r.filed != nil {
+		return *r.filed
+	}
+	return ""
+}
+
+// carry takes up the item an earlier attempt at the same handoff filed.
+func (r documentItemRecorder) carry(state *runstate.State) {
+	if state != nil && state.DocumentItem != "" && r.filed != nil && *r.filed == "" {
+		*r.filed = state.DocumentItem
+	}
+}
+
+// documentFiledMarker is the line an item the harness filed for a publication
+// carries in its notes, naming the handoff, so a reader can tell it from work
+// somebody admitted.
+func documentFiledMarker(document runstate.DocumentPublication) string {
+	return fmt.Sprintf("Document publication: %s from %s", document.WriteID, nonEmpty(document.ConversationID, "the operator's approval"))
+}
+
+// file records the work item a publication whose revision names none is
+// recorded against, and returns it, or empty where the revision names one,
+// one is already filed, no filer is wired, or the tracker refused it. The item
+// is marked as the owning role's conversation's work, so no developer run is
+// started for it, and it is closed when the document lands; a document handed
+// back leaves it open with its owner, who revises or withdraws the document.
+func (r documentItemRecorder) file(ctx context.Context, runID string) string {
+	if r.filed == nil || *r.filed != "" || documentWorkItem(r.document.Candidate) != "" || r.filer == nil {
 		return ""
 	}
-	fields := strings.Fields(revisions[len(revisions)-1].Reason)
-	if len(fields) == 0 {
+	executor := domain.ConversationWith(r.document.Owner)
+	if !executor.Valid() {
 		return ""
 	}
-	id := strings.TrimRight(fields[0], ":,;")
-	if !strings.Contains(id, "-") || !beads.ValidIssueID(id) {
+	d := r.document
+	bounded, cancel := trackerRecordContext(ctx)
+	defer cancel()
+	created, err := r.filer.Create(bounded, beads.NewWorkItem{
+		Title:       fmt.Sprintf("Publish document %s (%s) written by the %s", d.Candidate.Artifact.ID, d.Candidate.Artifact.Title, d.Owner.Title()),
+		Description: fmt.Sprintf("The harness is publishing document %s (%s) at %s, %s, through a reviewed run, starting with run %s. The document's revision names no work item, so this item is what the publication is recorded against: its runs, a stop, and a hand-back are written here, and it is closed when the document lands. A document handed back is the %s's to revise or withdraw.", d.WriteID, d.Candidate.Artifact.Title, d.Candidate.Artifact.Path, d.Origin(), runID, d.Owner.Title()),
+		Type:        "task",
+		Executor:    executor,
+		Notes:       fmt.Sprintf("Filed by the harness when run %s started publishing document %s, because the revision names no work item of its own.\n%s", runID, d.WriteID, documentFiledMarker(d)),
+		Origin:      domain.WorkItemOrigin{Asker: domain.AskerHarness},
+	})
+	if err != nil {
 		return ""
 	}
-	return id
+	*r.filed = created.ID
+	return created.ID
 }
 
 func (r documentItemRecorder) note(ctx context.Context, note string) {
-	id := documentWorkItem(r.document.Candidate)
+	id := r.item()
 	if r.tracker == nil || id == "" {
 		return
 	}
@@ -1289,6 +1376,18 @@ func (r documentItemRecorder) note(ctx context.Context, note string) {
 		return
 	}
 	_, _ = r.tracker.RecordOutcome(bounded, id, note)
+}
+
+// complete closes the item the harness filed for the publication once its
+// document has landed. An item the revision names is its owner's to close and
+// is only noted.
+func (r documentItemRecorder) complete(ctx context.Context, reason string) {
+	if r.tracker == nil || r.filed == nil || *r.filed == "" || documentWorkItem(r.document.Candidate) != "" {
+		return
+	}
+	bounded, cancel := trackerRecordContext(ctx)
+	defer cancel()
+	_, _ = r.tracker.Complete(bounded, *r.filed, reason)
 }
 
 // documentTracker implements the pipeline's bookkeeping for a document run.
