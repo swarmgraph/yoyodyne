@@ -514,7 +514,7 @@ func TestEveryRuleThatChoosesAnEntryHasAReasonInPlainWords(t *testing.T) {
 		MergeQueueRuleDocument:    "it is a document",
 		MergeQueueRulePriority:    "most urgent priority",
 		MergeQueueRuleUnreadable:  "priority could not be read",
-			} {
+	} {
 		choice := MergeQueueChoice{Rule: rule, Passed: []string{"a", "b"}}
 		why := choice.Why()
 		if !strings.Contains(why, want) || !strings.Contains(why, "went ahead of 2 entries admitted earlier (a, b)") {
