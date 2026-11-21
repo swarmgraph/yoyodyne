@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
@@ -208,6 +209,68 @@ type DocumentDelivery struct {
 	// publishing its copy, which kept this handoff's run from starting (see
 	// PublishingAhead), and nil otherwise.
 	WaitingBehind *DocumentAhead `json:"waiting_behind,omitempty"`
+	// Queued is where a run that passed the document waits to land, in the
+	// words State.MergeQueueSays gives, set on an unsettled delivery whose
+	// document waits in a merge queue and empty on every other.
+	Queued string `json:"queued,omitempty"`
+}
+
+// MergeQueueSays is where a run's passed change waits to land, naming the queue
+// entry and the pull request: in the harness's merge queue
+// (State.AwaitingMergeQueue), or queued with the forge. It is empty for a run
+// whose change waits in no merge queue. It is one phrase here because the
+// run's work item, its owning conversation and `yoyo status` all say it, and a
+// queued change that each said differently is the confusion this exists to end:
+// a run that ended once its change was queued read, everywhere, like a run that
+// had lost it.
+func (s State) MergeQueueSays() string {
+	pullRequest := ""
+	if s.PullRequest != nil && s.PullRequest.Number > 0 {
+		pullRequest = fmt.Sprintf(" on pull request #%d", s.PullRequest.Number)
+	}
+	switch {
+	case s.AwaitingMergeQueue():
+		queued := s.MergeQueue
+		return fmt.Sprintf("it passed its checks and the independent review and waits in the merge queue for %s as entry %d (%s)%s, admitted %s; nothing has landed it or handed it back yet",
+			queued.TargetBranch, queued.Order, queued.EntryID, pullRequest, queued.AdmittedAt.Local().Format("Jan 2 15:04 MST"))
+	case s.Status == StatusSucceeded && s.PullRequest != nil && s.PullRequest.MergeQueued:
+		return fmt.Sprintf("it passed its checks and the independent review and the forge queued the merge of pull request #%d; nothing has landed it or handed it back yet", s.PullRequest.Number)
+	}
+	return ""
+}
+
+// DocumentItemSays names the work item a document run is recorded against: the
+// item the document's revision names, or the one the harness filed for the
+// publication where it names none (State.DocumentItem). Empty where it has
+// neither.
+func (s State) DocumentItemSays() string {
+	if s.Document == nil {
+		return ""
+	}
+	if s.DocumentItem != "" {
+		return s.DocumentItem
+	}
+	return DocumentAnswers(s.Document.Candidate)
+}
+
+// DocumentAnswers is the work item a confirmed document's latest revision names,
+// or empty where it names none. The item is named by the revision reason's
+// first word, which is how an owning role records the item a revision was
+// written for ("yoyodyne-ifd.433.11: ...").
+func DocumentAnswers(document artifact.ConfirmedDocument) string {
+	revisions := document.Artifact.Revisions
+	if len(revisions) == 0 {
+		return ""
+	}
+	fields := strings.Fields(revisions[len(revisions)-1].Reason)
+	if len(fields) == 0 {
+		return ""
+	}
+	id := strings.TrimRight(fields[0], ":,;")
+	if !strings.Contains(id, "-") || !beads.ValidIssueID(id) {
+		return ""
+	}
+	return id
 }
 
 // DocumentStanding is where one confirmed document's runs stand, read from the

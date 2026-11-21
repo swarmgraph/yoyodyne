@@ -285,6 +285,15 @@ type RunSummary struct {
 	// so carrying it is what lets a reader say which of the two a run marked
 	// outstanding is waiting on, rather than only that it is waiting.
 	MergeQueued bool `json:"merge_queued,omitempty"`
+	// Queued is where the run's passed change waits to land, naming the merge
+	// queue entry and the pull request, in the words State.MergeQueueSays gives,
+	// and empty for a run whose change waits in no merge queue. A run admitted
+	// to the harness's merge queue ends succeeded with nothing integrated, so
+	// without this its listing reads exactly like a run that lost its change.
+	Queued string `json:"queued,omitempty"`
+	// DocumentItem is the work item a document run is recorded against
+	// (State.DocumentItemSays), and empty for every other run.
+	DocumentItem string `json:"document_item,omitempty"`
 	// ResumingIntegration reports a run at its promotion again after the
 	// environment stopped it there, with its approval standing. It is carried so
 	// a listing says ResumingIntegrationSays in place of the bare phase: a run
@@ -580,6 +589,8 @@ func (s *Store) summarize(state State) RunSummary {
 		Integrated:          state.Integration != nil,
 		Outstanding:         state.Outstanding(),
 		MergeQueued:         state.PullRequest != nil && state.PullRequest.MergeQueued,
+		Queued:              state.MergeQueueSays(),
+		DocumentItem:        state.DocumentItemSays(),
 		ResumingIntegration: state.ResumingIntegration(),
 		AccountAlias:        state.AccountAlias,
 		ConfigRevision:      state.ConfigRevision,

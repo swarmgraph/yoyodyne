@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -4320,6 +4321,13 @@ type State struct {
 	// or hands it back to this run for repair. Absent is every run that
 	// promoted its own change.
 	MergeQueue *MergeQueueAdmissionRecord `json:"merge_queue,omitempty"`
+	// DocumentItem is the work item the harness filed for a document run whose
+	// document's revision names no item of its own, so every publication is
+	// recorded against an item its owner's conversation carries
+	// (State.DocumentItemSays). A later attempt at the same handoff carries the
+	// first attempt's. Absent on every other run, and on a document run whose
+	// revision names its item.
+	DocumentItem string `json:"document_item,omitempty"`
 	// SweepContinuations are the times the reconcile sweep continued this run
 	// after the process serving its usage-limit wait had exited on the
 	// in-process bound: the wait served by the sweep rather than by a person
@@ -4763,6 +4771,9 @@ func NewRunID() (string, error) {
 
 func (s State) Validate() error {
 	var problems []error
+	if s.DocumentItem != "" && (s.Document == nil || !beads.ValidIssueID(s.DocumentItem)) {
+		problems = append(problems, fmt.Errorf("document_item %q: only a document run records the item filed for it, and it must be a work item id", s.DocumentItem))
+	}
 	if s.MergeQueue != nil {
 		if err := s.MergeQueue.validate(); err != nil {
 			problems = append(problems, fmt.Errorf("merge_queue: %w", err))

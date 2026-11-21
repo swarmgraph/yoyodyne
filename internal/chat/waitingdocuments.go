@@ -419,6 +419,8 @@ func (s *Session) renderWaitingDocuments() string {
 func (s *Session) whereItStands(record *writeRecord) string {
 	standing := s.standingOf(record)
 	switch {
+	case standing.Running() && standing.Delivery.Queued != "":
+		return fmt.Sprintf("In the merge queue: run %s ended once %s. It is not handed back.", standing.RunID, standing.Delivery.Queued)
 	case standing.Running():
 		return fmt.Sprintf("Running: run %s is publishing it.", standing.RunID)
 	case standing.HandedBack():
