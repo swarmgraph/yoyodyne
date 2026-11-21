@@ -2284,7 +2284,9 @@ names an agent and never a person.
 **Blocked on a human** is the instance's own list, and holds only what needs
 the operator himself. Each entry names the `item` where there is one, `what`
 the operator must do, its `reason` from the ownership registry's closed list —
-`fundamental-intent`, `credential`, `repository-setting`, or `protected-file`
+`fundamental-intent`, `credential`, `repository-setting`, `protected-file`,
+`human-gate`, `own-hold`, or `diverged-history`, each said in plain words in
+[what comes back to you](reporting.md#who-reads-them-and-what-became-of-each-one)
 — the waiting record his act is recorded on as `cites` (a report, an
 amendment, or a directive), and `since` when, as a UTC time. **An entry stays
 until his act is recorded on that record**, never dropped for its age: the
@@ -2517,8 +2519,14 @@ closes it with what it took from the exchange. Closing is the ordinary ending.
 
 **You are not on the channel, and an ask names you only for a reason on your
 closed list.** A role may write `"role": "operator"` with `"operator_reason"`
-set to `fundamental-intent`, `credential`, `repository-setting`, or
-`protected-file`, and with a report at `warning` severity or above in the same
+set to a reason on that list — `fundamental-intent` for a change to what the
+goals admit or refuse, `credential` for a credential or account only a person
+holds, `repository-setting` for a forge or repository setting the harness's
+token cannot change, `protected-file` for a file beyond every grant,
+`human-gate` for a step the work item reserves for a person, `own-hold` for
+lifting a hold or pause you placed yourself, or `diverged-history` for saying
+which history is right when a target branch has diverged from the forge — and
+with a report at `warning` severity or above in the same
 reply, addressed to no role, asking it. That report is what reaches you, in [the
 pile you read](reporting.md#what-agents-report-and-where-it-reaches-you) and the
 summaries built from it; the ask opens no exchange, the question is listed with
@@ -3136,8 +3144,9 @@ rather than another re-arm. **An escalation names whom it goes to, and climbs
 `"to": "product-manager"` hands it to the Lead Product Manager on the item's
 intent, and `"to": "architect"` to the architect on its design. **It names you
 only for a reason on your closed list**, given as `"operator_reason"`:
-`fundamental-intent`, `credential`, `repository-setting`, or `protected-file`.
-One that names you without one of them — and one that leaves out `"to"`, which
+`fundamental-intent`, `credential`, `repository-setting`, `protected-file`,
+`human-gate`, `own-hold`, or `diverged-history`, the seven described in
+[roles asking each other things](#roles-asking-each-other-things). One that names you without one of them — and one that leaves out `"to"`, which
 names you — is refused with the rung to use instead: nothing is recorded and the
 item is not blocked. A raise past the five the development manager may record
 herself is not yours either: she escalates it with `"to": "product-manager"`,

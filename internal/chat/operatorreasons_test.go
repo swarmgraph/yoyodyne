@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +24,11 @@ func TestEveryContractNamesTheReasonsTheResolverAccepts(t *testing.T) {
 		authority, _ := AuthorityFor(role)
 		if !strings.Contains(authority.Contract, ownership.OperatorReasonsInContract) {
 			t.Errorf("%s contract does not name the operator's closed list of reasons", role)
+		}
+		// Embedding the list once is not enough where another passage of the
+		// same contract still spells a shorter one of its own.
+		for _, short := range ownership.ShortReasonLists(authority.Contract) {
+			t.Errorf("%s contract gives a shorter list of the operator's reasons than the resolver accepts:\n%s", role, short)
 		}
 		// The design's earlier names for two reasons are not ones the resolver
 		// takes, so a contract teaching them teaches a refusal.
@@ -51,6 +58,34 @@ func TestEveryContractNamesTheReasonsTheResolverAccepts(t *testing.T) {
 	for _, reason := range ownership.OperatorReasons() {
 		if !strings.Contains(laneReportContract, `"`+string(reason)+`"`) {
 			t.Errorf("the lane report contract does not name %q for a Blocked on a human entry", reason)
+		}
+	}
+	for name, contract := range map[string]string{"the asking contract": exchange.AskingContract, "the lane report contract": laneReportContract} {
+		for _, short := range ownership.ShortReasonLists(contract) {
+			t.Errorf("%s gives a shorter list of the operator's reasons than the resolver accepts:\n%s", name, short)
+		}
+	}
+}
+
+// The operator's guides tell him which reasons a role may name him for, so they
+// are held to the resolver's list as the contracts are: each names every reason,
+// and no passage in either lists fewer.
+func TestTheOperatorsGuidesNameTheReasonsTheResolverAccepts(t *testing.T) {
+	t.Parallel()
+
+	for _, guide := range []string{"reporting.md", "conversation.md"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "docs", guide))
+		if err != nil {
+			t.Fatalf("read docs/%s: %v", guide, err)
+		}
+		text := string(raw)
+		for _, reason := range ownership.OperatorReasons() {
+			if !strings.Contains(text, "`"+string(reason)+"`") {
+				t.Errorf("docs/%s does not name %q among the operator's reasons", guide, reason)
+			}
+		}
+		for _, short := range ownership.ShortReasonLists(text) {
+			t.Errorf("docs/%s gives a shorter list of the operator's reasons than the resolver accepts:\n%s", guide, short)
 		}
 	}
 }
