@@ -82,6 +82,10 @@ func (i Inspector) Verify(_ context.Context, runID string, expect Expected) Veri
 		if last == nil {
 			return answer(NotMet, "the record names no continuation")
 		}
+		if stoppedAt, stopped := latestStopAt(state); stopped && !last.At.After(stoppedAt) {
+			return answer(NotMet, fmt.Sprintf("the run last stopped at %s and no continuation has started since; the latest it names, %s, came before that stop",
+				stoppedAt.UTC().Format(time.RFC3339), describeContinuation(*last)))
+		}
 		if last.Pending {
 			return answer(Unknown, describeContinuation(*last))
 		}
@@ -91,6 +95,10 @@ func (i Inspector) Verify(_ context.Context, runID string, expect Expected) Veri
 			return answer(NotMet, "the record names no repair")
 		}
 		repair := state.RepairContinuations[len(state.RepairContinuations)-1]
+		if stoppedAt, stopped := latestStopAt(state); stopped && !repair.ContinuedAt.After(stoppedAt) {
+			return answer(NotMet, fmt.Sprintf("the run last stopped at %s and no repair has started since; the latest repair it names was taken up at %s, before that stop",
+				stoppedAt.UTC().Format(time.RFC3339), repair.ContinuedAt.UTC().Format(time.RFC3339)))
+		}
 		if repair.DispatchPending {
 			return answer(Unknown, fmt.Sprintf("a repair of %d attempt(s) was recorded at %s and the pipeline has not yet confirmed taking it up",
 				repair.GrantedAttempts, repair.ContinuedAt.UTC().Format(time.RFC3339)))
@@ -101,10 +109,18 @@ func (i Inspector) Verify(_ context.Context, runID string, expect Expected) Veri
 		if err != nil {
 			return answer(Unknown, fmt.Sprintf("the runs in flight could not be listed: %v", err))
 		}
+		stoppedAt, stopped := latestStopAt(state)
 		for _, other := range active {
-			if other.WorkItemID == state.WorkItemID && other.RunID != state.RunID && !other.StartedAt.Before(state.StartedAt) {
-				return answer(Met, fmt.Sprintf("run %s, started at %s, is in flight on %s", other.RunID, other.StartedAt.UTC().Format(time.RFC3339), state.WorkItemID))
+			if other.WorkItemID != state.WorkItemID || other.RunID == state.RunID || other.StartedAt.Before(state.StartedAt) {
+				continue
 			}
+			if stopped && !other.StartedAt.After(stoppedAt) {
+				continue
+			}
+			return answer(Met, fmt.Sprintf("run %s, started at %s, is in flight on %s", other.RunID, other.StartedAt.UTC().Format(time.RFC3339), state.WorkItemID))
+		}
+		if stopped {
+			return answer(NotMet, fmt.Sprintf("the run last stopped at %s and no run started on %s since then is in flight", stoppedAt.UTC().Format(time.RFC3339), state.WorkItemID))
 		}
 		return answer(NotMet, fmt.Sprintf("no later run is in flight on %s", state.WorkItemID))
 	case ExpectUnresolvedHoldRecorded:
@@ -122,6 +138,24 @@ func (i Inspector) Verify(_ context.Context, runID string, expect Expected) Veri
 	// What remains is recorded by recovery actions this build does not carry
 	// out, so it has nothing to read them from.
 	return answer(Unknown, fmt.Sprintf("this build records nothing that shows %q; the recovery that records it is built by stopped-run recovery (yoyodyne-ifd.428.99)", expect))
+}
+
+// latestStopAt is when the run last stopped, where it has stopped. A repair,
+// continuation or re-run is decided on a stop, so the checks that it started
+// count only what was taken up after this time: work taken up before it belongs
+// to an earlier stop, and the run stopping again since says that work is over.
+// It reads the stops the record keeps, and also a stop the record is on now
+// that the list does not carry, as a record written before the list was kept.
+func latestStopAt(state runstate.State) (time.Time, bool) {
+	var at time.Time
+	stop, stopped := state.LatestStop()
+	if stopped {
+		at = stop.StoppedAt
+	}
+	if state.Status.Terminal() && state.RecordedStopClass() != "" && state.CompletedAt != nil && state.CompletedAt.After(at) {
+		at, stopped = *state.CompletedAt, true
+	}
+	return at, stopped
 }
 
 func describeContinuation(c Continuation) string {

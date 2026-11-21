@@ -2075,7 +2075,10 @@ answers met, not met, or unknown, with what was read and when. Whatever could
 not be read makes the answer unknown, never met. Unresolved hold recorded
 reads the hold `run.recover` writes, and continuation started reads a
 continuation it asked for as unknown until the work session has taken it up.
-Item given back and question recorded are recorded by recovery actions this
+Continuation started, repair started, and rerun holds the item count only what
+was taken up after the run's latest stop: a repair, continuation, or later run
+from before that stop answers not met, and the answer names when the run last
+stopped and says nothing has started since. Item given back and question recorded are recorded by recovery actions this
 build does not carry out yet, so they answer unknown.
 
 Neither tool takes the run's lease: a reading is never a second owner of the
