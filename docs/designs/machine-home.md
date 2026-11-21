@@ -62,6 +62,10 @@ revisions:
       by: architect
       at: 2026-11-20T13:55:58.765375Z
       reason: 'yoyodyne-n2t1, with yoyodyne-ifd.437.69: the Validation section now says which of its seven checks each of the seven checks in scripts/validate-machine-home.sh covers, read whole at main eec873b23fff. It names what the script does not run yet: parts of check 5, which are script work under the validation project (yoyodyne-ifd.434.14), and the supervisor''s own move in check 6, which waits on yoyodyne-ifd.434.29. It also says the script''s list for the top of the home has to name machine-identity.json. The section''s existing text is unchanged, and no requirement changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T00:00:32.750528Z
+      reason: 'yoyodyne-ob8d: the project groups design landed at 8d03f3a2c and asks this design to list groups/<group id>/intent/ at the top of the home. This adds that entry and one ruling: yoyo group init and a member configuration naming a group are refused while the state is still in the old platform home, so the move needs no step for groups. Read whole at main 8d03f3a2c; no other section changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -128,6 +132,11 @@ approvals:
       by: harness
       at: 2026-11-20T13:55:58.765375Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3180, for document-3180.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 14
+      by: harness
+      at: 2026-11-21T00:00:32.750528Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3271, for document-3271.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -152,6 +161,13 @@ The home holds one directory per project and, at the top, only what no single
 project owns:
 
 - `projects/<product.id>/` — one per project, below.
+- `groups/<group id>/intent/` — the clone of a project group's shared intent
+  repository, one per group this machine runs a member of, as
+  [project groups](project-groups.md) rules. It sits at the top because no
+  single member project owns it: every member's harness on the machine reads
+  the one clone. A project that is in no group has nothing here, and a project
+  that keeps its own companion intent repository outside any group keeps it
+  under its project directory, as The project directory says.
 - `accounts/` — provider accounts, which serve every project.
 - `operator-hold.json` — the operator's pause, set by `yoyo pause`, which is
   machine-wide by decision: one pause stops every project on the machine, as it
@@ -173,6 +189,15 @@ project owns:
   count split across projects would need every project's lock for each request
   and would move with a project when it is renamed.
 - `logs/` — the harness's own logs.
+
+**Groups are made only in this home.** `yoyo group init`, and a member
+configuration naming a group, are refused while the machine's state is still
+in the old platform home that The migration describes, and the refusal says
+the state has to move first and when the product will next try to move it. So
+no group's clone ever exists in the old home, and the steps of the move need
+no step for `groups/`. Carrying `groups/` in the move was rejected because it
+would add a step, and its undoing, for a case that the refusal removes at no
+cost: a machine still on the old home is already due to move its state.
 
 **One identity for the machine.** Run state written by earlier builds carries
 a machine identity of its own, recorded as `machine.identity`. The two are not
