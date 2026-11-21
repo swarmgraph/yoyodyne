@@ -10111,6 +10111,7 @@ file may set one and keep the defaults for the others.
 `store_megabytes` (1024 by default, between 1 and 1048576) is the largest the
 store may be on disk, and `listing_seconds` (10 by default, between 1 and 120)
 the longest one of the harness's own listings of open or ready work may take,
+its wait for its turn behind the harness's other tracker calls included,
 which is the limit [the design on keeping the store small](designs/tracker-store-size.md)
 sets. The pass reads the size from the disk and the listing times from the log
 of tracker calls every harness process keeps, over the hour before the pass,

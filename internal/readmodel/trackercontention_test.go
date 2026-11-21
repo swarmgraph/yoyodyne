@@ -189,7 +189,7 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 		if own && !shared {
 			dir = newRepository(t)
 		}
-		return beads.Client{Runner: runner, Dir: dir, Timeout: limit, Holders: noHolders{}}
+		return beads.Client{Runner: runner, Dir: dir, Timeout: limit, Holders: noHolders{}, UnorderedCalls: true}
 	}
 
 	var contenders sync.WaitGroup
@@ -328,7 +328,7 @@ func TestATrackerWriteFinishesInsideItsLimitBesideRepeatedDashboardRefreshes(t *
 	}
 	readings := madeEveryTime{store}
 	client := func(limit time.Duration) beads.Client {
-		return beads.Client{Runner: runner, Dir: repository, Timeout: limit, Holders: noHolders{}}
+		return beads.Client{Runner: runner, Dir: repository, Timeout: limit, Holders: noHolders{}, UnorderedCalls: true}
 	}
 
 	var contenders sync.WaitGroup
