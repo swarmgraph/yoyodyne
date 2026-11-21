@@ -6074,14 +6074,22 @@ has the rule.
   entries are the second kind. Four gaps make one today, each a closed value
   carried as `hand` in the registry's answer: a change proposed to a document
   whose owning role cannot decide it (`amendment-decision`; with the roles the
-  harness ships, every owner decides its own, so none carries it), a
+  harness ships, every owner decides its own, so none carries it, and no item is
+  admitted to close it for a role the harness has not given the decision), a
   configuration value a role decided that only a person can write into
   `.yoyodyne/config.yaml` (`operational-configuration`, until
   yoyodyne-ifd.434.8's build lands), a document a role wrote from a
   conversation whose kind's approval setting asks for a person
   (`document-confirmation`, until yoyodyne-ifd.433.21). A raise of an item's
   cap once the development manager has used her own five is not among them:
-  the Lead Product Manager grants it, and it waits under her name. Everything
+  the Lead Product Manager grants it, and it waits under her name. An entry whose
+  hand names no item is also told to the Lead Product
+  Manager, as the harness's own warning in her report pile before her
+  next scheduled pass, naming the role that decided, the capability the harness
+  lacks, and the entry, so she admits a defect for it. It is told once for each
+  entry, however many passes read it; once a build names an item that closes
+  the gap, nothing more is told, and a warning about it she has not yet handled
+  is recorded by the harness as needing nothing, naming that item. Everything
   else that is waiting is printed under it, one line per mover — `Waiting on the
   development manager (2):`, `Waiting on the harness (1):`, `Waiting on the
   forge (1):` — in the order the Lead Product Manager, the architect, the
