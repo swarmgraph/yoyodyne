@@ -2,10 +2,12 @@ package orchestrator
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -99,6 +101,123 @@ func TestAPullFreesTheSlotOfARunWithNoLiveWorkerBeforeCountingTheSlots(t *testin
 			}
 			if !test.vanished && (len(schedule.ReleasedSlots) != 0 || schedule.Stopped != ScheduleCapacityFull) {
 				t.Fatalf("ReleasedSlots = %#v, stopped = %q; want nothing freed and the live run's slot counted full", schedule.ReleasedSlots, schedule.Stopped)
+			}
+		})
+	}
+}
+
+// storeRuns is the schedule harness with its runs read from a real run store,
+// so the pull frees slots by the store's own rule.
+type storeRuns struct {
+	*scheduleHarness
+	store *runstate.Store
+}
+
+func (r storeRuns) Incomplete() ([]runstate.State, error) { return r.store.Incomplete() }
+
+func (r storeRuns) HoldsDeveloperSlotNow(state runstate.State, now time.Time) bool {
+	return r.store.HoldsDeveloperSlotNow(state, now)
+}
+
+func (r storeRuns) ReleaseSlotsWithNoLiveWorker(ctx context.Context, now time.Time) ([]runstate.ReleasedSlot, error) {
+	return r.store.ReleaseSlotsWithNoLiveWorker(ctx, now)
+}
+
+// slotReleaseNotesKept keeps every note a pull appends to a work item.
+type slotReleaseNotesKept struct {
+	sync.Mutex
+	byItem map[string][]string
+}
+
+func (n *slotReleaseNotesKept) RecordOutcome(_ context.Context, id, notes string) (beads.WorkItem, error) {
+	n.Lock()
+	defer n.Unlock()
+	n.byItem[id] = append(n.byItem[id], notes)
+	return beads.WorkItem{ID: id}, nil
+}
+
+// A continuation refused after it made its run live leaves the run in flight,
+// naming this very scheduler's program as its worker, with nothing holding its
+// lease. The next pull gives that slot back while the scheduler keeps running,
+// records it on the run and on the item, and starts ready work in it; the run
+// stays in flight for a repair or continuation to take up. A run whose worker
+// holds its lease keeps its slot, and the slot is counted full.
+func TestAPullGivesBackTheSlotOfARefusedContinuationWhileTheSchedulerRuns(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		held bool
+	}{
+		{name: "nothing holds the run's lease"},
+		{name: "the run's worker holds its lease", held: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+			if err != nil {
+				t.Fatalf("runstate.NewStore() error = %v", err)
+			}
+			runID, err := runstate.NewRunID()
+			if err != nil {
+				t.Fatalf("NewRunID() error = %v", err)
+			}
+			continued := runningState(runID, "yoyodyne-ifd.400")
+			continued.Status = runstate.StatusPending
+			continued.UpdatedAt = time.Now().Add(-runstate.UnheldRunQuiet - time.Minute)
+			lease, err := store.Reserve(ctx, continued, 1)
+			if err != nil {
+				t.Fatalf("Reserve() error = %v", err)
+			}
+			if test.held {
+				t.Cleanup(func() { _ = lease.Release() })
+			} else if err := lease.Release(); err != nil {
+				t.Fatalf("Release() error = %v", err)
+			}
+
+			harness := newScheduleHarness(readyItems("yoyodyne-ifd.500")...)
+			harness.capacity = 1
+			runs := storeRuns{scheduleHarness: harness, store: store}
+			notes := &slotReleaseNotesKept{byItem: map[string][]string{}}
+			open := func(ctx context.Context) (Pull, error) {
+				pull, err := harness.open(ctx)
+				pull.Runs = runs
+				pull.SlotReleaseNotes = notes
+				return pull, err
+			}
+			schedule, err := (Scheduler{Open: open}).Schedule(ctx)
+			if err != nil {
+				t.Fatalf("Schedule() error = %v", err)
+			}
+			started := false
+			for _, run := range schedule.Started {
+				started = started || run.WorkItemID == "yoyodyne-ifd.500"
+			}
+			stored, err := store.Load(runID)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			notes.Lock()
+			said := notes.byItem["yoyodyne-ifd.400"]
+			notes.Unlock()
+			if test.held {
+				if started || len(schedule.ReleasedSlots) != 0 || schedule.Stopped != ScheduleCapacityFull || stored.SlotRelease != nil || len(said) != 0 {
+					t.Fatalf("started %t, released %#v, stopped %q, release on run %+v, notes %q; want the held run's slot kept and counted full",
+						started, schedule.ReleasedSlots, schedule.Stopped, stored.SlotRelease, said)
+				}
+				return
+			}
+			if !started {
+				t.Fatalf("started = %#v, stopped = %q; want the ready item started in the slot given back", schedule.Started, schedule.Stopped)
+			}
+			if len(schedule.ReleasedSlots) != 1 || schedule.ReleasedSlots[0].RunID != runID || schedule.SlotReleaseProblem != "" {
+				t.Fatalf("ReleasedSlots = %#v, problem %q; want run %s named", schedule.ReleasedSlots, schedule.SlotReleaseProblem, runID)
+			}
+			if !stored.Status.InFlight() || stored.SlotRelease == nil {
+				t.Fatalf("the run is %s with release %+v, want it kept in flight with the release recorded", stored.Status, stored.SlotRelease)
+			}
+			if len(said) != 1 || !strings.Contains(said[0], runID) || !strings.Contains(said[0], stored.SlotRelease.Says) || !strings.Contains(said[0], "nothing holds the run's lease") {
+				t.Fatalf("item notes = %q, want one note naming the run and saying when and why its slot was given back", said)
 			}
 		})
 	}

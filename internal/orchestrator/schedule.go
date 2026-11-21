@@ -331,6 +331,14 @@ type ScheduleSlotRelease interface {
 	ReleaseSlotsWithNoLiveWorker(ctx context.Context, now time.Time) ([]runstate.ReleasedSlot, error)
 }
 
+// ScheduleSlotReleaseNotes appends to a work item's notes, which is where a
+// pull says on the item that it gave back the developer slot of the item's run,
+// with when and why. A pull with none still releases the slot and records the
+// release on the run.
+type ScheduleSlotReleaseNotes interface {
+	RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error)
+}
+
 // ScheduleRunIndex rebuilds the index of run records from every record
 // (runstate.Store.RebuildRunIndex). A session asks it of its runs where they
 // satisfy it, which *runstate.Store does, once, at its first pull and before
@@ -706,6 +714,9 @@ type Starter func(ctx context.Context, workItemID string, selection runstate.Sel
 type Pull struct {
 	Tracker ScheduleTracker
 	Runs    ScheduleRuns
+	// SlotReleaseNotes is where each developer slot the pull gives back is said
+	// on the run's work item (releaseSlots).
+	SlotReleaseNotes ScheduleSlotReleaseNotes
 	// Stoppages is the harness's own record of the work it stopped and nobody has
 	// decided about, which is what tells a dependency block that has since cleared
 	// from a stoppage somebody still has to release. It is optional, and a pull
@@ -6757,8 +6768,11 @@ func clearLeftoverAssignees(ctx context.Context, schedule *Schedule, pull Pull) 
 // development manager is told of each from the run's own record: the health
 // check her passes carry names every released run that is still in flight
 // (health.ClassSlotReleased), with what the release did and what would finish
-// the run. What could not be read or written is said beside the pull and stops
-// nothing, because a pull that frees nothing still counts exactly as before.
+// the run. Each release is also appended to the notes of the run's work item,
+// in the words written on the run, so a reader of the item sees when its slot
+// was given back and why. What could not be read or written is said beside the
+// pull and stops nothing, because a pull that frees nothing still counts
+// exactly as before.
 func (s Scheduler) releaseSlots(ctx context.Context, schedule *Schedule, pull Pull) {
 	releaser, ok := pull.Runs.(ScheduleSlotRelease)
 	if !ok {
@@ -6767,9 +6781,28 @@ func (s Scheduler) releaseSlots(ctx context.Context, schedule *Schedule, pull Pu
 	released, err := releaser.ReleaseSlotsWithNoLiveWorker(ctx, s.now())
 	schedule.ReleasedSlots = append(schedule.ReleasedSlots, released...)
 	schedule.SlotReleaseProblem = ""
+	var problems []string
 	if err != nil {
-		schedule.SlotReleaseProblem = fmt.Sprintf("a developer slot with no live worker behind it could not be freed, so it may still read as taken: %v", err)
+		problems = append(problems, fmt.Sprintf("a developer slot with no live worker behind it could not be freed, so it may still read as taken: %v", err))
 	}
+	if pull.SlotReleaseNotes != nil {
+		for _, slot := range released {
+			if strings.TrimSpace(slot.WorkItemID) == "" {
+				continue
+			}
+			if _, err := pull.SlotReleaseNotes.RecordOutcome(ctx, slot.WorkItemID, slotReleaseNote(slot)); err != nil {
+				problems = append(problems, fmt.Sprintf("the developer slot given back from run %s was recorded on the run, but could not be appended to %s's notes: %v", slot.RunID, slot.WorkItemID, err))
+			}
+		}
+	}
+	schedule.SlotReleaseProblem = strings.Join(problems, "; ")
+}
+
+// slotReleaseNote is what a work item's notes say when the developer slot of
+// its run is given back: the run, and the release in the words written on it,
+// which carry the time and the reason.
+func slotReleaseNote(slot runstate.ReleasedSlot) string {
+	return fmt.Sprintf("Run %s: %s", slot.RunID, slot.Release.Says)
 }
 
 // diedTogether is the one stop the hold on new work counts for the runs one
