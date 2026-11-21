@@ -158,6 +158,10 @@ revisions:
       by: architect
       at: 2026-11-21T15:42:32.198464Z
       reason: 'yoyodyne-ifd.437.67: The release tag section only, copied from main cdcd0559a79a. ''the adoption walkthrough'' becomes ''the getting started walkthrough'', the last place in the three designs that item names; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T17:21:45.303705Z
+      reason: Program manager subsection only, copied from main 6c195eec0. Replaces 'never gates an admission' with plain words, names the Lead Product Manager, and rewords 'collapsed events', 'triage', 'mints' and two joined-up compounds the word check refuses. Nothing the role may do changes.
 approvals:
     - revision: 0
       by: operator
@@ -212,6 +216,11 @@ approvals:
       by: harness
       at: 2026-11-21T15:42:32.198464Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3328, for document-3328.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 38
+      by: harness
+      at: 2026-11-21T17:21:45.303705Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3333, for document-3333.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -366,11 +375,11 @@ The local Claude Code or Codex process is not the agent's durable identity. Each
 #### Program manager
 
 - A sixth role, specified in [program-manager](program-manager.md): configured instances each own one lane, a tracker label, and admit and order work only inside it.
-- Watches one outcome across the other roles' work on a schedule and on collapsed events, and keeps a rewritten lane report.
-- Asks the product manager for everything outside its lane in one digest per pass, and never gates an admission.
-- Writes no code, decides no triage, mints no evidence.
+- Watches one outcome across the other roles' work on a schedule and when the events it watches arrive, and keeps a lane report it rewrites each pass.
+- Asks the Lead Product Manager for everything outside its lane in one digest per pass, and never holds up an admission.
+- Writes no code, decides no recovery of a stopped run, and creates no evidence of checks or review.
 
-The management bundles' contents — what the development manager and product manager may do rather than only record — are owned by [configurable-workflows](configurable-workflows.md)' authority-model section. The set of roles is fixed in the harness, and is six since the program manager was added by a change to it. What a project configures is which agents fill those roles, how many, and each one's backend, model selector, and persona. Role authority and which tools each role may use — including the reviewer running with read-only access — are derived from the role in code and are not configurable: authority a project could declare is authority a project could widen, and the ownership model rests on it. Adding or redefining a role is a change to the harness, not to a configuration file. How that fixture becomes capability-based - authority semantics staying in Go while composition becomes protected operator-activated configuration after behavioral parity - is governed by [authority-by-capability](../decisions/authority-by-capability.md) and the [configurable-workflows](configurable-workflows.md) design. Role and backend combinations are validated against the effective configuration before work is claimed, and an unknown role name must be refused at load. The `Capabilities` negotiation in the backend boundary is untouched by this: what a backend can do is a genuinely varying fact.
+The management bundles' contents — what the development manager and the Lead Product Manager may do rather than only record — are owned by [configurable-workflows](configurable-workflows.md)' authority model section. The set of roles is fixed in the harness, and is six since the program manager was added by a change to it. What a project configures is which agents fill those roles, how many, and each one's backend, model selector, and persona. Role authority and which tools each role may use — including the reviewer running with read-only access — are derived from the role in code and are not configurable: authority a project could declare is authority a project could widen, and the ownership model rests on it. Adding or redefining a role is a change to the harness, not to a configuration file. How that fixed set comes to rest on capabilities, with authority semantics staying in Go while composition becomes protected configuration the operator activates after behavioral parity, is governed by [authority-by-capability](../decisions/authority-by-capability.md) and the [configurable-workflows](configurable-workflows.md) design. Role and backend combinations are validated against the effective configuration before work is claimed, and an unknown role name must be refused at load. The `Capabilities` negotiation in the backend boundary is untouched by this: what a backend can do is a genuinely varying fact.
 
 ### Management and supervision
 
