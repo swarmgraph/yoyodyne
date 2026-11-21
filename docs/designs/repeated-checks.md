@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-27T00:37:16.945881Z
       reason: 'Brings this design into line with guarantee 9 of the design for one owner for each guarantee, landed October 25: the checks component decides every skip and kept result; a passed result may also be kept for a later commit where the project''s analyser shows with complete evidence that nothing the check covers changed, compared on the change combined with the new target branch when it moved, measured over 50 runs before it is switched on; the before-review and before-promotion pair and the reviewer checks updated to match. The first removal is unchanged. Written from reads at main 89284e43.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T05:32:47.612549Z
+      reason: 'First of three designs renamed for the README walk check (yoyodyne-ifd.437.67): the check called the adoption check is now getting-started on main (yoyodyne-9f4), so this section names it that way. Nothing else changes. Read whole at main 3e45c2a2.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-10-27T00:37:16.945881Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1823, for document-1823.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-21T05:32:47.612549Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3299, for document-3299.1 under the automatic approval policy
 ---
 # Repeated checks: when two runs are the same run, and the first one removed
 
@@ -86,7 +95,7 @@ The first bounded implementation is the duplicate above: the CI run on the push 
 1. **Shadow.** For one week the push run still runs; beside it the harness records whether it would have been skipped and whether the two results agreed.
 2. **Removal.** Only if every shadow case agreed is the skip switched on. A setting restores today's behaviour at any time, and any disagreement found later switches it back off and is reported to the development manager.
 
-Release packaging and the adoption check are not touched by this first step. Narrowing them later needs the shared selection policy of the change-aware verification design (yoyodyne-ifd.429.44), with complete dependency coverage of scripts, templates and configuration, not a filter of its own.
+Release packaging and the `getting-started` check, which walks the README, are not touched by this first step. Narrowing them later needs the shared selection policy of the change-aware verification design (yoyodyne-ifd.429.44), with complete dependency coverage of scripts, templates and configuration, not a filter of its own.
 
 ## Measurements
 
