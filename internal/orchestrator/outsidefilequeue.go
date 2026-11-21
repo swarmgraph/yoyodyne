@@ -100,9 +100,9 @@ func outsideFileItemStatus(state runstate.State) string {
 	return "in_progress"
 }
 
-// note writes what the queue said onto the item the run is for. A document
-// whose latest revision names no item the tracker holds has nowhere to be
-// told, as with any document run (documentItemRecorder).
+// note writes what the queue said onto the item the run is for. A document run
+// writes it onto the item its revision names or the one the harness filed for
+// the publication, and nowhere where it has neither (documentItemRecorder).
 func (t HarnessRunItems) note(ctx context.Context, state runstate.State, what string) error {
 	if document := state.Document; document != nil {
 		recordedDocumentItem(t.WorkTracker, state).note(ctx, fmt.Sprintf("Publishing %s (run %s): %s", document.Candidate.Artifact.Path, state.RunID, what))

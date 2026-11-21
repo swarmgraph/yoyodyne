@@ -171,10 +171,12 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		}
 		p = p.intentRoute()
 	}
-	// The tracker and docket below are replaced for the run itself, which has
-	// no backlog item; the real ones are kept for the two things a document run
-	// does write there — the start and end of each run, on the work item its
-	// document's revision names, and a run handed to the development manager.
+	// The tracker and docket below are replaced for the run itself, which is
+	// recorded under a bookkeeping item of its own; the real ones are kept for
+	// what a document run does write there — the start, stops and end of each
+	// run, on the work item its document's revision names or the one filed for
+	// the publication (documentItemRecorder), and a run handed to the
+	// development manager.
 	record := newDocumentItemRecorder(p, document)
 	docket := p.Docket
 	p.Docket, p.Prices = nil, nil

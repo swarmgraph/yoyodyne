@@ -641,8 +641,8 @@ merge it are left alone. Pull requests that earlier copies left open before this
 was built are closed the same way, the next time their document is published.
 
 **A stopped document publication is the development manager's to decide.** It
-has no work item behind it, so it is put on her list of stopped runs as a run
-that names the document, its pull request, and whether a newer stopped copy of
+is decided on the run rather than on its work item, so it is put on her list of
+stopped runs as a run that names the document, its pull request, and whether a newer stopped copy of
 the same document exists or one has landed since. That list takes the run whose
 attempts were all spent, as above, and also any document run that left its pull
 request open and that its conversation will not land: an older copy whose pull
@@ -665,9 +665,10 @@ copy's last revision, written after the text the run carries, that refuses the
 retry;
 retiring the run is what answers it. `retire` closes the pull request with her
 reason and lands nothing. Both are recorded on the stopped run, and the closed
-pull request carries a comment saying who decided what and why. Each run's start and end is also noted on the work item
-named at the start of the document's revision reason, where the tracker holds
-one.
+pull request carries a comment saying who decided what and why. Each run is
+also recorded against a work item, the one named at the start of the document's
+revision reason or, where it names none, the one the harness filed for the
+publication, and the run's start, stops, and end are noted there.
 
 **Where `approvals.integration` is not `automatic`, a document you approve
 still goes through its reviewed run**, and the run leaves it on its branch, and
