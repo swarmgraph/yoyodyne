@@ -308,6 +308,21 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 		trigger = runstate.PassTriggerEvents
 	}
 	return claimedFiring{take: func(ctx context.Context) Fired {
+		// Only the schedule's pass is checked: a pass its events woke has
+		// something new by definition. Events past the cursor, or streams that
+		// could not be read, are a change in the lane, and a skipped pass moves
+		// no cursor.
+		if due {
+			events := len(wake.problems)
+			for _, count := range wake.counts() {
+				events += count
+			}
+			if decided := t.unchanged(ctx, agent, task, t.passScope(domain.RoleProgramManager, agent), triggers.Skipping(), events); decided.skip {
+				fired := t.recordSkip(ctx, agent, task, agent, dueAt, decided)
+				fired.Problem = appendProblem(fired.Problem, unrecorded)
+				return fired
+			}
+		}
 		fired := t.run(ctx, firing{
 			name:    agent,
 			pass:    passName(claimed),

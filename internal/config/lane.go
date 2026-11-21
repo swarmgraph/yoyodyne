@@ -66,11 +66,23 @@ type Triggers struct {
 	Every Duration `yaml:"every,omitempty" json:"every,omitempty"`
 	// On is the events that wake the instance between scheduled passes.
 	On []TriggerEvent `yaml:"on,omitempty" json:"on,omitempty"`
+	// SkipWhenUnchanged and FullPassEvery are a recurring task's keys of the
+	// same names (config.PassSkipping), applied to the instance's scheduled
+	// pass. A pass its events wake is never skipped.
+	SkipWhenUnchanged *bool    `yaml:"skip_when_unchanged,omitempty" json:"skip_when_unchanged,omitempty"`
+	FullPassEvery     Duration `yaml:"full_pass_every,omitempty" json:"full_pass_every,omitempty"`
 }
 
-// Defined reports whether the block says anything at all.
+// Defined reports whether the block says when a pass is taken. The two
+// skipping keys alone wake nothing.
 func (t Triggers) Defined() bool {
 	return t.Every != 0 || len(t.On) > 0
+}
+
+// Skipping is whether the instance's scheduled passes are skipped when nothing
+// is new, and its floor, with the defaults applied.
+func (t Triggers) Skipping() PassSkipping {
+	return passSkipping(t.SkipWhenUnchanged, t.FullPassEvery)
 }
 
 // AgentLane is the lane one configured agent owns, or empty for an agent that
@@ -114,7 +126,7 @@ func (a AgentConfig) instanceKeys() []string {
 	if a.Remit.Defined() {
 		keys = append(keys, "remit")
 	}
-	if a.Triggers.Defined() {
+	if a.Triggers.Defined() || a.Triggers.SkipWhenUnchanged != nil || a.Triggers.FullPassEvery != 0 {
 		keys = append(keys, "triggers")
 	}
 	return keys
@@ -126,6 +138,7 @@ func (t Triggers) problems(name string) []string {
 		problems = append(problems, fmt.Sprintf("agent %q triggers.every is %s, and the shortest interval allowed is %s: every pass is a conversation turn, so a shorter interval is a bill rather than a schedule",
 			name, t.Every, Duration(MinRecurringInterval)))
 	}
+	problems = append(problems, fullPassProblems(fmt.Sprintf("agent %q", name), "triggers.full_pass_every", t.FullPassEvery)...)
 	seen := make(map[TriggerEvent]struct{}, len(t.On))
 	for _, event := range t.On {
 		if !event.Valid() {

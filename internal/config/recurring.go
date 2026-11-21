@@ -105,6 +105,68 @@ type RecurringTask struct {
 	// selects a model and nothing more. The account the turn is served under, the
 	// failover alternate, and what the role may do are the agent's, unchanged.
 	Model string `yaml:"model,omitempty" json:"model,omitempty"`
+	// SkipWhenUnchanged and FullPassEvery say whether a scheduled firing with
+	// nothing new to hand the role is skipped, and how long the role may go
+	// without a full pass however little has changed. See PassSkipping.
+	SkipWhenUnchanged *bool    `yaml:"skip_when_unchanged,omitempty" json:"skip_when_unchanged,omitempty"`
+	FullPassEvery     Duration `yaml:"full_pass_every,omitempty" json:"full_pass_every,omitempty"`
+}
+
+// The bounds on how long a role may go without a full pass while its scheduled
+// passes are being skipped for having nothing new. They are held here rather
+// than left to a project because the floor is what catches a change the check
+// before a pass does not read: an hour is the shortest floor worth skipping
+// anything under, and twelve hours is the longest a role's domain is left
+// unlooked-at on the strength of that check alone.
+const (
+	DefaultFullPassEvery = 4 * time.Hour
+	MinFullPassEvery     = time.Hour
+	MaxFullPassEvery     = 12 * time.Hour
+)
+
+// PassSkipping is what a scheduled pass's two skipping keys come to: whether a
+// firing whose role has nothing new since its last completed pass is skipped
+// rather than started, and the longest the role goes without a full pass
+// either way. Passes woken by anything but the schedule are never skipped.
+//
+// What counts as new is held in code for each role
+// (internal/orchestrator/passskip.go), because a list a project could edit
+// could hide a change from the role that has to act on it; a project chooses
+// only whether passes are skipped and how long the floor is.
+type PassSkipping struct {
+	Skip  bool
+	Floor time.Duration
+}
+
+// passSkipping applies the defaults: skipping on, and a four-hour floor.
+func passSkipping(skip *bool, floor Duration) PassSkipping {
+	resolved := PassSkipping{Skip: true, Floor: DefaultFullPassEvery}
+	if skip != nil {
+		resolved.Skip = *skip
+	}
+	if floor != 0 {
+		resolved.Floor = floor.Duration()
+	}
+	return resolved
+}
+
+// fullPassProblems refuses a floor outside the bounds, naming the key as the
+// caller's file writes it.
+func fullPassProblems(subject, key string, floor Duration) []string {
+	if floor == 0 {
+		return nil
+	}
+	if floor.Duration() < MinFullPassEvery || floor.Duration() > MaxFullPassEvery {
+		return []string{fmt.Sprintf("%s %s is %s, and it must be between %s and %s: it is the longest the role goes without a full pass while passes with nothing new are skipped",
+			subject, key, floor, Duration(MinFullPassEvery), Duration(MaxFullPassEvery))}
+	}
+	return nil
+}
+
+// Skipping is whether this task's scheduled firings are skipped when nothing
+// is new, and its floor, with the defaults applied.
+func (t RecurringTask) Skipping() PassSkipping {
+	return passSkipping(t.SkipWhenUnchanged, t.FullPassEvery)
 }
 
 // ModelSelector is the model this task's turns ask for, or empty where the task
@@ -166,6 +228,7 @@ func (t RecurringTask) problems(name string, agents map[string]AgentConfig) []st
 	if t.MaxTurns > MaxRecurringTurns {
 		problems = append(problems, fmt.Sprintf("recurring task %q max_turns is %d, limit is %d", name, t.MaxTurns, MaxRecurringTurns))
 	}
+	problems = append(problems, fullPassProblems(fmt.Sprintf("recurring task %q", name), "full_pass_every", t.FullPassEvery)...)
 	// Held to the rule an agent's own model is held to, so a selector refused
 	// there is refused here with the same reason. Leaving it out is the role's
 	// model; writing it empty is the same thing and is not refused.
