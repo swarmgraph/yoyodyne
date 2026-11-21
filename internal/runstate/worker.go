@@ -118,7 +118,9 @@ type WorkerReading struct {
 	// exited, its pid now belongs to another process, or the program it ran was
 	// replaced. A worker still running the program that took the run, with
 	// nothing holding the lease, is absent without it, because the harness
-	// lets go of a run's lease for a moment between one step and the next.
+	// lets go of a run's lease for a moment between one step and the next; the
+	// slot release lets such a run's slot go once the moment has plainly passed
+	// (UnheldRunQuiet).
 	processGone bool
 }
 

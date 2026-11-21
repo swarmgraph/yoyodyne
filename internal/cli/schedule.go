@@ -941,6 +941,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// The one-time clearing of the assignees ended runs' claims left on
 		// unfinished items, run by the pass so no person has to.
 		Assignees: scheduleAssignees(parts, tracker),
+		// Each developer slot the pull gives back from a run nothing works on is
+		// said on that run's item, with when and why.
+		SlotReleaseNotes: tracker,
 		// In team mode, the renewal and release of the claims this machine holds
 		// on the shared remote, kept by the watch loop for the reason the audit
 		// is; nil with team mode off.

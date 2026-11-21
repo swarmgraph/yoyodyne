@@ -33,6 +33,23 @@ import (
 // long that nothing is behind it.
 const UncertainWorkerQuiet = 30 * time.Minute
 
+// UnheldRunQuiet is how long a run whose worker's program is still running,
+// with nothing holding the run's lease, has to have gone unwritten before its
+// slot is let go. The lease is what says whether anything works on a run: the
+// pipeline holds it for the whole of a run it is executing, so a live program
+// holding no lease is either between one step and the next — a continuation
+// that has given the lease up and not yet been adopted by the pipeline — or
+// done with the run without writing its ending, as a continuation refused after
+// it made the run live is. The first lasts as long as a few tracker reads, and
+// the second lasts until somebody restarts the program, which is what held
+// every developer slot while ready work waited. The bound only has to outlast
+// the first.
+//
+// A release that does land inside such a gap costs nothing it should not: the
+// pipeline takes the run up as a new worker attempt, which holds a slot again
+// under the reservation's own count (TestAReleasedRunTakenUpAgainHoldsASlot).
+const UnheldRunQuiet = 2 * time.Minute
+
 // SlotRelease is the harness letting go of the developer slot of a run with no
 // live worker behind it.
 type SlotRelease struct {
@@ -84,11 +101,13 @@ type ReleasedSlot struct {
 // ReleaseSlotsWithNoLiveWorker lets go of the developer slot of every run in
 // flight that counts against the slots with no live worker behind it, and
 // returns what it released. A run is released when its worker's process is
-// shown to be gone (WorkerReading.ProcessGone), or when its worker can be shown
-// neither alive nor gone and nothing has held or written the run for
-// UncertainWorkerQuiet (Presence). A run whose worker is alive, or may be, is
-// left alone, and so is one its session stopped for a redeploy, whose slot is
-// kept for the session that comes back for it.
+// shown to be gone (WorkerReading.ProcessGone); when that process is still
+// running the program that took the run but nothing holds the run's lease, and
+// nothing has written the run for UnheldRunQuiet; or when its worker can be
+// shown neither alive nor gone and nothing has held or written the run for
+// UncertainWorkerQuiet (Presence). A run whose worker holds its lease, or may,
+// is left alone, and so is one its session stopped for a redeploy, whose slot
+// is kept for the session that comes back for it.
 //
 // Each release is made under the run's lease, so a run some process holds is
 // never touched: a lease that cannot be taken is a live holder, and the run is
@@ -134,6 +153,15 @@ func (s *Store) noLiveWorker(state State, now time.Time) (string, bool) {
 	reading := s.Worker(state, now)
 	if reading.ProcessGone() {
 		return reading.Says, true
+	}
+	if reading.Liveness == WorkerAbsent {
+		// The program that took the run is still running and nothing holds the
+		// run's lease (UnheldRunQuiet): the lease decides, not the program.
+		presence, err := s.presence(state, UnheldRunQuiet, now, false)
+		if err != nil || presence.Found {
+			return "", false
+		}
+		return fmt.Sprintf("%s, and nothing has been written to the run since %s", reading.Says, presence.LastMoved.Local().Format(personTime)), true
 	}
 	if reading.Liveness != WorkerUncertain {
 		return "", false
