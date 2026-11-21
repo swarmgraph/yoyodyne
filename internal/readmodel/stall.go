@@ -297,6 +297,10 @@ type DrainPast struct {
 	Limit     time.Time
 	Bound     time.Duration
 	Past      time.Duration
+	// Waiting is what the session last said it was still waiting out past its
+	// limit, a promotion or a document landing, where DrainRestartDue found it
+	// due a restart all the same; empty otherwise.
+	Waiting string
 }
 
 // Says is the session past its limit in plain words, with how long it has
@@ -353,13 +357,55 @@ func DrainPastLimit(sessions []runstate.WatchTransition, now time.Time) (DrainPa
 // DrainRestartDue is the latest live session having been past its wind-down
 // limit for DrainRestartAfter or more: the session the supervisor restarts
 // onto the new build without waiting any longer for it to restart itself.
+//
+// It is due whatever the session says it is still waiting on. DrainPastLimit
+// does not count a session waiting out a promotion or a document landing as
+// past its limit, because the session restarts the moment those end and goes
+// on filling its free developer slots meanwhile; but neither wait has a limit
+// of its own, and a forge outage can hold a promotion for hours, keeping the
+// scheduler off every build that lands meanwhile, fixes to itself included,
+// with no role able to restart it. So such a session is given
+// UnstoppedRestartAfter past its limit rather than DrainRestartAfter, and is
+// then restarted like any other. The restart is the ordinary stop, which ends
+// each run the way `yoyo stop` does and keeps its record, branch, worktree and
+// change; a promotion cut off part-way is settled by reconciliation against
+// the remote, which is the guard every promotion relies on in any case.
 func DrainRestartDue(sessions []runstate.WatchTransition, now time.Time) (DrainPast, bool) {
-	past, over := DrainPastLimit(sessions, now)
-	if !over || past.Past < DrainRestartAfter {
+	live := Live(sessions)
+	if len(live) == 0 {
 		return DrainPast{}, false
 	}
-	return past, true
+	latest := live[0]
+	drain := latest.Draining
+	if drain == nil || drain.Until.IsZero() {
+		return DrainPast{}, false
+	}
+	limit := DrainLimit(*drain)
+	after, waiting := DrainRestartAfter, ""
+	if waitingOnUnstopped(latest, now) {
+		after = UnstoppedRestartAfter
+		switch {
+		case drain.Promoting > 0 && drain.Publishing > 0:
+			waiting = "a promotion and a document landing"
+		case drain.Promoting > 0:
+			waiting = "a promotion"
+		default:
+			waiting = "a document landing"
+		}
+	}
+	if now.Sub(limit) < after {
+		return DrainPast{}, false
+	}
+	return DrainPast{SessionID: latest.SessionID, Limit: limit, Bound: drain.Bound(), Past: now.Sub(limit), Waiting: waiting}, true
 }
+
+// UnstoppedRestartAfter is how long past its wind-down limit a session still
+// saying it waits out a promotion or a document landing is left before the
+// supervisor restarts it (DrainRestartDue). Either ordinarily ends within
+// minutes, so one still going this long after the limit is a forge or a check
+// that is not coming back soon, and the move onto the new build is worth more
+// than the wait.
+const UnstoppedRestartAfter = 30 * time.Minute
 
 // WhyNothingStarts is the one derivation of what has stopped the choosing.
 //

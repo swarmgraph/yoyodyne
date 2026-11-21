@@ -1601,6 +1601,10 @@ type ScheduleDrain struct {
 	// restart does not wait on them: a stopped run has no process left to wait
 	// for, and the session that comes back reads each run's own record.
 	Unreported []string `json:"unreported,omitempty"`
+	// Unworked names the work items whose start the session stopped waiting on
+	// because it had had no run in flight on record for countedGrace or longer:
+	// nobody was working it, so the move did not wait on it (stopUnworked).
+	Unworked []string `json:"unworked,omitempty"`
 	// Skipped counts the pulls the session declined to make into a free seat
 	// because the bound was closer than one poll interval away, and Problem
 	// names a reading of the hosted runs that failed while the bound was being
@@ -2536,6 +2540,11 @@ pulling:
 			}
 		}
 		if drain.active {
+			// A start nobody is working is not waited on, before the bound or after
+			// it (stopUnworked); its goroutine comes back at the next collect.
+			if unworked := s.stopUnworked(&schedule, &drain, hosted, landings, mine, runs); len(unworked) > 0 {
+				session.note(unworkedSays(unworked), running)
+			}
 			// The restart is made the moment the session hosts nothing: the window
 			// an external restart could never find is one this makes rather than
 			// waits for, and nothing is pulled into it first. A firing still taking
@@ -7868,6 +7877,78 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 		}
 	}
 	return unstopped
+}
+
+// stopUnworked is the drain letting go of the starts this session hosts that
+// nobody is working: a start that has had no run in flight on record for
+// countedGrace or longer. That is a start still waiting to reserve its run,
+// which on a slow tracker can wait an hour, or one whose run has already ended
+// on record while its goroutine has not yet come back. Neither holds a run's
+// lease or has a worker in a developer slot, so a move onto a new
+// build that has fallen due does not wait on one, before the drain bound or
+// after it: each is cancelled with the drain as its cause and taken out of
+// hosted, so the restart follows as soon as the rest of what the session hosts
+// allows. A start that never reserved has nothing to keep and its item is
+// chosen again by the session that comes back; a run already on record keeps
+// its record, branch, worktree and change, which is what the session that
+// comes back continues from, as it does for every run the drain stops. A run
+// waiting on GitHub's checks or on other work is still in flight on record and
+// is left to stopHosted's own rules, as is a run at its landing checks, which
+// stopHosted has a rule of its own for. It reports the work items it let go
+// of.
+func (s Scheduler) stopUnworked(schedule *Schedule, drain *redeployDrain, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, mine map[string]int, runs ScheduleRuns) []string {
+	if runs == nil || len(hosted) == 0 {
+		return nil
+	}
+	inFlight, err := occupiedItems(runs)
+	if err != nil {
+		// Which starts have a run in flight cannot be told, so none is let go of
+		// on this look; the next look asks again.
+		return nil
+	}
+	now := s.now()
+	stop := RedeployDrain{At: now, Bound: drain.limit, SessionID: s.SessionID}
+	var unworked []string
+	for id, index := range mine {
+		cancel, live := hosted[index]
+		if !live {
+			continue
+		}
+		if _, recorded := inFlight[id]; recorded {
+			continue
+		}
+		if landings.landingAt(index) {
+			continue
+		}
+		if index < 0 || index >= len(schedule.Started) {
+			continue
+		}
+		began := schedule.Started[index].began
+		if began.IsZero() || now.Sub(began) < countedGrace {
+			continue
+		}
+		drain.paused(now)
+		cancel(stop)
+		delete(hosted, index)
+		unworked = append(unworked, id)
+	}
+	slices.Sort(unworked)
+	if schedule.Drain != nil {
+		for _, id := range unworked {
+			if !slices.Contains(schedule.Drain.Unworked, id) {
+				schedule.Drain.Unworked = append(schedule.Drain.Unworked, id)
+			}
+		}
+		slices.Sort(schedule.Drain.Unworked)
+	}
+	return unworked
+}
+
+// unworkedSays is the line a session writes when its drain lets go of starts
+// nobody was working (stopUnworked).
+func unworkedSays(unworked []string) string {
+	return fmt.Sprintf("the watch session is winding down to move onto a new build and stopped waiting on %s with no run in progress on record for %s or more (%s): nobody was working them, so the move does not wait on them; whatever a run left on record is kept for the session that comes back, and an item whose run never began is chosen again",
+		plural(len(unworked), "start", "starts"), countedGrace, strings.Join(unworked, ", "))
 }
 
 // cutCheckWaitsSays is the line a session writes when it gives up waiting on
