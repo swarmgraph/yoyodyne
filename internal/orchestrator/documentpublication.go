@@ -106,6 +106,10 @@ var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent 
 // at most one run per call; see runstate.State.DocumentJudged for what judges a
 // document. Only a run that judged it is handed back to its owner. Where the
 // attempts are spent, the last run is handed to the development manager instead.
+//
+// No run starts while a run of another handoff of the same document is still
+// publishing its copy, from this conversation or any other, the scheduler, a
+// retry or a standing approval: the handoff waits behind it (waitBehind).
 func (p Pipeline) PublishDocument(ctx context.Context, document runstate.DocumentPublication) (runstate.DocumentDelivery, error) {
 	if err := document.Validate(); err != nil {
 		return p.refuseDocument(document, err)
@@ -219,6 +223,16 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 			}
 			p.clearDocumentWait(document)
 			return runstate.DocumentDelivery{}, refusal
+		}
+		// One publication of a document at a time: a run of another handoff of the
+		// same document still going, or still waiting in a merge queue, keeps this
+		// one from starting until that copy lands or is handed back.
+		ahead, found, err := p.DocumentPublishingAhead(document)
+		if err != nil {
+			return runstate.DocumentDelivery{}, err
+		}
+		if found {
+			return p.waitBehind(ctx, document, attempt, ahead)
 		}
 	}
 	if previous != nil {
@@ -412,6 +426,65 @@ func (p Pipeline) WithdrawDocument(document runstate.DocumentPublication) error 
 	}
 	return nil
 }
+
+// DocumentRunLister is the run store's listing of one document's runs, by the
+// document's id. It is an optional capability of the pipeline's StateStore,
+// satisfied by *runstate.Store; a store without it lists none, and no handoff
+// is then held behind another copy of its document.
+type DocumentRunLister interface {
+	DocumentRuns(id string) ([]runstate.State, error)
+}
+
+// DocumentPublishingAhead reads whether a run of another handoff of the same
+// document is still publishing its copy — going, or passed and waiting in a
+// merge queue — and names it where one is (runstate.PublishingAhead). Its
+// owning conversation reads it before confirming a new revision, so the
+// revision is confirmed against the copy that lands rather than the one before
+// it, and PublishDocument reads it before starting a run.
+func (p Pipeline) DocumentPublishingAhead(document runstate.DocumentPublication) (runstate.DocumentAhead, bool, error) {
+	lister, ok := p.Store.(DocumentRunLister)
+	if !ok {
+		return runstate.DocumentAhead{}, false, nil
+	}
+	runs, err := lister.DocumentRuns(document.Candidate.Artifact.ID)
+	if err != nil {
+		return runstate.DocumentAhead{}, false, fmt.Errorf("read whether another copy of document %s is still publishing: %w", document.Candidate.Artifact.ID, err)
+	}
+	ahead, found := runstate.PublishingAhead(document, runs)
+	return ahead, found, nil
+}
+
+// waitBehind keeps a handoff from starting its run beside another handoff's run
+// of the same document that is still publishing its copy. It is written down as
+// waiting where the scheduler starts it, which passes it over until that copy
+// lands or is handed back and then starts it without a message from its
+// conversation; the conversation is told what it waits for. Nothing about it is
+// a failure, and nothing is counted against the document.
+func (p Pipeline) waitBehind(ctx context.Context, document runstate.DocumentPublication, attempt int, ahead runstate.DocumentAhead) (runstate.DocumentDelivery, error) {
+	delivery := runstate.DocumentDelivery{RunID: document.RunIDFor(attempt), WaitingBehind: &ahead}
+	next := triedAgain(document)
+	if waits, ok := p.Store.(DocumentWaits); ok {
+		if _, waiting, err := waits.WaitForSlot(ctx, document, attempt, p.clock().Now()); err != nil {
+			return runstate.DocumentDelivery{}, fmt.Errorf("record document %s as waiting behind run %s: %w", document.WriteID, ahead.RunID, err)
+		} else if !waiting {
+			// Another process reserved its run under the same lock just now.
+			return runstate.DocumentDelivery{RunID: delivery.RunID}, nil
+		}
+		next = "The harness starts its reviewed run itself once that copy lands or is handed back, without waiting for a message here; it does not need writing again."
+	}
+	delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and its run has not started: %s. %s\n", document.WriteID, document.Candidate.Artifact.Title, ahead.Says(), next)
+	return delivery, nil
+}
+
+// DocumentBehindError is a waiting document the scheduler started whose run did
+// not start, because another copy of the same document is still publishing; the
+// scheduler records it as declined rather than failed, and passes it over until
+// that copy lands or is handed back.
+type DocumentBehindError struct {
+	Ahead runstate.DocumentAhead
+}
+
+func (e DocumentBehindError) Error() string { return e.Ahead.Says() }
 
 // documentHeld is an attempt the intake hold kept from starting, carrying the
 // hold's own reason so the owning conversation is told why.
@@ -902,6 +975,9 @@ func (p Pipeline) PublishWaitingDocument(ctx context.Context, document runstate.
 	}
 	if err == nil && delivery.WaitingForSlot != nil {
 		return outcome, *delivery.WaitingForSlot
+	}
+	if err == nil && delivery.WaitingBehind != nil {
+		return outcome, DocumentBehindError{Ahead: *delivery.WaitingBehind}
 	}
 	return outcome, err
 }

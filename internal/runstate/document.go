@@ -178,6 +178,10 @@ type DocumentDelivery struct {
 	// slot was taken and the document is waiting for one (see DocumentWait), and
 	// nil otherwise.
 	WaitingForSlot *CapacityError `json:"waiting_for_slot,omitempty"`
+	// WaitingBehind is the run of another handoff of the same document still
+	// publishing its copy, which kept this handoff's run from starting (see
+	// PublishingAhead), and nil otherwise.
+	WaitingBehind *DocumentAhead `json:"waiting_behind,omitempty"`
 }
 
 // DocumentStanding is where one confirmed document's runs stand, read from the
