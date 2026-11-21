@@ -15,6 +15,10 @@ revisions:
       by: architect
       at: 2026-11-20T23:31:58.620995Z
       reason: 'yoyodyne-ifd.435.83: adds section 8, answering Mason''s question of November 20 on what a project can configure: each setting with its default, bounds held in code and who decides it, models named by kind per provider, and the choices kept fixed and why. Sections 2, 4, 5 and 7 and the build pieces now point to it. The earlier rewrite was refused because the design already existed.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T01:50:54.242927Z
+      reason: 'yoyodyne-ifd.435.83: replaces the text on main, which is document-3267.1, a rewrite the architect made in error from the first version, with document-3268.1 (identical to document-3259.1), the text Mason approved. Its own publication was handed back because both revisions replaced the whole file from the first version. Copied unchanged from the text the operator''s assistant supplied on November 20 at 5:30 PM PST; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -26,22 +30,31 @@ approvals:
       by: harness
       at: 2026-11-20T23:31:58.620995Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3267, for document-3267.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-21T01:50:54.242927Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3280, for document-3280.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
 ## What this is for
 
-Mason asked on November 20, 2026 for research into ways to reduce what the factory costs to run. His examples were developers using Sonnet or Opus as the work needs, and the Lead Product Manager and the architect using cheaper helpers for searches. This design records what the research found and what is decided, in order of saving and risk, says which of its choices a project can configure and who decides each, and names the build pieces.
+Mason asked on November 20, 2026 for research into ways to reduce what the factory costs to run. His examples were developers using a cheaper or a stronger model as the work needs, and the Lead Product Manager and the architect using cheaper helpers for searches. He added that projects will have different needs, so good defaults and a good deal of configurability are both required. This design records what the research found and what is decided, in order of saving and risk, says for each change how a project configures it and what it gets by default, and names the build pieces.
 
-It serves the goal that spend follows the work: the model, the context and the number of provider calls a task costs are chosen for that task. It also serves the goal that the operator can see what the harness spends, and the milestone measure of useful software per hour of the owner's attention, whose internal week holds the management roles to at most 40% of known spend. It must not break independent review, the traceable chain, or the rule that conversation roles hold no tools of their own.
+It serves the goal that spend follows the work: the model, the context and the number of provider calls a task costs are chosen for that task. It also serves the goal that roles and provider selection stay configurable without making safety invariants optional, the goal that the operator can see what the harness spends, and the milestone measure of useful software per hour of the owner's attention, whose internal week holds the management roles to at most 40% of known spend. It must not break independent review, the traceable chain, or the rule that conversation roles hold no tools of their own.
 
 ## What it rests on, and what was not read
 
-The figures below are from the operator's assistant, measured on November 20 from the spend record, the four roles' conversation logs, run records and the project's configuration, for November 6 to November 20 at 14:22 PST. The architect did not measure them again.
+The figures below are from the operator's assistant, measured on November 20 from the spend record, the four roles' conversation logs, run records, the project's configuration and the roles' provider transcripts, for November 6 to November 20. The architect did not measure them again.
 
 Read at commit ed9451a8: `internal/chat/passcontext.go`, which builds what a recurring pass starts from, and `internal/chat/freshness.go`, which builds and refreshes the picture of the product.
 
-Not read: the Claude Code adapter's launch arguments, how the provider marks what it caches, the briefing builder in `internal/contextbundle`, and the code that starts a pass. Each build piece reads the code it changes first, and piece 1 measures before anything is changed.
+Not read: the Claude Code adapter's launch arguments, the briefing builder in `internal/contextbundle`, and the code that starts a pass. Each build piece reads the code it changes first.
+
+## Models by kind, not by name
+
+This design speaks of three kinds of model: the stronger, the cheaper and the lightest. A project names, for each provider it uses, which of that provider's models is each kind. The shipped bundle names them for Claude Code as Opus, Sonnet and Haiku. A provider for which a kind is not named has no model of that kind, and a change that needs it cannot be turned on for that provider; section 8 says what happens then. The figures below name the models this repository ran on, because that is what was measured.
 
 ## Where the money goes
 
@@ -51,24 +64,42 @@ So the largest lever is not the model a role runs on but how much text each prov
 
 ## 1. Reuse the opening of each pass instead of writing it again
 
-**What was found.** Every recurring pass starts a provider session of its own, as the bounded pass context ruling of October 5 decided, built from the role's instructions, its memories, the product briefing with the product intent whole, the previous pass's account and the pass's message. The first turn of each session writes a median of 86,000 to 124,000 tokens and costs a median of $0.72 to $1.03. Those first turns were 40% of all spend in the window, $2,091. Only the first 17,000 to 38,000 tokens of a new session come from the cache, although almost every session began within an hour of the role's previous one.
+**What was found.** Every recurring pass starts a provider session of its own, as the bounded pass context ruling of October 5 decided, built from the role's instructions, its memories, the product briefing with the product intent whole, the previous pass's account and the pass's message. The first turn of each session writes a median of 86,000 to 124,000 tokens and costs a median of $0.72 to $1.03. Those first turns were 40% of all spend in the window, $2,091.
 
-The harness already tries to make the briefing reusable: `briefingFirst` in `passcontext.go` puts the briefing ahead of the memories on a fresh pass, so that a provider caching what its requests open with can serve it again. The record shows that this is not happening.
+The harness already tries to make the briefing reusable: `briefingFirst` in `passcontext.go` puts the briefing ahead of the memories on a fresh pass, so that the next pass's new session can be served it from the provider's cache. It is not.
 
-**Why, as far as can be told without measuring.** The provider reuses cached text only up to points it has marked, and a point is the end of a whole block of the request. A pass sends the role's instructions as one block, and the briefing, memories, account and message together as another, whose end differs on every pass. So the instructions are read back from the cache, which matches the 17,000 to 38,000 tokens measured, and the whole of the second block is written fresh, however much of its opening is unchanged. This is the architect's reading of the figures, not something confirmed; piece 1 confirms or overturns it before anything else is built.
+**Why, as measured.** The operator's assistant measured two things on November 20:
+
+- Inside one session the cache works: every second turn read from the cache everything the first turn held, a median of 81% to 87% of its prompt.
+- Across sessions it does not. The development manager's opening is one block of 327 to 396 KB. In 8 of 13 consecutive pairs of her passes, the opening was byte for byte the same as the one before for its first 275 to 298 KB, yet each new session read only about 31,000 tokens from the cache and wrote 112,000 to 140,000.
+
+The provider reuses cached text only up to points it has marked, and a point is the end of a whole block of the request. The role's instructions are sent as one block and are read back. Everything else is one block whose end changes on every pass, so none of it is reused, however much of its opening is unchanged.
+
+**What changes from one pass to the next, as measured.** Where consecutive openings first differed:
+
+- in 7 pairs, the memories section, most often the count of memories not listed;
+- in 1 pair, the heading that follows the memories;
+- in 3 pairs, a byte count on a line saying a design or shipped document was left out of what a recurring turn starts from, or which document comes next in that listing;
+- in 2 pairs, the list of work items, where an item was added or changed.
 
 **The decision.** What a pass starts from is sent in two parts, ordered by how rarely each changes:
 
-1. **The unchanging part,** sent as the separately cached block: the role's contract, persona and remit, then the product intent whole. It is built so that two passes with the same instructions and the same intent produce it byte for byte the same. It carries no time, no count, no commit, no listing of documents and nothing else that moves when work lands.
-2. **The changing part,** sent as the message: the rest of the briefing, including the listing of the role's own documents and the work items, then the memories, the previous pass's account and the pass's message.
+1. **The unchanging part,** sent as the separately cached block: the role's contract, persona and remit, then the product intent whole. It is built so that two passes with the same instructions and the same intent produce it byte for byte the same. It never holds:
+   - a time, a count, a size or a commit;
+   - the listing of documents left out of the pass, or anything about them;
+   - the work items;
+   - the memories, or any line about them.
+2. **The changing part,** sent as the message: the listing of documents left out, by name, and the rest of the briefing, including the work items; then the memories, the previous pass's account and the pass's message. The listing of documents left out keeps each document's name and drops its size, because a role that needs one reads it whole with a repository read.
 
-The bound on what a pass starts from, a third of the provider's window, counts both parts exactly as today, and nothing in either gives way to it. A change to the product intent or to a role's instructions makes the next pass write the unchanging part again, once.
+The bound on what a pass starts from, a third of the provider's window, counts both parts exactly as today, and nothing in either gives way to it.
+
+The unchanging part is written again, once, whenever the product intent or a role's instructions change. A move onto a new build changes the instructions, and the two first turns in the measured day that read almost nothing from the cache both followed one. Moves come at most once every three hours, so this is accepted, and the measurement in piece 1 shows it.
 
 **The cache's lifetime.** The unchanging part keeps the cache that lasts an hour. A role's passes come about 45 minutes apart, so the cache that lasts five minutes would have expired before the next pass could read it. Reuse across passes is the whole saving.
 
-**What it saves.** If the unchanging part is most of what a pass now writes at its start, most of the $2,091 becomes reading at about a fortieth of the price. How much is unchanging is what piece 1 measures. No result of any role changes: each pass sees exactly the text it saw before, in a different order.
+**What it saves.** About 200 KB of each opening is text that otherwise does not change. Moved into the unchanging part, it becomes reading at about a fortieth of the price of writing it, from the second pass after any change on. No result of any role changes: each pass sees exactly the text it saw before, in a different order, apart from the sizes dropped from the listing of documents left out.
 
-**Alternatives rejected.** Resuming one long session across passes, which brings back the context that grows without limit the October 5 ruling removed. Shortening the briefing first, which may cost the roles evidence they use, while reuse costs them nothing. Moving to the cache that lasts five minutes, for the reason above.
+**Alternatives rejected.** Resuming one long session across passes, which brings back the context that grows without limit the October 5 ruling removed. Shortening the briefing first, which may cost the roles evidence they use, while reuse costs them nothing. Reordering inside the one block, which the measurement shows reuses nothing. Moving to the cache that lasts five minutes, for the reason above.
 
 ## 2. Skip a scheduled pass that has nothing to do
 
@@ -83,11 +114,11 @@ The bound on what a pass starts from, a third of the provider's window, counts b
 - a deadline passed on a follow-up the role owns;
 - for the development manager, a change to her list of stopped runs or to the factory's health problems; for a program manager, a change in its lane or in the health problems its lane covers.
 
-Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has a full pass at least every four hours by default, whatever the check finds, so a change the check does not cover is never left longer than that. Passes woken by an event, rather than by the schedule, are not affected. Whether skipping is on, and the longest time between full passes, are settings in section 8.
+Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has a full pass at least as often as the floor in section 8 says, four hours by default, whatever the check finds, so a change the check does not cover is never left longer than that. Passes woken by an event, rather than by the schedule, are not affected.
 
 A check in the harness was chosen over a first look by a cheaper model, because the check costs nothing and the things it reads are already records. A cheaper first look can be weighed later for whatever the check cannot decide.
 
-**What it saves.** Most of the cost of the passes that changed nothing, which after piece 1 is smaller than $900 because each start is cheaper. The two savings overlap and are counted together.
+**What it saves.** Most of the cost of the passes that changed nothing, which after section 1 is smaller than $900 because each start is cheaper. The two savings overlap and are counted together.
 
 ## 3. Why the development manager's passes doubled
 
@@ -101,64 +132,70 @@ This is a diagnosis for the development manager to admit and a developer to carr
 
 **The decision.** The management loop protocol already decides that the development manager chooses among execution profiles, that a failed attempt at low cost moves once to a stronger profile with the reason and added cost recorded, and that high risk work never runs on the cheapest. That was never built. It is built narrowly now, for developer runs:
 
-- an item the development manager marks eligible starts on the cheaper model;
+- an eligible item starts on the cheaper model;
 - after its first failed review or failed checks, the run moves once to the stronger model for the rest of its attempts, and the move and its cost are recorded on the run;
-- priority 0 items, and work on security, migrations, concurrency or public interfaces, are never eligible;
-- which items are eligible is the development manager's to decide, and which models the two steps use comes from the settings in section 8.
+- work of a high risk kind is never eligible: security, migrations, concurrency and public interfaces, as the protocol rules;
+- which other items are eligible is set as section 8 says.
 
-It goes in by trial. For at least 40 eligible runs, the development manager alternates eligible items between starting on the cheaper model and starting on the stronger one, and compares cost per merged change, how often the first review approves, repair rounds and defects found after landing. The rule is kept only where cost per merged change falls and the first review approves no less often. It stops at once on a defect after landing traced to a run on the cheaper model that a run on the stronger one would have caught.
+In this repository it goes in by trial. For at least 40 eligible runs, the development manager alternates eligible items between starting on the cheaper model and starting on the stronger, and compares cost per merged change, how often the first review approves, repair rounds and defects found after landing. It is kept only where cost per merged change falls and the first review approves no less often. It stops at once on a defect after landing traced to a run on the cheaper model that one on the stronger would have caught.
 
-[Developer sub-agents](developer-sub-agents.md) is a separate trial already decided, for runs that keep Opus to plan and hand writing to a cheaper model; it is unchanged.
+[Developer sub-agents](developer-sub-agents.md) is a separate trial already decided, for runs that keep the stronger model to plan and hand writing to a cheaper one; it is unchanged.
 
 ## 5. Reviews of documents on the cheaper model
 
 **What was found.** 982 reviews cost $864: code at a median $0.93 and published documents at $0.66. 49 items took five or more reviews each, 35% of all reviews.
 
-**The decision.** Independent review requires a role that did not write the change, not a particular model. Reviews of a document publication run on the cheaper model after a trial of at least 30 publications reviewed on both models, kept only where the cheaper reviewer refuses what the stronger reviewer refuses. Code reviews stay on the stronger model. The reviewer's model by kind of change is a setting in section 8, because it changes how work is reviewed and not who may review.
+**The decision.** Independent review requires a role that did not write the change, not a particular model. The reviewer's model is chosen by kind of change, documents or code, as section 8 says. In this repository, reviews of a document publication move to the cheaper model after a trial of at least 30 publications reviewed on both, kept only where the cheaper reviewer refuses what the stronger refuses. Code reviews stay on the stronger model.
 
 Why some items took five or more reviews is a question for the development manager's diagnosis in section 3, which also lists those items.
 
 ## 6. Passes on the cheaper model where the work allows it
 
-The development manager already decides the model of a recurring task under section 6 of [portable agent configuration](portable-agent-configuration.md). As a trial, the factory-flow program manager's scheduled passes run on Sonnet for one week, compared with the week before on how many findings it filed that a role then acted on, and on what it missed that the development manager later found. They return to Opus if fewer of its findings are acted on. The management roles' own conversation turns, and the models their agents name, are unchanged by this design.
+The model of each recurring task is already a setting. As a trial in this repository, the factory-flow program manager's scheduled passes run on the cheaper model for one week, compared with the week before on how many findings it filed that a role then acted on, and on what it missed that the development manager later found. They return to the stronger model if fewer of its findings are acted on. The management roles' own conversation turns, and the models their agents name, are unchanged by this design.
 
 ## 7. A helper that reads for a conversation role
 
-**What was found.** The conversation roles hold no tools, so they cannot start sub-agents; they ask the harness for reads, and what comes back fills their Opus context. The architect read four designs between 19 and 49 times each in the window, at about 5% of the architect's spend. The Lead Product Manager read the operating rules 17 times and checked for existing items before each of about 2,000 admissions.
+**What was found.** The conversation roles hold no tools, so they cannot start sub-agents; they ask the harness for reads, and what comes back fills their context. The architect read four designs between 19 and 49 times each in the window, at about 5% of the architect's spend. The Lead Product Manager read the operating rules 17 times and checked for existing items before each of about 2,000 admissions.
 
 **The decision.** A new tool, `repository.ask`, class `read`, under [the tool interface](tool-interface.md):
 
 - a role asks one question, with optional path prefixes;
-- the harness runs one session on the lightest model that can only read the repository at the commit the turn reads at, with no write, no network and no MCP tools, and with a time limit;
-- the answer comes back as paths, line ranges and a bounded amount of text, framed as untrusted evidence, and its cost is recorded against the asking role;
+- the harness runs one session on the helper's model that can only read the repository at the commit the turn reads at, with no write, no network and no MCP tools, and with a time limit;
+- the answer comes back as paths, line ranges and text no longer than the answer limit, framed as untrusted evidence, and its cost is recorded against the asking role;
 - an answer is a pointer and not evidence: a role that rules on a passage reads that passage itself first.
 
-It is held first by the architect, the Lead Product Manager and the program manager. Its saving is the smallest here, so it is built last. The conversation roles still hold no tools of their own: the session belongs to the harness, as research does.
+Its saving is the smallest here, so it is built last. The conversation roles still hold no tools of their own: the session belongs to the harness, as research does.
 
-## 8. What can be configured, and who decides
+## 8. Settings, defaults and who may change them
 
-Mason asked which of these choices a project can change. Every setting below lives with the values the development manager decides under section 6 of [portable agent configuration](portable-agent-configuration.md), which says how such a value is set and recorded; that design is revised in its own revision to name them. Each limit has bounds held in code, and a value outside them is refused when the configuration loads, as for every other limit there.
+Every change above has a setting, a default and an owner, unless this section says there is deliberately none. The default is what the shipped bundle gives a project that states nothing. A project in its own file is the project's configuration, changed by its operator or by a reviewed change. The development manager's path is section 6 of [portable agent configuration](portable-agent-configuration.md): a typed write, reviewed, recorded as hers. The defaults are today's behaviour except where a change trades nothing away.
 
-| Setting | What it decides | Default | Bounds held in code | Who decides |
-| --- | --- | --- | --- | --- |
-| `model_kinds` | For each provider, which model is the stronger, the cheaper and the lightest | Claude Code: Opus, Sonnet and Haiku. Codex: none named | A named model must be one the provider's adapter accepts | Development manager |
-| `developer_cheaper_first` | Whether eligible developer runs start on the cheaper model and move to the stronger once (section 4) | Off until the trial keeps it | None | Development manager |
-| `high_risk_labels` | Labels that make an item never eligible to start on the cheaper model, beside the fixed kinds | None | Adds only; cannot remove a fixed kind | Development manager |
-| `reviewer_models` | The model a review uses for code and for a document publication (section 5) | The stronger model for both | Code reviews cannot be set below the stronger model | Development manager |
-| `skip_when_unchanged` | Whether a scheduled pass with nothing new is skipped (section 2) | On, once piece 3 lands | None | Development manager |
-| `full_pass_every` | The longest a role goes without a full pass while skipping is on | 4 hours | At least 1 hour, at most 12 hours | Development manager |
-| `repository_ask` | The read helper's time limit and the size of its answer (section 7) | 5 minutes and 4 KiB | At most 15 minutes and 8 KiB | Development manager |
+| Change | Setting | Default for a new project | Who may change it |
+| --- | --- | --- | --- |
+| Models by kind | `model_kinds`, for each provider: `stronger`, `cheaper`, `lightest` | for Claude Code: Opus, Sonnet, Haiku; for any other provider, `stronger` is the model its agents name and the others are not named | the development manager |
+| Reusing the opening of each pass (section 1) | none | always on | nobody |
+| Skipping a scheduled pass with nothing new (section 2) | `skip_when_unchanged` on each recurring task | on for every scheduled pass of a management role | the development manager |
+| The floor on full passes (section 2) | `full_pass_every` on each recurring task | 4 hours; allowed between 1 hour and 24 hours | the development manager |
+| Developers starting on the cheaper model (section 4) | `developer_cheaper_first`: on or off, and which items are eligible by label and priority | off; when on, priority 0 is not eligible | the development manager |
+| High risk kinds never on the cheaper model (section 4) | `high_risk_labels`: which labels mean security, migrations, concurrency and public interfaces, and any further kinds | the labels `security`, `migration`, `concurrency` and `public-interface` | the development manager may add labels and kinds, never remove the four kinds |
+| Reviewer's model by kind of change (section 5) | `reviewer_models`: `documents` and `code`, each a kind | both `stronger` | the development manager |
+| A recurring task's model (section 6) | the task's existing `model`, which may now name a kind | unchanged | the development manager, as today |
+| The reading helper (section 7) | `repository_ask`: its model kind, answer limit and time limit | on once built; `lightest`; 4 KiB, allowed between 1 KiB and 16 KiB; 60 seconds | the development manager; a project may take the tool from an agent with `tools: deny` |
+| Weekly cost figures | none | always kept | nobody |
 
-Where a provider names no model of a kind, a choice that needs that kind does nothing for that provider, and its runs keep the model already configured for them. With the Codex defaults above, sections 4, 5 and 7 change nothing on Codex until its kinds are named.
+Why some things have no setting:
 
-Some choices are deliberately not settings:
+- **Reusing the opening of each pass.** It sends each role the same text in a different order and changes nothing a role sees, so turning it off would only make the same work cost more.
+- **Which things the skip check reads.** The list is held in code for each role. A list a project could edit could hide a change from the role that has to act on it. A project chooses only whether passes are skipped and how long the floor is.
+- **The four high risk kinds.** The management loop protocol rules that high risk work never runs on the cheapest model, so a project can widen the list and never shrink it.
+- **Which roles hold the reading helper.** Grants are held in the role bundles in Go and configuration never grants a tool, as the invariant on configuration says; a project can only take the helper away from an agent.
+- **Which model each management role runs on.** It stays what it is today, the operator's, in each agent's configuration. Nothing in this design changes it.
 
-- **Reuse of the unchanging part of each pass (section 1).** It changes no role's result, so there is nothing a project gains by turning it off. The cache's lifetime of one hour is fixed for the reason given in section 1.
-- **What the skip check reads (section 2).** A project that narrowed the list could skip passes that have work waiting. The list is changed only by revising this design.
-- **The fixed kinds that are never eligible.** Priority 0 items and work on security, migrations, concurrency or public interfaces stay on the stronger model whatever the configuration says; a project may add labels to them and never take one away.
-- **Who holds `repository.ask`.** Which roles hold a tool is trusted code, and configuration never grants authority. A project can narrow a role's tools as it can today, never widen them.
+A change that needs a model of a kind its provider has not named cannot be turned on: a configuration that turns on `developer_cheaper_first`, names a kind in `reviewer_models` or a task's model, or keeps the reading helper on, for a provider lacking that kind, is refused when it loads, naming the provider, the change and the missing kind. The reading helper is off for such a provider until its lightest kind is named.
 
-Each setting is built in the build piece that uses it, with its default, its bounds and a test that a value outside them is refused.
+The trials in sections 4 to 6 decide what this repository turns on. They do not change the shipped defaults. If a trial shows a change helps without costing quality, changing the shipped default is a later decision recorded in its own revision of this design.
+
+Section 6 of portable agent configuration gains `model_kinds`, `reviewer_models`, `developer_cheaper_first`, `high_risk_labels`, `skip_when_unchanged`, `full_pass_every` and `repository_ask` among the values the development manager decides, in its own revision.
 
 ## What is measured
 
@@ -166,31 +203,36 @@ Each week the harness records, from the spend record, the cost per closed item a
 
 ## Alternatives rejected
 
-- **Moving every role to a cheaper model at once.** Nothing yet says which work Sonnet or Haiku does well enough, and the largest cost is text written, not the model.
+- **Moving every role to a cheaper model at once.** Nothing yet says which work a cheaper model does well enough, and the largest cost is text written, not the model.
+- **Naming models by one provider's names in settings.** A project on another provider could not say which of its models is the cheaper; kinds a project maps keep every setting meaningful on any provider.
+- **Turning the changes that could cost quality on by default.** A new project would carry this repository's trade before any trial on its own work.
 - **Fewer passes by a longer schedule alone.** A pass with work to do would wait; skipping only the passes with nothing new saves the same without that wait.
 - **Giving conversation roles sub-agents of their own.** It would give them tools, which the safety boundaries rule out.
 - **Capping spend for each item and stopping work at the cap.** It stops work without saying why it was dear; the diagnosis in section 3 and the move up in section 4 address the cause.
-- **Naming models directly in each setting instead of by kind.** A project moving to a new model would then change every setting; naming the kinds once per provider keeps that to one place.
 
 ## Build pieces, in order, for the Lead Product Manager to admit
 
-1. **Measure what a pass reuses.** For every pass, record the digest of each part of its start in order and the cached and fresh tokens the provider reports, and name the first part that differs from the role's previous pass. No provider call is added. Then confirm with two passes whether the separately sent block is read from the cache and the message is not.
-2. **Send the unchanging part apart.** Build the unchanging part byte for byte the same across passes and send it as the separately cached block, with a test that two passes with the same instructions and intent produce identical bytes. Needs 1.
-3. **Skip passes with nothing new.** The check, the skipped record, `skip_when_unchanged` and `full_pass_every` with their bounds, and a test for each thing checked.
-4. **The diagnosis of the development manager's sessions, messages and repeated reviews,** with a fix named for each cause.
-5. **Developers starting cheap and moving up once,** with `model_kinds`, `developer_cheaper_first` and `high_risk_labels`, the trial and its record.
-6. **Reviewer model by kind of change,** with `reviewer_models`, and the trial for document reviews. Needs the `model_kinds` setting from 5.
-7. **The factory-flow program manager on Sonnet for a week,** set by the development manager, with the comparison recorded.
-8. **`repository.ask`,** with its `repository_ask` setting, its grants and its tests.
-9. **The weekly figures** on cost per closed item and per landed code change.
+1. **Record where each opening stops being reused.** For every pass, record the digest of each part of its start in order and the cached and fresh tokens the provider reports, and name the first part that differs from the role's previous pass. No provider call is added.
+2. **Send the unchanging part apart.** Build the unchanging part as section 1 says, with none of what it may never hold, and send it as the separately cached block. Drop sizes from the listing of documents left out. A test shows that two passes with the same instructions and intent produce identical bytes in it. The piece first checks that the Claude Code command line accepts an opening of this size in the separately sent part; where it does not, the piece stops and asks the architect. Needs 1.
+3. **Models by kind.** `model_kinds` with its defaults, the refusal at load where a turned on change needs an unnamed kind, and `yoyo config show` naming each kind's model.
+4. **Skip passes with nothing new.** The check, the skipped record, `skip_when_unchanged` and `full_pass_every` with their defaults and bounds, and a test for each thing checked.
+5. **The diagnosis of the development manager's sessions, messages and repeated reviews,** with a fix named for each cause.
+6. **Developers starting on the cheaper model and moving up once,** with `developer_cheaper_first`, `high_risk_labels`, the refusal to remove a fixed kind, the trial and its record. Needs 3.
+7. **Reviewer model by kind of change,** with `reviewer_models` and the trial for document reviews. Needs 3.
+8. **The factory-flow program manager on the cheaper model for a week,** set by the development manager, with the comparison recorded. Needs 3.
+9. **`repository.ask`,** with its setting, grants and tests. Needs 3.
+10. **The weekly figures** on cost per closed item and per landed code change.
 
-Pieces 1, 3, 4 and 9 can start at once. Pieces 5, 6 and 7 are trials the development manager runs.
+Pieces 1, 3, 4, 5 and 10 can start at once. Pieces 6, 7 and 8 carry trials the development manager runs.
 
 ## What a reviewer can check
 
 - After piece 2, two passes of one role with unchanged instructions and intent send identical bytes in the unchanging part, and the provider reports it read from the cache on the second.
-- No pass sends less evidence than before: every part it started from is still sent.
-- A skipped pass is recorded with its reason, and no role goes longer than `full_pass_every` without a full pass.
+- The unchanging part holds no time, count, size, commit, listing of documents left out, work item or memory.
+- No pass sends less evidence than before: every part it started from is still sent, apart from the sizes dropped from the listing of documents left out.
+- A project that states none of the settings in section 8 gets exactly the defaults that section names.
+- A configuration that turns on a change needing a model kind its provider has not named is refused at load, naming the provider, the change and the kind.
+- A configuration that removes one of the four high risk kinds is refused at load.
+- A skipped pass is recorded with its reason, and no role goes longer than its floor without a full pass.
 - A developer run that moved to the stronger model records why, when and what it cost.
-- Every setting in section 8 has its default and bounds, a value outside them is refused at load, and no setting lets a project remove a fixed kind, put code reviews below the stronger model, or grant `repository.ask` to a role.
 - No trial's change is kept without the comparison its section names.
