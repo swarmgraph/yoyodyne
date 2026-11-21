@@ -333,7 +333,13 @@ directive, dependency, tracker, operator hold, redeploy drain — see
 Everything else goes to `fail`, which records any environmental cause, sets
 the stop class with `classifyStop`, writes `renderFailureNotes` to the item
 via `Tracker.RecordOutcome`, and dockets the run with
-`Docket.RecordStoppedRun` or `Docket.RecordUnstartedRun` (`triage.go`). Stop
+`Docket.RecordStoppedRun` or `Docket.RecordUnstartedRun` (`triage.go`).
+A stop for a restart onto a new build is `pauseForRedeploy` (`redeploydrain.go`),
+including one that arrives because the session hosting the run was asked to
+stop while moving (`hostedContext`, `stopCause`); a step it cut off part-way is
+named on the stop (`redeployCutOff`). The commit of a developer attempt's
+leftovers (`commitAttempt`) and a run's tracker write (`recoveringTrackerWrite`)
+run under `finishingStep`, so a stop lets them finish first. Stop
 class names are in `internal/runstate/stopclass.go`. A site marks its own
 class with `stoppedBy(runstate.Stop…, err)`. A re-run the harness carried out
 that then ended without any of those rules docketing it is docketed by

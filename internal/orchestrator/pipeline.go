@@ -4920,31 +4920,12 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 				return finishErr
 			}
 		}
-		// A run its hosting watch session stopped for a redeploy keeps what the
-		// attempt left: the session it established, which is what the session that
-		// comes back continues in, and the worktree committed under a context the
-		// stop did not cancel — the stop is the harness's clock, not a verdict on
-		// the work, and a commit made under the cancelled context would fail and
-		// end the round before the session was recorded, leaving nothing a
-		// continuation could pick up.
 		// An attempt a stop cut short keeps what it wrote, committed on the run's
 		// branch as the ending below leaves every stopped run's change.
 		if cutShort {
 			ended := error(cut)
 			if committed := a.commitAttempt(ctx); committed != nil {
 				ended = errors.Join(cut, committed)
-			}
-			a.observeDevelopEnded(ctx, ended)
-			return ended
-		}
-		if drained, forRedeploy := drainedForRedeploy(ctx); forRedeploy {
-			sessionID = a.carrySession(providerResult.SessionID, sessionID)
-			commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), redeployCommitTimeout)
-			committed := a.commitAttempt(commitCtx)
-			cancel()
-			ended := error(drained)
-			if committed != nil {
-				ended = errors.Join(drained, committed)
 			}
 			a.observeDevelopEnded(ctx, ended)
 			return ended
@@ -4961,7 +4942,26 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		// A commit that could not be made ends the round rather than carrying on:
 		// the reviewer's evidence names a tip commit, and a tip that is not the
 		// round's is an approval of something nobody read.
-		if committed := a.commitAttempt(ctx); committed != nil {
+		//
+		// The commit is let finish when the run is stopped under it, or before it,
+		// for a restart onto a new build (commitAttempt, finishingStep).
+		committed := a.commitAttempt(ctx)
+		// A run its hosting watch session stopped for a redeploy, during the
+		// attempt or during the commit, stops here, between steps: it keeps the
+		// session the attempt established, which is what the session that comes
+		// back continues in, and the commit just made. The stop is the harness's
+		// clock, not a verdict on the work, so nothing after this is started
+		// under it to be cut off part-way.
+		if drained, forRedeploy := drainedForRedeploy(ctx); forRedeploy {
+			sessionID = a.carrySession(providerResult.SessionID, sessionID)
+			ended := error(drained)
+			if committed != nil {
+				ended = errors.Join(drained, committed)
+			}
+			a.observeDevelopEnded(ctx, ended)
+			return ended
+		}
+		if committed != nil {
 			a.observeDevelopEnded(ctx, committed)
 			return committed
 		}
@@ -8807,7 +8807,7 @@ func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
 	// here reports it as the step failing, and what it is instead is a run owed a
 	// continuation by the session that comes back.
 	if drained, forRedeploy := drainedForRedeploy(ctx); forRedeploy {
-		return a.pauseForRedeploy(drained)
+		return a.pauseForRedeploy(drained, cause)
 	}
 	// A stop the operator asked for is the one ending here that is not a pause and
 	// not a failure of the work. It is recorded as cancelled, which is exactly

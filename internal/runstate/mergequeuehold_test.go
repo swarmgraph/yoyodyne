@@ -171,8 +171,12 @@ func TestAStageGroupGoneBetweenTheTwoLooksIsNotRunning(t *testing.T) {
 	if err != nil || running {
 		t.Fatalf("StageRunning() with the group gone at the second look = %t, %q, %v; want it stopped", running, reason, err)
 	}
-	if looks != 2 {
-		t.Fatalf("the group was looked at %d times, want 2", looks)
+	// At least two looks, not exactly two: a process another test in this
+	// package starts can hold a forked copy of the hold for a moment, and
+	// StageRunning then looks at the group once more while it waits that copy
+	// out (settleForkedCopies). The answer is the same either way.
+	if looks < 2 {
+		t.Fatalf("the group was looked at %d times, want at least 2", looks)
 	}
 }
 
@@ -189,8 +193,11 @@ func TestAStageGroupThatCannotBeFoundIsGone(t *testing.T) {
 	if err != nil || running {
 		t.Fatalf("StageRunning() with no group = %t, %q, %v; want it stopped", running, reason, err)
 	}
-	if looks != 1 {
-		t.Fatalf("the group was looked at %d times, want 1", looks)
+	// One look, or two where a forked copy of the hold sent StageRunning
+	// through its wait for that copy first (see the test above); a group found
+	// gone is never looked at again within one of them.
+	if looks < 1 || looks > 2 {
+		t.Fatalf("the group was looked at %d times, want 1, or 2 with a forked copy waited out", looks)
 	}
 }
 
