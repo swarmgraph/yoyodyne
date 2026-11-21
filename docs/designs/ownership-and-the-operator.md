@@ -62,6 +62,10 @@ revisions:
       by: architect
       at: 2026-11-21T03:37:12.779943Z
       reason: 'Approved amendment-df79a1a66adf9cb96e3eba21804f854a from the developer on the build of the rule for a watch session left on an older build (yoyodyne-ifd.431.13): the table gains a row for the stale build kind, owned by the harness, the development manager or the Lead Product Manager by case, never the operator. Held until that build closes, so the design does not run ahead of the code. Written against main at 7b178c05; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T09:30:27.692321Z
+      reason: 'Follows the stale build row (revision 13, from the developer''s amendment-df79a1a6 on the build for a watch session left on an older build, yoyodyne-ifd.431.13): the list of kinds names stale build, as the sentence under the table promised. Nothing else in the section changes. The pointer sentence under the table is dropped in the next revision. Written against main at 3387420c.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -128,6 +132,11 @@ approvals:
       by: harness
       at: 2026-11-21T03:37:12.779943Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3278, for document-3278.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 14
+      by: harness
+      at: 2026-11-21T09:30:27.692321Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3310, for document-3310.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -158,9 +167,9 @@ entry kind. The kinds are the ones the read model already names: amendment,
 waiting document, directive, report, owed step, publication, degraded service,
 failing task, hold, outage, stall, held work, a step set aside for a person
 (`human-gate`), conversation-carried item, operator action, stoppage,
-escalation, diverged target, follow-up, intake question, and the ages of the
-report pile and the amendment queue. Each kind has one rule. The rule reads the
-entry's record and returns:
+escalation, diverged target, stale build, follow-up, intake question, and the
+ages of the report pile and the amendment queue. Each kind has one rule. The
+rule reads the entry's record and returns:
 
 - `owner`, from the existing mover vocabulary: the operator, a role, the
   harness, or nobody where the entry lifts on a clock no one controls;
