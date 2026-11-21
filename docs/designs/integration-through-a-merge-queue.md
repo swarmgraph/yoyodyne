@@ -51,6 +51,10 @@ revisions:
       by: architect
       at: 2026-11-21T08:32:16.166197Z
       reason: 'Approved amendment-1bd7f85d from the developer on the item fixing queue order when the tracker cannot be read: a tracker that cannot be read orders entries by the priority and placement last read for each, and only entries with none remembered go last in admission order; each choice records whether remembered values were used. Rule 5, the tracker line, the record line and the reviewer list change; the rest of the section is copied unchanged from main 0600a4af, read before revising.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T16:35:48.658821Z
+      reason: The CI job that installs the tracker program is now named getting-started, not adoption (ci.yml and the Makefile read at cdcd0559a79a); the adoption make target stays only as an alias. The trial section's three mentions of the adoption job and the list of targets outside the full local check are corrected, and the job is described as running the conformance tests and the README walk. Nothing about the trial changes. The rest of the section is copied unchanged from main cdcd0559a79a, read whole.
 approvals:
     - revision: 0
       by: operator
@@ -106,6 +110,11 @@ approvals:
       by: harness
       at: 2026-11-21T08:32:16.166197Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3308, for document-3308.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-21T16:35:48.658821Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3331, for document-3331.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -322,13 +331,13 @@ Rejected:
 5. The change that turns the setting on for this repository (yoyodyne-ifd.429.76.8) lands. That landing starts the trial.
 6. At the end, the architect records the result in this design.
 
-**Step 2: what the full local check runs that GitHub does not.** Compared on November 18, 2026 from the Makefile and `.github/workflows/ci.yml` at main e4c9aa75. The full local check, `make check`, runs `fmtcheck`, `test`, `race` and `vet`. GitHub's required jobs `test`, `race` and `vet` run `make test`, `make race` and `make vet` on Ubuntu, and the `build` job runs `make fmtcheck` and `make build`, so every target of the full local check runs on GitHub too. What differs is the tests those targets run on each machine:
+**Step 2: what the full local check runs that GitHub does not.** Compared on November 18, 2026 from the Makefile and `.github/workflows/ci.yml` at main e4c9aa75, with the job and target names read again at main cdcd0559a79a on November 21. The full local check, `make check`, runs `fmtcheck`, `test`, `race` and `vet`. GitHub's required jobs `test`, `race` and `vet` run `make test`, `make race` and `make vet` on Ubuntu, and the `build` job runs `make fmtcheck` and `make build`, so every target of the full local check runs on GitHub too. What differs is the tests those targets run on each machine:
 
 - **Tests only macOS runs.** The packages `make test-macos` names, and the test in `internal/beads` that runs the developer sandbox under `sandbox-exec`, run nothing on Ubuntu. They are already in the quick local checks and stay there.
-- **Tests that need the tracker program.** Tests that skip where `bd` is not installed skip in GitHub's `test` and `race` jobs, which install no `bd`. The `adoption` job installs it, but runs only the tracker conformance tests and is not a required check. This is a known gap for the trial; it is not moved into the quick local checks, because that would run the whole of `internal/beads` locally on every candidate. A build piece closes it: GitHub's `test` job installs the same pinned `bd` the `adoption` job installs.
+- **Tests that need the tracker program.** Tests that skip where `bd` is not installed skip in GitHub's `test` and `race` jobs, which install no `bd`. The `getting-started` job installs it, but runs only the tracker conformance tests and the README's getting started walk, and is not a required check. This is a known gap for the trial; it is not moved into the quick local checks, because that would run the whole of `internal/beads` locally on every candidate. A build piece closes it: GitHub's `test` job installs the same pinned `bd` the `getting-started` job installs.
 - **The dashboard render test.** It skips where Node is not installed, and `make test` prints whether it passed or skipped. Whether GitHub's Ubuntu machine has Node was not confirmed for this revision. The same build piece reads that line in one `test` job's output; if it says SKIP, the piece adds a step that installs Node to the `test` job, and until then the test is a known gap.
 
-The `race` check is the same on both: each runs `make race` with no package list, so both skip only a change that is all documents, and GitHub's job fetches the whole history that comparison needs. The `adoption` and `codex-resume` targets are not part of the full local check, so they are not gaps.
+The `race` check is the same on both: each runs `make race` with no package list, so both skip only a change that is all documents, and GitHub's job fetches the whole history that comparison needs. The `getting-started` target, with `adoption` kept only as its old name until the project configuration names the new one, and the `codex-resume` target are not part of the full local check, so they are not gaps.
 
 **What it measures,** each against the three days before the trial, read from the queue's own records of each choice and each landing:
 
@@ -345,7 +354,7 @@ The `race` check is the same on both: each runs `make race` with no package list
 
 **The entries already waiting.** They stay in the queue in the order [the order the queue takes entries in](#the-order-the-queue-takes-entries-in) gives, and from the switch onward go through the new path; those waiting four hours or more go oldest first under its first rule. An entry whose candidate is being checked when the switch happens finishes in the way it started.
 
-Build work: one piece, built and checked on its own. GitHub's `test` job installs the pinned `bd` the `adoption` job installs, and the piece records from one `test` job's output whether the dashboard render test passed or skipped, adding a step that installs Node where it skipped.
+Build work: one piece, built and checked on its own. GitHub's `test` job installs the pinned `bd` the `getting-started` job installs, and the piece records from one `test` job's output whether the dashboard render test passed or skipped, adding a step that installs Node where it skipped.
 
 A reviewer can check:
 
