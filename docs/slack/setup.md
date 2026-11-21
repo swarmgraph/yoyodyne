@@ -112,8 +112,7 @@ nothing typed in the channel ever arrives.
 
 `im:write` is used for two classes of message and only those two, sent directly
 to whoever step 4 grants `direct-work`. The first is **the harness reporting
-itself degraded**: a session choosing work from a build the harness has moved
-well past, the harness having started nothing at all while work was ready,
+itself degraded**: the harness having started nothing at all while work was ready,
 [the provider holding every role](../reporting.md#the-provider-holding-every-role)
 with nothing configured to fail over to,
 [an item that sat claimed with nothing working on it](../reporting.md#an-item-claimed-with-nothing-working-on-it)
@@ -136,10 +135,13 @@ improved that this project never edited, and
 development manager escalated to you, or the batch
 of recommendations an owning role argued on a recurring pass over the changes
 proposed to its documents — which is
-tagged to you by member id as well, since it is yours to act on. The stale build, the
+tagged to you by member id as well, since it is yours to act on. The
 released claim, the improvement, and each finding are sent once rather than
 repeated, and at
 most one improvement message goes per reading however many the reading found;
+a session left on an older build is said in the channel and sent to nobody
+directly, because the ownership registry gives none of its causes to you
+([the reporting guide](../reporting.md) says when it is said at all);
 the provider holding every role is sent when it is first seen, so you are told,
 and its repetitions stay in the channel — critical once it has stood past six
 hours — because the ownership registry gives it to the harness rather than to

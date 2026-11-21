@@ -133,6 +133,9 @@ func fixtureRecords() []Record {
 			}
 		}
 	}
+	for _, cause := range append([]StaleBuildCause{"", "something-nobody-named"}, StaleBuildCauses()...) {
+		records = append(records, Record{StaleBuild: cause})
+	}
 	return records
 }
 

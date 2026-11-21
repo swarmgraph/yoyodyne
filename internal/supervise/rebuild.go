@@ -51,11 +51,13 @@ const (
 	rebuildGitTimeout = 30 * time.Second
 )
 
-// rebuildSources are the paths a landing has to touch for the binary to be
+// RebuildSources are the paths a landing has to touch for the binary to be
 // built again: what `go build ./cmd/yoyo` compiles. A landing that touches
 // only documentation or the tracker's export builds nothing, because a build
-// that changes nothing is still a redeploy of every part running from it.
-var rebuildSources = []string{"cmd", "internal", "go.mod", "go.sum"}
+// that changes nothing is still a redeploy of every part running from it. The
+// Slack sink counts how far a session is behind by the same paths, so the two
+// never disagree about which landings change the build.
+var RebuildSources = []string{"cmd", "internal", "go.mod", "go.sum"}
 
 // Rebuilder builds the product's binary again when the checkout's branch lands
 // something the binary is made of.
@@ -148,7 +150,7 @@ func (r *Rebuilder) Look(ctx context.Context, now time.Time) {
 		return
 	}
 	if err == nil && built != "" {
-		changed, diffErr := r.git(ctx, append([]string{"diff", "--name-only", built, tip, "--"}, rebuildSources...)...)
+		changed, diffErr := r.git(ctx, append([]string{"diff", "--name-only", built, tip, "--"}, RebuildSources...)...)
 		if diffErr == nil && changed == "" {
 			r.considered = tip
 			r.say("%s landed at %s touching nothing %s is built from, so it is not rebuilt", branch, short(tip), r.Binary)
@@ -158,7 +160,7 @@ func (r *Rebuilder) Look(ctx context.Context, now time.Time) {
 	// A build compiles the working tree, not the commit, so uncommitted changes
 	// to what the binary is made of would be deployed with the landing. Those are
 	// somebody's work in progress, and the build waits for them.
-	dirty, err := r.git(ctx, append([]string{"status", "--porcelain", "--"}, rebuildSources...)...)
+	dirty, err := r.git(ctx, append([]string{"status", "--porcelain", "--"}, RebuildSources...)...)
 	if err != nil {
 		r.fail("not rebuilding %s: whether the checkout has uncommitted changes could not be read: %v", r.Binary, err)
 		return

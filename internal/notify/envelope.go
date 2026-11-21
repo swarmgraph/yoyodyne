@@ -868,8 +868,8 @@ type Detail struct {
 	// KindRaceLost beside TargetBranch. It is the run's own count, so the line
 	// for the third race says it is the third.
 	Races int `json:"races,omitempty"`
-	// Behind is how many harness changes have landed since a running session's
-	// binary was built, read by KindResidentStale. It is the count rather than the
+	// Behind is how many landings that change the build have landed since a
+	// running session's binary was built, read by KindResidentStale. It is the count rather than the
 	// elapsed time because what matters is what the session is missing, and an
 	// afternoon with nothing merged in it costs nobody anything.
 	Behind int `json:"behind,omitempty"`
@@ -923,6 +923,9 @@ type Detail struct {
 	// KindLineWaiting reads it the same way, for the intake hold above all: the
 	// brake's hold is the development manager's while she decides and the Lead
 	// Product Manager's once it is escalated, and the read model words which.
+	// KindResidentStale reads it alone too: who moves a session left on an older
+	// build depends on why, and the ownership registry words which
+	// (ownership.ResolveStaleBuild).
 	Cause string `json:"cause,omitempty"`
 	Mover string `json:"mover,omitempty"`
 	// Waiting is what a provider's refusal stopped, read by

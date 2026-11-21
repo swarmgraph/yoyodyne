@@ -980,11 +980,13 @@ var nextMoves = map[Kind]string{
 	// the line was quietly degraded until it was, and a second run for an item is
 	// something a reader has to be able to account for afterwards.
 	KindClaimReleased: "nobody's — the item is pullable again and will be chosen in its turn, and whatever the run that left it produced is still on its branch.",
-	// The restart is no longer anybody's: a watch session takes up a build
-	// installed over it by itself, between the runs it is carrying and without
-	// interrupting one. What is left is the install, which is why this names it
-	// rather than naming a restart nobody has to make.
-	KindResidentStale: "the operator's — installing the build is the whole of it; the session takes it up itself between runs.",
+	// Neither the build nor the move is anybody's by default: the supervisor
+	// builds and installs each landing that changes the build, and the session
+	// moves onto it by itself between runs, at most once every
+	// execution.build_move_interval. The sink carries the registry's answer for
+	// the cause that stands in Mover (ownership.ResolveStaleBuild), so this is
+	// what a message that carried none would say.
+	KindResidentStale: "the harness's — the supervisor builds and installs each landing that changes the build, and the session moves onto it by itself between runs.",
 	// Nobody's, and saying so is the point. Every other move in this table is one
 	// somebody eventually has to make; this one is an offer an operator is
 	// entitled to decline forever, and a message that implied otherwise would be
@@ -1068,7 +1070,7 @@ func nextMove(event Event) (string, bool) {
 	if strings.TrimSpace(event.Detail.Mover) != "" {
 		switch event.Kind {
 		case KindStallNoticed, KindRunEnded, KindBlockerRecorded, KindCapacityHold, KindProviderOutage, KindRecurringTaskFailing, KindWatchBraked, KindIntakeHeld, KindLineWaiting, KindOperatorAction, KindReportFiled,
-			KindProposalRaised, KindAmendmentDecided:
+			KindProposalRaised, KindAmendmentDecided, KindResidentStale:
 			return ended(strings.TrimSpace(event.Detail.Mover)), true
 		}
 	}
@@ -1323,7 +1325,7 @@ func (e Event) fields(topic Topic) map[string]string {
 		// outstanding publication from a message written before they were counted.
 		"publications": countOf(detail.Outstanding, "promotion awaiting the forge", "promotions awaiting the forge",
 			"a number of promotions the record does not carry"),
-		"behind": countOf(detail.Behind, "harness change", "harness changes", "a number of harness changes the record does not carry"),
+		"behind": countOf(detail.Behind, "landing that changes the build", "landings that change the build", "a number of landings the record does not carry"),
 		"events": countOf(detail.Accumulated, "event", "events", "a number of events the record does not carry"),
 		// The four lines, already rendered by the read model. A surface with no way
 		// to read them says so rather than leaving the block out, because a message
