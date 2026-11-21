@@ -266,6 +266,12 @@ const (
 	// queue stopped at its head held its own fix behind the stop, and only a
 	// person merging by hand let it out. See queuehead.go.
 	actionQueue = "queue"
+	// actionTeamConflict is the development manager's decision that a run of one
+	// item resolves the conflict met while the target branch is brought up to
+	// date with the team's branch. It names the item, and the harness records the
+	// decision on the update, counts the round against the update's three, and
+	// starts the run. See teamconflict.go.
+	actionTeamConflict = "team_conflict"
 	// actionGrant is the Lead Product Manager's grant of a further raise of one
 	// item's limit, once the development manager's own five are used: up to five
 	// more for the item, never past ten in all. It names the item and the cap, and
@@ -308,6 +314,7 @@ var trackerActionArguments = map[string][]string{
 	actionDirective:    {"directive", "decision", "became"},
 	actionAmendment:    {"amendment", "decision"},
 	actionQueue:        {"entry", "decision"},
+	actionTeamConflict: {},
 	actionGrant:        {"budget"},
 }
 
@@ -375,6 +382,9 @@ var trackerCapabilities = map[string]capability.Capability{
 	// Releasing a stopped queue entry is deciding what becomes of work that
 	// stopped moving, which is triage's authority and its holder's alone.
 	actionQueue: capability.WorkTriage,
+	// Deciding which item's run resolves a conflict is deciding what becomes of
+	// stopped work too, and is held by the same role.
+	actionTeamConflict: capability.WorkTriage,
 	// Granting an item another raise past the development manager's own is a
 	// judgment of the item's worth against the other work waiting, which is what
 	// admitting and retiring work are, and it is the Lead Product Manager's alone,
@@ -411,7 +421,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionKeepVersion, actionWithdraw,
-	actionDirective, actionAmendment, actionQueue, actionGrant,
+	actionDirective, actionAmendment, actionQueue, actionTeamConflict, actionGrant,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -2454,6 +2464,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.decideBrake(outcome)
 	case actionQueue:
 		s.releaseQueueHead(ctx, outcome)
+	case actionTeamConflict:
+		s.decideTeamConflict(ctx, outcome)
 	case actionGrant:
 		s.carryOutCapGrant(ctx, outcome)
 	case actionKeepVersion:

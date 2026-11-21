@@ -257,3 +257,118 @@ func TestTeamBranchUpdateConflictItemName(t *testing.T) {
 		t.Fatalf("Name() with no title = %q, want the identifier", got)
 	}
 }
+
+func tbuDecision() TeamBranchConflictDecision {
+	return TeamBranchConflictDecision{
+		Item:      TeamBranchUpdateConflictItem{ID: "yoyodyne-item", Title: "Reword the greeting"},
+		Reason:    "the item changed that line",
+		DecidedBy: "the development manager in conversation chat-1, turn 4",
+		DecidedAt: time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC),
+	}
+}
+
+func tbuConflicted() TeamBranchUpdate {
+	record := tbuRecord("staging")
+	pending := tbuAttempt()
+	pending.Conflict = &TeamBranchUpdateConflict{Paths: []string{"app.txt"}, FoundAt: time.Now()}
+	record.Pending = &pending
+	return record
+}
+
+func TestADecisionOnAConflictCountsARoundAndIsRefusedWhereItCannotStand(t *testing.T) {
+	record := tbuConflicted()
+	if err := record.DecideConflict(tbuDecision()); err != nil || record.ConflictRounds != 1 || record.Decision == nil || record.Decision.Round != 1 {
+		t.Fatalf("DecideConflict() = %v, rounds %d, decision %#v; want round 1 recorded", err, record.ConflictRounds, record.Decision)
+	}
+	if err := record.DecideConflict(tbuDecision()); err == nil || !strings.Contains(err.Error(), "already has a decision") || record.ConflictRounds != 1 {
+		t.Fatalf("second DecideConflict() = %v, rounds %d; want a refusal that spends nothing", err, record.ConflictRounds)
+	}
+
+	none := tbuRecord("staging")
+	if err := none.DecideConflict(tbuDecision()); err == nil || !strings.Contains(err.Error(), "no conflict is waiting") {
+		t.Fatalf("DecideConflict() with no conflict = %v; want it refused", err)
+	}
+	unnamed := tbuConflicted()
+	noItem := tbuDecision()
+	noItem.Item.ID = " "
+	if err := unnamed.DecideConflict(noItem); err == nil || !strings.Contains(err.Error(), "names one work item") {
+		t.Fatalf("DecideConflict() with no item = %v; want it refused", err)
+	}
+	noReason := tbuDecision()
+	noReason.Reason = ""
+	if err := unnamed.DecideConflict(noReason); err == nil || unnamed.ConflictRounds != 0 {
+		t.Fatalf("DecideConflict() with no reason = %v, rounds %d; want it refused", err, unnamed.ConflictRounds)
+	}
+}
+
+func TestAFourthRoundIsRefusedAndTheRoundsStartAgainOnceAnUpdateLands(t *testing.T) {
+	record := tbuConflicted()
+	for round := 1; round <= MaxTeamBranchConflictRounds; round++ {
+		if err := record.DecideConflict(tbuDecision()); err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
+		record.GiveUpConflictRun() // the run made no merge; the round stays spent
+	}
+	err := record.DecideConflict(tbuDecision())
+	if err == nil || !strings.Contains(err.Error(), "a fourth round is refused") || !strings.Contains(err.Error(), "3 rounds") || !strings.Contains(err.Error(), "spent") {
+		t.Fatalf("fourth DecideConflict() = %v; want a plain refusal naming the three spent rounds", err)
+	}
+	if record.ConflictRounds != MaxTeamBranchConflictRounds {
+		t.Fatalf("rounds = %d, want the refusal not to add one", record.ConflictRounds)
+	}
+	record.Land(time.Now(), tbuCommit("c"))
+	if record.ConflictRounds != 0 || record.Decision != nil {
+		t.Fatalf("after a landing rounds = %d, decision %#v; want them started again", record.ConflictRounds, record.Decision)
+	}
+}
+
+func TestARoundIsGivenBackWhereItsRunNeverStarted(t *testing.T) {
+	record := tbuConflicted()
+	if err := record.DecideConflict(tbuDecision()); err != nil {
+		t.Fatal(err)
+	}
+	record.RefundUnstartedRound()
+	if record.ConflictRounds != 0 || record.Decision != nil {
+		t.Fatalf("rounds = %d, decision %#v; want the round given back", record.ConflictRounds, record.Decision)
+	}
+	if err := record.DecideConflict(tbuDecision()); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	record.Decision.StartedAt = &started
+	record.RefundUnstartedRound()
+	if record.ConflictRounds != 1 {
+		t.Fatalf("rounds = %d, want a round whose run started to stay spent", record.ConflictRounds)
+	}
+}
+
+func TestTheStoreRecordsADecisionUnderTheUpdatersLeaseAndRefusesWhileAnotherHoldsIt(t *testing.T) {
+	store := newTBUStore(t, t.TempDir())
+	if _, err := store.DecideConflict(context.Background(), "staging", tbuDecision()); err == nil || !strings.Contains(err.Error(), "not being brought up to date") {
+		t.Fatalf("DecideConflict() with no record = %v; want it refused", err)
+	}
+	if err := store.Save(tbuConflicted()); err != nil {
+		t.Fatal(err)
+	}
+	lease, held, err := store.LeaseUpdater(context.Background(), "staging")
+	if err != nil || !held {
+		t.Fatalf("LeaseUpdater() = %t, %v", held, err)
+	}
+	if _, err := store.DecideConflict(context.Background(), "staging", tbuDecision()); err == nil || !strings.Contains(err.Error(), "another process is bringing") {
+		t.Fatalf("DecideConflict() under another's lease = %v; want it asked to be made again", err)
+	}
+	_ = lease.Release()
+	decided, err := store.DecideConflict(context.Background(), "staging", tbuDecision())
+	if err != nil || decided.Decision == nil {
+		t.Fatalf("DecideConflict() = %#v, %v", decided, err)
+	}
+	loaded, _, err := store.Load("staging")
+	if err != nil || loaded.ConflictRounds != 1 || loaded.Decision == nil || loaded.Decision.Item.ID != "yoyodyne-item" {
+		t.Fatalf("Load() = %#v, %v; want the decision and its round kept", loaded, err)
+	}
+	bad := tbuConflicted()
+	bad.ConflictRounds = MaxTeamBranchConflictRounds + 1
+	if err := store.Save(bad); err == nil {
+		t.Fatal("Save() accepted more rounds than an update is given")
+	}
+}

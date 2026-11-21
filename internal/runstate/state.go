@@ -2720,6 +2720,11 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("person_merge.closed_by", "person_merge.closed_by", &s.PersonMerge.ClosedBy, maxForgeLoginBytes)
 		unstated("person_merge.update_refused", "person_merge.update_refused", &s.PersonMerge.UpdateRefused, MaxSelectionReasonBytes)
 	}
+	if s.TeamConflict != nil {
+		unstated("team_conflict.reason", "team_conflict.reason", &s.TeamConflict.Reason, MaxRecordedTextBytes)
+		unstated("team_conflict.decided_by", "team_conflict.decided_by", &s.TeamConflict.DecidedBy, MaxRecordedTextBytes)
+	}
+
 	if s.TeamMerge != nil {
 		if s.TeamMerge.PullRequest != nil {
 			unstated("team_merge.pull_request.url", "team_merge.pull_request.url", &s.TeamMerge.PullRequest.URL, maxCheckURLBytes)
@@ -4270,6 +4275,13 @@ type State struct {
 	// counted against MaxUpToDateConflicts rather than the repair attempts,
 	// because another contributor's work caused them.
 	UpToDateConflicts int `json:"up_to_date_conflicts,omitempty"`
+	// TeamConflict is set on a run the development manager decided to have
+	// resolve a conflict met while bringing the target branch up to date with the
+	// team's branch (teambranchresolve.go). Such a run is not a change to land: it
+	// makes the merge commit the update then checks, has reviewed, and lands. It
+	// is counted against the update's three rounds
+	// (TeamBranchUpdate.ConflictRounds), never the item's repair attempts.
+	TeamConflict *TeamConflictRun `json:"team_conflict,omitempty"`
 	// ReplayUnjudged is set when a replay is prepared and cleared by the first
 	// thing its gate says: a stop on the change, which charges it, or the next
 	// lost race or the promotion, which says it passed. It is what keeps one replay

@@ -5290,12 +5290,47 @@ builds the merge again and lands only a commit whose whole content is what that
 merge gives, and it lands nothing while the operator's pause or a landing hold
 an outside tool placed on the target stands; the merge is kept, with its checks
 and review, until the hold ends. It never rebases or forces the target, because
-pull requests and other contributors point at its commits. A conflict is not
-resolved: the development manager is told once which files conflict and which
-items on the target touched them, work keeps landing, and the update is tried
-again when either branch moves. Checks that fail, or a reviewer who does not
-approve, are handled the same way. The update belongs to no work item, so no
-item's repair budget is charged. A project with no configured checks never
+pull requests and other contributors point at its commits. The harness
+does not resolve a conflict itself: the development manager is told once which
+files conflict, which items on the target touched them, and what she can
+decide, work keeps landing, and the update is tried again when either branch
+moves. Checks that fail, or a reviewer who does not approve, are handled the
+same way. The update belongs to no work item, so no item's repair budget is
+charged.
+
+**Deciding a conflict.** The development manager can record a decision on a
+waiting conflict that names one item waiting for the team's merge on the
+target, with her reason (the `team_conflict` action in her conversation). The
+decision is recorded on the update itself and counted as a round; the harness
+starts a run of that item at the next forge check, in a worktree cut from the
+target's current head with the merge of the team's tip already begun and Git's
+conflict markers in the files that conflict. That run's developer settles the
+conflict and the harness commits the merge, with the target as its first parent
+and the team's tip as its second. The run ends there and promotes nothing: the
+update takes its merge and puts it through the same configured checks, the
+same independent review, the same check on protected paths and the same
+compare and swap as a merge it built itself. A merge carrying a run's
+resolution is not compared with the tree the harness builds again, which
+could never match a conflict; the paths that differ from both the target and the
+team's tip, which are the ones the run wrote, are put through the ordinary check
+on protected paths under the grants of the item the run was for, and a refusal
+reaches the development manager's list naming them. A file that holds what the
+team's tip holds is the team's own and is not refused.
+
+**Three rounds, kept beside the update.** The runs decided on for one update are
+limited to three (`ConflictRounds` on the update's record, which `yoyo status`
+shows as the update waiting). They are counted against that limit only, and are
+never charged to the item's repair attempts or its other budgets, because
+another contributor's work caused the conflict. A round is counted when the
+decision is recorded and given back if the conflict goes away before its run
+starts; a round whose run started stays spent, whether or not it made a merge.
+The count starts again from none once an update has landed. A fourth round is
+refused, in words that say the three are spent; the conflict then stays on the
+development manager's list for a person to settle, and the target branch keeps
+taking new work. A conflict is decided once, an item that is not waiting for the
+team's merge on the target is refused, and a target that moves before the merge
+lands drops the merge and builds it again, which meets the conflict afresh and
+needs a new decision. A project with no configured checks never
 lands an update, because a merge no check ran on has earned nothing. `yoyo status`
 and the dashboard show when the target was last brought up to date and
 any update that is waiting.
