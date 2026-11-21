@@ -15,6 +15,12 @@ package chat
 //   - its run ended without landing it, so it is settled as handed back and the
 //     new revision opens a fresh run at once.
 //
+// Across conversations the same holds by the run store rather than by this
+// conversation's records: a revision is not confirmed while any run of its
+// document is still going or waiting in a merge queue
+// (holdBehindPublishingCopy), and the publisher starts no run beside one
+// (runstate.PublishingAhead).
+//
 // Every write is answered as it is recorded, in the role's next turn: where it
 // stands and why. One the harness recorded and never answered — a process that
 // died between the two — is reported as a harness defect when it is found.

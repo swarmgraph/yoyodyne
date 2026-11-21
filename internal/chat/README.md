@@ -205,7 +205,9 @@ revision per document and at most eight waiting documents per role
 (`placeRevision` decides whether a new revision replaces an unstarted one,
 waits behind a running one, or follows one a run handed back; `takePlace`
 carries that out, reading each run through the publisher's
-`DocumentStanding`), the block's `withdraw` and `list` requests
+`DocumentStanding`; across conversations, `holdBehindPublishingCopy` in
+`documentpublication.go` keeps a revision unconfirmed while any run of its
+document is still going or waiting in a merge queue), the block's `withdraw` and `list` requests
 (`answerDocumentRequests`, `withdrawWrites`, `renderWaitingDocuments`), and
 `answerUnanswered`, which reports a write never answered as a harness defect. `documentpublication.go` confirms automatic-policy writes
 (`confirmDocument`, which holds a waiting document to `checkDocument` again,

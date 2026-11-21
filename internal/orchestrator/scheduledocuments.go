@@ -31,6 +31,15 @@ type ScheduleDocuments interface {
 	Publish(ctx context.Context, document runstate.DocumentPublication) (Outcome, error)
 }
 
+// DocumentsAhead is the optional part of ScheduleDocuments that says whether a
+// waiting document has another copy of it still publishing — a run of another
+// handoff of the same document going, or waiting in a merge queue
+// (runstate.PublishingAhead). A pull passes such a document over, saying what
+// it waits for, rather than starting a run PublishDocument would only refuse.
+type DocumentsAhead interface {
+	PublishingAhead(runstate.DocumentPublication) (runstate.DocumentAhead, bool, error)
+}
+
 // refusedDocument is what a session remembers of a document start that failed,
 // so a pull leaves it for continuationRetry rather than failing it every poll.
 type refusedDocument struct {
@@ -73,6 +82,12 @@ func (s Scheduler) nextDocuments(pull Pull, landing map[string]runstate.State, m
 			passOver(runID, fmt.Sprintf("%s is already being landed by run %s, so it is not started again", documentNamed(wait), runID))
 			continue
 		}
+		// A read that fails passes nothing over: the run's own start reads the
+		// same thing again and keeps the document waiting where it finds a copy.
+		if ahead, found, err := documentAhead(pull.Documents, wait.Document); err == nil && found {
+			passOver(runID, fmt.Sprintf("%s waits: %s", documentNamed(wait), ahead.Says()))
+			continue
+		}
 		if last, tried := refused[runID]; tried {
 			again := last.at.Add(continuationRetry)
 			if s.now().Before(again) {
@@ -93,6 +108,16 @@ func (s Scheduler) nextDocuments(pull Pull, landing map[string]runstate.State, m
 		starting = append(starting, wait)
 	}
 	return starting, nil
+}
+
+// documentAhead asks documents, where it can say, whether another copy of the
+// document is still publishing.
+func documentAhead(documents ScheduleDocuments, document runstate.DocumentPublication) (runstate.DocumentAhead, bool, error) {
+	reader, ok := documents.(DocumentsAhead)
+	if !ok {
+		return runstate.DocumentAhead{}, false, nil
+	}
+	return reader.PublishingAhead(document)
 }
 
 // documentNamed is a waiting document in the words a schedule line uses.
