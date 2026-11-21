@@ -121,7 +121,7 @@ execution:
   # and checks on CI (yoyodyne-ifd.429.185, yoyodyne-ifd.429.186) landed. The
   # product slot is the one brought back, as slot 3 so that slots 1 and 2 keep
   # the runs they hold. A fourth slot stays out (operator, 2026-11-11).
-  max_concurrent_developers: 3  # slot 1 reliability, slot 2 team development (Sonnet trial), slot 3 product and cost
+  max_concurrent_developers: 3  # slot 1 reliability, slot 2 team development (Sonnet trial), slot 3 product and cost (dedicated)
   # One developer slot prefers the reliability label, per the operator's
   # direction of 2026-09-19: bugs, anything that keeps the system from
   # stalling, and anything that keeps the system from making mistakes. The
@@ -150,7 +150,13 @@ execution:
     # It also pulls cost-labelled work first, the work that cuts what the
     # factory spends, at the operator's direction of 2026-11-21: "lets label
     # them all cost and give that label to one of the dev seats".
+    # Dedicated at the operator's direction of 2026-11-21 ("make the config
+    # change for now"): the slot takes its labelled work ahead of fresh
+    # priority-0 work that carries none of its labels, which is what he asked
+    # of this seat on 2026-10-06 ("work only on usability and product
+    # features"). Work on a change already written still goes first.
     - prefer: [usability, product, performance, cost]
+      dedicated: true
   repair_attempts_before_replan: 4
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
