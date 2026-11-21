@@ -30,7 +30,15 @@ type DocumentPublisher interface {
 // document runs back, for resumeStoppedDocuments. A publisher without it
 // resumes nothing.
 type documentResumer interface {
-	ResumableDocuments(conversationID string) ([]runstate.DocumentPublication, map[string]int, error)
+	ResumableDocuments(conversationID string) ([]runstate.DocumentPublication, map[string]int, map[string]string, error)
+}
+
+// documentCopyJudge is the part of the publisher that says whether a revision
+// was written against a newer target-branch copy of its document than the run
+// that last returned it was (orchestrator.Pipeline.NewerDocumentCopy). A publisher
+// without it never restarts the count of returned runs.
+type documentCopyJudge interface {
+	NewerDocumentCopy(ctx context.Context, returnedRunID string, candidate artifact.ConfirmedDocument) (*runstate.DocumentCountRestart, error)
 }
 
 type confirmationPreparer interface {
@@ -261,11 +269,45 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 		}
 		return false, s.returnUnconfirmed(record, told.String()+"\n")
 	}
+	var restarted *runstate.DocumentCountRestart
+	compared := false
+	if s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
+		// A revision written against a newer copy of the document on the target
+		// branch is not the text the three returns judged, so its count begins
+		// again. One written against the same copy is refused as before.
+		if judge, ok := s.options.DocumentPublisher.(documentCopyJudge); ok {
+			last := s.state.DocumentLastReturn[candidate.Artifact.ID]
+			if last == "" {
+				// A conversation saved before the last returned run was kept
+				// has the count and not the run, so the run store is asked.
+				if resumer, ok := s.options.DocumentPublisher.(documentResumer); ok {
+					if _, _, runs, err := resumer.ResumableDocuments(s.state.ConversationID); err == nil {
+						last = runs[candidate.Artifact.ID]
+					}
+				}
+			}
+			if last != "" {
+				if newer, err := judge.NewerDocumentCopy(context.Background(), last, candidate); err == nil {
+					compared = true
+					restarted = newer
+				}
+			}
+		}
+		if restarted != nil {
+			delete(s.state.DocumentReturns, candidate.Artifact.ID)
+			delete(s.state.DocumentLastReturn, candidate.Artifact.ID)
+		}
+	}
 	if s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
 		record.decided = true
-		return false, s.carryResults(fmt.Sprintf("Document %s (%s) was not published. The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation. No operator decision or developer run is requested.\n", record.pending.ID, candidate.Artifact.Title, s.state.Role.Title(), runstate.MaxDocumentReturns))
+		which := "the harness could not tell which copy of the document on the target branch the last returned run was written against, so it could not tell whether this revision is against a newer one"
+		if compared {
+			which = "this revision was written against the same copy of the document on the target branch as the last returned run"
+		}
+		return false, s.carryResults(fmt.Sprintf("Document %s (%s) was not published. The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation, and %s. Write it again against the current copy to publish it. No operator decision or developer run is requested.\n", record.pending.ID, candidate.Artifact.Title, s.state.Role.Title(), runstate.MaxDocumentReturns, which))
 	}
 	record.pending.Publication = s.publicationFor(record, candidate)
+	record.pending.Publication.CountRestarted = restarted
 	if err := s.record(); err != nil {
 		return false, err
 	}
@@ -360,7 +402,7 @@ func (s *Session) resumeStoppedDocuments(publisher DocumentPublisher) error {
 		s.documentsResumed = true
 		return nil
 	}
-	resumable, judged, err := resumer.ResumableDocuments(s.state.ConversationID)
+	resumable, judged, _, err := resumer.ResumableDocuments(s.state.ConversationID)
 	if err != nil {
 		s.documentsResumed = true
 		return s.carryResults(fmt.Sprintf("The harness could not read this conversation's document runs to see whether any document stopped publishing over runs that judged nothing: %v. It looks again when this conversation is next opened.\n", err))

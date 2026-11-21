@@ -161,6 +161,12 @@ func (s *Session) settleDelivery(record *writeRecord, delivery runstate.Document
 			s.state.DocumentReturns = map[string]int{}
 		}
 		s.state.DocumentReturns[record.pending.Write.ID]++
+		if delivery.RunID != "" {
+			if s.state.DocumentLastReturn == nil {
+				s.state.DocumentLastReturn = map[string]string{}
+			}
+			s.state.DocumentLastReturn[record.pending.Write.ID] = delivery.RunID
+		}
 		if s.state.DocumentReturns[record.pending.Write.ID] == runstate.MaxDocumentReturns {
 			delivery.Detail += fmt.Sprintf("The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation.\n", s.state.Role.Title(), runstate.MaxDocumentReturns)
 		}

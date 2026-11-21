@@ -313,6 +313,11 @@ type Conversation struct {
 	// asked to carry out.
 	PendingWrites   []PendingWrite `json:"pending_writes,omitempty"`
 	DocumentReturns map[string]int `json:"document_returns,omitempty"`
+	// DocumentLastReturn is, for each document counted in DocumentReturns, the
+	// run that last returned it. A revision written once publication has stopped
+	// is compared with that run's copy of the document to see whether it was
+	// written against a newer one, which starts the count again.
+	DocumentLastReturn map[string]string `json:"document_last_return,omitempty"`
 	// HandedBack are the latest revisions of this role's documents a reviewed
 	// run handed back without landing; see HandedBackDocument.
 	HandedBack []HandedBackDocument `json:"handed_back,omitempty"`
@@ -1021,6 +1026,11 @@ func (c Conversation) Validate() error {
 	for id, returns := range c.DocumentReturns {
 		if returns < 0 || returns > MaxDocumentReturns || strings.TrimSpace(id) == "" {
 			problems = append(problems, fmt.Errorf("invalid count of returned runs for document %q", id))
+		}
+	}
+	for id, run := range c.DocumentLastReturn {
+		if strings.TrimSpace(id) == "" || strings.TrimSpace(run) == "" {
+			problems = append(problems, fmt.Errorf("invalid last returned run for document %q", id))
 		}
 	}
 	if len(c.PendingNotices) > MaxPendingNotices {
