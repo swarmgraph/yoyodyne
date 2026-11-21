@@ -45,6 +45,11 @@ revisions:
       at: 2026-11-18T17:41:58.838603Z
       reason: 'yoyodyne-q2l: records the rest of Mason''s direction of November 15, 2026 on priority 0: work that is not a bug is priority 0 only when he says so, and when he asks for another priority 0 feature while one is unfinished, the Lead Product Manager asks him whether to lower the first. The revision carrying these (document-5636.1) was handed back for conflicting with the bug rule''s revision, which landed alone. It is a rule he gave; no goal changes, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-21T23:20:52.307726Z
+      reason: 'yoyodyne-ifd.428.189: aligns the dedicated-seat rule with the architect''s dedicated-slots decision, which answers that item. A dedicated seat still takes its own kind of work first, with one exception: a priority 0 item no seat''s labels cover goes ahead once it has waited past the time the scheduling design sets, so no priority 0 item waits without limit. Ordering is the Lead Product Manager''s; no goal changes, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -74,6 +79,10 @@ approvals:
       by: product-manager
       at: 2026-11-18T17:41:58.838603Z
       reason: yoyodyne-q2l - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 8
+      by: product-manager
+      at: 2026-11-21T23:20:52.307726Z
+      reason: yoyodyne-ifd.428.189 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # Operating rules
@@ -95,7 +104,7 @@ Lead Product Manager.
 - A run is never killed for a flaky network or a sleeping laptop: a transport that drops or a machine that sleeps is waited out, and only a person or a bound on the work itself ends a run. (fb5a74a9)
 - Slack, the dashboard, the scheduler, and maintenance are parts of one product: started, stopped, restarted, and moved onto a new build together, by the product and not by a person. (6de828a8)
 - Developer seats are tagged, and one seat is dedicated to reliability work. (a43f7677, d83b6391)
-- A developer seat dedicated to one kind of work takes that work first, ahead of reliability work of any priority elsewhere, because reliability work has a seat of its own; when that kind of work has nothing ready, the seat takes the ordinary order, so it never sits idle while other ready work waits. (the Lead Product Manager, 2026-10-28, on the operator's direction that day; recorded on yoyodyne-ifd.428.130)
+- A developer seat dedicated to one kind of work takes that work first, ahead of reliability work of any priority elsewhere, because reliability work has a seat of its own; when that kind of work has nothing ready, the seat takes the ordinary order, so it never sits idle while other ready work waits. The one exception: a priority 0 item that no seat's labels cover, once it has waited longer than the time the scheduling design sets, goes ahead of a dedicated seat's own work, so no priority 0 item waits without limit. (the Lead Product Manager, 2026-10-28, on the operator's direction that day; recorded on yoyodyne-ifd.428.130. Exception added 2026-11-21 on yoyodyne-ifd.428.189, after the operator's direction that day that priority 0 work stop displacing a labelled seat's own work.)
 - Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, the reliability seat and any dedicated seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
 - When the intake brake trips, it summons the development manager to decide, never the operator; the operator is told and may release it. (789c052c)
 - A developer run never runs the tracker's command directly; the harness reads and writes the tracker on its behalf. (from CLAUDE.md, moved here by the item beside this one)
