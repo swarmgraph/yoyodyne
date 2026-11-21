@@ -4142,10 +4142,27 @@ are each replaced by their heading and a note. The briefing ends with a list
 of them under `Left out of what a recurring turn starts from`, with each path,
 for the role to read with a repository read when the turn needs one. The
 product intent, the directory indexes, the section saying whether a brief and
-goals are recorded, and the work items and docket are carried whole. The
-briefing comes first, ahead of the memories. It changes least from one pass to
-the next, since its work items are its last section, so a provider that caches
-the start of its requests can reuse it in the next pass's new session.
+goals are recorded, and the work items and docket are carried whole.
+
+**The part of the briefing that does not change is sent with the role's
+instructions.** A provider reuses what it cached of an earlier request only up
+to the end of a whole block, and the instructions are one block and the message
+another. So the briefing's opening — its header, the section saying whether a
+brief and goals are recorded, and the product intent with the directory
+indexes — is sent at the end of the instructions block, after a short note
+saying it is evidence and not instructions. It carries no time, count or
+listing that moves when work lands, so two passes given the same instructions
+and the same product intent send that block byte for byte the same, and the
+second pass's new session reads it from the cache the first one wrote. The
+rest of the briefing — the documents left out with their sizes, what the
+product ships, the work items, the docket and the list of what was left out —
+opens the message, ahead of the memories. Every round of the pass sends the
+same instructions block, so nothing the pass started from is lost from its
+session. On Claude Code the management roles' invocations keep what they write
+into the provider's cache for an hour (`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`),
+because a role's passes come about 45 minutes apart and a five-minute cache
+would expire first. A change to the product intent or to a role's instructions
+makes the next pass write the block again, once.
 
 **What a recurring turn starts from is bounded.** The bound is a third of the
 serving provider's context window, at about four bytes a token, measured the
@@ -4160,7 +4177,16 @@ account, or the turn's message. A start over it is refused before the provider
 is asked. The error names the size of each part, and the pass is recorded as a
 firing that failed before its first turn. Each recurring turn writes a
 `session.pass_started` event with its size, the bound, the window it came from,
-and the documents left out.
+the documents left out, how much of the briefing went with the instructions
+(`unchanging_bytes`), and each part of what it started from in the order it was
+sent, with its size and a digest (`parts`): the instructions, each section of
+the briefing's two parts, and then the memories, previous account and message
+together. The conversation record keeps the last pass's parts
+(`pass_start_parts`), and the next pass names the first part that differs from
+them (`first_changed_part`), or says nothing did (`same_as_previous`). Where
+that part is the instructions or the briefing's first part, the pass wrote the
+instructions block into the cache again rather than reading it, so this is
+where to look when a pass's cache reads are lower than expected.
 
 **What one recurring turn said reaches the next.** The role's memory holds its
 judgment, and the previous turn's account holds what it did and what it said it

@@ -2742,13 +2742,43 @@ func TestAReviewIsCachedForFiveMinutesAndAResumedSessionKeepsTheProvidersLifetim
 	if slices.Contains(review, promptCacheLifetimeVariable+"=1h") {
 		t.Fatalf("a review's environment carries the operator's own lifetime beside the reviewer's: %v", review)
 	}
-	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleArchitect} {
+	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleArchitect, domain.RoleProgramManager} {
 		for _, sessionID := range []string{"", "session-to-resume"} {
 			environment := invoke(role, sessionID)
 			if slices.Contains(environment, promptCacheLifetimeVariable+"="+singleTurnCacheLifetime) {
 				t.Fatalf("a %s invocation resuming %q is given the single-turn lifetime, which lets the transcript it re-reads every turn expire between turns: %v", role, sessionID, environment)
 			}
 		}
+	}
+}
+
+// A management role's recurring turns start a new session about 45 minutes
+// after the last, and read the unchanging part of their instructions from the
+// cache the last one wrote, so their invocations are given the hour's lifetime
+// whatever this machine's environment says; the provider's own choice is an
+// hour only on a subscription. The developer is left to the provider.
+func TestAManagementRoleIsCachedForAnHour(t *testing.T) {
+	// t.Setenv is this process's environment, so this cannot run in parallel.
+	t.Setenv(promptCacheLifetimeVariable, "5m")
+	invoke := func(role domain.AgentRole) []string {
+		t.Helper()
+		stream := `{"type":"result","subtype":"success","session_id":"s","is_error":false,"result":"done","total_cost_usd":0.01}` + "\n"
+		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
+		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+			RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "a pass", SystemPrompt: "the contract",
+		}); err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		return runner.commands[0].Env
+	}
+	for _, role := range []domain.AgentRole{domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleArchitect, domain.RoleProgramManager} {
+		environment := invoke(role)
+		if !slices.Contains(environment, promptCacheLifetimeVariable+"="+conversationCacheLifetime) || slices.Contains(environment, promptCacheLifetimeVariable+"=5m") {
+			t.Fatalf("a %s invocation is not given exactly the hour's cache lifetime, so its next recurring turn cannot read what this one wrote: %v", role, environment)
+		}
+	}
+	if developer := invoke(domain.RoleDeveloper); slices.Contains(developer, promptCacheLifetimeVariable+"="+conversationCacheLifetime) {
+		t.Fatalf("a developer invocation is given the management roles' lifetime: %v", developer)
 	}
 }
 

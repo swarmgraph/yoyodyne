@@ -60,10 +60,15 @@ func TestARecurringTurnStartsASessionOfItsOwnAndTheOperatorsIsPutBack(t *testing
 	if first.SessionID != "" {
 		t.Fatalf("the recurring turn resumed session %q", first.SessionID)
 	}
-	for _, want := range []string{testBriefing, "This recurring turn starts afresh", "The first pass's message."} {
+	for _, want := range []string{"This recurring turn starts afresh", "The first pass's message."} {
 		if !strings.Contains(first.Prompt, want) {
 			t.Errorf("the recurring turn's start lacks %q", want)
 		}
+	}
+	// The briefing's unchanging opening ends the instructions block, where the
+	// next pass's new session reads it from the provider's cache.
+	if !strings.HasSuffix(first.SystemPrompt, passBriefingFraming+testBriefing) || strings.Contains(first.Prompt, testBriefing) {
+		t.Fatal("the recurring turn's briefing does not end its instructions")
 	}
 	if strings.Contains(first.Prompt, "Something only the operator said.") || strings.Contains(first.Prompt, rebuiltContextHeader) {
 		t.Fatal("the recurring turn was handed the conversation's history")
@@ -118,10 +123,11 @@ func TestARecurringTurnStartsASessionOfItsOwnAndTheOperatorsIsPutBack(t *testing
 			t.Errorf("the second pass's start lacks %q", want)
 		}
 	}
-	// The briefing goes first, so a provider caching what requests open with can
-	// serve it to the next pass's session; memories change more often.
-	if strings.Index(second.Prompt, testBriefing) != 0 || strings.Index(second.Prompt, "The routing design goes first.") < len(testBriefing) {
-		t.Fatal("the second pass's start does not open with the briefing ahead of its memories")
+	// The briefing's opening goes with the instructions, byte for byte as the
+	// first pass sent it, so the provider can serve it from its cache; memories
+	// change more often and stay in the message.
+	if second.SystemPrompt != first.SystemPrompt || strings.Contains(second.SystemPrompt, "The routing design goes first.") {
+		t.Fatal("the second pass's instructions block differs from the first's, or carries its memories")
 	}
 	if strings.Contains(second.Prompt, "Back again.") {
 		t.Fatal("the second pass was handed the operator's turns")
@@ -131,6 +137,11 @@ func TestARecurringTurnStartsASessionOfItsOwnAndTheOperatorsIsPutBack(t *testing
 	}
 	if provider.requests[5].SessionID != "pass-session-2" {
 		t.Fatalf("the pass's later message resumed %q rather than its own session", provider.requests[5].SessionID)
+	}
+	// A later round of the pass resumes its session with the same instructions,
+	// so the briefing its first round was given is not lost from it.
+	if provider.requests[5].SystemPrompt != second.SystemPrompt {
+		t.Fatal("the pass's later message was sent without the briefing its session started from")
 	}
 	if !strings.Contains(session.state.PassCarriedForward, "Pass two took the routing design.") || !strings.Contains(session.state.PassCarriedForward, "The closing report.") {
 		t.Fatalf("the second pass's account carried forward = %q", session.state.PassCarriedForward)
@@ -206,12 +217,17 @@ func TestARecurringTurnStartsFromTheIntentWithDocumentsLeftOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	sent := provider.requests[0]
-	for _, want := range []string{"The product turns intent into software.", standingGoalsLine, "yoyodyne-ifd.7", contextbundle.PassHeading, "docs/designs/large-design.md", "This pass's message."} {
-		if !strings.Contains(sent.Prompt, want) {
-			t.Errorf("the start lacks %q", want)
+	for _, want := range []string{"The product turns intent into software.", standingGoalsLine} {
+		if !strings.Contains(sent.SystemPrompt, want) || strings.Contains(sent.Prompt, want) {
+			t.Errorf("the product intent %q is not sent after the instructions alone", want)
 		}
 	}
-	if strings.Contains(sent.Prompt, strings.Repeat("design ", 15)) || strings.Contains(sent.Prompt, strings.Repeat("guide ", 15)) {
+	for _, want := range []string{"yoyodyne-ifd.7", contextbundle.PassHeading, "docs/designs/large-design.md", "This pass's message."} {
+		if !strings.Contains(sent.Prompt, want) || strings.Contains(sent.SystemPrompt, want) {
+			t.Errorf("%q is not in the message alone", want)
+		}
+	}
+	if start := sent.SystemPrompt + sent.Prompt; strings.Contains(start, strings.Repeat("design ", 15)) || strings.Contains(start, strings.Repeat("guide ", 15)) {
 		t.Fatal("a document that is not product intent was carried in the start")
 	}
 	if reply.PassStart == nil || reply.PassStart.Bytes >= len(briefing) {
@@ -320,5 +336,68 @@ func TestALongAccountIsCarriedOnAWholeCharacter(t *testing.T) {
 	carried := session.state.PassCarriedForward
 	if len(carried) > runstate.MaxPassCarriedForwardBytes || !utf8.ValidString(carried) || !strings.HasSuffix(carried, "é") {
 		t.Fatalf("carried %d bytes, valid %v", len(carried), utf8.ValidString(carried))
+	}
+}
+
+// Two recurring turns given the same instructions and the same product intent
+// send the same instructions block byte for byte, ending with the briefing's
+// unchanging opening, so the second turn's new provider session reads it from
+// the cache the first one wrote. Work landing between them — a work item that
+// changes, a design that grows — moves only the message, and the turn records
+// which part of its start first differed from the last.
+func TestTwoRecurringTurnsWithTheSameIntentSendTheSameInstructionsBlock(t *testing.T) {
+	t.Parallel()
+	before := assembledBriefing(t, 200<<10, 100<<10, 50<<10)
+	after := strings.Replace(assembledBriefing(t, 210<<10, 100<<10, 50<<10), "yoyodyne-ifd.7", "yoyodyne-ifd.8", 1)
+	if before == after {
+		t.Fatal("the test's two briefings are the same")
+	}
+	provider := &sizedConversationBackend{speakingBackend: &speakingBackend{}}
+	for pass := 0; pass < 4; pass++ {
+		provider.results = append(provider.results, backendapi.RunResult{SessionID: fmt.Sprintf("pass-%d", pass), FinalText: "Nothing new this pass."})
+	}
+	options := passOptions(t, provider)
+	options.Briefing.Text = before
+	session := openTestSession(t, options)
+	var starts []*PassStart
+	for pass, briefing := range []string{before, before, before, after} {
+		session.options.Briefing.Text = briefing
+		session.ForPass("architect-pass")
+		reply, err := session.Send(context.Background(), "This pass's message.")
+		if err != nil {
+			t.Fatalf("pass %d: %v", pass, err)
+		}
+		if err := session.EndPass(); err != nil {
+			t.Fatal(err)
+		}
+		starts = append(starts, reply.PassStart)
+	}
+	first := provider.requests[0]
+	unchanging, _ := contextbundle.SplitUnchanging(contextbundle.PassContext(before).Text)
+	if unchanging == "" || !strings.HasSuffix(first.SystemPrompt, passBriefingFraming+unchanging) {
+		t.Fatal("the first pass's instructions block does not end with the briefing's unchanging opening")
+	}
+	for pass, request := range provider.requests {
+		if request.SystemPrompt != first.SystemPrompt {
+			t.Fatalf("pass %d's instructions block differs from the first pass's, so its new session cannot read it from the cache", pass)
+		}
+	}
+	if !strings.Contains(provider.requests[3].Prompt, "yoyodyne-ifd.8") || strings.Contains(provider.requests[3].Prompt, "yoyodyne-ifd.7") {
+		t.Fatal("the last pass was not sent the work as it now stands")
+	}
+	if starts[0].FirstChangedPart != "" || starts[0].SameAsPrevious || starts[0].UnchangingBytes != len(unchanging) {
+		t.Fatalf("the first pass, with nothing to compare, recorded %+v", starts[0])
+	}
+	if starts[1].FirstChangedPart != "memories, previous account and message" {
+		t.Fatalf("the second pass, the first carrying an account, recorded its first change as %q", starts[1].FirstChangedPart)
+	}
+	if !starts[2].SameAsPrevious || starts[2].FirstChangedPart != "" {
+		t.Fatalf("the third pass, given what the second was, recorded %+v", starts[2])
+	}
+	if !strings.HasPrefix(starts[3].FirstChangedPart, "briefing, second part: ") {
+		t.Fatalf("the last pass recorded its first change as %q, not in the briefing's second part", starts[3].FirstChangedPart)
+	}
+	if len(session.state.PassStartParts) == 0 || session.state.PassStartParts[0].Name != "instructions" {
+		t.Fatalf("the record keeps %+v as what the last pass started from", session.state.PassStartParts)
 	}
 }

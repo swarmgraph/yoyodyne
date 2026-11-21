@@ -737,6 +737,10 @@ type Session struct {
 	passFresh           bool
 	freshPass           bool
 	passAccountInPrompt bool
+	// passBriefing is the first part of the briefing a recurring turn started
+	// from, sent after the role's instructions on every round of that turn's own
+	// provider session until EndPass. See withPassBriefing in passcontext.go.
+	passBriefing string
 	// ancestors holds the parents read for the inherited-block line of an item
 	// read, for a minute. See ancestorreads.go.
 	ancestors ancestorReads
@@ -2439,7 +2443,7 @@ func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt
 		}
 		return "", &OperatorHoldError{Hold: hold}
 	}
-	systemPrompt := WithRemit(s.systemPrompt(), s.state.Role, s.options.Remit)
+	instructions := WithRemit(s.systemPrompt(), s.state.Role, s.options.Remit)
 	turnPrompt := prompt
 	lead := s.renderMemories()
 	if !savingMemory {
@@ -2453,12 +2457,13 @@ func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt
 	// A recurring turn's start is held to its bound before anything is recorded
 	// or sent; see passcontext.go.
 	if s.freshPass && !savingMemory {
-		bounded, err := s.boundPassStart(systemPrompt, prompt, reply)
+		bounded, err := s.boundPassStart(instructions, prompt, reply)
 		if err != nil {
 			return "", err
 		}
 		prompt = bounded
 	}
+	systemPrompt := s.withPassBriefing(instructions)
 	if inputBytes := len(systemPrompt) + len(prompt); inputBytes > MaxTurnInputBytes {
 		return "", fmt.Errorf("conversation turn is %d bytes, limit is %d: %w", inputBytes, MaxTurnInputBytes, errTurnInputTooLarge)
 	}
@@ -2820,11 +2825,13 @@ func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt
 			if s.freshPass && !savingMemory {
 				// Another turn may have changed the memories and the picture, so
 				// the start is bounded again as it now reads.
-				bounded, boundErr := s.boundPassStart(systemPrompt, request.Prompt, reply)
+				bounded, boundErr := s.boundPassStart(instructions, request.Prompt, reply)
 				if boundErr != nil {
 					return "", boundErr
 				}
 				request.Prompt = bounded
+				systemPrompt = s.withPassBriefing(instructions)
+				request.SystemPrompt = systemPrompt
 			}
 			s.compacting = false
 			s.rebuiltFrom = nil
@@ -3030,7 +3037,13 @@ func (s *Session) takeTurn(ctx context.Context, permit budget.Permission, prompt
 		// next turn resume the oversized session under a measure that calls it small.
 		s.state.ProviderSessionID = ""
 	}
-	s.measureSession(resumed, request.Prompt, result.FinalText)
+	// The first part of a recurring turn's briefing went with the instructions,
+	// and is as much of the session as the message.
+	measured := request.Prompt
+	if !resumed && s.freshPass {
+		measured = s.passBriefing + measured
+	}
+	s.measureSession(resumed, measured, result.FinalText)
 	// The endpoint this turn was actually served on, which is the configured one
 	// unless a substitution moved it. Recording the configured one here would leave
 	// the record saying a conversation was held on an endpoint that refused every

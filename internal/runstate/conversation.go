@@ -184,6 +184,12 @@ type Conversation struct {
 	// own and put back when it ends. A process that died during the pass left it
 	// here, and the next process to open the conversation puts it back.
 	SessionAsideForPass *HeldProviderSession `json:"session_aside_for_pass,omitempty"`
+	// PassStartParts is what the last recurring turn of this conversation
+	// started from, part by part in the order it was sent, each with its size and
+	// a digest of its text. The next recurring turn compares its own start with
+	// it and records the first part that differs, which is where the provider
+	// stops reading the turn from its cache.
+	PassStartParts []PassStartPart `json:"pass_start_parts,omitempty"`
 	// ReplyCuts are the replies of this conversation's last turn that the event
 	// log holds only the beginning of, and that the role has not been told about
 	// yet. The log is where a role's ruling lives until it can write the document
@@ -2209,4 +2215,12 @@ func (s *ConversationStore) tell(identity ConversationIdentity, text string) err
 	}
 	current.PendingTrackerResults = told
 	return s.Save(current)
+}
+
+// PassStartPart is one part of what a recurring turn started from: its name,
+// its size in bytes, and a digest of its text.
+type PassStartPart struct {
+	Name   string `json:"name"`
+	Bytes  int    `json:"bytes"`
+	Digest string `json:"digest"`
 }

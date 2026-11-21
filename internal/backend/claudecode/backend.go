@@ -408,14 +408,30 @@ const stableSystemPromptFlag = "--exclude-dynamic-system-prompt-sections"
 // reviews of that window it is a seventh of the review phase's cost
 // (docs/diagnoses/yoyodyne-ifd-424-one-shot-cache-reads.md).
 //
-// It is the reviewer's alone. The conversation roles resume a session whose
-// whole transcript is the cached prefix, and an hour is what keeps that warm
-// between an operator's messages; the developer's session is the same. Nothing
-// here sets a lifetime for them, so they keep the provider's choice.
+// It is the reviewer's alone. The developer's session re-reads its own
+// transcript on every turn, and nothing here sets a lifetime for it, so it keeps
+// the provider's choice.
+//
+// conversationCacheLifetime is what the management roles' invocations are
+// given. Their sessions resume a transcript that is the cached prefix between an
+// operator's messages, and every recurring turn starts a new session whose
+// instructions block, which ends with the unchanging part of the product
+// briefing (internal/chat/passcontext.go), is read from the cache the role's
+// previous turn wrote. Those turns come about 45 minutes apart, so a lifetime of
+// five minutes would expire before the next could read it. It is set rather
+// than left to the provider because the provider's choice is an hour only on a
+// subscription.
 const (
 	promptCacheLifetimeVariable = "CLAUDE_CODE_PROMPT_CACHE_TTL"
 	singleTurnCacheLifetime     = "5m"
+	conversationCacheLifetime   = "1h"
 )
+
+// conversationRole reports a management role, whose invocations are
+// conversation turns and recurring turns rather than runs.
+func conversationRole(role domain.AgentRole) bool {
+	return role != domain.RoleDeveloper && role != domain.RoleReviewer
+}
 
 // singleTurnRole reports a role whose every invocation is one turn nobody
 // resumes, which is the reviewer: a review is a separate provider invocation
@@ -840,8 +856,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// shell this agent opens. It is under the harness's own family, which the
 	// allowlist carries through to everything the agent goes on to start.
 	environment := execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role)
-	if singleTurnRole(request.Role) {
+	switch {
+	case singleTurnRole(request.Role):
 		environment = withPromptCacheLifetime(environment, singleTurnCacheLifetime)
+	case conversationRole(request.Role):
+		environment = withPromptCacheLifetime(environment, conversationCacheLifetime)
 	}
 	if subagent != "" {
 		environment = withSubagentEnvironment(environment)
