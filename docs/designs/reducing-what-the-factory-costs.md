@@ -19,6 +19,10 @@ revisions:
       by: architect
       at: 2026-11-21T01:50:54.242927Z
       reason: 'yoyodyne-ifd.435.83: replaces the text on main, which is document-3267.1, a rewrite the architect made in error from the first version, with document-3268.1 (identical to document-3259.1), the text Mason approved. Its own publication was handed back because both revisions replaced the whole file from the first version. Copied unchanged from the text the operator''s assistant supplied on November 20 at 5:30 PM PST; nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T19:37:43.475827Z
+      reason: 'amendment-d26f1591: section 1 now states what landed with yoyodyne-ifd.430.89 (unchanging opening sent after the instructions by SplitUnchanging and withPassBriefing, per part fingerprints and first changed part recorded), drops the old account of briefingFirst, and says plainly the architect has not read the provider figures since. Read at 697f01f0. The decision is unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -35,6 +39,11 @@ approvals:
       by: harness
       at: 2026-11-21T01:50:54.242927Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3280, for document-3280.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-21T19:37:43.475827Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3340, for document-3340.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
@@ -64,18 +73,16 @@ So the largest lever is not the model a role runs on but how much text each prov
 
 ## 1. Reuse the opening of each pass instead of writing it again
 
-**What was found.** Every recurring pass starts a provider session of its own, as the bounded pass context ruling of October 5 decided, built from the role's instructions, its memories, the product briefing with the product intent whole, the previous pass's account and the pass's message. The first turn of each session writes a median of 86,000 to 124,000 tokens and costs a median of $0.72 to $1.03. Those first turns were 40% of all spend in the window, $2,091.
-
-The harness already tries to make the briefing reusable: `briefingFirst` in `passcontext.go` puts the briefing ahead of the memories on a fresh pass, so that the next pass's new session can be served it from the provider's cache. It is not.
+**What was found.** Every recurring pass starts a provider session of its own, as the bounded pass context ruling of October 5 decided, built from the role's instructions, its memories, the product briefing with the product intent whole, the previous pass's account and the pass's message. In the measured window the first turn of each session wrote a median of 86,000 to 124,000 tokens and cost a median of $0.72 to $1.03. Those first turns were 40% of all spend in the window, $2,091.
 
 **Why, as measured.** The operator's assistant measured two things on November 20:
 
-- Inside one session the cache works: every second turn read from the cache everything the first turn held, a median of 81% to 87% of its prompt.
-- Across sessions it does not. The development manager's opening is one block of 327 to 396 KB. In 8 of 13 consecutive pairs of her passes, the opening was byte for byte the same as the one before for its first 275 to 298 KB, yet each new session read only about 31,000 tokens from the cache and wrote 112,000 to 140,000.
+- Inside one session the cache worked: every second turn read from the cache everything the first turn held, a median of 81% to 87% of its prompt.
+- Across sessions it did not. The development manager's opening was one block of 327 to 396 KB. In 8 of 13 consecutive pairs of her passes, the opening was byte for byte the same as the one before for its first 275 to 298 KB, yet each new session read only about 31,000 tokens from the cache and wrote 112,000 to 140,000.
 
-The provider reuses cached text only up to points it has marked, and a point is the end of a whole block of the request. The role's instructions are sent as one block and are read back. Everything else is one block whose end changes on every pass, so none of it is reused, however much of its opening is unchanged.
+The provider reuses cached text only up to points it has marked, and a point is the end of a whole block of the request. The role's instructions were sent as one block and were read back. Everything else was one block whose end changed on every pass, so none of it was reused, however much of its opening was unchanged.
 
-**What changes from one pass to the next, as measured.** Where consecutive openings first differed:
+**What changed from one pass to the next, as measured.** Where consecutive openings first differed:
 
 - in 7 pairs, the memories section, most often the count of memories not listed;
 - in 1 pair, the heading that follows the memories;
@@ -89,15 +96,26 @@ The provider reuses cached text only up to points it has marked, and a point is 
    - the listing of documents left out of the pass, or anything about them;
    - the work items;
    - the memories, or any line about them.
-2. **The changing part,** sent as the message: the listing of documents left out, by name, and the rest of the briefing, including the work items; then the memories, the previous pass's account and the pass's message. The listing of documents left out keeps each document's name and drops its size, because a role that needs one reads it whole with a repository read.
+2. **The changing part,** sent as the message: the listing of documents left out, by name, and the rest of the briefing, including the work items; then the memories, the previous pass's account and the pass's message.
 
-The bound on what a pass starts from, a third of the provider's window, counts both parts exactly as today, and nothing in either gives way to it.
+The bound on what a pass starts from, a third of the provider's window, counts both parts exactly as before, and nothing in either gives way to it.
 
-The unchanging part is written again, once, whenever the product intent or a role's instructions change. A move onto a new build changes the instructions, and the two first turns in the measured day that read almost nothing from the cache both followed one. Moves come at most once every three hours, so this is accepted, and the measurement in piece 1 shows it.
+The unchanging part is written again, once, whenever the product intent or a role's instructions change. A move onto a new build changes the instructions, and the two first turns in the measured day that read almost nothing from the cache both followed one. Moves come at most once every three hours, so this is accepted, and the measurement below shows it.
+
+**What was built.** The fix for a role's new session writing its briefing again every pass (yoyodyne-ifd.430.89) landed on November 20 and builds this decision and the measurement build piece 1 asks for. Read at commit 697f01f0:
+
+- `contextbundle.SplitUnchanging` takes the opening of the briefing that stays the same while the product intent does: the recorded intent and every document of product intent whole.
+- `withPassBriefing` in `internal/chat/passcontext.go` sends that opening at the end of the instructions block, behind fixed framing text that says it is evidence and not instruction. Every round of the pass carries the same block. The rest of the briefing opens the message, as before.
+- `briefingFirst` keeps the briefing whole at the start of the message only so that its opening can be taken out; it is no longer how reuse is attempted.
+- Each pass records the size and a fingerprint of every part of its start in order, the size of the unchanging part, and the first part that differs from the role's previous pass, or that none did.
+
+That item's acceptance required that a session started within the cache's lifetime reads the unchanged part from the cache, and it closed with its checks passing. The architect has not read the provider's cached and fresh token figures for passes since; the weekly figures in What is measured are where that is confirmed or refuted.
+
+The listing of documents left out still names each document's size. Because that listing is now in the changing part, the sizes cost no reuse, so dropping them is a tidying step and not a condition of this section.
 
 **The cache's lifetime.** The unchanging part keeps the cache that lasts an hour. A role's passes come about 45 minutes apart, so the cache that lasts five minutes would have expired before the next pass could read it. Reuse across passes is the whole saving.
 
-**What it saves.** About 200 KB of each opening is text that otherwise does not change. Moved into the unchanging part, it becomes reading at about a fortieth of the price of writing it, from the second pass after any change on. No result of any role changes: each pass sees exactly the text it saw before, in a different order, apart from the sizes dropped from the listing of documents left out.
+**What it saves.** About 200 KB of each opening is text that otherwise does not change. In the unchanging part it becomes reading at about a fortieth of the price of writing it, from the second pass after any change on. No result of any role changes: each pass sees exactly the text it saw before, in a different order.
 
 **Alternatives rejected.** Resuming one long session across passes, which brings back the context that grows without limit the October 5 ruling removed. Shortening the briefing first, which may cost the roles evidence they use, while reuse costs them nothing. Reordering inside the one block, which the measurement shows reuses nothing. Moving to the cache that lasts five minutes, for the reason above.
 
