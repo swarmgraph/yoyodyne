@@ -6868,6 +6868,9 @@ func priceRun(spend ScheduleSpend, outcome Outcome) (float64, string) {
 		if !run.Known() {
 			return 0, fmt.Sprintf("run %s left no evidence to price, so the session's spend is a floor rather than a total: %s", run.RunID, run.Unknown)
 		}
+		if !run.Complete() {
+			return run.CostUSD, fmt.Sprintf("run %s could be priced from only part of its evidence, so the session's spend shown is at least what it cost rather than all of it: %s", run.RunID, run.Incomplete)
+		}
 		return run.CostUSD, ""
 	}
 	return 0, fmt.Sprintf("run %s is not among the recorded runs of %s, so the session's spend is a floor rather than a total", outcome.RunID, outcome.WorkItemID)

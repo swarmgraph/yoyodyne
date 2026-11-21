@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/cost/costevent"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -785,9 +786,9 @@ func TestStoreReadsTheCacheReadShareOfEveryPricedInvocation(t *testing.T) {
 	// entirely fresh: the share is over both, because what a window cost in
 	// tokens is what every invocation in it read.
 	appendUsageCostEvents(t, store, first.RunID, 1, execution.EventRunCompleted, domain.RoleDeveloper, 9.0,
-		usageTokens{InputTokens: 100, OutputTokens: 4000, CacheReadTokens: 700, CacheCreationTokens: 200})
+		costevent.Usage{InputTokens: 100, OutputTokens: 4000, CacheReadTokens: 700, CacheCreationTokens: 200})
 	appendUsageCostEvents(t, store, first.RunID, 2, execution.EventRunCompleted, domain.RoleReviewer, 2.0,
-		usageTokens{InputTokens: 1000, OutputTokens: 500})
+		costevent.Usage{InputTokens: 1000, OutputTokens: 500})
 
 	second := testState(t, StatusSucceeded)
 	second.RunID = mustRunID(t)
@@ -799,7 +800,7 @@ func TestStoreReadsTheCacheReadShareOfEveryPricedInvocation(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 	appendUsageCostEvents(t, store, second.RunID, 1, execution.EventRunCompleted, domain.RoleDeveloper, 5.0,
-		usageTokens{InputTokens: 200, OutputTokens: 1000, CacheReadTokens: 1800})
+		costevent.Usage{InputTokens: 200, OutputTokens: 1000, CacheReadTokens: 1800})
 
 	price, err := store.Price(first.WorkItemID)
 	if err != nil {
@@ -848,13 +849,13 @@ func TestStoreSplitsWhatARunReadFromTheCacheByThePhaseThatReadIt(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 	appendUsageCostEvents(t, store, state.RunID, 1, execution.EventRunCompleted, domain.RoleDeveloper, 9.0,
-		usageTokens{InputTokens: 100, OutputTokens: 4000, CacheReadTokens: 900})
+		costevent.Usage{InputTokens: 100, OutputTokens: 4000, CacheReadTokens: 900})
 	// The reviewer pays to write a prefix and reads none of it back, which is
 	// what every recorded review did before ifd.205.
 	appendUsageCostEvents(t, store, state.RunID, 2, execution.EventRunCompleted, domain.RoleReviewer, 2.0,
-		usageTokens{InputTokens: 0, OutputTokens: 500, CacheCreationTokens: 1000})
+		costevent.Usage{InputTokens: 0, OutputTokens: 500, CacheCreationTokens: 1000})
 	appendUsageCostEvents(t, store, state.RunID, 3, execution.EventRunCompleted, domain.RoleDeveloper, 3.0,
-		usageTokens{InputTokens: 100, OutputTokens: 300, CacheReadTokens: 100})
+		costevent.Usage{InputTokens: 100, OutputTokens: 300, CacheReadTokens: 100})
 
 	price, err := store.Price(state.WorkItemID)
 	if err != nil {
@@ -997,7 +998,7 @@ func TestStoreTellsAMeasuredNoughtApartFromNoMeasurement(t *testing.T) {
 	}
 	// The all-zero usage object a provider really does send: recorded on
 	// run-2df9ba45fc350a285b3356e558288230 fifteen times over on 2026-08-24.
-	appendUsageCostEvents(t, store, state.RunID, 1, execution.EventRunCompleted, domain.RoleDeveloper, 0, usageTokens{})
+	appendUsageCostEvents(t, store, state.RunID, 1, execution.EventRunCompleted, domain.RoleDeveloper, 0, costevent.Usage{})
 
 	price, err := store.Price(state.WorkItemID)
 	if err != nil {
@@ -1034,7 +1035,7 @@ func TestStoreCountsAnInvocationThatReportedNoUsageApartFromTheShare(t *testing.
 		t.Fatalf("Create() error = %v", err)
 	}
 	appendUsageCostEvents(t, store, state.RunID, 1, execution.EventRunCompleted, domain.RoleDeveloper, 9.0,
-		usageTokens{InputTokens: 250, OutputTokens: 3000, CacheReadTokens: 750})
+		costevent.Usage{InputTokens: 250, OutputTokens: 3000, CacheReadTokens: 750})
 	appendLegacyCostEvents(t, store, state.RunID, 2, execution.EventRunCompleted, domain.RoleDeveloper, 4.0)
 
 	price, err := store.Price(state.WorkItemID)
@@ -1067,7 +1068,7 @@ func TestStoreCountsAnInvocationThatReportedNoUsageApartFromTheShare(t *testing.
 // records it now, carrying the provider's own usage object beside the cost. It
 // is the shape every measurable run has; the two helpers below stand for the
 // runs recorded before there was a role or a usage object to carry.
-func appendUsageCostEvents(t *testing.T, store *Store, runID string, sequence uint64, eventType execution.EventType, role domain.AgentRole, cost float64, usage usageTokens) {
+func appendUsageCostEvents(t *testing.T, store *Store, runID string, sequence uint64, eventType execution.EventType, role domain.AgentRole, cost float64, usage costevent.Usage) {
 	t.Helper()
 	// The keys are the provider's own, written out rather than marshalled from
 	// the type that decodes them: a tag renamed on one side of that would rename

@@ -1560,7 +1560,7 @@ func reportItemCost(stdout, stderr io.Writer, outcome orchestrator.Outcome) {
 		if !outcome.Cost.Complete() {
 			// A run nothing survives to price is left out of the total rather than
 			// added as a zero, so the number is the least the item can have cost.
-			total = fmt.Sprintf("at least $%.2f (%d run(s) left no record to price)", outcome.Cost.TotalUSD, outcome.Cost.UnknownRuns)
+			total = fmt.Sprintf("at least $%.2f (%d run(s) could not be priced in full)", outcome.Cost.TotalUSD, outcome.Cost.UnknownRuns)
 		}
 		fmt.Fprintf(stdout, "%s has cost %s across %d run(s)\n", outcome.WorkItemID, total, outcome.Cost.Runs)
 	}

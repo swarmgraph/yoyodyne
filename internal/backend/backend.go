@@ -549,6 +549,12 @@ func firstOf(values ...string) string {
 type Backend interface {
 	CheckAvailability(ctx context.Context) (Availability, error)
 	Capabilities() Capabilities
+	// Run makes one invocation. Once the provider's process has run, the
+	// result is the best the adapter knows beside any error it returns: a
+	// terminal the provider wrote before something later failed -- a line that
+	// would not decode, an event that could not be recorded -- is still in the
+	// result, with IsError set, so what it reported spending is recorded at
+	// its cost rather than as unknown (internal/spend).
 	Run(ctx context.Context, request RunRequest) (RunResult, error)
 }
 

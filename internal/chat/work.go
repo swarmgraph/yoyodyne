@@ -696,7 +696,7 @@ func (p ItemPrice) Render() string {
 			pad(run.RunID, width), run.StartedAt.UTC().Format(time.RFC3339), run.outcome(), run.price())
 	}
 	if p.UnknownRuns > 0 {
-		fmt.Fprintf(&rendered, "  %d of those run(s) left no record to price, so the total is a floor rather than the price.\n", p.UnknownRuns)
+		fmt.Fprintf(&rendered, "  %d of those run(s) could not be priced in full, so the total is a floor rather than the price.\n", p.UnknownRuns)
 	}
 	// The gap is stated rather than closed. A conversation that discussed five
 	// items cannot be attributed to one of them without a judgement nobody asked

@@ -380,7 +380,7 @@ which is a key or an identifier rather than words anybody reads.
 
 ### floor
 
-- **Means:** A total that is at least the figure shown, because some runs left no record to price.
+- **Means:** A total that is at least the figure shown, because some runs could not be priced in full.
 - **Decided:** replace it. Write instead: at least: "at least $4.20; 2 runs could not be priced".
 - **Where:** 60 in all, in 18 places: `internal/dashboard/assets/dashboard.js` 14, `internal/cli` 9, `docs/configuration.md` 6, `docs/developing-yoyo.md` 5, `docs/operations.md` 5, `internal/orchestrator` 3, and 12 more.
 

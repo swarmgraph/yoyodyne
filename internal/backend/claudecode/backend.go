@@ -915,6 +915,34 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 			parseErrors = append(parseErrors, sinkErr)
 		}
 	})
+	// The result is assembled the same way on every path that ends after the
+	// process ran, so a failure found once the provider has already written its
+	// priced terminal -- a line after it that will not decode, an event that
+	// could not be recorded -- is returned beside that terminal's cost rather
+	// than in place of it. An empty result there would record money the
+	// provider has reported as money nobody knows about.
+	assemble := func() backend.RunResult {
+		result := parser.Result()
+		result.Backend = b.provider()
+		result.AdapterVersion = adapterVersion()
+		result.Loaded = loaded
+		// The normalized result and events are the durable provider output. Do
+		// not return the raw JSON stream as a second, potentially
+		// escape-obfuscated copy.
+		result.Process = processResult
+		result.Process.Stdout = ""
+		result.ToolVisibility.Policy = toolPolicy(request.Role, readOnly)
+		result.ToolVisibility.Subagents = subagent != ""
+		return result
+	}
+	// failed is the result handed back beside an error: whatever the stream
+	// said, an invocation whose account could not be read in full is not one to
+	// act on as a success.
+	failed := func() backend.RunResult {
+		result := assemble()
+		result.IsError = true
+		return result
+	}
 	if err != nil {
 		// A program found nowhere started nothing and judged nothing, so it is
 		// handed back as the wait it is (backend.ProgramMissingOutage) beside the
@@ -922,6 +950,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		// to another provider.
 		if outage, missing := backend.ProgramMissingOutage(err); missing {
 			return backend.RunResult{Backend: b.provider(), IsError: true, ProviderOutage: outage, LastEvent: request.LastSequence}, fmt.Errorf("run Claude Code: %w", err)
+		}
+		if parser.SawResult() {
+			return failed(), fmt.Errorf("run Claude Code: %w", err)
 		}
 		return backend.RunResult{}, fmt.Errorf("run Claude Code: %w", err)
 	}
@@ -946,7 +977,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		parser.ObservePlainOutput()
 	}
 	if len(parseErrors) > 0 && !parser.ReadRefusalOffPlainOutput() {
-		return backend.RunResult{}, fmt.Errorf("parse Claude Code stream: %w", errors.Join(parseErrors...))
+		return failed(), fmt.Errorf("parse Claude Code stream: %w", errors.Join(parseErrors...))
 	}
 	// An invocation that outran what the runner retains is not an invocation
 	// that failed: every line still reached the parser, so the stream was read
@@ -959,7 +990,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 			Stream: execution.StreamStderr,
 			Text:   processResult.OutputTruncation,
 		}); truncationErr != nil {
-			return backend.RunResult{}, fmt.Errorf("record Claude Code output truncation: %w", truncationErr)
+			return failed(), fmt.Errorf("record Claude Code output truncation: %w", truncationErr)
 		}
 	}
 	// Which way the wait after the reply ended is said in the same stream as
@@ -967,19 +998,10 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// background work, never as a silence.
 	if processResult.AfterReply != nil {
 		if recordErr := parser.RecordAfterReply(*processResult.AfterReply); recordErr != nil {
-			return backend.RunResult{}, fmt.Errorf("record what outlived Claude Code's final reply: %w", recordErr)
+			return failed(), fmt.Errorf("record what outlived Claude Code's final reply: %w", recordErr)
 		}
 	}
-	// The normalized result and events are the durable provider output. Do not
-	// return the raw JSON stream as a second, potentially escape-obfuscated copy.
-	processResult.Stdout = ""
-	result := parser.Result()
-	result.Backend = b.provider()
-	result.AdapterVersion = adapterVersion()
-	result.Loaded = loaded
-	result.Process = processResult
-	result.ToolVisibility.Policy = toolPolicy(request.Role, readOnly)
-	result.ToolVisibility.Subagents = subagent != ""
+	result := assemble()
 	if processResult.Status == execution.ProcessCancelled || processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessStalled {
 		result.IsError = true
 		if result.StopReason == "" {

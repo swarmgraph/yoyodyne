@@ -47,6 +47,9 @@ var terminalEventSites = map[string]string{
 	"internal/backend/codex/parser.go": "emits them. parseTerminal writes the role the invocation was made as into " +
 		"the payload and no cost at all, because Codex reports what an invocation read and wrote and never what it " +
 		"cost; asserted by TestATerminalCarriesTokensAndNoPrice",
+	"internal/cost/costevent/costevent.go": "reads them: it decodes a terminal's cost, usage and role for every " +
+		"reader of what a log spent, and Event.Role leaves a terminal that could have named its role and did not " +
+		"with none, so the readers place it in no phase",
 	"internal/runstate/price.go": "reads them: the phase split places each terminal by the role it names and places " +
 		"one that names none nowhere, asserted by TestStoreWillNotPlaceATerminalThatCouldHaveNamedItsPhaseAndDidNot",
 	"internal/chat/activity.go": "reads them: a conversation's activity line says a turn finished, and attributes no " +

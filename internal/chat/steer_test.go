@@ -1332,7 +1332,7 @@ func TestShowBreaksAnItemsCostDownByRun(t *testing.T) {
 		"[succeeded, complete, integrated] $19.02 from 2 invocation(s)",
 		"[outcome not recorded]",
 		"unknown: the run's event log is no longer recorded",
-		"1 of those run(s) left no record to price",
+		"1 of those run(s) could not be priced in full",
 		"not priced against any item",
 	} {
 		if !strings.Contains(transcript, required) {
