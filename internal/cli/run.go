@@ -1643,6 +1643,7 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		Repair: orchestrator.MergeQueueRunHandback{
 			Store: parts.store, Tracker: pipeline.Tracker, Docket: docketerFrom(parts),
 			CatchUp: parts.store, Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+			Checkouts: parts.worktrees,
 		},
 	}
 	// What takes up the changes the queue held because the target required the
