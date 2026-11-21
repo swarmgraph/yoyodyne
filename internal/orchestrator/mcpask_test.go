@@ -39,6 +39,8 @@ type fakeMCP struct {
 	mu      sync.Mutex
 	asked   [][]mcpcall.Request
 	callers []mcpcall.CallerRecord
+	// repositories is the repository each caller's servers would be handed.
+	repositories []string
 }
 
 func (f *fakeMCP) Do(_ context.Context, caller mcpcall.Caller, requests []mcpcall.Request) ([]mcpcall.Answer, error) {
@@ -46,6 +48,7 @@ func (f *fakeMCP) Do(_ context.Context, caller mcpcall.Caller, requests []mcpcal
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, requests)
 	f.callers = append(f.callers, caller.Record())
+	f.repositories = append(f.repositories, caller.Repository())
 	answers := make([]mcpcall.Answer, len(requests))
 	for index, request := range requests {
 		answers[index] = mcpcall.Answer{Tool: request.Tool, Outcome: mcpcall.OutcomePerformed, Result: `{"subject":"Invoice 42"}`}
@@ -123,6 +126,9 @@ func TestADeveloperAskIsCarriedOutAndTheSameSessionResumed(t *testing.T) {
 	if caller := calls.callers[0]; caller.Kind != mcpcall.CallerDeveloper || caller.Run != outcome.RunID || caller.Agent != "developer" || caller.Attempt != 0 {
 		t.Fatalf("the call was made for %#v, want this run's developer in its first attempt", caller)
 	}
+	if got := calls.repositories[0]; got == "" || got != outcome.WorktreePath {
+		t.Fatalf("the call's servers would read %q, want this run's own worktree %q", got, outcome.WorktreePath)
+	}
 	requests := provider.RequestsForRole(domain.RoleDeveloper)
 	if len(requests) != 2 {
 		t.Fatalf("the developer was invoked %d time(s), want the asking turn and the one resumed with the answer", len(requests))
@@ -131,7 +137,7 @@ func TestADeveloperAskIsCarriedOutAndTheSameSessionResumed(t *testing.T) {
 		t.Fatalf("the change was reviewed %d time(s), want once, after the resumed turn", reviews)
 	}
 	first, resumed := requests[0], requests[1]
-	for _, want := range []string{"# Asking the harness for an MCP call", "`mail.search` (read)", "```yoyodyne-mcp"} {
+	for _, want := range []string{"# Asking the harness for an MCP call", "`mail.search` (read)", "```yoyodyne-mcp", "your own worktree, `" + outcome.WorktreePath + "`", mcpcall.RepositoryVariable} {
 		if !strings.Contains(first.Prompt, want) {
 			t.Fatalf("the developer holding a tool was not told %q:\n%s", want, first.Prompt)
 		}

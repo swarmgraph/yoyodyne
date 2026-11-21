@@ -446,7 +446,7 @@ func TestAScheduledCallerReadsAndIsRefusedAnAct(t *testing.T) {
 
 func TestADeveloperHoldsReadToolsOnly(t *testing.T) {
 	f := newPathFixture(t)
-	caller, err := DeveloperCaller(f.config, "dev", "run-1", 2)
+	caller, err := DeveloperCaller(f.config, "dev", "run-1", 2, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8005,6 +8005,18 @@ agents:
   at your terminal with that folder as its working directory and its home. It
   is refused to a process the harness started for a role. A server with no
   login prints the command that stores its credential instead.
+- **The repository a server reads** is handed to it by the harness, in the
+  environment variable `YOYODYNE_REPOSITORY`, and never chosen by a role: for
+  a developer run it is that run's own worktree, and for a conversation or a
+  recurring task it is the main checkout. Every call starts its own server, so
+  no server is shared between runs. A server confined to one repository names
+  it from that variable, such as
+  `command: [sh, -c, 'exec mcp-server-git --repository "$YOYODYNE_REPOSITORY"']`,
+  so a developer run reads its own branch and is refused the main checkout and
+  every other run's worktree. A command that names a fixed path instead reads
+  that path for every caller, and a developer run's own worktree is refused. A
+  linked worktree keeps its Git data under the main checkout's `.git`, outside
+  the worktree; the official git server accepts that as the worktree's own.
 - **A server confined to this repository** sees the repository's whole `.git`
   directory. The official git server, started with `--repository`, refuses
   every call while any symbolic link in there leads outside the repository. A

@@ -153,7 +153,7 @@ func TestADevelopersCallPathFilesTheChangedListingNote(t *testing.T) {
 	if !ok || path == nil {
 		t.Fatalf("runMCPCalls built %T, want the call path", calls)
 	}
-	caller, err := mcpcall.DeveloperCaller(cfg, "dev", "run-1", 1)
+	caller, err := mcpcall.DeveloperCaller(cfg, "dev", "run-1", 1, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

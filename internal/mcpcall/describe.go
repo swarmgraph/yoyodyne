@@ -145,7 +145,7 @@ func (p *Path) list(ctx context.Context, caller Caller, server string, scrub exe
 	bounded, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	var tools []Tool
-	err := batch(bounded, Server{Name: server, Declared: declared}, Options{Stores: p.Stores, Transport: p.Transport, ClientVersion: p.ClientVersion}, func(session *Session) error {
+	err := batch(bounded, Server{Name: server, Declared: declared}, Options{Stores: p.Stores, Transport: p.Transport, ClientVersion: p.ClientVersion, Repository: p.repositoryFor(caller)}, func(session *Session) error {
 		listed, err := session.ListTools(bounded)
 		tools = listed
 		return err
