@@ -32,3 +32,21 @@ func CheckRequestSize(sizer RequestSizer, request RunRequest) error {
 	}
 	return nil
 }
+
+// InstructionsKeeper is implemented by an adapter whose provider session keeps
+// the instructions a request carried, because the adapter sends them inside the
+// message rather than apart from it. A turn that resumes such a session already
+// holds what its first turn was told, so text the harness adds to the
+// instructions for a whole run of turns need not be sent again. An adapter that
+// does not implement it is taken to send instructions apart, afresh on every
+// call, so nothing is left out of a turn it serves.
+type InstructionsKeeper interface {
+	SessionKeepsInstructions() bool
+}
+
+// SessionKeepsInstructions reports whether adapter's sessions keep the
+// instructions a request carried; see InstructionsKeeper.
+func SessionKeepsInstructions(adapter any) bool {
+	keeper, ok := adapter.(InstructionsKeeper)
+	return ok && keeper.SessionKeepsInstructions()
+}

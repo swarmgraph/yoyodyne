@@ -133,7 +133,7 @@ The reviewer's invocations are made with `CLAUDE_CODE_PROMPT_CACHE_TTL=5m`
 the reviewer's alone: a review is one turn nobody resumes, by the contract in
 `internal/review`, and the other roles resume a session whose whole transcript
 is the cached prefix, which an hour is what keeps warm.
-`TestAReviewIsCachedForFiveMinutesAndAResumedSessionKeepsTheProvidersLifetime`
+`TestAReviewIsCachedForFiveMinutesAndNoResumedSessionIs`
 holds it onto the reviewer and off every other role, and holds that the
 harness's own value replaces one carried through from the operator's
 environment. The variable is read by the installed CLI's own TTL selection —
