@@ -393,7 +393,18 @@ another, and where it goes depends on the revision before it:
   is taken off the wait for a landing, so no queued start can publish it, and
   the role is told which revision it replaced.
 - If that revision's run is going, the new revision waits behind it and is sent
-  once that run ends.
+  once that run ends. A run that passed the document and whose change waits in
+  the merge queue counts as going: it is not handed back, and the role, the
+  work item the run is recorded against, and `yoyo status` each say it waits in
+  the merge queue, naming the queue entry and the pull request.
+- If the process running that revision's run stopped before the run ended — at
+  a move onto a new build, for instance — the harness's next reconcile sweep ends
+  the run, says why on its work item, and the role's next message runs the same
+  text again as the next attempt and tells the role why. Nothing about the
+  document was judged, so nothing needs writing again, and later revisions no
+  longer wait behind a run nobody is driving. A run that paused on purpose —
+  under your hold, until a usage limit resets, or waiting on a directive — is
+  not one of these: it is left for its conversation to continue.
 - If that revision's run ended without landing it — the independent review
   refused it, a check failed, or the run stopped short of the target branch —
   it no longer counts as the document's waiting revision, and the new revision
@@ -410,6 +421,13 @@ the copy ahead of it lands or is handed back, then starts it once. The owning
 role is told once what it waits for: which earlier copy, its merge queue entry
 and pull request, and since when. Its list of waiting documents says the same,
 and so do `yoyo status` and the dashboard, under the not-startable line.
+
+Every publication is recorded against a work item: the one the revision's
+reason names first ("yoyodyne-ifd.433.11: ..."), or, where it names none, an
+item the harness files when the publication's first run starts. That item names
+the document and the role that wrote it, is marked as that role's
+conversation's work so no developer run is started for it, gets the run's
+start, stops, and end in its notes, and is closed when the document lands.
 
 Every document a role writes is answered by its next turn: recorded and where it
 waits and why, then confirmed, refused with the reason, or how its run went. A
@@ -625,8 +643,8 @@ merge it are left alone. Pull requests that earlier copies left open before this
 was built are closed the same way, the next time their document is published.
 
 **A stopped document publication is the development manager's to decide.** It
-has no work item behind it, so it is put on her list of stopped runs as a run
-that names the document, its pull request, and whether a newer stopped copy of
+is decided on the run rather than on its work item, so it is put on her list of
+stopped runs as a run that names the document, its pull request, and whether a newer stopped copy of
 the same document exists or one has landed since. That list takes the run whose
 attempts were all spent, as above, and also any document run that left its pull
 request open and that its conversation will not land: an older copy whose pull
@@ -649,9 +667,10 @@ copy's last revision, written after the text the run carries, that refuses the
 retry;
 retiring the run is what answers it. `retire` closes the pull request with her
 reason and lands nothing. Both are recorded on the stopped run, and the closed
-pull request carries a comment saying who decided what and why. Each run's start and end is also noted on the work item
-named at the start of the document's revision reason, where the tracker holds
-one.
+pull request carries a comment saying who decided what and why. Each run is
+also recorded against a work item, the one named at the start of the document's
+revision reason or, where it names none, the one the harness filed for the
+publication, and the run's start, stops, and end are noted there.
 
 **Where `approvals.integration` is not `automatic`, a document you approve
 still goes through its reviewed run**, and the run leaves it on its branch, and

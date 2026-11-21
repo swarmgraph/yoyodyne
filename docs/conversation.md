@@ -2922,8 +2922,10 @@ carried out again, and `leave-claim-spent` leaves it spent. Each names the item
 and that fresh run, and the harness carries a give-back out at its next pull
 or by `yoyo triage give-back` — see [a re-run claim spent on a run that bought
 nothing](operations.md#recovering-interrupted-runs). A stopped
-document publication has no work item, so none of those can be recorded on it:
-its entry names the document and its pull request, and she answers it with
+document publication is decided on its run rather than its work item, so none of
+those is recorded on it, though the run is recorded against a work item (the one
+its revision names, or the one the harness filed for it) where its start, stops,
+and end are noted: its entry names the run, the document and its pull request, and she answers it with
 `retry`, which lands the same confirmed text through a fresh run and closes the
 stopped run's pull request, or `retire`, which closes the pull request with her
 reason, each naming the run and no `id` — see [writing a document from a
