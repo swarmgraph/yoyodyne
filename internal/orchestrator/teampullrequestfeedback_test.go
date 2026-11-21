@@ -138,9 +138,9 @@ func TestTakeUpTeamFeedbackListsRequestedChangesWithTheItemsThatTouchedTheFile(t
 		t.Fatalf("line comment report = %#v, want only yoyodyne-a named, as %q, and attributed", line, want)
 	}
 	for _, reported := range []report.Report{review, line} {
-		if !strings.Contains(reported.Message, "cannot yet be started from feedback on a tracked pull request") ||
-			!strings.Contains(reported.Message, "ask the Lead Product Manager to admit a work item") || strings.Contains(reported.Message, "is yours to decide; a repair runs") {
-			t.Fatalf("message = %q, want it to say a repair cannot yet be started and what she can do instead", reported.Message)
+		if strings.Contains(reported.Message, "cannot yet be started") || strings.Contains(reported.Message, "ask the Lead Product Manager to admit a work item") ||
+			!strings.Contains(reported.Message, `record the decision "repair-from-feedback" naming pull_request `) {
+			t.Fatalf("message = %q, want it to say how she decides a repair from this entry and not that one cannot be started", reported.Message)
 		}
 	}
 	assertNothingStarted(t, f, before)

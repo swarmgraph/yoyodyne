@@ -38,6 +38,11 @@ type forgeCheckOutput struct {
 	// date with the team's branch, present only where execution.upstream_branch
 	// is set.
 	TeamBranchUpdate *orchestrator.TeamBranchUpdateOutcome `json:"team_branch_update,omitempty"`
+	// TeamFeedbackRepairs are the new runs this check started for repairs the
+	// development manager decided from feedback on a tracked pull request, each
+	// hosted by this process to its end. Present only where
+	// execution.upstream_branch is set.
+	TeamFeedbackRepairs []orchestrator.TeamFeedbackRepairCarried `json:"team_feedback_repairs,omitempty"`
 	// KeptAnswers is how many of the forge's answers are kept for the next check
 	// to ask about conditionally, and KeptAnswersProblem why they could not be
 	// read or written, where they could not; either costs full reads and
@@ -140,14 +145,27 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		output.TeamBranchUpdate = &outcome
 		branchErr = runErr
 	}()
+	// The repairs she decided from feedback on tracked pull requests are runs of
+	// their own, started and hosted here beside the others.
+	teamRepairDone := make(chan struct{})
+	var teamRepairErr error
+	go func() {
+		defer close(teamRepairDone)
+		if parts.config.Execution.UpstreamBranch == "" {
+			return
+		}
+		output.TeamFeedbackRepairs, teamRepairErr = feedbackRepairerFrom(parts).CarryOut(ctx)
+	}()
 	output.FeedbackRepairs, repairErr = repairer.ContinueFeedbackRepairs(ctx)
 	<-done
 	<-branchDone
-	err = errors.Join(err, updateErr, repairErr, branchErr)
+	<-teamRepairDone
+	err = errors.Join(err, updateErr, repairErr, branchErr, teamRepairErr)
 	if !*jsonOutput {
 		printTeamBranchUpdate(stdout, output.TeamBranchUpdate)
 		printUpdates(stdout, stderr, output.Updates)
 		printFeedbackRepairs(stdout, stderr, output.FeedbackRepairs)
+		printTeamFeedbackRepairs(stdout, stderr, output.TeamFeedbackRepairs)
 	}
 	return reportForgeCheck(stdout, stderr, *jsonOutput, output, err)
 }
@@ -416,4 +434,22 @@ end, after the check's own report.
 Options:
   --config <path>    configuration file (default: the nearest .yoyodyne/config.yaml)
   --json             emit machine-readable JSON`)
+}
+
+// printTeamFeedbackRepairs says what each repair decided from feedback on a
+// tracked pull request came to. A decision that could not be carried out yet
+// stands and is tried again at the next check, so it is said and does not fail
+// the pass.
+func printTeamFeedbackRepairs(stdout, stderr io.Writer, repairs []orchestrator.TeamFeedbackRepairCarried) {
+	for _, repair := range repairs {
+		switch {
+		case repair.Started:
+			fmt.Fprintf(stdout, "%s: repair from %s on pull request #%d started as run %s\n", repair.WorkItemID, repair.FeedbackID, repair.PullRequest, repair.NewRunID)
+		case repair.Waiting != "":
+			fmt.Fprintf(stdout, "%s: repair from %s on pull request #%d not started yet: %s\n", repair.WorkItemID, repair.FeedbackID, repair.PullRequest, repair.Waiting)
+		}
+		if repair.Failure != "" {
+			fmt.Fprintf(stderr, "%s: repair from %s on pull request #%d: %s\n", repair.WorkItemID, repair.FeedbackID, repair.PullRequest, repair.Failure)
+		}
+	}
 }

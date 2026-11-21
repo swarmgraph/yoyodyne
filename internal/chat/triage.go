@@ -160,7 +160,7 @@ const (
 
 // triageDecisions lists the vocabulary in the order the contract states it, so a
 // refusal names exactly what was available.
-var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross, decisionRetryDocument, decisionRetireDocument, decisionGiveBackClaim, decisionLeaveClaimSpent)
+var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionRepairFromFeedback, decisionCross, decisionRetryDocument, decisionRetireDocument, decisionGiveBackClaim, decisionLeaveClaimSpent)
 
 // triageSettles is which docketed stoppage each decision is an answer to, and
 // therefore which entry it closes. It is a map from the vocabulary rather than a
@@ -289,8 +289,9 @@ var triageVerbs = map[string]string{
 	decisionRetireDocument: "Triaged: its document publication retired, its pull request closed",
 	// A decision about a spent re-run claim is recorded on the claim, and these
 	// are the sentences its note on the item opens with.
-	decisionGiveBackClaim:   "Triaged: a spent re-run claim to be given back, so the re-run decided before is carried out again",
-	decisionLeaveClaimSpent: "Triaged: a spent re-run claim left spent, so a further re-run needs a further decision",
+	decisionRepairFromFeedback: "Triaged: repaired from feedback on the pull request into the team's branch that carries it",
+	decisionGiveBackClaim:      "Triaged: a spent re-run claim to be given back, so the re-run decided before is carried out again",
+	decisionLeaveClaimSpent:    "Triaged: a spent re-run claim left spent, so a further re-run needs a further decision",
 }
 
 // TriageBudgets is what one work item has already been given and may still be
@@ -455,6 +456,12 @@ func (e *EscalationError) Error() string {
 // rather than here — see refuseTransposedStoppage.
 func (a TrackerAction) triageProblems() []error {
 	var problems []error
+	if strings.TrimSpace(a.Decision) == decisionRepairFromFeedback {
+		return a.feedbackRepairProblems()
+	}
+	if a.PullRequest != 0 || strings.TrimSpace(a.Feedback) != "" {
+		problems = append(problems, fmt.Errorf("only the %q decision names \"pull_request\" and \"feedback\", the list entry it answers", decisionRepairFromFeedback))
+	}
 	switch decision := strings.TrimSpace(a.Decision); {
 	case decision == "":
 		problems = append(problems, fmt.Errorf("triage requires \"decision\", one of %s", strings.Join(triageDecisions, ", ")))
@@ -842,6 +849,10 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	id := strings.TrimSpace(action.ID)
 	decision := strings.TrimSpace(action.Decision)
 	run := strings.TrimSpace(action.Run)
+	if decision == decisionRepairFromFeedback {
+		s.carryOutFeedbackRepair(ctx, outcome)
+		return
+	}
 	if action.decidesDocument() {
 		s.carryOutDocumentDecision(ctx, outcome, decision, run)
 		return
