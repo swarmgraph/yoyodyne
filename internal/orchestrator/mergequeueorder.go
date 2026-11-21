@@ -14,9 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -138,14 +138,7 @@ func (c MergeQueueChoice) Why() string {
 
 // Selection is the choice as a generation records it.
 func (c MergeQueueChoice) Selection() *runstate.MergeQueueSelection {
-	why := strings.Join(strings.Fields(c.Why()), " ")
-	if len(why) > runstate.MaxMergeQueueTextBytes {
-		why = why[:runstate.MaxMergeQueueTextBytes]
-		for len(why) > 0 && !utf8.ValidString(why) {
-			why = why[:len(why)-1]
-		}
-		why = strings.TrimSpace(why)
-	}
+	why := oneline.Bound(c.Why(), runstate.MaxMergeQueueTextBytes)
 	return &runstate.MergeQueueSelection{Rule: c.Rule, Why: why}
 }
 
