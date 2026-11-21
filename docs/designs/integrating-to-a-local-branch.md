@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-20T18:57:51.760645Z
       reason: 'yoyodyne-ifd.429.127.1: records the operator''s November 19, 2026 narrowing of the November 7 ruling. A batch pull request becomes a fourth delivery route the harness opens, grows, tracks and merges under a few bounded settings, and no outside code holds push or merge rights. Adds section 5, rewrites the rejected alternative about the harness opening the batch, maps the seven asks to build items, and adds build items 7 to 14. Sections 1 to 4 are unchanged from main 18d599c6.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T20:32:41.401529Z
+      reason: 'amendment-3f15bd62, approved Nov 21: a repair of an item waiting on a pull request the harness opened applies the kept branch''s change onto the target branch''s current head and replaces the kept branch''s head by compare and swap against the head the harness last wrote; a refused push keeps the change and goes to the development manager''s list. Adds one rejected alternative. The rest of section 2 is copied unchanged from main 0d6453a6.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-20T18:57:51.760645Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3206, for document-3206.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-21T20:32:41.401529Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3343, for document-3343.1 under the automatic approval policy
 ---
 # Integrating to a local branch and handing landed work to the team
 
@@ -116,7 +125,7 @@ The development manager's other decisions are each bound to a stopped run waitin
 - **A new run, never a continued one.** The decision starts a new run of the item. The earlier run stays ended as integrated, exactly as it was recorded. The new run's record names the decision and the entry it answers, so a reader can follow the chain from the team's feedback to the change it caused.
 - **Where the run starts, and where its change goes.**
   - An item landed on the target branch and waiting for the team's merge starts from the target branch's current head. Its change lands on the target branch, the item stays waiting for the team's merge, and the tracked pull request picks the new landing commit up by the rule for items found among its commits.
-  - An item whose change waits on a pull request the harness opened, for a person to merge (section 1 of the contributors design), starts from the head of that pull request's kept branch and updates the same pull request rather than opening another. This is the same gap the item for deciding a repair of such an item raised (yoyodyne-ifd.429.120, now folded into yoyodyne-ifd.429.176), and one kind of decision covers both.
+  - An item whose change waits on a pull request the harness opened, for a person to merge (section 1 of the contributors design), starts from the change that pull request's kept branch carries, applied onto the target branch's current head, rather than from the kept branch's old head. The run's change then replaces the kept branch's head and updates the same pull request rather than opening another, so the reviewer judges the whole change against the target branch as it now stands. The replacing push is a compare and swap against the head the harness last put on that branch. Where the branch holds anything else, such as a commit a person pushed there, the push is refused and nothing on the branch is overwritten: the run's change is kept, and the development manager's list gets one entry naming the branch and the commit found there. This is the same gap the item for deciding a repair of such an item raised (yoyodyne-ifd.429.120, now folded into yoyodyne-ifd.429.176), and one kind of decision covers both.
 - **What the developer is given.** The feedback is given to the developer as evidence, never as an instruction that widens what the run may do.
 - **Who pays.** The run spends one of the item's attempts, counted in the same unit as the development manager's other repair and re-run grants, as the fixed list of decisions in stopped-run recovery is built (yoyodyne-ifd.428.99.4). An item with no attempts left goes to the Lead Product Manager, as any item that has used its attempts does.
 - **When it runs.** A freed developer slot takes it as it takes any decided repair, ahead of fresh work, under the operating rule that work on a change a run already wrote goes first.
@@ -129,6 +138,7 @@ Rejected:
 - **Continuing the run that landed.** It ended as integrated, its slot is freed and its checkout may be gone; reopening it would give one run two endings and break the record of what landed when.
 - **Admitting a new item for each piece of feedback.** It loses the link between the feedback and the item it is about, and spends a Lead Product Manager decision on routine repair.
 - **Charging the repair to no budget.** Feedback on a busy pull request could then start runs without limit.
+- **Continuing the kept branch's history from its old head, for a pull request the harness opened.** The reviewer would judge only the new commits, on a base the target branch may have moved past, and the pull request could carry a conflict nobody checked.
 
 ## 3. Keeping the target branch current with the team's branch
 
