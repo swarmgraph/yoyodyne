@@ -411,9 +411,18 @@ func (s *BranchReviewStore) Price(reviewID string) ReviewPrice {
 		price.Unknown = err.Error()
 		return price
 	}
-	cost, invocations, err := scanEventCost(path)
+	cost, invocations, missing, err := scanEventCost(path)
 	if err != nil {
 		price.Unknown = err.Error()
+		return price
+	}
+	// A review is one invocation, so a log with its cost evidence unreadable is
+	// a review whose price is not known, whatever else the log could be read
+	// for; the figure read is kept beside the reason.
+	if missing != "" {
+		price.CostUSD = cost
+		price.Invocations = invocations
+		price.Unknown = missing
 		return price
 	}
 	// Every branch review is one provider invocation by construction, so a log

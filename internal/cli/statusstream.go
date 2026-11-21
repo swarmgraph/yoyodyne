@@ -353,7 +353,7 @@ func reportSpend(store *runstate.StreamStore, sweeps *runstate.SweepStore, calls
 		// differently.
 		switch {
 		case report.Floor():
-			printUnreadableExchanges(stdout, report)
+			printUnreadableEvidence(stdout, report)
 		case report.Oldest != "":
 			fmt.Fprintf(stdout, "no completed provider invocations since %s; pass a number of days to reach further back\n", report.Oldest)
 		default:
@@ -365,7 +365,7 @@ func reportSpend(store *runstate.StreamStore, sweeps *runstate.SweepStore, calls
 	printSpendTotals(stdout, report)
 	printCostKinds(stdout, kinds, kindsProblem)
 	printSweepSpend(stdout, scheduled)
-	printUnreadableExchanges(stdout, report)
+	printUnreadableEvidence(stdout, report)
 	return 0
 }
 
@@ -541,7 +541,8 @@ func printSpendTotals(writer io.Writer, report runstate.SpendReport) {
 	if report.Days > 0 {
 		window = fmt.Sprintf(" (last %d days)", report.Days)
 	}
-	// A total that is missing an exchange nobody could read is a lower bound,
+	// A total that is missing an exchange nobody could read, or a cost line of a
+	// stream nobody could read, is a lower bound,
 	// and is marked the way every other floor in this project is marked. The
 	// mark is empty otherwise, so a report with everything in front of it prints
 	// exactly the figure it always did.
@@ -663,22 +664,35 @@ func renderKindSplit(total runstate.SpendTotals) string {
 	return strings.Join(parts, "   ")
 }
 
-// printUnreadableExchanges names the exchange records the report could not
-// read, so somebody can go and look at them. They are counted rather than
-// dropped: a record nobody can parse did not cost nothing, and a total short by
-// a thread nobody was told about is the mistake the whole unknown-never-zero
-// discipline exists to stop.
-func printUnreadableExchanges(writer io.Writer, report runstate.SpendReport) {
+// printUnreadableEvidence names the exchange records the report could not
+// read, and the streams whose cost lines it could not all read, so somebody
+// can go and look at them. They are counted rather than dropped: a record
+// nobody can parse did not cost nothing, and a total short by a thread nobody
+// was told about is the mistake the whole unknown-never-zero discipline exists
+// to stop.
+func printUnreadableEvidence(writer io.Writer, report runstate.SpendReport) {
 	if !report.Floor() {
 		return
 	}
-	fmt.Fprintf(writer, "%d exchange record(s) could not be read; they are left out rather than counted as nothing, so any total here is a floor:\n",
-		len(report.UnreadableExchanges))
-	for _, id := range report.UnreadableExchanges {
-		fmt.Fprintf(writer, "  %s\n", id)
+	if len(report.UnreadableExchanges) > 0 {
+		fmt.Fprintf(writer, "%d exchange record(s) could not be read; they are left out rather than counted as nothing, so any total here is a floor:\n",
+			len(report.UnreadableExchanges))
+		for _, id := range report.UnreadableExchanges {
+			fmt.Fprintf(writer, "  %s\n", id)
+		}
+		if report.UnreadableReason != "" {
+			fmt.Fprintf(writer, "  the first of them: %s\n", singleLine(report.UnreadableReason))
+		}
 	}
-	if report.UnreadableReason != "" {
-		fmt.Fprintf(writer, "  the first of them: %s\n", singleLine(report.UnreadableReason))
+	if len(report.IncompleteStreams) > 0 {
+		fmt.Fprintf(writer, "%d event log(s) hold a line that may say what an invocation cost and could not be read; the calls that could be read are counted, so any total here is at least what was spent rather than all of it:\n",
+			len(report.IncompleteStreams))
+		for _, id := range report.IncompleteStreams {
+			fmt.Fprintf(writer, "  %s\n", id)
+		}
+		if report.IncompleteReason != "" {
+			fmt.Fprintf(writer, "  the first of them: %s\n", singleLine(report.IncompleteReason))
+		}
 	}
 }
 

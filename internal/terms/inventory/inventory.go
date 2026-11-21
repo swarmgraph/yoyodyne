@@ -357,7 +357,7 @@ var Inventory = []Term{
 	{
 		Term:     "floor",
 		Match:    []string{"floor"},
-		Meaning:  "A total that is at least the figure shown, because some runs left no record to price.",
+		Meaning:  "A total that is at least the figure shown, because some runs could not be priced in full.",
 		Decision: Replace,
 		Words:    "at least: \"at least $4.20; 2 runs could not be priced\"",
 	},

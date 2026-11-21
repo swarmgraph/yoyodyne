@@ -767,6 +767,34 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			parseErrors = append(parseErrors, sinkErr)
 		}
 	})
+	// The result is assembled the same way on every path that ends after the
+	// process ran, so a failure found once the provider has already written its
+	// terminal -- an event that could not be recorded, an account of the wait
+	// after it that could not be written -- is returned beside what that
+	// terminal reported rather than in place of it. Codex reports usage rather
+	// than cost, and the usage is what the invocation is priced from, so an
+	// empty result there would record what it used as unknown.
+	assemble := func() backend.RunResult {
+		result := parser.Result()
+		result.Backend = b.provider()
+		result.AdapterVersion = adapterVersion()
+		result.Loaded = loaded
+		// The normalized result and events are the durable provider output. Do
+		// not return the raw JSON stream as a second, potentially
+		// escape-obfuscated copy.
+		result.Process = processResult
+		result.Process.Stdout = ""
+		result.ToolVisibility.Policy = toolPolicy(profile)
+		return result
+	}
+	// failed is the result handed back beside an error: whatever the stream
+	// said, an invocation whose account could not be recorded in full is not
+	// one to act on as a success.
+	failed := func() backend.RunResult {
+		result := assemble()
+		result.IsError = true
+		return result
+	}
 	if err != nil {
 		// A program found nowhere started nothing and judged nothing, so it is
 		// handed back as the wait it is (backend.ProgramMissingOutage) beside the
@@ -775,10 +803,13 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		if outage, missing := backend.ProgramMissingOutage(err); missing {
 			return backend.RunResult{Backend: b.provider(), IsError: true, ProviderOutage: outage, LastEvent: request.LastSequence}, fmt.Errorf("run Codex: %w", err)
 		}
+		if parser.SawTerminal() {
+			return failed(), fmt.Errorf("run Codex: %w", err)
+		}
 		return backend.RunResult{}, fmt.Errorf("run Codex: %w", err)
 	}
 	if len(parseErrors) > 0 {
-		return backend.RunResult{}, fmt.Errorf("parse Codex stream: %w", errors.Join(parseErrors...))
+		return failed(), fmt.Errorf("parse Codex stream: %w", errors.Join(parseErrors...))
 	}
 	// An invocation that outran what the runner retains is not an invocation that
 	// failed: every line still reached the parser, so the stream was read in full.
@@ -790,7 +821,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			Stream: execution.StreamStderr,
 			Text:   processResult.OutputTruncation,
 		}); truncationErr != nil {
-			return backend.RunResult{}, fmt.Errorf("record Codex output truncation: %w", truncationErr)
+			return failed(), fmt.Errorf("record Codex output truncation: %w", truncationErr)
 		}
 	}
 	// Which way the wait after the terminal ended is said in the same stream as
@@ -798,7 +829,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	// background work, never as a silence.
 	if processResult.AfterReply != nil {
 		if recordErr := parser.RecordAfterReply(*processResult.AfterReply); recordErr != nil {
-			return backend.RunResult{}, fmt.Errorf("record what outlived Codex's terminal: %w", recordErr)
+			return failed(), fmt.Errorf("record what outlived Codex's terminal: %w", recordErr)
 		}
 	}
 	// A process that failed without writing a terminal has said whatever it had
@@ -815,15 +846,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if processResult.Status == execution.ProcessFailed && !parser.SawTerminal() && !parser.SawUsageLimit() {
 		parser.ObservePlainOutput()
 	}
-	// The normalized result and events are the durable provider output. Do not
-	// return the raw JSON stream as a second, potentially escape-obfuscated copy.
-	processResult.Stdout = ""
-	result := parser.Result()
-	result.Backend = b.provider()
-	result.AdapterVersion = adapterVersion()
-	result.Loaded = loaded
-	result.Process = processResult
-	result.ToolVisibility.Policy = toolPolicy(profile)
+	result := assemble()
 	if processResult.Status == execution.ProcessCancelled || processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessStalled {
 		result.IsError = true
 		if result.StopReason == "" {
