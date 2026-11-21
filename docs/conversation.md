@@ -2105,13 +2105,18 @@ requests a reply and three rounds a message:
 An observation may name the product, which must be the conversation's own, and
 at most twenty runs to restrict its run conditions to. It is read from the
 records as they stand when it is taken: the runs in flight and whether a process
-is behind each, the work held after a stopped run, the factory problems
+is behind each, the work held after a stopped run, the finished runs whose
+checkout the harness kept, the factory problems
 `yoyo status` lists, the supervisor's record of the services, what each running
 copy of a service recorded as it started, and the pass records. It hands back
 an identifier and the time it was taken; every one of those sources, with
 whether it was read whole; each read failure; and every condition it found,
-those needing a decision or an action first and the legitimate waits after
-them. A condition is known by the product, the run where it is a run's, and the
+those needing a decision or an action first, then the legitimate waits, then
+the finished runs whose checkout was kept. A kept checkout asks nothing of
+anybody and waits on nothing: the harness would not delete it because it holds
+files or commits that exist nowhere else, and it stays until somebody saves or
+discards them by hand. The condition says which run, where the checkout is, and
+what it holds. A condition is known by the product, the run where it is a run's, and the
 condition, so a newer run of an item is never the same condition as an older
 stoppage of it. Each says when it was first seen, when last seen, and how many
 passes it has been put to, read from the pass records; its classification; whose

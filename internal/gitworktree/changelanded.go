@@ -242,5 +242,5 @@ func (m *Manager) ReleaseReplacedBranch(ctx context.Context, branch, commit stri
 	if !commitPattern.MatchString(commit) {
 		return false, fmt.Errorf("published commit %q is invalid", commit)
 	}
-	return m.deleteIntegratedBranch(ctx, branch, commit)
+	return m.deleteIntegratedBranch(ctx, branch, commit, "")
 }

@@ -151,3 +151,33 @@ func newStoreAt(t *testing.T, root string) *Store {
 	}
 	return store
 }
+
+// A run whose checkout was kept is found through the index without being owed
+// anything, and a run that kept none is not listed.
+func TestKeptCheckoutsAreListedWithoutBeingOutstanding(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	if err := store.Create(state); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if kept, err := store.KeptCheckouts(); err != nil || len(kept) != 0 {
+		t.Fatalf("KeptCheckouts() = %v, %v, want none", kept, err)
+	}
+	state.Status = StatusSucceeded
+	state.Phase = PhaseComplete
+	completed := time.Now().UTC()
+	state.CompletedAt = &completed
+	state.KeptCheckout = "the checkout of run " + state.RunID + " was kept because it holds unsaved.txt"
+	if err := store.Save(state); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	kept, err := store.KeptCheckouts()
+	if err != nil || len(kept) != 1 || kept[0].RunID != state.RunID {
+		t.Fatalf("KeptCheckouts() = %v, %v, want the run", kept, err)
+	}
+	if outstanding, err := store.Outstanding(); err != nil || len(outstanding) != 0 {
+		t.Fatalf("Outstanding() = %v, %v, want none", outstanding, err)
+	}
+}

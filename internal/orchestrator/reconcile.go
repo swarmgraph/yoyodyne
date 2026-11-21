@@ -1999,6 +1999,13 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 	// the run, and the outstanding cleanup marker the interrupted process left
 	// is no longer true.
 	progress := runstate.CleanupRecorded{WorktreeRemoved: cleanup.WorktreeRemoved, BranchRemoved: cleanup.BranchRemoved, At: r.clock().Now()}
+	// A checkout holding files that exist nowhere else is kept on purpose. That
+	// is said once on the run and the run is completed over it, so no later sweep
+	// tries again and fails again. The run's branch stays with the checkout.
+	if kept, ok := gitworktree.IsKeptCheckout(cleanupErr); ok {
+		progress.Kept = keptCheckoutAccount(state.RunID, kept)
+		cleanupErr = nil
+	}
 	if cleanupErr != nil {
 		// The run stays outstanding so the next sweep tries again. Repeating
 		// cleanup is safe: it refuses anything that is not this run's proven
@@ -2038,6 +2045,9 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 		settled = "put back in the backlog undischarged"
 	}
 	result.Detail = "integrated work was " + settled + " and its artifacts removed"
+	if progress.Kept != "" {
+		result.Detail = "integrated work was " + settled + "; " + progress.Kept
+	}
 	if recovered {
 		result.Detail = "integration recovered from the repository, then " + settled + " and cleaned up"
 	}
@@ -2793,4 +2803,29 @@ func renderObservedArtifacts(state runstate.State, observation gitworktree.Obser
 		lines = append(lines, "Target branch: "+state.TargetBranch)
 	}
 	return lines
+}
+
+// keptCheckoutAccount is what the run's record and the maintenance record say
+// about a checkout the harness will not delete: whose it is and which files are
+// in it, so a person can save or discard them and remove the checkout.
+func keptCheckoutAccount(runID string, kept *gitworktree.KeptCheckoutError) string {
+	const shown = 10
+	list := func(items []string) string {
+		if len(items) <= shown {
+			return strings.Join(items, ", ")
+		}
+		return fmt.Sprintf("%s and %d more", strings.Join(items[:shown], ", "), len(items)-shown)
+	}
+	var holds []string
+	if len(kept.Files) > 0 {
+		holds = append(holds, "files that are in no commit: "+list(kept.Files))
+	}
+	if len(kept.Commits) > 0 {
+		holds = append(holds, "commits whose change is not in the target branch: "+list(kept.Commits))
+	}
+	if kept.Reason != "" {
+		holds = append(holds, kept.Reason)
+	}
+	return fmt.Sprintf("the checkout of run %s was kept at %s because it holds %s; once what it holds is saved or discarded, remove the checkout with `git worktree remove --force`",
+		runID, kept.Path, strings.Join(holds, " and "))
 }

@@ -2751,6 +2751,7 @@ func (s *State) recordedTexts() []recordedText {
 	own("failure", &s.Failure, MaxBlockerBytes, failureCutNote)
 	own("blocker", &s.Blocker, MaxBlockerBytes, blockerCutNote)
 	own("cleanup_failure", &s.CleanupFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	own("kept_checkout", &s.KeptCheckout, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	for index := range s.ReconcileFindings {
 		nested("reconcile_findings[].problem", at("reconcile_findings", index, "problem"), &s.ReconcileFindings[index].Problem, MaxBlockerBytes)
@@ -4581,6 +4582,12 @@ type State struct {
 	// confirms them could not run. A reconciler resumes cleanup in both cases,
 	// which is a safe no-op over artifacts that are already gone.
 	CleanupFailure string `json:"cleanup_failure,omitempty"`
+	// KeptCheckout says why a finished run's checkout was left standing on
+	// purpose: it holds files that exist nowhere else, so the harness will not
+	// delete it. Unlike CleanupFailure it is not owed anything — setting it
+	// completes the run, so the sweep names the checkout once and stops trying —
+	// and a person decides what becomes of the files.
+	KeptCheckout string `json:"kept_checkout,omitempty"`
 	// CompletionRecordingFailure explains why a completed run's final record
 	// took more than the normal write to land. The failure it names is the
 	// store refusing the terminal save, so the field reaches disk only when a
@@ -5450,8 +5457,9 @@ func (s State) Validate() error {
 		}
 	}
 	// A run is complete only once nothing is left to clean up; anything else is
-	// still an outstanding-cleanup marker.
-	if s.Integration != nil && s.Phase == PhaseComplete && (!s.WorktreeRemoved || !s.BranchRemoved) {
+	// still an outstanding-cleanup marker. A checkout kept on purpose is the
+	// exception, because the record says so.
+	if s.Integration != nil && s.Phase == PhaseComplete && s.KeptCheckout == "" && (!s.WorktreeRemoved || !s.BranchRemoved) {
 		problems = append(problems, errors.New("complete phase requires both the worktree and branch to be removed"))
 	}
 	if err := s.Routing.Validate(); err != nil {

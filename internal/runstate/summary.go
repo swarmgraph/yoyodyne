@@ -384,6 +384,7 @@ type RunSummary struct {
 	Amendments     []RunAmendment `json:"amendments,omitempty"`
 	PublishFailure string         `json:"publish_failure,omitempty"`
 	CleanupFailure string         `json:"cleanup_failure,omitempty"`
+	KeptCheckout   string         `json:"kept_checkout,omitempty"`
 	// CompletionRecordingFailure is on the summary for the reason it is on the
 	// state: the run record is the one durable home this failure class has.
 	CompletionRecordingFailure string `json:"completion_recording_failure,omitempty"`
@@ -592,6 +593,7 @@ func (s *Store) summarize(state State) RunSummary {
 		Amendments:          slices.Clone(state.Amendments),
 		PublishFailure:      state.PublishFailure,
 		CleanupFailure:      state.CleanupFailure,
+		KeptCheckout:        state.KeptCheckout,
 
 		WorkflowInstanceID: state.WorkflowInstanceID,
 		WorkflowDivergence: state.WorkflowDivergence,

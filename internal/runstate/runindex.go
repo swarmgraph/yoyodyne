@@ -57,8 +57,9 @@ const (
 	// runIndexVersion is the index format this build reads and writes. An index
 	// in any other format is rebuilt from the records rather than trusted. Format
 	// 3 added the TeamMerge flag: an older index never flagged the runs waiting
-	// for the team's merge, so it would name none of them.
-	runIndexVersion = 3
+	// for the team's merge, so it would name none of them. Format 4 added the
+	// KeptCheckout flag for the same reason.
+	runIndexVersion = 4
 	runIndexName    = ".run-index.json"
 	runIndexLock    = ".run-index.lock"
 	// maxEncodedRunIndexBytes bounds what reading the index will take in. An
@@ -86,6 +87,9 @@ type runIndexEntry struct {
 	// TeamMerge is a run waiting for the team to merge its landed change
 	// (State.WaitingForTeamMerge), kept as a flag for the same reason.
 	TeamMerge bool `json:"team_merge,omitempty"`
+	// KeptCheckout is a finished run whose checkout the harness left standing
+	// because it holds files nothing else has (State.KeptCheckout).
+	KeptCheckout bool `json:"kept_checkout,omitempty"`
 	// Document is the id of the document a document run publishes, which never
 	// changes over the run's life. Format 1 did not hold it, which is why the
 	// format moved on: an index without it would name none of a document's runs.
@@ -102,6 +106,7 @@ func runIndexEntryOf(state State) runIndexEntry {
 		AccountAlias: state.AccountAlias,
 		PersonMerge:  state.WaitingForPersonMerge(),
 		TeamMerge:    state.WaitingForTeamMerge(),
+		KeptCheckout: state.KeptCheckout != "",
 		Document:     documentOf(state),
 	}
 }
@@ -123,7 +128,8 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 		(e.InFlight || !next.InFlight) &&
 		(e.Outstanding || !next.Outstanding) &&
 		(e.PersonMerge || !next.PersonMerge) &&
-		(e.TeamMerge || !next.TeamMerge)
+		(e.TeamMerge || !next.TeamMerge) &&
+		(e.KeptCheckout || !next.KeptCheckout)
 }
 
 // widened is next, still naming the run for every question e did.
@@ -132,6 +138,7 @@ func (e runIndexEntry) widened(next runIndexEntry) runIndexEntry {
 	next.Outstanding = next.Outstanding || e.Outstanding
 	next.PersonMerge = next.PersonMerge || e.PersonMerge
 	next.TeamMerge = next.TeamMerge || e.TeamMerge
+	next.KeptCheckout = next.KeptCheckout || e.KeptCheckout
 	return next
 }
 

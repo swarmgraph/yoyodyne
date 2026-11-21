@@ -28,6 +28,7 @@ import (
 // The sources an observation reads, by the names it reports them under.
 const (
 	SourceRuns        = "runs in flight"
+	SourceKept        = "finished runs whose checkout was kept"
 	SourceHeld        = "work held after a stoppage"
 	SourceFactory     = "factory problems"
 	SourceServices    = "the supervisor's record of the services"
@@ -155,6 +156,7 @@ func (o Observer) Observe(ctx context.Context, caller Caller, runs []string) Obs
 		}
 	}
 	o.readRuns(r)
+	o.readKeptCheckouts(r)
 	standing := o.standing(ctx)
 	o.readHeld(r, standing)
 	r.source(SourceSlots, standing.SlotHoldersProblem)
@@ -338,6 +340,34 @@ func (o Observer) readRuns(r *reading) {
 		}
 	}
 	r.source(SourceRuns, strings.Join(problems, "; "))
+}
+
+// readKeptCheckouts names each finished run whose checkout the harness kept
+// because it holds files nothing else has. It is a fact to show and owes
+// nothing, so it is not actionable. Where the run store cannot be asked, nothing
+// is said and no source is marked unread: the capability is optional.
+func (o Observer) readKeptCheckouts(r *reading) {
+	asking, ok := o.Sources.Runs.(readmodel.KeptCheckouts)
+	if !ok {
+		return
+	}
+	kept, err := asking.KeptCheckouts()
+	if err != nil {
+		r.source(SourceKept, fmt.Sprintf("the runs whose checkout was kept could not be read: %v", err))
+		return
+	}
+	for _, state := range kept {
+		if !r.keeps(state.RunID) {
+			continue
+		}
+		r.add(Anomaly{
+			Classification: ClassKeptCheckout, Identity: Identity{Run: state.RunID, Condition: "kept-checkout"},
+			WorkItem: state.WorkItemID, Title: state.WorkItemTitle,
+			Says:  state.KeptCheckout,
+			Owner: ownership.MoverHarness,
+			Needs: "nothing is owed; the checkout stays until its files are saved or discarded by hand",
+		})
+	}
 }
 
 // readHeld lists every item the harness holds after a stopped run: those the
@@ -725,7 +755,7 @@ func history(all []Anomaly, passes []runstate.Sweep, now time.Time) {
 var classOrder = map[Classification]int{
 	ClassSlotReleased: 0, ClassWorkerless: 1, ClassWorkerUncertain: 2, ClassHeldStoppage: 3, ClassUndeliveredMaintenance: 4,
 	ClassMissingCommand: 5, ClassMissingConfig: 6, ClassServiceDown: 7, ClassOldBuild: 8, ClassExtraCopy: 9,
-	ClassFactoryProblem: 10, ClassDependencyWait: 11, ClassWait: 12,
+	ClassFactoryProblem: 10, ClassDependencyWait: 11, ClassWait: 12, ClassKeptCheckout: 13,
 }
 
 func dedupe(found []Anomaly) []Anomaly {
@@ -760,6 +790,8 @@ func totals(all []Anomaly, services int) Totals {
 	for _, anomaly := range all {
 		if anomaly.Actionable {
 			t.Actionable++
+		} else if anomaly.Classification == ClassKeptCheckout {
+			t.Kept++
 		} else {
 			t.Waits++
 		}
@@ -771,6 +803,9 @@ func totals(all []Anomaly, services int) Totals {
 // is never said to be healthy, and never said to have found nothing.
 func verdict(o Observation) string {
 	found := fmt.Sprintf("%d condition(s): %d needing a decision or an action, and %d legitimate wait(s)", o.Totals.Conditions, o.Totals.Actionable, o.Totals.Waits)
+	if o.Totals.Kept > 0 {
+		found = fmt.Sprintf("%d condition(s): %d needing a decision or an action, %d legitimate wait(s), and %d finished run(s) whose checkout was kept", o.Totals.Conditions, o.Totals.Actionable, o.Totals.Waits, o.Totals.Kept)
+	}
 	if !o.Complete {
 		var names []string
 		for _, source := range o.Sources {

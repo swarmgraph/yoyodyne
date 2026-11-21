@@ -300,7 +300,7 @@ func (m *Manager) RemoveMergedBranch(ctx context.Context, branch, targetBranch s
 		removal.Kept = fmt.Sprintf("%s at %s is not contained in %s, so it still carries work nothing has promoted", branch, commit, targetBranch)
 		return removal, nil
 	}
-	removed, err := m.deleteIntegratedBranch(ctx, branch, commit)
+	removed, err := m.deleteIntegratedBranch(ctx, branch, commit, "")
 	if err != nil {
 		// A branch a working tree still holds is kept rather than reported as a
 		// failure: that checkout is what a person is using it for, and a sweep
