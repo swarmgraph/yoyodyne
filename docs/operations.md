@@ -9092,7 +9092,8 @@ health](conversation.md#observing-the-factorys-health)) and puts it at the top
 of the message: the runs in flight with no process behind them, the work held
 after a stopped run, the factory problems, each service's running copies with
 their builds, search paths, provider commands and configuration files, the
-maintenance failures no finding has carried yet, and the legitimate waits, with
+maintenance failures no finding has carried yet, the legitimate waits, and the
+finished runs whose checkout was kept (which ask nothing of anybody), with
 every source named and whether it was read whole. It is taken whatever the
 events since the pass's last one, so a quiet hour still shows a run that lost
 its worker. A source that could not be read is said, and such an observation is

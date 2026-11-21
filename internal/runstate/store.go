@@ -1050,6 +1050,14 @@ func (s *Store) Outstanding() ([]State, error) {
 	}, func(state State) bool { return state.Outstanding() })
 }
 
+// KeptCheckouts lists the finished runs whose checkout the harness left
+// standing on purpose (State.KeptCheckout). They owe nothing, so no sweep
+// reads them; this is how a surface that names them finds them without
+// decoding every record.
+func (s *Store) KeptCheckouts() ([]State, error) {
+	return s.indexed("kept-checkout", func(entry runIndexEntry) bool { return entry.KeptCheckout }, mayBeGoing, func(state State) bool { return state.KeptCheckout != "" })
+}
+
 // Recorded lists every run the harness holds for this product, whatever became
 // of them. It is for a reader that has to notice change rather than act on it —
 // the reporting sink is the first — and it decides nothing about what it reads:

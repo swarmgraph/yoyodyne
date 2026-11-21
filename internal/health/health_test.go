@@ -923,3 +923,52 @@ func TestASchedulerLeftBehindPastItsMoveIsNamed(t *testing.T) {
 		t.Fatalf("held scheduler says %q, want what holds the restart", held.Says)
 	}
 }
+
+type keptRuns struct {
+	fakeRuns
+	kept []runstate.State
+}
+
+func (k keptRuns) KeptCheckouts() ([]runstate.State, error) { return k.kept, nil }
+
+// A finished run's kept checkout is shown with its run and its files, and asks
+// nothing of anybody.
+func TestAKeptCheckoutIsShownAndAsksNothing(t *testing.T) {
+	t.Parallel()
+
+	observer, _ := whole(t)
+	finished := run("run-kept", "yoyodyne-kept")
+	finished.KeptCheckout = "the checkout of run run-kept was kept at /w/kept because it holds files that are in no commit: unsaved.txt"
+	observer.Sources.Runs = keptRuns{kept: []runstate.State{finished}}
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	var found *Anomaly
+	for index := range observation.Anomalies {
+		if observation.Anomalies[index].Classification == ClassKeptCheckout {
+			found = &observation.Anomalies[index]
+		}
+	}
+	if found == nil || found.Identity.Run != "run-kept" || !strings.Contains(found.Says, "unsaved.txt") || found.Actionable {
+		t.Fatalf("kept checkout = %+v, want it shown with its run and files and not actionable", found)
+	}
+	if observation.Totals.Actionable != 0 {
+		t.Fatalf("totals = %+v, want nothing actionable", observation.Totals)
+	}
+}
+
+// The summary sentence says a kept checkout in plain words and never counts it
+// as a wait.
+func TestTheSummaryDoesNotCountAKeptCheckoutAsAWait(t *testing.T) {
+	t.Parallel()
+
+	observer, _ := whole(t)
+	finished := run("run-kept2", "yoyodyne-kept2")
+	finished.KeptCheckout = "kept"
+	observer.Sources.Runs = keptRuns{kept: []runstate.State{finished}}
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	if observation.Totals.Waits != 0 || observation.Totals.Kept != 1 {
+		t.Fatalf("totals = %+v, want one kept checkout and no waits", observation.Totals)
+	}
+	if !strings.Contains(observation.Says, "0 legitimate wait(s)") || !strings.Contains(observation.Says, "1 finished run(s) whose checkout was kept") {
+		t.Fatalf("says = %q, want the kept checkout named apart from the waits", observation.Says)
+	}
+}

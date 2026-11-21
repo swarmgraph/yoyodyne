@@ -98,6 +98,14 @@ type Runs interface {
 	Price(workItemID string) (runstate.ItemPrice, error)
 }
 
+// KeptCheckouts lists the finished runs whose checkout the harness left
+// standing because it holds files nothing else has. It is an optional
+// capability of Runs, satisfied by *runstate.Store: a reading over runs that
+// cannot answer it names none.
+type KeptCheckouts interface {
+	KeptCheckouts() ([]runstate.State, error)
+}
+
 // RunPresence is whether a process can be found behind a run in flight, asked
 // without taking anything. It is an optional capability of Runs rather than a
 // member of it: every store the harness wires satisfies it, and a reading over

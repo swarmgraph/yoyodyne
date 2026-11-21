@@ -442,7 +442,10 @@ type CleanupRecorded struct {
 	WorktreeRemoved bool
 	BranchRemoved   bool
 	Failure         string
-	At              time.Time
+	// Kept is the account of a checkout the harness will not delete. It
+	// completes the run like a finished cleanup does, leaving the checkout.
+	Kept string
+	At   time.Time
 }
 
 func (u CleanupRecorded) apply(state *State) (bool, error) {
@@ -462,6 +465,7 @@ func (u CleanupRecorded) apply(state *State) (bool, error) {
 	// Nothing is left to remove, so the run is complete and an outstanding
 	// cleanup marker is no longer true.
 	state.CleanupFailure = ""
+	state.KeptCheckout = u.Kept
 	if state.StopClass == StopCleanup {
 		state.StopClass = ""
 	}
