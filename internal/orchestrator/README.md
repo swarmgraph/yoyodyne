@@ -61,7 +61,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    checks run it through `MergeQueueWorker.installWhereDue`
    (`mergequeueinstall.go`).
 5. **Continuing a run.** `Pipeline.Continue` (re-enter one named run;
-   `ContinuationMismatchError`), `reclaimSlot`, `resumeRun` (picks the step
+   `ContinuationMismatchError`), `reclaimSlot` (a paused run asks the
+   checkout, `refuseUnreadyResume`, before it takes its slot back; every other
+   path that makes a run live asks `checkoutReadyToTakeUp` before
+   `ReserveLive`), `resumeRun` (picks the step
    to resume at from the record), `resumedDeveloperPrompt`, and the predicates
    that read a record: `handedBackRepair`, `owesVerification`,
    `resumesAnExistingChange`, `continuableStall`, `stallResumesPastTheAttempt`,

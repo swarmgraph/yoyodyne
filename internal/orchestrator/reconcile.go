@@ -158,6 +158,12 @@ type Reconciler struct {
 	// parent or above.
 	Children  ReconcileChildren
 	Worktrees ReconcileWorktrees
+	// Checkout is the main checkout, asked before the sweep makes a waiting run
+	// live again and takes its developer slot: a queued merge brought up to
+	// date, a pull request a person was to merge brought up to date, or a
+	// repair round for feedback on one (checkoutReadyToTakeUp). Optional:
+	// without it nothing is asked there.
+	Checkout CheckoutReadiness
 	// IntentWorktrees is the companion intent repository's manager, which holds
 	// the branch and checkout of a run recorded in that repository
 	// (runstate.RepositoryIntent). Nil where the project has no such repository or

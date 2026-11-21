@@ -2002,6 +2002,16 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 	if state.DependencyPause == nil && !state.CIWait.Waiting() {
 		return p.recordTakenUpSlot(ctx, state), nil
 	}
+	// The checkout is asked before the slot is taken, not only by resumeRun
+	// after it. A run refused there once it held the slot would keep the slot
+	// with nobody working it, since nothing gives a slot back on a refusal;
+	// refused here, it stays parked holding none, and the next pull offers it
+	// again. A pipeline built with no worktree manager has no checkout to ask.
+	if p.Worktrees != nil {
+		if err := p.refuseUnreadyResume(ctx, state); err != nil {
+			return state, err
+		}
+	}
 	state.UpdatedAt = p.clock().Now()
 	reclaimed, err := p.Store.ReclaimSlot(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
 	if err != nil {
@@ -2015,6 +2025,66 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 		p.recordDependencyContinued(ctx, state)
 	}
 	return p.recordTakenUpSlot(ctx, reclaimed), nil
+}
+
+// refuseUnreadyResume refuses to take up a run again while the primary
+// checkout is not the harness's to work from, recording on the run that the
+// environment turned the round away. Nothing is charged: the run is left as it
+// stood, still resumable.
+func (p Pipeline) refuseUnreadyResume(ctx context.Context, state runstate.State) error {
+	err := p.Worktrees.ValidateReady(ctx)
+	if err == nil {
+		return nil
+	}
+	refused := fmt.Errorf("repository is not ready to resume run %s: %w", state.RunID,
+		refusedByEnvironment("the repository is not ready to resume a run", err))
+	// The round this would have been is turned away by the environment, so the
+	// run says so rather than leaving the reason in an error a caller prints
+	// once, and the settle records that nothing was charged.
+	if named, environmental := environmentalCauseOf(err); environmental {
+		if recordErr := p.refuseDispatchEnvironmentally(state, named, err.Error()); recordErr != nil {
+			refused = errors.Join(refused, recordErr)
+		}
+	}
+	return refused
+}
+
+// CheckoutReadiness is the main checkout's readiness, which every path that
+// makes a stopped or waiting run live again asks immediately before the save
+// that takes a developer slot (checkoutReadyToTakeUp).
+type CheckoutReadiness interface {
+	ValidateReady(ctx context.Context) error
+}
+
+// CheckoutNotReadyToTakeUpError is a run left as it was recorded because the
+// main checkout was not the harness's to work from when the run was about to
+// be made live. It unwraps to the checkout's own refusal, so
+// gitworktree.ErrPrimaryNotReady finds it.
+type CheckoutNotReadyToTakeUpError struct {
+	RunID string
+	Cause error
+}
+
+func (e CheckoutNotReadyToTakeUpError) Error() string {
+	return fmt.Sprintf("run %s was not taken up again, because the main checkout is not ready: %v; nothing was written to the run and it holds no developer slot, so the next pass tries again", e.RunID, e.Cause)
+}
+
+func (e CheckoutNotReadyToTakeUpError) Unwrap() error { return e.Cause }
+
+// checkoutReadyToTakeUp asks the main checkout whether a run may be made live
+// again. It is asked before the save that takes the run's developer slot,
+// because the pipeline asks the same question only once the run holds the slot,
+// and a refusal there leaves the slot held with nobody working the run. A
+// refusal here leaves the run exactly as recorded, holding no slot, for the
+// next pass to try again. A path wired with no checkout asks nothing.
+func checkoutReadyToTakeUp(ctx context.Context, checkout CheckoutReadiness, runID string) error {
+	if checkout == nil {
+		return nil
+	}
+	if err := checkout.ValidateReady(ctx); err != nil {
+		return CheckoutNotReadyToTakeUpError{RunID: runID, Cause: err}
+	}
+	return nil
 }
 
 // recordTakenUpSlot gives a run taken up again — a repair, a continuation, a
@@ -2086,19 +2156,8 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// Refusing here costs the run nothing: it stays exactly as the interrupted
 	// process left it, still resumable, rather than spending an attempt on work
 	// that could not be integrated afterwards anyway.
-	if err := p.Worktrees.ValidateReady(ctx); err != nil {
-		refused := fmt.Errorf("repository is not ready to resume run %s: %w", state.RunID,
-			refusedByEnvironment("the repository is not ready to resume a run", err))
-		// The round this would have been is turned away by the environment, so the
-		// run says so rather than leaving the reason in an error a caller prints
-		// once. Nothing is charged here — the run is untouched and resumable — and
-		// the settle records exactly that.
-		if named, environmental := environmentalCauseOf(err); environmental {
-			if recordErr := p.refuseDispatchEnvironmentally(state, named, err.Error()); recordErr != nil {
-				refused = errors.Join(refused, recordErr)
-			}
-		}
-		return Outcome{}, refused
+	if err := p.refuseUnreadyResume(ctx, state); err != nil {
+		return Outcome{}, err
 	}
 	// And the provider after it, for the reason a fresh run asks in that order: the
 	// checkout is the same refusal on every machine, the provider is a refusal only

@@ -62,6 +62,10 @@ type GitHubIdentityStops struct {
 	Worktrees RepairWorktrees
 	// Capacity is execution.max_concurrent_developers.
 	Capacity int
+	// Checkout is the main checkout, asked before anything is written and again
+	// immediately before the run takes its developer slot
+	// (checkoutReadyToTakeUp). Optional: without it nothing is asked here.
+	Checkout CheckoutReadiness
 	// Answers asks GitHub, with the identity the harness publishes under, whether
 	// it answers for this target branch: a nil error means it did.
 	Answers func(ctx context.Context, targetBranch string) error
@@ -249,6 +253,9 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 	if !free {
 		return false, fmt.Sprintf("run %s of %s waits at publishing: every developer slot is occupied (%d of %d); it is asked again next look", prior.RunID, named, full.Active, full.Limit), true
 	}
+	if err := checkoutReadyToTakeUp(ctx, g.Checkout, prior.RunID); err != nil {
+		return false, fmt.Sprintf("run %s of %s waits at publishing: %s", prior.RunID, named, singleLine(err.Error(), 300)), true
+	}
 	remains, _ := g.Worktrees.(readmodel.Remains)
 	found := readmodel.LookFor(ctx, remains, prior)
 	if found.Unknown || !found.BranchThere || !found.WorktreeThere {
@@ -273,6 +280,9 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 	}
 	if err := validateClaimedItem(releaseTeamMergedFrom(g.Runs, claimed, prior.TargetBranch), entry.WorkItemID); err != nil {
 		return stays("the work item put back to work was not one to continue on: " + singleLine(err.Error(), 300))
+	}
+	if err := checkoutReadyToTakeUp(ctx, g.Checkout, prior.RunID); err != nil {
+		return false, fmt.Sprintf("run %s of %s waits at publishing: %s", prior.RunID, named, singleLine(err.Error(), 300)), true
 	}
 	if err := g.Runs.ReserveLive(ctx, prior.TakenUpAtChecks(reason, now), g.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {

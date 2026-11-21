@@ -2005,9 +2005,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			delete(continuing, done.index)
 			record := *started
 			record.record(done)
-			// One that lost its slot is attempted again at the next pull, ahead of
-			// new work, rather than paced (lostTheSlot).
-			if why, refused := continuationRefused(done, record); refused && !lostTheSlot(done) {
+			// One that lost its slot, or was turned away by a checkout that was not
+			// ready, is attempted again at the next pull, ahead of new work, rather
+			// than paced (lostTheSlot, refusedForUnreadyCheckout).
+			if why, refused := continuationRefused(done, record); refused && !lostTheSlot(done) && !refusedForUnreadyCheckout(done) {
 				refusedContinuations[runID] = refusedContinuation{at: s.now(), why: why}
 			} else {
 				delete(refusedContinuations, runID)

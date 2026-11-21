@@ -494,12 +494,13 @@ func buildComponents(configPath string) (components, error) {
 		return components{}, err
 	}
 	worktrees, err := gitworktree.New(gitworktree.Options{
-		Runner:                processRunner,
-		RepositoryRoot:        repository,
-		WorktreeRoot:          worktreeRoot,
-		Remote:                cfg.Execution.Remote,
-		PushRemote:            cfg.Execution.PushRemote,
-		AllowedPrimaryChanges: []string{".beads/interactions.jsonl", ".beads/issues.jsonl"},
+		Runner:                  processRunner,
+		RepositoryRoot:          repository,
+		WorktreeRoot:            worktreeRoot,
+		Remote:                  cfg.Execution.Remote,
+		PushRemote:              cfg.Execution.PushRemote,
+		AllowedPrimaryChanges:   []string{".beads/interactions.jsonl", ".beads/issues.jsonl"},
+		HarnessWriteDirectories: []string{beads.HarnessWritePath},
 		// The tracker's export of the work items themselves is what a run reads to
 		// see the work around its own, so a worktree is given the primary
 		// checkout's copy rather than the one its base commit carried. The
@@ -1010,6 +1011,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		Tracker:         parts.tracker(),
 		Children:        parts.tracker(),
 		Worktrees:       parts.worktrees,
+		Checkout:        parts.worktrees,
 		IntentWorktrees: reconcileIntentWorktreesOf(parts),
 		Store:           parts.store,
 		Repository:      parts.repository,
@@ -1651,6 +1653,7 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		Repair: orchestrator.MergeQueueRunHandback{
 			Store: parts.store, Tracker: pipeline.Tracker, Docket: docketerFrom(parts),
 			CatchUp: parts.store, Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+			Checkout: parts.worktrees,
 		},
 	}
 	// What takes up the changes the queue held because the target required the

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -59,6 +60,15 @@ const continuationRetry = 15 * time.Minute
 func lostTheSlot(done completed) bool {
 	var capacity runstate.CapacityError
 	return done.err != nil && errors.As(done.err, &capacity) && !capacity.Landings
+}
+
+// refusedForUnreadyCheckout reports a continuation turned away because the
+// primary checkout was not the harness's to work from. Like a lost slot it is
+// not paced: the run was refused before it took a slot back
+// (Pipeline.reclaimSlot), so trying again costs nothing but the look, and the
+// pull that finds the checkout clean is the one that should continue it.
+func refusedForUnreadyCheckout(done completed) bool {
+	return done.err != nil && errors.Is(done.err, gitworktree.ErrPrimaryNotReady)
 }
 
 // refusedContinuation is what a session remembers of a continuation that did
