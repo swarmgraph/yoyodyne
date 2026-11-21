@@ -4156,9 +4156,14 @@ and the same product intent send that block byte for byte the same, and the
 second pass's new session reads it from the cache the first one wrote. The
 rest of the briefing — the documents left out with their sizes, what the
 product ships, the work items, the docket and the list of what was left out —
-opens the message, ahead of the memories. Every round of the pass sends the
-same instructions block, so nothing the pass started from is lost from its
-session. On Claude Code the management roles' invocations keep what they write
+opens the message, ahead of the memories. On Claude Code, which sends the
+instructions apart from the message and does not keep them in the session,
+every round of the pass sends the same instructions block, so nothing the pass
+started from is lost from its session. Codex puts the instructions inside the
+message, so its session keeps them: a later round resuming the pass's session
+there is sent the role's instructions without the briefing's first part, which
+the session already holds, rather than adding the product intent to it once a
+round. On Claude Code the management roles' invocations keep what they write
 into the provider's cache for an hour (`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`),
 because a role's passes come about 45 minutes apart and a five-minute cache
 would expire first. A change to the product intent or to a role's instructions

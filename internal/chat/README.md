@@ -175,7 +175,9 @@ puts the briefing ahead of the memories. `takeTurn` leaves the documents other
 than product intent out (`contextbundle.PassContext`), moves the briefing's
 unchanging opening (`contextbundle.SplitUnchanging`) out of the message to the
 end of the instructions block, where every round of the pass sends it
-(`withPassBriefing`) and the next pass's new session reads it from the
+(`withPassBriefing`), except a round resuming a session that keeps its
+instructions, as Codex's does (`passInstructionsFor`, called from
+`requestBounded`), and the next pass's new session reads it from the
 provider's cache, records each part's digest and the first part that differs
 from the previous pass (`PassStartParts` on the record), holds the start to
 its bound with `boundPassStart` before anything is recorded, and

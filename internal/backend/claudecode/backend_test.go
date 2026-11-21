@@ -2708,13 +2708,14 @@ func TestAnInvocationIsGivenAnExplicitEnvironmentWithoutTheSlackTokens(t *testin
 // mostly the patch it is judging, which nothing reads back. Its invocation is
 // given the five-minute cache lifetime, which keeps the prefix read where the
 // next review follows soon and cuts the premium on the rest from double to a
-// quarter over. The roles that resume a session — every conversation role and
-// the developer — are given no lifetime at all, so the provider's choice of an
-// hour, which is what keeps a resumed transcript warm between turns, stands.
-// An operator's own setting of the variable, carried through from the
-// harness's environment, does not decide the reviewer's: the lifetime is a
-// fact about the invocation's shape, and this adapter is what knows the shape.
-func TestAReviewIsCachedForFiveMinutesAndAResumedSessionKeepsTheProvidersLifetime(t *testing.T) {
+// quarter over. No role that resumes a session — the developer or any
+// management role — is given the five-minute lifetime, which would let the
+// transcript it re-reads expire between turns; what the management roles are
+// given instead is TestAManagementRoleIsCachedForAnHour's. An operator's own
+// setting of the variable, carried through from the harness's environment, does
+// not decide the reviewer's: the lifetime is a fact about the invocation's
+// shape, and this adapter is what knows the shape.
+func TestAReviewIsCachedForFiveMinutesAndNoResumedSessionIs(t *testing.T) {
 	// t.Setenv is this process's environment, so this cannot run in parallel.
 	t.Setenv(promptCacheLifetimeVariable, "1h")
 

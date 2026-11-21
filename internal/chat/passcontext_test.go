@@ -401,3 +401,61 @@ func TestTwoRecurringTurnsWithTheSameIntentSendTheSameInstructionsBlock(t *testi
 		t.Fatalf("the record keeps %+v as what the last pass started from", session.state.PassStartParts)
 	}
 }
+
+// instructionsKeepingBackend is an adapter like Codex's, which puts the
+// instructions inside the message, so its session keeps them.
+type instructionsKeepingBackend struct{ *speakingBackend }
+
+func (instructionsKeepingBackend) SessionKeepsInstructions() bool { return true }
+
+// A later round of a recurring turn resumes the session its first round began.
+// Where the adapter sends instructions apart from the message, as Claude Code
+// does, that session does not keep them, so the later round is sent the
+// briefing's first part again with them. Where the adapter folds the
+// instructions into the message, as Codex does, the session already holds the
+// briefing, and sending it again would add the whole product intent to the
+// session once a round, so the later round is sent the role's instructions
+// alone.
+func TestALaterRoundOfAPassResendsTheBriefingOnlyWhereTheSessionDoesNotKeepIt(t *testing.T) {
+	t.Parallel()
+	briefing := assembledBriefing(t, 20<<10, 10<<10, 5<<10)
+	unchanging, _ := contextbundle.SplitUnchanging(contextbundle.PassContext(briefing).Text)
+	for _, keeps := range []bool{false, true} {
+		speaking := &speakingBackend{results: []backendapi.RunResult{
+			{SessionID: "pass-session", FinalText: "The first round."},
+			{SessionID: "pass-session", FinalText: "The closing report."},
+		}}
+		var provider Backend = speaking
+		if keeps {
+			provider = instructionsKeepingBackend{speaking}
+		}
+		options := passOptions(t, provider)
+		options.Briefing.Text = briefing
+		session := openTestSession(t, options)
+		session.ForPass("architect-pass#1")
+		ctx := context.Background()
+		if _, err := session.Send(ctx, "The pass's message."); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := session.Send(ctx, "Give the closing report."); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.EndPass(); err != nil {
+			t.Fatal(err)
+		}
+		first, later := speaking.requests[0], speaking.requests[1]
+		if first.SessionID != "" || later.SessionID != "pass-session" {
+			t.Fatalf("the rounds resumed %q and %q", first.SessionID, later.SessionID)
+		}
+		if !strings.HasSuffix(first.SystemPrompt, passBriefingFraming+unchanging) {
+			t.Fatalf("keeps=%v: the round starting the session was not sent the briefing's first part", keeps)
+		}
+		instructions := strings.TrimSuffix(first.SystemPrompt, passBriefingFraming+unchanging)
+		if keeps && later.SystemPrompt != instructions {
+			t.Fatal("a later round resuming a session that keeps its instructions was sent the product intent again")
+		}
+		if !keeps && later.SystemPrompt != first.SystemPrompt {
+			t.Fatal("a later round resuming a session that does not keep its instructions was sent without the briefing it started from")
+		}
+	}
+}

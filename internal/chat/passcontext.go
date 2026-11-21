@@ -255,12 +255,36 @@ const passBriefingFraming = "\n\n# The product briefing, first part\n\n" +
 // followed, for every turn of a recurring turn's own provider session, by the
 // first part of its briefing. Every round of the pass carries the same block,
 // so the session never loses the briefing its first round was given, and each
-// round reads that block back from the cache.
+// round reads that block back from the cache. passInstructionsFor takes it out
+// again for a round resuming a session that already holds it.
 func (s *Session) withPassBriefing(instructions string) string {
 	if s.pass == "" || s.passBriefing == "" {
 		return instructions
 	}
 	return instructions + passBriefingFraming + s.passBriefing
+}
+
+// passInstructionsFor is request with the instructions the endpoint served by
+// adapter should be sent for it. Every round of a recurring turn carries the
+// first part of its briefing with its instructions (withPassBriefing), which an
+// adapter sending instructions apart from the message needs on every call,
+// since its session does not keep them. An adapter that folds the instructions
+// into the message keeps them in the session, so a round resuming that session
+// already holds the briefing and is sent the instructions without it, rather
+// than adding the product intent to the session once a round. A round that
+// starts a session there is sent it whole.
+func (s *Session) passInstructionsFor(adapter Backend, request backend.RunRequest) backend.RunRequest {
+	if s.pass == "" || s.passBriefing == "" {
+		return request
+	}
+	suffix := passBriefingFraming + s.passBriefing
+	instructions := strings.TrimSuffix(request.SystemPrompt, suffix)
+	if request.SessionID != "" && backend.SessionKeepsInstructions(adapter) {
+		request.SystemPrompt = instructions
+	} else {
+		request.SystemPrompt = instructions + suffix
+	}
+	return request
 }
 
 // boundPassStart makes the briefing a recurring turn starts from the one

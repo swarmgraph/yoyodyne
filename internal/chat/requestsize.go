@@ -28,7 +28,7 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (re
 	// Replacing or shortening a session can append events after the provider's
 	// last event. Even when rebuilding fails, the caller must keep that position.
 	defer func() { result.LastEvent = max(result.LastEvent, s.state.LastSequence) }()
-	prepared, err := s.fitRequest(b.adapter, request)
+	prepared, err := s.fitRequest(b.adapter, s.passInstructionsFor(b.adapter, request))
 	if err != nil {
 		return backend.RunResult{LastEvent: s.state.LastSequence}, err
 	}
@@ -70,7 +70,7 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (re
 		return backend.RunResult{LastEvent: s.state.LastSequence}, recordErr
 	}
 	request.LastSequence = s.state.LastSequence
-	request, fitErr := s.fitRequest(b.adapter, request)
+	request, fitErr := s.fitRequest(b.adapter, s.passInstructionsFor(b.adapter, request))
 	if fitErr != nil {
 		return backend.RunResult{LastEvent: s.state.LastSequence}, fitErr
 	}

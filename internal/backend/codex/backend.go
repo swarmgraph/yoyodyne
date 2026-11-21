@@ -857,6 +857,11 @@ func (b Backend) installedVersion(ctx context.Context, configDir string) string 
 	return strings.TrimSpace(versionResult.Stdout)
 }
 
+// SessionKeepsInstructions says a Codex session keeps the instructions its
+// requests carried: composePrompt puts them in the message, which the session
+// holds, so a turn resuming it need not be sent text it was already given.
+func (Backend) SessionKeepsInstructions() bool { return true }
+
 // composePrompt is what the provider is actually sent. Codex has no separate
 // channel for a system prompt, so the role's contract is prepended to the
 // prompt rather than dropped: a role invoked without the contract it was given
