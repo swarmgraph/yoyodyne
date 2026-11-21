@@ -154,6 +154,10 @@ revisions:
       by: architect
       at: 2026-11-21T14:09:19.640503Z
       reason: 'yoyodyne-hs28: point 5 of the five design corrections, and the last part left. The pull request body bullet said every request names its merge method; one left open for a person to merge names none, so the method is named only where the harness merges. Also rewords ''blast radius'' in plain words. Point 1''s program manager half needs no revision: that design points to tool-interface, which names both holders. Subsection read whole at main 8fcb9d337; nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T15:42:32.198464Z
+      reason: 'yoyodyne-ifd.437.67: The release tag section only, copied from main cdcd0559a79a. ''the adoption walkthrough'' becomes ''the getting started walkthrough'', the last place in the three designs that item names; nothing else in the section changes.'
 approvals:
     - revision: 0
       by: operator
@@ -203,6 +207,11 @@ approvals:
       by: harness
       at: 2026-11-21T14:09:19.640503Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3324, for document-3324.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 37
+      by: harness
+      at: 2026-11-21T15:42:32.198464Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3328, for document-3328.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -608,7 +617,7 @@ It is an opt in, `approvals.releases`, defaulting to `human`, for the reason pub
 
 - the notes and their readiness stamp are read from `main` as it stands when the cut runs;
 - the notes name exactly one commit, and `origin/main` contains it;
-- the stamp's verdict and pinned definition match a fresh reading of that commit, and the adoption walkthrough and `make check` pass at that commit.
+- the stamp's verdict and pinned definition match a fresh reading of that commit, and the getting started walkthrough and `make check` pass at that commit.
 
 Where a release had alphas, [the alpha releases design](alpha-releases.md) says which commit its notes name; the conditions above apply to it unchanged.
 
