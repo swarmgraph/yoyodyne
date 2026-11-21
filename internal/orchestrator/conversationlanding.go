@@ -232,6 +232,18 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry,
 			}
 			continue
 		}
+		// The tracker refuses to close an item that waits on unfinished work, so
+		// such an item is left open without asking: asking recorded the revision,
+		// was refused, and took the record back off again, three writes to the store
+		// at every pull for as long as the blocker stood, which in the hour from
+		// 03:00 on November 21 was one tracker call in five
+		// (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md). The next pull
+		// after the blocker closes closes it.
+		if waiting := landingWaitsOn(entry, item); len(waiting) > 0 {
+			sweep.Problems = append(sweep.Problems, fmt.Sprintf("%s landed as the %s revision of %s and was not closed, because it waits on unfinished work (%s) and the tracker closes nothing that does; it closes at the first pull after that work is closed",
+				entry.ID, landing.RevisedAt.UTC().Format(time.RFC3339), landing.Document, strings.Join(waiting, ", ")))
+			continue
+		}
 		// The revision is written onto the item before the close, so that an item
 		// the close reaches carries what it was closed on whatever the tracker
 		// does next. A record that could not be written closes nothing: a close
@@ -259,6 +271,22 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry,
 		sweep.Landed = append(sweep.Landed, landing)
 	}
 	return sweep, nil
+}
+
+// landingWaitsOn is the unfinished work an entry waits on, as the queue read it
+// and as the tracker's reading of the item states it: the same reading the
+// claim and the queue make (beads.WorkItem.WaitingOn), so an item the tracker
+// would refuse to close is one this does not ask it to.
+func landingWaitsOn(entry backlog.Entry, item beads.WorkItem) []string {
+	seen := make(map[string]bool, len(entry.WaitingOn))
+	var waiting []string
+	for _, id := range append(append([]string(nil), entry.WaitingOn...), item.WaitingOn(nil)...) {
+		if id = strings.TrimSpace(id); id != "" && !seen[id] {
+			seen[id] = true
+			waiting = append(waiting, id)
+		}
+	}
+	return waiting
 }
 
 // landsInADocument reports an executor whose conversation's landing could be a

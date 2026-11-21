@@ -360,3 +360,29 @@ func TestAWriteDropsOnlyTheItemsItNamesWhole(t *testing.T) {
 		t.Fatal("an item no command named was dropped")
 	}
 }
+
+// Statuses reads whether several items are closed in one listing and nothing
+// more: it does not read the items they link to, so asking about the items a
+// red-target merge waits on costs the store one call each pass however many
+// there are, where a Show of each cost one per item.
+func TestStatusesReadsSeveralItemsInOneListing(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{responses: []string{`[` +
+		`{"id":"yoyodyne-ifd.436.4","title":"Red check","status":"in_progress","priority":1,"issue_type":"bug","dependencies":[{"issue_id":"yoyodyne-ifd.436.4","depends_on_id":"yoyodyne-ifd.436","type":"parent-child"}]},` +
+		`{"id":"yoyodyne-ifd.141.5","title":"Other red check","status":"closed","priority":1,"issue_type":"bug"}]`}}
+	statuses, err := (Client{Runner: runner}).Statuses(context.Background(), []string{"yoyodyne-ifd.436.4", "yoyodyne-ifd.141.5", "yoyodyne-ifd.436.4", "yoyodyne-gone"})
+	if err != nil {
+		t.Fatalf("Statuses() error = %v", err)
+	}
+	want := [][]string{{"list", "--json", "--limit=0", "--all", "--id=yoyodyne-ifd.436.4,yoyodyne-ifd.141.5,yoyodyne-gone"}}
+	if !slices.EqualFunc(runner.args, want, slices.Equal[[]string]) {
+		t.Fatalf("Statuses() ran %v, want exactly %v", runner.args, want)
+	}
+	if len(statuses) != 2 || statuses["yoyodyne-ifd.436.4"] != "in_progress" || statuses["yoyodyne-ifd.141.5"] != "closed" {
+		t.Fatalf("Statuses() = %v, want each item's status and nothing for an item bd does not hold", statuses)
+	}
+	if none, err := (Client{Runner: &fakeRunner{}}).Statuses(context.Background(), nil); err != nil || len(none) != 0 {
+		t.Fatalf("Statuses(nil) = %v, %v, want an empty answer without asking bd", none, err)
+	}
+}

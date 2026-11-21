@@ -79,6 +79,45 @@ func (c Client) ShowMany(ctx context.Context, ids []string) (map[string]WorkItem
 	return read, nil
 }
 
+// Statuses reads the status of each work item named, in one `bd list --id=…`
+// for each fifty, and reports it by id. It is for a caller that needs only
+// whether items are closed: unlike ShowMany it does not read the items they
+// link to, so it costs the store one listing however many items it names. An id
+// the tracker holds no item under is absent from the answer, as in ShowMany.
+//
+// The merge queue's carry-out, its re-arming and reconcile each ask whether the
+// items a merge withdrawn for a red target waits on are closed, every pass; read
+// one at a time with Show, that was a call per item each pass, and in the hour
+// from 03:00 on November 21 those reads were one tracker call in six
+// (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md).
+func (c Client) Statuses(ctx context.Context, ids []string) (map[string]string, error) {
+	wanted := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if err := validateIssueID(id); err != nil {
+			return nil, err
+		}
+		if !seen[id] {
+			seen[id] = true
+			wanted = append(wanted, id)
+		}
+	}
+	if len(wanted) == 0 {
+		return map[string]string{}, nil
+	}
+	read, err := c.listByID(ctx, wanted)
+	if err != nil {
+		return nil, err
+	}
+	statuses := make(map[string]string, len(read))
+	for id, item := range read {
+		if seen[id] {
+			statuses[id] = item.Status
+		}
+	}
+	return statuses, nil
+}
+
 // listByID reads the items named with `bd list`, maxItemsPerShow to a call,
 // closed ones included. Validated ids carry no comma, so each is one id to bd.
 func (c Client) listByID(ctx context.Context, ids []string) (map[string]WorkItem, error) {
