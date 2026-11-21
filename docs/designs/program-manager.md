@@ -66,6 +66,10 @@ revisions:
       by: architect
       at: 2026-11-21T10:50:10.775929Z
       reason: 'Replacing the coined vocabulary in the governed documents, second of the last three program manager sections (yoyodyne-ifd.437.21): ''never a gate'' becomes ''never holds one back'', and four words a reader would stop on (judgment-only, decisionless, round-capped, event-triggered) become plain phrases with the same meaning. Nothing else in the section changes. Section read at main cd5590fec8a4.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T12:21:20.8557Z
+      reason: 'yoyodyne-ifd.437.21: the last governed-document place the vocabulary inventory names. Area 13 of the technical-health program manager''s rotation said seams; it now says divisions. Nothing else in the section changes. Earlier revisions under this item covered the other documents it names, so this revision completes the item.'
 approvals:
     - policy: approvals.designs
       revision: 6
@@ -112,6 +116,11 @@ approvals:
       by: harness
       at: 2026-11-21T10:50:10.775929Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3315, for document-3315.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 15
+      by: harness
+      at: 2026-11-21T12:21:20.8557Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3319, for document-3319.1 under the automatic approval policy
 ---
 # The program manager: one role type, one lane per instance, requests batched to the Lead Product Manager
 
@@ -293,7 +302,7 @@ yoyodyne-ifd.430.13.19. The operator asked for a second instance, `technical-hea
 10. test quality, not only test cost: tests that would pass on broken code, and tests that fail some of the time and not others, such as the two merge queue restart tests (yoyodyne-ifd.429.74);
 11. data races, goroutines that never end, and background processes that outlive their run;
 12. error handling: errors swallowed, and failures that leave a state file partly written;
-13. oversized files that every run must read, such as `pipeline.go` and `chat.go` today. It admits work to split one only along seams the architect has ruled for that file, and where none is ruled it asks the architect rather than choosing one;
+13. oversized files that every run must read, such as `pipeline.go` and `chat.go` today. It admits work to split one only along divisions the architect has ruled for that file, and where none is ruled it asks the architect rather than choosing one;
 14. security boundaries: the developer run's sandbox, secrets and tokens, and what the dashboard exposes. A finding here names the file and the kind of weakness and never copies a secret's value, because the tracker and the repository are public;
 15. code that has drifted from its design: it proposes an amendment to the architect, and never rules on which of the two is right;
 16. comments that break the repository's rule on code comments: a comment explains the code as it now is, and keeps the history of incidents out.
