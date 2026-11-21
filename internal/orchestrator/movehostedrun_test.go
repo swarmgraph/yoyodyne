@@ -283,3 +283,45 @@ func TestAMovePastItsLimitSaysWhatItIsWaitingOn(t *testing.T) {
 		t.Fatalf("holdingRestart() with nothing found = %q", got)
 	}
 }
+
+// Two decided runs that each keep the endpoint pair of developer slot 2 are
+// taken up only in that slot, so one pass continues one of them and passes the
+// other over without spending a free slot on it: a free slot spent on a start
+// the store would refuse is a slot left idle for the pass, which is how the
+// continuation for yoyodyne-ifd.429.95 waited beside the one for
+// yoyodyne-ifd.428.114 on November 20 while other slots stood free.
+func TestTwoContinuationsPinnedToOneSlotSpendOneFreeSlot(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness()
+	pushed := harness.now.Add(-2 * time.Hour)
+	pin := func(state runstate.State) runstate.State {
+		state.Routing = &runstate.RunRouting{Slot: &runstate.RoutedSlot{Number: 2}, Developer: &runstate.RoutingSnapshot{}}
+		return state
+	}
+	older := pin(waitingOnGitHub("yoyodyne-ifd.429.95", "run-older", pushed))
+	newer := pin(waitingOnGitHub("yoyodyne-ifd.428.114", "run-newer", pushed))
+	older.UpdatedAt, newer.UpdatedAt = pushed, pushed.Add(time.Minute)
+	harness.inFlight[older.WorkItemID] = older
+	harness.inFlight[newer.WorkItemID] = newer
+	var decided atomic.Bool
+	decided.Store(true)
+	pull, err := harness.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pull.CIWaits = gitHubDecidesLater{decided: &decided}
+	pull.Continuations = waitingContinuations{}
+	passed := map[string]string{}
+	got, err := Scheduler{Now: harness.clock}.nextContinuations(context.Background(), pull, map[string]runstate.State{}, map[string]int{}, map[string]refusedContinuation{}, 2, 0,
+		func(id, reason string) { passed[id] = reason })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].state.RunID != "run-older" {
+		t.Fatalf("continued %d runs, want only the older one, which keeps slot 2 first", len(got))
+	}
+	if reason := passed["yoyodyne-ifd.428.114"]; !strings.Contains(reason, "developer slot 2") || !strings.Contains(reason, "run-older") {
+		t.Fatalf("pass-over reason = %q, want it to name slot 2 and the run taking it", reason)
+	}
+}

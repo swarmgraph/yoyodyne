@@ -4466,7 +4466,10 @@ it goes on in the lowest free slot instead of waiting, records that slot, the
 one it moved from, when, and why, says so in its history and on its status line,
 and reads its sub-agent setting from the new slot. A run that
 keeps its slot's endpoint pair is never moved; it waits for that slot, and the
-wait names the slot, the run holding it, and why.
+wait names the slot, the run holding it, and why. When two such runs are due
+to be continued in one pass, the scheduler continues the older and passes the
+other over naming the slot and the run taking it, so it spends no free slot on a
+start that would be refused and another slot can go to other work.
 A run the scheduler pulled into a slot records that slot in every project, or
 the first free one, in the order below, where that was taken by the time the run recorded it, and
 then its selection reason names the slot it runs in. The recorded slot is also
