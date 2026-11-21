@@ -74,15 +74,15 @@ func TestASessionAskedToStopWhileMovingStopsItsRunsForTheMove(t *testing.T) {
 	landings := &hostedLandings{}
 	runCtx, cancel := hostedContext(session, 0, landings)
 	defer cancel(nil)
-	at := time.Date(2026, 11, 20, 12, 59, 0, 0, time.UTC)
-	landings.moving(15*time.Minute, "watch-moving", func() time.Time { return at })
+	before := time.Now()
+	landings.moving(15*time.Minute, "watch-moving")
 	stopSession()
 	<-runCtx.Done()
 	drained, forRedeploy := drainedForRedeploy(runCtx)
 	if !forRedeploy {
 		t.Fatalf("the run's cause = %v, want the move", context.Cause(runCtx))
 	}
-	if drained.SessionID != "watch-moving" || drained.Bound != 15*time.Minute || !drained.At.Equal(at) {
+	if drained.SessionID != "watch-moving" || drained.Bound != 15*time.Minute || drained.At.Before(before) {
 		t.Fatalf("the stop = %#v, want the moving session's, dated when it stopped", drained)
 	}
 }

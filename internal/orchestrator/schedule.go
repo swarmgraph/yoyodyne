@@ -2490,7 +2490,7 @@ pulling:
 				}
 			case replaced:
 				drain.begin(s.now())
-				landings.moving(drain.limit, s.SessionID, s.now)
+				landings.moving(drain.limit, s.SessionID)
 				// A pass going round on its own stops at its next turn, so the
 				// restart is not held for a queue waiting on the forge.
 				queuePasses.settle()
@@ -2636,7 +2636,7 @@ pulling:
 		// pull rather than at the next deploy.
 		drain.arm(pull.RedeployDrainLimit, s.now())
 		if drain.active {
-			landings.moving(drain.limit, s.SessionID, s.now)
+			landings.moving(drain.limit, s.SessionID)
 			schedule.Drain.Bound = drain.limit
 			session.draining(drain.record(running))
 		}

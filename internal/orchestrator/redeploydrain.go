@@ -151,22 +151,19 @@ type hostedLandings struct {
 	landing map[int]bool
 	yields  map[int]*checkYield
 	// move is the session's move onto a new build, once it has found one to
-	// move onto, and clock what dates a stop made for it. A session asked to
-	// stop while it is moving — the supervisor restarting a scheduler that has
-	// gone past its limit for the move — stops its runs for the move rather
-	// than as cancelled (stopCause).
-	move  *RedeployDrain
-	clock func() time.Time
+	// move onto. A session asked to stop while it is moving — the supervisor
+	// restarting a scheduler that has gone past its limit for the move — stops
+	// its runs for the move rather than as cancelled (stopCause).
+	move *RedeployDrain
 }
 
 // moving records that the session is moving onto a new build, under bound,
 // so that its own stop from here is the move's (stopCause). It is called again
 // whenever the bound is read, so a lengthened bound is the one recorded.
-func (h *hostedLandings) moving(bound time.Duration, sessionID string, clock func() time.Time) {
+func (h *hostedLandings) moving(bound time.Duration, sessionID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.move = &RedeployDrain{Bound: bound, SessionID: sessionID}
-	h.clock = clock
 }
 
 // stopCause is what a hosted run is stopped with when the session's own
@@ -176,6 +173,11 @@ func (h *hostedLandings) moving(bound time.Duration, sessionID string, clock fun
 // run stopped by that is stopped by the harness's own restart exactly as one
 // the drain bound stopped is, so it is recorded and taken up again the same
 // way rather than ended as cancelled.
+//
+// It is answered on whichever goroutine the session's context ended on, so it
+// reads only what the lock guards and the wall clock, never the scheduler's
+// own clock, which is the session goroutine's; the run dates its own record of
+// the stop by its own clock (pauseForRedeploy).
 func (h *hostedLandings) stopCause(session context.Context) (error, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -183,10 +185,7 @@ func (h *hostedLandings) stopCause(session context.Context) (error, bool) {
 		return context.Cause(session), false
 	}
 	stop := *h.move
-	stop.At = time.Now()
-	if h.clock != nil {
-		stop.At = h.clock()
-	}
+	stop.At = time.Now().UTC()
 	return stop, true
 }
 
