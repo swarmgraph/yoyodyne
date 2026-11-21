@@ -165,7 +165,7 @@ func TestAWaitOnACheckCountsASlotHeldByARunAnEarlierSessionStopped(t *testing.T)
 	waiting := []runstate.WatchCheckWait{{RunID: "run-racing", WorkItemID: "yoyodyne-racing", Check: "make race"}}
 	ask := func(drain redeployDrain, occupied map[string]runstate.State, hosted map[int]context.CancelCauseFunc) int {
 		drain.checkWaits = waiting
-		return Scheduler{}.idleBesideCheckWaits(context.Background(), &drain, Pull{}, occupied, map[string]bool{}, mine, hosted, 0, false, nil, false)
+		return Scheduler{}.idleBesideCheckWaits(context.Background(), &drain, Pull{}, occupied, map[string]bool{}, mine, hosted, 0, false, nil, false, nil)
 	}
 
 	if got := ask(redeployDrain{}, occupied, hosted); got != 1 {
@@ -183,7 +183,7 @@ func TestAWaitOnACheckCountsASlotHeldByARunAnEarlierSessionStopped(t *testing.T)
 	live := map[int]context.CancelCauseFunc{0: func(error) {}, 1: func(error) {}}
 	both := map[string]int{"yoyodyne-racing": 0, "yoyodyne-stopped": 1}
 	drain := redeployDrain{checkWaits: waiting}
-	if got := (Scheduler{}).idleBesideCheckWaits(context.Background(), &drain, Pull{}, occupied, map[string]bool{}, both, live, 0, false, nil, false); got != 0 {
+	if got := (Scheduler{}).idleBesideCheckWaits(context.Background(), &drain, Pull{}, occupied, map[string]bool{}, both, live, 0, false, nil, false, nil); got != 0 {
 		t.Fatalf("idle slots = %d, want none for a stopped run this session hosts again", got)
 	}
 }
