@@ -170,6 +170,12 @@ func (r Reconciler) settlePersonMerge(ctx context.Context, answers forgeAnswers,
 		result.Found = PersonMergeClosed
 	default:
 		result.Found = PersonMergeOpen
+		// A repair the development manager decided is running on this request and
+		// will replace its head, so the request is not brought up to date under it.
+		if recorded.PersonMerge.RepairInFlight() {
+			result.Kept = fmt.Sprintf("a repair of pull request %d, decided from feedback on it, is running and will replace its head, so it is not brought up to date meanwhile", published.Number)
+			return result
+		}
 		return r.updatePersonMerge(ctx, recorded, observed, result)
 	}
 

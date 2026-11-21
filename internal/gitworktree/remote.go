@@ -322,6 +322,78 @@ func (m *Manager) RepublishBranch(ctx context.Context, worktree Worktree, previo
 	return publication, nil
 }
 
+// ReplaceBranch publishes this worktree's change onto a branch an earlier run
+// published, in place of the head that run left there, so the pull request that
+// carries that branch carries this run's change instead of a second request
+// being opened for it. It is how a new run of an item, started to repair a
+// change a person has not merged, updates the request that change waits on.
+//
+// What is pushed is the worktree's own harness-owned commit, made from anything
+// the developer left uncommitted, as PublishBranch makes it. The push is a
+// compare-and-swap on previousCommit, the exact head the harness put on the
+// branch: a branch someone else moved, or one that no longer carries that
+// head, is refused rather than overwritten, and the refusal is
+// ErrRemotePushRejected. A branch already at the commit is a push already made
+// and is not made again, so asking twice is safe.
+func (m *Manager) ReplaceBranch(ctx context.Context, worktree Worktree, branch, previousCommit, message string) (Publication, error) {
+	if !commitPattern.MatchString(previousCommit) {
+		return Publication{}, fmt.Errorf("published commit %q is invalid", previousCommit)
+	}
+	if err := validateRef(branch); err != nil {
+		return Publication{}, err
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = defaultCommitMessage(worktree)
+	}
+	path, head, err := m.verifyOwnedHead(ctx, worktree)
+	if err != nil {
+		return Publication{}, err
+	}
+	dirty, err := m.isDirty(ctx, path)
+	if err != nil {
+		return Publication{}, err
+	}
+	if !dirty && head == worktree.BaseCommit {
+		return Publication{}, ErrNoChanges
+	}
+	commit := head
+	if dirty {
+		commit, err = m.commitWorktree(ctx, path, message)
+		if err != nil {
+			return Publication{}, err
+		}
+	}
+	if commit == worktree.BaseCommit {
+		return Publication{}, ErrNoChanges
+	}
+	publication := Publication{Remote: m.pushRemote, Branch: branch, Commit: commit}
+	if published, exists, err := m.remoteCommit(ctx, m.pushRemote, branch); err != nil {
+		return publication, err
+	} else if exists && published == commit {
+		return publication, nil
+	}
+	result, err := m.runRemote(ctx, "-C", m.repositoryRoot,
+		"-c", "core.hooksPath="+os.DevNull,
+		"push", "--force-with-lease=refs/heads/"+branch+":"+previousCommit,
+		m.pushRemote, commit+":refs/heads/"+branch)
+	if err != nil {
+		return publication, err
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return publication, fmt.Errorf("%w: replace %s with %s on %s failed with exit code %d: %s",
+			ErrRemotePushRejected, previousCommit, commit, branch, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	published, exists, err := m.remoteCommit(ctx, m.pushRemote, branch)
+	if err != nil {
+		return publication, err
+	}
+	if !exists || published != commit {
+		return publication, fmt.Errorf("%w: %s on %s is at %q after the push, want %s", ErrRemotePushRejected, branch, m.pushRemote, published, commit)
+	}
+	return publication, nil
+}
+
 // VerifyRemoteTarget checks that the remote target branch can still receive the
 // promotion the harness already made locally. The forge is what performs the
 // merge, and a forge asked to merge into a branch that moved would reconcile

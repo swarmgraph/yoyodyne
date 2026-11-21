@@ -872,3 +872,64 @@ func deletes(changes ChangeDiff, path string) bool {
 	}
 	return false
 }
+
+// A later run of an item updates the branch an earlier run published, so the
+// pull request that carries it carries the later run's change. The push is a
+// compare-and-swap from the head the harness put there, and asking twice is safe.
+func TestManagerReplaceBranchUpdatesAnEarlierRunsBranchFromItsKnownHead(t *testing.T) {
+	t.Parallel()
+
+	repository, remote := newPublishedRepository(t)
+	manager := newRemoteManager(t, repository, filepath.Join(t.TempDir(), "worktrees"), "origin")
+	ctx := context.Background()
+	earlier, err := manager.Create(ctx, CreateRequest{RunID: testRunID, WorkItemID: "yoyodyne-replace", BaseRef: "HEAD", TargetBranch: "main"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	writeFile(t, earlier.Path, "feature.txt", "first change\n")
+	first, err := manager.PublishBranch(ctx, earlier, "")
+	if err != nil {
+		t.Fatalf("PublishBranch() error = %v", err)
+	}
+
+	later, err := manager.Create(ctx, CreateRequest{RunID: "run-" + strings.Repeat("b", 32), WorkItemID: "yoyodyne-replace", BaseRef: "HEAD", TargetBranch: "main"})
+	if err != nil {
+		t.Fatalf("Create() later error = %v", err)
+	}
+	if _, err := manager.ReplaceBranch(ctx, later, earlier.Branch, first.Commit, ""); !errors.Is(err, ErrNoChanges) {
+		t.Fatalf("ReplaceBranch() with nothing to publish error = %v, want ErrNoChanges", err)
+	}
+	writeFile(t, later.Path, "feature.txt", "repaired change\n")
+	// A branch that is not where the harness left it is refused, not overwritten.
+	elsewhere := strings.Repeat("a", 40)
+	refused, err := manager.ReplaceBranch(ctx, later, earlier.Branch, elsewhere, "")
+	if !errors.Is(err, ErrRemotePushRejected) {
+		t.Fatalf("ReplaceBranch() from a head the branch is not at error = %v, want ErrRemotePushRejected", err)
+	}
+	// The commit exists even though the push was refused, and the caller carries it.
+	later.HarnessCommit = refused.Commit
+	if published := gitLine(t, remote, "rev-parse", "refs/heads/"+earlier.Branch); published != first.Commit {
+		t.Fatalf("remote branch = %q after a refused replacement, want it left at %q", published, first.Commit)
+	}
+
+	replaced, err := manager.ReplaceBranch(ctx, later, earlier.Branch, first.Commit, "")
+	if err != nil {
+		t.Fatalf("ReplaceBranch() error = %v", err)
+	}
+	if replaced.Branch != earlier.Branch || replaced.Commit == first.Commit {
+		t.Fatalf("replacement = %#v, want the earlier branch carrying a new commit", replaced)
+	}
+	if published := gitLine(t, remote, "rev-parse", "refs/heads/"+earlier.Branch); published != replaced.Commit {
+		t.Fatalf("remote branch = %q, want the replacement %q", published, replaced.Commit)
+	}
+	if content := gitLine(t, remote, "show", replaced.Commit+":feature.txt"); content != "repaired change" {
+		t.Fatalf("feature.txt on the branch = %q, want the repaired change", content)
+	}
+	// The harness records the commit, as it does for any publication, and a second
+	// request finds the branch already there.
+	later.HarnessCommit = replaced.Commit
+	again, err := manager.ReplaceBranch(ctx, later, earlier.Branch, first.Commit, "")
+	if err != nil || again.Commit != replaced.Commit {
+		t.Fatalf("ReplaceBranch() again = %#v, %v; want the same commit with nothing pushed twice", again, err)
+	}
+}

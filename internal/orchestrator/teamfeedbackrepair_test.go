@@ -183,7 +183,7 @@ func TestRepairFromFeedbackIsRefusedWithItsReason(t *testing.T) {
 		t.Parallel()
 		_, _, _, _, repairer := repairFixture(t)
 		_, err := repairer.Decide(ctx, decideRequest("yoyodyne-unknown", "line-comment-21"))
-		if err == nil || !strings.Contains(err.Error(), "not waiting for the team's merge as carried by pull request #7") {
+		if err == nil || !strings.Contains(err.Error(), "not waiting for a merge of pull request #7") {
 			t.Fatalf("Decide() = %v, want it refused for naming an item the pull request does not carry", err)
 		}
 	})

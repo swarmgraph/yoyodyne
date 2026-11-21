@@ -390,6 +390,7 @@ var outsideRunRecordBypasses = []outsideRunRecordSite{
 	{"internal/orchestrator/publish.go", "(*activeRun).publishIntegration", savesWholeRecord},
 	{"internal/orchestrator/publish.go", "(*activeRun).recordPublishFailure", savesWholeRecord},
 	{"internal/orchestrator/publish.go", "(*activeRun).republishRebase", savesWholeRecord},
+	{"internal/orchestrator/pullrequestupdate.go", "(*activeRun).publishOntoPullRequest", savesWholeRecord},
 	{"internal/orchestrator/queuedchecks.go", "(Reconciler).recordUnreadChecks", savesWholeRecord},
 	{"internal/orchestrator/queuedchecks.go", "(Reconciler).settleStillQueued", savesWholeRecord},
 	{"internal/orchestrator/queuedchecks.go", "(Reconciler).updateQueuedHead", setsStatusOrStep},
