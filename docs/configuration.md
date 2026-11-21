@@ -5127,7 +5127,10 @@ comes back re-adopts each one at its first pull, ahead of anything new, and
 continues it from the phase it was stopped at — the session that stopped it
 never does, however long it goes on pulling. A run at its promotion is waited
 out past the bound rather than interrupted, because it holds the target
-branch's lease. While one is, or while a document landing run is, the restart
+branch's lease, for at most thirty minutes past the session's limit for winding
+down; past that the supervisor restarts the session onto the new build whatever
+it is still waiting out, and reconciliation against the remote settles a
+promotion cut off part-way. While one is, or while a document landing run is, the restart
 cannot come sooner, so the session goes on filling free developer slots and
 leaves each run at its developer attempt going, and stops those once nothing of
 the kind is left. A document landing run is waited out at any step, and past the

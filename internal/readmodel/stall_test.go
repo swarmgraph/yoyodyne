@@ -694,16 +694,30 @@ func TestASessionPastItsWindDownLimitIsNamedAndDueARestart(t *testing.T) {
 	}
 
 	// A promotion or a document landing still being waited out, said recently,
-	// is never cut short: stopping either part-way is what the wind-down exists
-	// to avoid, and the session restarts the moment it ends.
+	// is not read as past the limit and is given longer before the supervisor
+	// restarts the session; but it is restarted once that longer allowance has
+	// passed, whatever it is still waiting on, so a promotion the forge never
+	// finishes cannot keep the scheduler off new builds for ever.
 	for _, waiting := range []runstate.WatchDrain{
 		{Since: since, BoundSeconds: 900, Until: limit, Hosting: 1, BoundReached: true, Promoting: 1, PromotingSince: limit},
 		{Since: since, BoundSeconds: 900, Until: limit, Hosting: 1, BoundReached: true, Publishing: 1},
 	} {
-		now := limit.Add(time.Hour)
-		line := runstate.WatchTransition{SessionID: "watch-e4c9", State: runstate.WatchWatching, At: now.Add(-time.Minute), Draining: &waiting}
-		if due, restart := DrainRestartDue([]runstate.WatchTransition{line}, now); restart {
-			t.Fatalf("due = %+v, want a session still saying it waits out a promotion or document landing left to finish it", due)
+		early := limit.Add(UnstoppedRestartAfter - time.Second)
+		line := runstate.WatchTransition{SessionID: "watch-e4c9", State: runstate.WatchWatching, At: early.Add(-time.Minute), Draining: &waiting}
+		if _, past := DrainPastLimit([]runstate.WatchTransition{line}, early); past {
+			t.Fatal("a session saying it waits out a promotion or document landing was read as past its limit")
+		}
+		if due, restart := DrainRestartDue([]runstate.WatchTransition{line}, limit.Add(DrainRestartAfter)); restart {
+			t.Fatalf("due = %+v, want a session saying it waits out a promotion or document landing given longer than five minutes", due)
+		}
+		if due, restart := DrainRestartDue([]runstate.WatchTransition{line}, early); restart {
+			t.Fatalf("due = %+v, want a session saying it waits out a promotion or document landing left until its longer allowance passes", due)
+		}
+		late := limit.Add(UnstoppedRestartAfter)
+		line.At = late.Add(-time.Minute)
+		due, restart := DrainRestartDue([]runstate.WatchTransition{line}, late)
+		if !restart || due.SessionID != "watch-e4c9" || !due.Limit.Equal(limit) || due.Past != UnstoppedRestartAfter {
+			t.Fatalf("due = %+v, want the session restarted once it is %s past its limit, whatever it still waits on", due, UnstoppedRestartAfter)
 		}
 	}
 

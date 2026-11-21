@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/shutdown"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
@@ -687,6 +688,19 @@ func TestTheRealChildrenSayWhichBuildTheyRunAndWhatTheyAreDoing(t *testing.T) {
 	}
 	if overdue, err := scheduler.RestartOverdue(context.Background(), limit.Add(19*time.Minute)); err != nil || !strings.Contains(overdue, "past its limit for winding down to move onto a new build for 19m0s") {
 		t.Fatalf("RestartOverdue() = %q, %v, want the session named as overdue nineteen minutes past its limit", overdue, err)
+	}
+	// A session still saying it waits out a promotion past its limit is given
+	// longer, and is then restarted whatever it waits on, with that named.
+	late := limit.Add(readmodel.UnstoppedRestartAfter)
+	if err := watch.Record(runstate.WatchTransition{SchemaVersion: runstate.WatchSchemaVersion, SessionID: "watch-0123456789abcdef0123456789abcdef", ProductID: "yoyodyne", State: runstate.WatchWatching, At: late.Add(-time.Minute), Reason: "waiting out a promotion",
+		Draining: &runstate.WatchDrain{Since: began, BoundSeconds: 900, Until: limit, Hosting: 1, BoundReached: true, Promoting: 1, PromotingSince: limit}}); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	if overdue, err := scheduler.RestartOverdue(context.Background(), limit.Add(19*time.Minute)); err != nil || overdue != "" {
+		t.Fatalf("RestartOverdue() = %q, %v, want a session waiting out a promotion left nineteen minutes past its limit", overdue, err)
+	}
+	if overdue, err := scheduler.RestartOverdue(context.Background(), late); err != nil || !strings.Contains(overdue, "still waiting out a promotion") {
+		t.Fatalf("RestartOverdue() = %q, %v, want the session named as overdue whatever it waits on once its longer allowance has passed", overdue, err)
 	}
 	var sinkChild supervise.Child = sink
 	if _, ok := sinkChild.(supervise.RestartsItself); ok {

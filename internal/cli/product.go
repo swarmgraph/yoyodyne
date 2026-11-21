@@ -1324,7 +1324,7 @@ func (schedulerChild) Busy(context.Context) (string, error) { return "", nil }
 // started from replaced, stops pulling, waits out the runs it hosts, and
 // re-executes in place. Stopping it instead would cancel those runs.
 func (schedulerChild) RestartsItself() string {
-	return "the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit, or has not begun its move that long after the move fell due"
+	return "the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit (thirty while it waits out a promotion or a document landing), or has not begun its move within that limit and five minutes after the move fell due"
 }
 
 // RestartOverdue is the watching session having been past its wind-down limit
@@ -1345,8 +1345,12 @@ func (c schedulerChild) RestartOverdue(_ context.Context, now time.Time) (string
 	if !over || due.SessionID != holder.SessionID {
 		return "", nil
 	}
-	return fmt.Sprintf("has been past its limit for winding down to move onto a new build for %s, since %s, without restarting itself",
-		due.Past.Round(time.Second), due.Limit.Local().Format("15:04 MST")), nil
+	said := fmt.Sprintf("has been past its limit for winding down to move onto a new build for %s, since %s, without restarting itself",
+		due.Past.Round(time.Second), due.Limit.Local().Format("15:04 MST"))
+	if due.Waiting != "" {
+		said += fmt.Sprintf(", still waiting out %s, which is given %s past that limit and no longer", due.Waiting, readmodel.UnstoppedRestartAfter)
+	}
+	return said, nil
 }
 
 // NextMove is the earliest the watching session may next move onto a new
