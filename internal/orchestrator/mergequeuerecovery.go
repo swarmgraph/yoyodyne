@@ -1019,6 +1019,10 @@ type MergeQueueRunHandback struct {
 	// every such hand-back the stop instead.
 	CatchUp  MergeQueueCatchUpRuns
 	Capacity int
+	// Checkouts rebuilds the checkout of a run the sweep cleared while its
+	// change waited, so the catch-up is still given; nil gives such a run the
+	// stop instead.
+	Checkouts MergeQueueCatchUpCheckouts
 }
 
 var _ MergeQueueRepair = MergeQueueRunHandback{}

@@ -25,6 +25,15 @@ package orchestrator
 // run with none left stops for the development manager as it always has. A
 // second conflict in the queue finds the reconciliation used and is handed back
 // as before, with the stop saying so (catchUpRefusal).
+//
+// A change can wait in the queue long enough for the maintenance sweep to
+// remove its run's checkout, and those long waits are the ones most likely to
+// meet a moved target. The run's branch still holds the approved head, so the
+// checkout is rebuilt from it (rebuildCheckout, through RestoreWorktree, the
+// same restoration a resumed promotion uses) and the attempt goes ahead as it
+// would have with the checkout in place. Only where the branch, the recorded
+// head, or work the branch does not hold is missing does the hand-back get the
+// stop, and the stop names which.
 
 import (
 	"context"
@@ -33,6 +42,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -42,6 +52,14 @@ import (
 type MergeQueueCatchUpRuns interface {
 	AdoptRun(ctx context.Context, runID string) (runstate.State, *runstate.Lease, error)
 	ReserveLive(ctx context.Context, live runstate.State, maxConcurrent int) error
+	Update(ctx context.Context, runID string, update runstate.RunUpdate) (runstate.State, error)
+}
+
+// MergeQueueCatchUpCheckouts rebuilds a run's checkout that the maintenance
+// sweep removed, from the branch at the head the run recorded, so the run can be
+// given its catch-up in it. It is satisfied by *gitworktree.Manager.
+type MergeQueueCatchUpCheckouts interface {
+	RestoreWorktree(ctx context.Context, worktree gitworktree.Worktree) (gitworktree.Worktree, error)
 }
 
 // MergeQueueCatchUpWaiting is a catch-up owed to a run that could not be made
@@ -62,8 +80,10 @@ func (e MergeQueueCatchUpWaiting) Error() string {
 // catchUpRefusal says why a hand-back of a head that would not merge does not
 // get the run's one attempt to catch up with the target, and is empty where
 // it does. It reads only the run's record and the hand-back; the item and the
-// slot are asked where the attempt is made.
-func catchUpRefusal(state runstate.State, handback runstate.MergeQueueHandback) string {
+// slot are asked where the attempt is made. rebuildable is whether a checkout
+// the sweep removed can be rebuilt here; where it can, a missing checkout is
+// refused only for what the rebuilding needs and does not have.
+func catchUpRefusal(state runstate.State, handback runstate.MergeQueueHandback, rebuildable bool) string {
 	switch {
 	case handback.Conflict == nil:
 		return "the queue handed it back for something other than the target moving under it"
@@ -73,10 +93,21 @@ func catchUpRefusal(state runstate.State, handback runstate.MergeQueueHandback) 
 		return "the run has no developer to bring the change up to date"
 	case state.Status != runstate.StatusSucceeded:
 		return fmt.Sprintf("the run is %s rather than waiting on the queue", state.Status)
+	case (strings.TrimSpace(state.Branch) == "" || state.BranchRemoved) && checkoutGone(state):
+		return "the run's worktree is gone, and so is the branch it would be rebuilt from"
 	case strings.TrimSpace(state.Branch) == "" || state.BranchRemoved:
 		return "the run's branch is gone"
-	case strings.TrimSpace(state.WorktreePath) == "" || state.WorktreeRemoved:
+	case checkoutGone(state) && !rebuildable:
 		return "the run's worktree is gone"
+	case checkoutGone(state) && strings.TrimSpace(state.WorktreePath) == "":
+		return "the run's worktree is gone and the run records no path to rebuild it at"
+	case checkoutGone(state) && strings.TrimSpace(state.HarnessCommit) == "":
+		return fmt.Sprintf("the run's worktree is gone and the run records no approved head on its branch %s to rebuild it from", state.Branch)
+	case checkoutGone(state) && strings.TrimSpace(handback.ApprovedHead) != "" && handback.ApprovedHead != state.HarnessCommit:
+		return fmt.Sprintf("the run's worktree is gone, and the head it records (%s) is not the approved head the queue held (%s), so a checkout rebuilt from its branch would not be the approved change",
+			shortCommit(state.HarnessCommit), shortCommit(handback.ApprovedHead))
+	case checkoutGone(state) && strings.TrimSpace(state.PreservedWorkRef) != "":
+		return fmt.Sprintf("the run's worktree is gone, and the sweep that removed it kept uncommitted work on %s that its branch does not hold", state.PreservedWorkRef)
 	case strings.TrimSpace(state.BaseCommit) == "" || strings.TrimSpace(state.TargetBranch) == "":
 		return "the run records no base to bring up to date from"
 	case strings.TrimSpace(state.ProviderSessionID) == "":
@@ -85,6 +116,12 @@ func catchUpRefusal(state runstate.State, handback runstate.MergeQueueHandback) 
 		return fmt.Sprintf("its promotion has been resumed %d times, which is the record's bound", runstate.MaxIntegrationResumptions)
 	}
 	return ""
+}
+
+// checkoutGone reports a run whose record says its checkout is no longer
+// there, or never names one.
+func checkoutGone(state runstate.State) bool {
+	return strings.TrimSpace(state.WorktreePath) == "" || state.WorktreeRemoved
 }
 
 func reconciliationWhen(used *runstate.Reconciliation) string {
@@ -136,7 +173,7 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 	if conflict := state.ReplayConflict; conflict != nil && conflict.Reconciliation && strings.Contains(conflict.Detail, marker) && state.CatchingUpWithMergeQueueTarget() {
 		return true, "", h.noteCatchUp(ctx, entry, notes)
 	}
-	if refusal := catchUpRefusal(state, handback); refusal != "" {
+	if refusal := catchUpRefusal(state, handback, h.Checkouts != nil); refusal != "" {
 		return false, refusal, nil
 	}
 	item, err := h.Tracker.Show(ctx, entry.WorkItemID)
@@ -157,8 +194,15 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 	}
 	defer func() { _ = lease.Release() }()
 	// Read again under the lease: what was read before it is only a snapshot.
-	if refusal := catchUpRefusal(adopted, handback); refusal != "" {
+	if refusal := catchUpRefusal(adopted, handback, h.Checkouts != nil); refusal != "" {
 		return false, refusal, nil
+	}
+	if checkoutGone(adopted) {
+		rebuilt, refusal, err := h.rebuildCheckout(ctx, adopted)
+		if refusal != "" || err != nil {
+			return false, refusal, err
+		}
+		adopted = rebuilt
 	}
 	live := catchUpState(adopted, entry, handback, marker, h.now())
 	if err := h.CatchUp.ReserveLive(ctx, live, h.Capacity); err != nil {
@@ -168,6 +212,30 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 		return false, "", fmt.Errorf("put run %s back to bring its change up to date with %s: %w", entry.RunID, entry.TargetBranch, err)
 	}
 	return true, "", h.noteCatchUp(ctx, entry, notes)
+}
+
+// rebuildCheckout puts back the checkout the sweep removed from a run waiting on
+// the queue, from its branch at the head the run recorded, and records on the
+// run that it is there again, through the run store's narrow update
+// (runstate.WorktreeRebuilt), so nothing another writer changed meanwhile is
+// overwritten. It is called under the run's lease, after every
+// other refusal and before the run is made live, and the record is written at
+// once rather than with the put-back: a slot that went elsewhere meanwhile then
+// leaves a waiting run whose record says, truly, that its checkout is back, and
+// the next pass finds it there and rebuilds nothing.
+//
+// A checkout that cannot be rebuilt is a refusal, not an error: the branch or
+// its head is not what the run recorded, and the hand-back's stop says so.
+func (h MergeQueueRunHandback) rebuildCheckout(ctx context.Context, state runstate.State) (runstate.State, string, error) {
+	if _, err := h.Checkouts.RestoreWorktree(ctx, worktreeOf(state)); err != nil {
+		return state, fmt.Sprintf("the run's worktree is gone and could not be rebuilt from its branch %s at its approved head %s: %v",
+			state.Branch, shortCommit(state.HarnessCommit), err), nil
+	}
+	rebuilt, err := h.CatchUp.Update(ctx, state.RunID, runstate.WorktreeRebuilt{At: h.now()})
+	if err != nil {
+		return state, "", fmt.Errorf("record that the worktree of run %s was rebuilt at %s: %w", state.RunID, state.WorktreePath, err)
+	}
+	return rebuilt, "", nil
 }
 
 // catchUpState is the run put back live at its developer attempt with the
