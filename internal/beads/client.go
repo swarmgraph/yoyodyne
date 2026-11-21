@@ -574,6 +574,11 @@ type Client struct {
 	// calls with, which already holds the store lock exclusive and so must not
 	// ask for it again (storelock.go).
 	storeLocked bool
+	// UnorderedCalls makes this client's calls without waiting in the line
+	// every harness call to one store otherwise shares (turns.go). It is for
+	// tests whose stand-in store has to be asked by many callers at once; the
+	// harness never sets it.
+	UnorderedCalls bool
 }
 
 // beadsDirVariable is the BEADS_DIR bd is run under: the store this client is

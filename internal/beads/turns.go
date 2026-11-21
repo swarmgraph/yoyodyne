@@ -82,7 +82,7 @@ func (b turnBusy) Is(target error) bool { return target == ErrUnanswered }
 // is the rebuild's or runs against a server, it returns at once with nothing to
 // end.
 func (c Client) takeTurn(ctx context.Context) (func(), error) {
-	if c.Dir == "" || c.storeLocked || c.serverMode || !turnsSupported {
+	if c.Dir == "" || c.storeLocked || c.serverMode || c.UnorderedCalls || !turnsSupported {
 		return func() {}, nil
 	}
 	store := storeDirectory(c.Dir, c.beadsDirVariable())
