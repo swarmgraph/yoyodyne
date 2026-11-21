@@ -144,6 +144,13 @@ type Request struct {
 	// from the harness's own reading, not from the developer. It is empty where
 	// the run's checks did not wait on the forge.
 	CIChecks string
+	// UntouchedReruns lists each check on the candidate that failed only in
+	// tests the change does not touch and passed when those tests were run once
+	// more on the same commit: every test that failed and then passed, with the
+	// first failure's output, already rendered by the caller from the run's
+	// record. It comes from the harness, not from the developer, and it is empty
+	// where no such rerun passed.
+	UntouchedReruns string
 	// DeveloperSummary is the latest completed account saved in the run record.
 	// DeveloperSummaryContext states its attempt and content relation to the
 	// candidate, or explains why no account is available.
@@ -1274,6 +1281,7 @@ func reviewEvidencePrompt(request Request) string {
 		prompt.WriteString("\n\n## Checks run on this machine\n\n")
 	}
 	prompt.WriteString(renderChecks(request.Checks, request.CheckPatterns, execution.EventLogOf(request.RunID)))
+	prompt.WriteString(renderUntouchedReruns(request.UntouchedReruns))
 	return prompt.String()
 }
 
@@ -1694,6 +1702,20 @@ func renderChecks(results []checks.Result, patterns []string, record string) str
 		rendered.WriteString("\n")
 	}
 	return rendered.String()
+}
+
+// renderUntouchedReruns is the tests that failed and then passed when run once
+// more, under a heading of their own so a check shown above as passed is never
+// read as one that passed at its first try. The first failure's output is the
+// check's own output, quoted as untrusted the way every check's is.
+func renderUntouchedReruns(described string) string {
+	described = strings.TrimSpace(described)
+	if described == "" {
+		return ""
+	}
+	return "\n## Tests that failed and then passed\n\n" +
+		"Each check below failed on its first run only in tests the change does not touch, so the harness ran just those tests once more on the same commit, and they passed; the check is counted as passed above. A test listed here may fail only when the machine is busy, or may fail now and then because of this change. Each first failure's output is " + checkOutputLabel + ".\n\n" +
+		described + "\n"
 }
 
 // renderMatchedLines quotes the lines of a check's retained output containing

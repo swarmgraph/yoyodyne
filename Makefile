@@ -103,7 +103,11 @@ GOVERNED_DOCUMENT_PREFIX = defect in a governed document (escalated;
 # judges the set, where a person running the checks can read them. The grep
 # keeps the one or two lines that matter; the suite above is still the verdict.
 test: cachecheck
-	@documents=; \
+	@if [ -n "$$YOYODYNE_FAILING_TESTS" ]; then \
+		sh scripts/rerun-failing.sh '$(GO)' '$(TEST_TIMEOUT)'; \
+		exit; \
+	fi; \
+	documents=; \
 	if [ "$(origin CHANGED_GO_PACKAGES)" = undefined ]; then \
 		packages=./...; \
 	else \
@@ -140,7 +144,7 @@ test: cachecheck
 		$(GO) test -timeout $(TEST_TIMEOUT) -run "$$pattern" $$named || failed=1; \
 	fi; \
 	exit $$failed
-	@$(GO) test -v -run '^TestShippedDocumentationNamesDocumentsThisRepositoryHas$$' ./internal/contextbundle \
+	@[ -n "$$YOYODYNE_FAILING_TESTS" ] || $(GO) test -v -run '^TestShippedDocumentationNamesDocumentsThisRepositoryHas$$' ./internal/contextbundle \
 		| grep -E 'shipped documentation is|WARNING:'
 	@# The dashboard page's only behavioural evidence is its render comparison,
 	@# and `go test ./...` prints one line per package -- so a run that compared
@@ -156,7 +160,8 @@ test: cachecheck
 	@# rather than in `status`, which zsh reserves read-only -- make runs this
 	@# under /bin/sh, so that is a trap for whoever copies the step rather than
 	@# a defect here, and the way not to leave it is not to write it.
-	@render=$$($(GO) test -count=1 -v -run '^TestThePageRendersEverySectionInEveryState$$' ./internal/dashboard 2>&1); \
+	@[ -z "$$YOYODYNE_FAILING_TESTS" ] || exit 0; \
+	render=$$($(GO) test -count=1 -v -run '^TestThePageRendersEverySectionInEveryState$$' ./internal/dashboard 2>&1); \
 	rendered=$$?; \
 	line=$$(printf '%s\n' "$$render" | grep -E '^--- (PASS|SKIP|FAIL): TestThePageRendersEverySectionInEveryState'); \
 	case "$$line" in \
@@ -172,7 +177,8 @@ test: cachecheck
 	@# however many of the gates found it, or one line saying there was none. It is captured and its status kept, for
 	@# the reasons the render step above gives. internal/governeddoc's
 	@# repository_test.go fails if the list or the prefix stop matching the code.
-	@gates=$$($(GO) test -count=1 -v -run '$(GOVERNED_DOCUMENT_TESTS)' $(GOVERNED_DOCUMENT_GATES) 2>&1); \
+	@[ -z "$$YOYODYNE_FAILING_TESTS" ] || exit 0; \
+	gates=$$($(GO) test -count=1 -v -run '$(GOVERNED_DOCUMENT_TESTS)' $(GOVERNED_DOCUMENT_GATES) 2>&1); \
 	gated=$$?; \
 	found=$$(printf '%s\n' "$$gates" | awk -v prefix='$(GOVERNED_DOCUMENT_PREFIX)' \
 		'index($$0, prefix) == 1 { shown = !seen[$$0]++; if (shown) print; next } shown && /^\t/ { print; next } { shown = 0 }'); \
@@ -228,10 +234,14 @@ test: cachecheck
 # not know what the change touches.
 RACE_PACKAGES ?= ./...
 
-# When the harness's checks on main run `make race` a second time after it
-# failed, YOYODYNE_FAILING_TESTS names the tests and packages the first run
-# named failing, and only those run, through scripts/rerun-failing.sh; nothing
-# above decides anything then. A test that passes there fails only under load.
+# When the harness runs a failed check a second time, YOYODYNE_FAILING_TESTS
+# names the tests and packages the first run named failing, and only those
+# run, through scripts/rerun-failing.sh; nothing above decides anything then.
+# The checks on main do it for `make race`, and a run does it for `make test`,
+# `make race` and `make test-macos` where a failure is confined to tests the
+# change does not touch (internal/checks/untouchedrerun.go); `make test` then
+# skips its steps after the suite. A test that passes there fails only under
+# load, or only now and then.
 #
 # Whichever packages that leaves, scripts/race-run.sh runs them, and where
 # internal/orchestrator is among them it splits that package's tests into
@@ -273,6 +283,10 @@ test-macos: cachecheck
 	@if [ "$$(uname -s)" != Darwin ]; then \
 		echo "test-macos: this is not macOS, so there are no macOS-only tests to run here"; \
 		exit 0; \
+	fi; \
+	if [ -n "$$YOYODYNE_FAILING_TESTS" ]; then \
+		sh scripts/rerun-failing.sh '$(GO)' '$(TEST_TIMEOUT)'; \
+		exit; \
 	fi; \
 	echo "$(GO) test -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES)"; \
 	$(GO) test -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES) || exit 1; \

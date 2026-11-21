@@ -1155,6 +1155,7 @@ var notAStep = map[string]string{
 	"keepChecks":                 "chooses, inside candidate.check, which checks a stage picked up after a restart onto a new build still runs",
 	"wholeCheckOwedHere":         "decides, at the promotion, whether a change left to the merge queue's whole check is checked whole by candidate.check after all",
 	"checkLimit":                 "works out one check's own time limit as it begins, inside candidate.check",
+	"rerunUntouched":             "runs, inside candidate.check, the one rerun of a failure confined to tests the change does not touch and the checks after it, so the stage reaches its verdict",
 
 	// The declarative path. These step the workflow instance a run is observed
 	// through and are the one group here that is not part of the delivery at all:

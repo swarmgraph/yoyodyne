@@ -2482,6 +2482,7 @@ func (s *State) recordedTexts() []recordedText {
 			unstated("stops[].evidence.findings[].file", at(path, findingIndex, "file"), &finding.File, MaxRecordedTextBytes)
 		}
 	}
+	s.untouchedRerunTexts(unstated)
 	if s.CheckFailure != nil {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
 		failingTestTexts(unstated, "check_failure.failing_tests", "check_failure.failing_tests", s.CheckFailure.FailingTests)
@@ -4152,6 +4153,12 @@ type State struct {
 	// a run a restart onto a new build stopped at its checks reruns only the
 	// rest. It is cleared once the stage reaches a verdict.
 	KeptChecks *KeptChecks `json:"kept_checks,omitempty"`
+	// UntouchedReruns are the reruns this run made of a failure confined to
+	// tests the change does not touch, each written before it started
+	// (untouchedrerun.go). They outlive the attempt that made them, because the
+	// bound is one per check stage per candidate commit and a restart must find
+	// the one it already spent.
+	UntouchedReruns []UntouchedRerun `json:"untouched_reruns,omitempty"`
 	// PathRefusal carries the protected paths the gate refused before any check
 	// ran. It is the third kind of repair input and behaves as the other two do:
 	// at most one of the three describes the current attempt, and because this
@@ -5143,6 +5150,14 @@ func (s State) Validate() error {
 	if s.KeptChecks != nil {
 		if err := s.KeptChecks.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("kept_checks: %w", err))
+		}
+	}
+	if len(s.UntouchedReruns) > MaxUntouchedRerunRecords {
+		problems = append(problems, fmt.Errorf("untouched_reruns holds at most %d reruns", MaxUntouchedRerunRecords))
+	}
+	for index, rerun := range s.UntouchedReruns {
+		if err := rerun.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("untouched_reruns[%d]: %w", index, err))
 		}
 	}
 	if s.CheckoutRestorePending && (!s.Status.Terminal() || s.ChecksPassed != nil) {
