@@ -639,11 +639,67 @@ Like the earlier groups, one pass each at a load that moved is not evidence of
 the size of the saving. The package's own binary was 57 seconds shorter and the
 33 moved tests pass in a binary of their own in 19 seconds.
 
-Part (a) is not finished: the 11 tests above could still move. Parts (b), the
-merge queue (which waits on the restart-test fix, yoyodyne-ifd.429.74), (c), the
-scheduler tests, and (d), what is left, remain.
+Part (a) was not finished by this change: the 11 tests above could still move.
+The next section moves them.
+
+### The sixth group: the 11 tests part (a) left in `pipeline_test.go` (yoyodyne-ifd.429.14.5.1)
+
+On commit cdcd0559a, `go run ./scripts/movetests` counted 26 tests in
+`pipeline_test.go`, and 11 of them could move: the 11 the fifth group kept. This
+change moved all 11 into `internal/orchestrator/pipelinerunstests`, in a fourth
+file, `usagelimits_test.go`, of 41 KB. They cover a provider that keeps
+refusing for overload or a usage limit and the run's waits across those
+refusals, the run that exits to be continued later, and what a run records as
+served when an attempt ends in error or a review is refused. Each keeps its
+name and its assertions, and no wall-clock bound was added to any of them. They
+needed no new helper in `testharness`; `pausingClock.now` is exported as
+`Instant`, the name the fourth group gave it. With the usage-limit tests gone
+whole, Git draws `pipeline_test.go`'s diff as removals alone: 811 lines.
+
+`pipeline_test.go` now holds 15 tests, and every one of them reaches internals,
+so it holds nothing movable. Each stays for what it reaches:
+
+| test | reaches |
+| --- | --- |
+| `TestFailureNoteDescribesEachArtifactFromWhatWasSettledAboutIt` | `renderPreservationNotes` |
+| `TestSingleLineKeepsCommitSubjectsBoundedAndValid` | `maxCommitSubjectBytes`, `singleLine` |
+| `TestValidateClaimedItemRejectsIdentityStatusAndBlockerChanges` | `validateClaimedItem` |
+| `TestValidateReviewPolicyRefusesAReviewerNothingCanLaunch` | `validateReviewPolicy` |
+| `TestValidateReviewPolicyGatesOnTheRoleHoldingTheVerdict` | `validateReviewPolicy` |
+| `TestDeveloperPromptKeepsTheHarnessContractAboveAnyPersona` | `developerContract`, `developerPrompt` |
+| `TestPipelineBoundsTheFailingCheckOutputItHandsBack` | `truncationNotice` |
+| `TestBoundedTailKeepsTheEndOfTheOutputOnARuneBoundary` | `boundedTail`, `truncationNotice` |
+| `TestPipelineRefusesToActOnARunAnotherInvocationHolds` | `resumableRepair` |
+| `TestRunPausesForAnOverloadedReviewAndAsksAgain` | `pausedForUsageLimit` |
+| `TestRunPausesForAnExhaustedUsageLimitAndResumesWhenItResets` | `releaseCheckInterval` |
+| `TestRunPausesWhenTheReviewerHitsAnExhaustedUsageLimit` | `pausedForUsageLimit` |
+| `TestRunFailsAStoppedProviderItCannotContinueWithoutBlamingTheDeveloper` | `providerStopReason` |
+| `TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegrationStop` | `continuableRepair` |
+| `TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands` | `deliveryDevelop`, `deliveryIntegrate` |
+
+Timed side by side from 08:06 PST on 2026-11-21, with
+`go test -count=1 -timeout 43m`, one pass each, at a one-minute load between 6
+and 15: the commit before the change, and this change.
+
+| tree | `internal/orchestrator` | `internal/orchestrator/pipelinerunstests` |
+| --- | --- | --- |
+| before, cdcd0559a | passed, 975s | |
+| after, this change | passed, 975s | passed, 25s |
+
+The package's own binary took the same time to the second. Eleven tests beside
+the 1,982 that stay in it are too few to show at this load in one pass each.
+What the move shows is the 44 tests of part (a) now passing together in a
+binary of their own in under half a minute, beside the package rather than
+inside it.
+
+Part (a) is finished. Parts (b), the merge queue (which waits on the
+restart-test fix, yoyodyne-ifd.429.74), (c), the scheduler tests, and (d), what
+is left, remain.
 
 ### What is left
+
+On the tree of the sixth group, the census counts 1,982 tests, 809 of them
+reaching internals, so 1,173 can still move.
 
 On the tree of the fifth group, the census counts 1,867 tests, 689 of them
 reaching internals, so 1,178 can still move; the figures below are from the tree
@@ -655,7 +711,7 @@ the size above. (It counted about 950 when this plan was written; tests have
 been added since faster than the groups have taken them away.) By subject and by
 what they cost, a plan the development manager can take or change:
 
-1. The other 43 movable tests in `pipeline_test.go`, in one change. Moved in part by the fifth group above, which left 11.
+1. The other 43 movable tests in `pipeline_test.go`, in one change. Moved by the fifth group above, which left 11, and the sixth, which moved those.
 2. The merge queue: `mergequeueworker_test.go`, `mergequeuerecovery_test.go`,
    `mergequeuepromotion_test.go`, and `queuedchecks_test.go`.
 3. Protection and landing: `protectedpath_test.go`, `protectedtarget_test.go`,
