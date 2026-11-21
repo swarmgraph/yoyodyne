@@ -718,13 +718,14 @@ func (r Reconciler) rerunEndedJobsAfterRedTarget(ctx context.Context, state runs
 
 // openRedTargetItems is the items a wait on a red target still waits on.
 func (r Reconciler) openRedTargetItems(ctx context.Context, waiting runstate.TargetRed) ([]string, error) {
+	ids := waiting.WaitingOn()
+	statuses, err := itemStatuses(ctx, r.Tracker, ids)
+	if err != nil {
+		return nil, fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w", statusReadID(err), waiting.TargetBranch, err)
+	}
 	var open []string
-	for _, id := range waiting.WaitingOn() {
-		item, err := r.Tracker.Show(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w", id, waiting.TargetBranch, err)
-		}
-		if !strings.EqualFold(item.Status, "closed") {
+	for _, id := range ids {
+		if !strings.EqualFold(statuses[id], "closed") {
 			open = append(open, id)
 		}
 	}

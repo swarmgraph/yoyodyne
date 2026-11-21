@@ -233,12 +233,13 @@ func (c CarryOut) targetRedAnswered(ctx context.Context, waiting runstate.Target
 	if c.Items == nil {
 		return true, nil
 	}
-	for _, id := range waiting.WaitingOn() {
-		item, err := c.Items.Show(ctx, id)
-		if err != nil {
-			return false, fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w", id, waiting.TargetBranch, err)
-		}
-		if !strings.EqualFold(item.Status, "closed") {
+	ids := waiting.WaitingOn()
+	statuses, err := itemStatuses(ctx, c.Items, ids)
+	if err != nil {
+		return false, fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w", statusReadID(err), waiting.TargetBranch, err)
+	}
+	for _, id := range ids {
+		if !strings.EqualFold(statuses[id], "closed") {
 			return false, nil
 		}
 	}
