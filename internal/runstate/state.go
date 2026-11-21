@@ -2322,6 +2322,12 @@ func (s *State) recordedTexts() []recordedText {
 		return fmt.Sprintf("%s[%d].%s", prefix, index, field)
 	}
 
+	if s.RedeployStop != nil {
+		nested("redeploy_stop.cut_off", "redeploy_stop.cut_off", &s.RedeployStop.CutOff, MaxRedeployCutOffBytes)
+	}
+	if s.Readopted != nil {
+		nested("readopted.cut_off", "readopted.cut_off", &s.Readopted.CutOff, MaxRedeployCutOffBytes)
+	}
 	if s.Subagents != nil {
 		unstated("subagents.unavailable", "subagents.unavailable", &s.Subagents.Unavailable, MaxRecordedTextBytes)
 		if s.Subagents.Limit != nil {
@@ -3207,7 +3213,17 @@ type RedeployStop struct {
 	// unfinished check one that runs again. It is absent on a stop at any other
 	// phase, and on one a build from before it was recorded made.
 	Checks *RedeployStopChecks `json:"checks,omitempty"`
+	// CutOff is a step the harness had started that the stop cut off part-way,
+	// in the words the step failed with: a tracker write, or a Git command, killed
+	// as the restart stopped the run. It is empty where the run stopped between
+	// steps, or where the step it was in was let finish first. Either way the
+	// stop is the restart's and not that step failing, so it charges nothing and
+	// the run is taken up again from its phase.
+	CutOff string `json:"cut_off,omitempty"`
 }
+
+// MaxRedeployCutOffBytes bounds RedeployStop.CutOff.
+const MaxRedeployCutOffBytes = 1024
 
 // RedeployStopChecks is what a stop at a run's checks did to them. A check in
 // none of its fields was either passed, and is kept (KeptChecks), or had not
@@ -3243,6 +3259,9 @@ func (r RedeployStop) Validate() error {
 	}
 	if r.BoundSeconds < 0 {
 		problems = append(problems, fmt.Errorf("bound_seconds is %d, which is not a duration", r.BoundSeconds))
+	}
+	if len(r.CutOff) > MaxRedeployCutOffBytes {
+		problems = append(problems, fmt.Errorf("cut_off is %d bytes, which exceeds the %d byte bound", len(r.CutOff), MaxRedeployCutOffBytes))
 	}
 	// The session is named by its identifier and nothing longer, so the field is
 	// structured rather than free text a record would have to bound.
