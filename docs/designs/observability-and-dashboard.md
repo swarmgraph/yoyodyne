@@ -82,6 +82,10 @@ revisions:
       by: architect
       at: 2026-11-21T02:18:48.716843Z
       reason: 'Third of three passages reconciling the observability and dashboard design with its reading of what the spend accomplished, for the reviewer''s finding on that design (yoyodyne-ifd.437.61): the deferred section now names all three readings that serve a date range the operator chooses, and its other entries are put in plain words. Only this section changes. Written from main at b5457cf3. The dashboard address passage the same item was widened to cover follows in its own revision.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T06:10:19.247734Z
+      reason: 'yoyodyne-ifd.437.61: the dashboard address passage. A configured address that is not loopback is refused both when the configuration is loaded and again when the dashboard starts, each refusal naming this section, suggesting no other address, and never falling back to loopback. Answers the reports that the code refuses at start while the design said only at load. Three joined words put in plain words. Only this section changes; written from main at 848597d0.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -143,6 +147,11 @@ approvals:
       by: harness
       at: 2026-11-21T02:18:48.716843Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3286, for document-3286.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 19
+      by: harness
+      at: 2026-11-21T06:10:19.247734Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3301, for document-3301.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -360,17 +369,24 @@ Beside the backlog page, sharing its chart library and layout, a page of the fac
 
 ## Web security *(the repository's web-service conventions, established here)*
 
-The dashboard listens only on a loopback address, such as 127.0.0.1 or ::1. The address is configuration, and the default is loopback. A configured address that is not loopback, including a wildcard that reaches every interface, is refused when the configuration is loaded, and the refusal names this section. The page takes the operator's own decisions, and [the v1 non-goals](../product/goals/v1-non-goals.md) keep it local and not hosted. The Lead Product Manager ruled that it therefore stays on this machine (yoyodyne-ifd.432.40). Reaching it from another device is not offered in v1.
+The dashboard listens only on a loopback address, such as 127.0.0.1 or ::1. The address is configuration, and the default is loopback. A configured address that is not loopback, including a wildcard that reaches every interface, is refused in two places, and both refusals name this section:
+
+- **When the configuration is loaded.** Loading refuses the configuration, so no command that reads it starts with an address the dashboard could not use.
+- **When the dashboard starts.** Before it opens its listener, the dashboard checks again the address it is about to listen on, and refuses to start if that address is not loopback. This second check covers an address that reaches the dashboard without passing through the configuration loader, such as one given on the command line, and holds the rule where the listener is opened rather than only where the setting is read.
+
+Each refusal says that the dashboard listens only on a loopback address in v1, names the address it refused, and names this section. Neither suggests another address to use or a way around the rule, and neither falls back to listening on loopback in place of the address asked for, because a dashboard that starts somewhere other than where the operator configured it hides the mistake.
+
+The page takes the operator's own decisions, and [the v1 non-goals](../product/goals/v1-non-goals.md) keep it local and not hosted. The Lead Product Manager ruled that it therefore stays on this machine (yoyodyne-ifd.432.40). Reaching it from another device is not offered in v1.
 
 - **A token is required on every request**, presented in a header or cookie and never in a URL or a log. A request without one, or with a wrong one, fails closed. The token is generated each start and reaches the operator as described under the generated token below.
 - **Host and Origin are validated against the loopback address and `allowed_hosts`.** `allowed_hosts` names further host names under which the same loopback listener is reached, such as a name the machine maps to 127.0.0.1. It never changes the address the dashboard listens on. A request naming a host outside that set fails closed.
-- The content-security policy stays restrictive and loads nothing from a CDN; the vendored chart library, served by the dashboard itself, keeps it so. All user-, model-, repository-, and Slack-supplied text stays untrusted and escaped; nothing secret, credential, or private-identifier enters the read model or the page.
+- The content security policy stays restrictive and loads nothing from a CDN; the vendored chart library, served by the dashboard itself, keeps it so. All text supplied by users, models, the repository, or Slack stays untrusted and escaped; no secret, credential, or private identifier enters the read model or the page.
 - **The shared token reads and acts on nothing.** An act needs the operator's own bound token, described below, and the grant the act requires. A request to act that carries only the shared token is refused.
 - **Transport is plain HTTP on the loopback interface.** Nothing the page sends leaves the machine, so no encryption is added in v1.
 
-**Alternatives rejected.** Keeping the setting, added on 19 September, that let the operator bind an address other machines can reach. A page that takes the operator's decisions, reachable over plain HTTP from a network, would send his token in clear and amount to the hosted control plane the non-goals exclude. Making it safe would need encryption and a way to prove who is connecting from another machine, which v1 does not take on. A configurable list of trusted networks has the same problem.
+**Alternatives rejected.** Keeping the setting, added on 19 September, that let the operator bind an address other machines can reach. A page that takes the operator's decisions, reachable over plain HTTP from a network, would send his token in clear and amount to the hosted control plane the non-goals exclude. Making it safe would need encryption and a way to prove who is connecting from another machine, which v1 does not take on. A configurable list of trusted networks has the same problem. Refusing only when the configuration is loaded, which leaves an address given any other way unchecked where the listener opens. Refusing only when the dashboard starts, which lets other commands run on a setting the dashboard will refuse and finds the mistake late. Falling back to loopback when another address is configured, which starts the page somewhere the operator did not ask for and hides the mistake. Naming another address in the refusal, which reads as advice to reach the page in a way this design does not offer.
 
-**What a reviewer can check.** A configured address that is not loopback is refused at load, naming this section. `allowed_hosts` changes which Host and Origin values are accepted and never the listening address. A request naming a host outside the set fails closed. A request to act that carries only the shared token is refused.
+**What a reviewer can check.** A configured address that is not loopback is refused when the configuration is loaded, naming this section. An address that is not loopback is refused again when the dashboard starts, naming this section, however the address reached it. Neither refusal names another address to use, and the dashboard never listens on an address other than the one asked for. `allowed_hosts` changes which Host and Origin values are accepted and never the listening address. A request naming a host outside the set fails closed. A request to act that carries only the shared token is refused.
 
 ## Acting from the dashboard
 
