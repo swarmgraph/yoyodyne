@@ -243,8 +243,13 @@ type RepairContinuer struct {
 	// erased from the record is restored from (erasedSession). Optional: without
 	// it a run with no session on its record is repaired in a fresh session.
 	Events RunEvents
-	Start  RepairContinueStarter
-	Clock  execution.Clock
+	// Checkout is the main checkout, asked before anything is written and again
+	// immediately before the run takes its developer slot
+	// (checkoutReadyToTakeUp). Optional: without it nothing is asked here and
+	// the pipeline asks once the run holds the slot.
+	Checkout CheckoutReadiness
+	Start    RepairContinueStarter
+	Clock    execution.Clock
 }
 
 // RepairContinueRequest is one decision to carry out: the run the docket entry
@@ -616,6 +621,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 		result.CapacityFull = &full
 		return result, nil
 	}
+	if err := checkoutReadyToTakeUp(ctx, c.Checkout, prior.RunID); err != nil {
+		return result, err
+	}
 	if !found.WorktreeThere {
 		prior, err = recovery.restoreCheckout(ctx, prior)
 		if err != nil {
@@ -666,6 +674,12 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	continued, err := c.supersedeOnRun(ctx, prior, granted, reason, result.Stall, result.FreshSession, replay)
 	if capacity, taken := slotTakenMeanwhile(err); taken {
 		return c.slotTakenBeforeContinuing(ctx, result, capacity)
+	}
+	// Refused the same way a lost slot is: nothing was written to the run and
+	// no grant was spent, so the decision stands for the next pass.
+	var unready CheckoutNotReadyToTakeUpError
+	if errors.As(err, &unready) {
+		return result, err
 	}
 	if err != nil {
 		return c.unconfirmedContinuation(ctx, result, fmt.Errorf("record the continuation on run %s, whose item claim was confirmed: %w", prior.RunID, err))
@@ -1464,6 +1478,9 @@ func (c RepairContinuer) supersedeOnRun(ctx context.Context, prior runstate.Stat
 func (c RepairContinuer) saveContinuation(ctx context.Context, continued runstate.State, makeLive bool) (runstate.State, error) {
 	var saveErr error
 	if makeLive {
+		if err := checkoutReadyToTakeUp(ctx, c.Checkout, continued.RunID); err != nil {
+			return runstate.State{}, err
+		}
 		saveErr = c.Runs.ReserveLive(ctx, continued, c.Capacity)
 		if _, taken := slotTakenMeanwhile(saveErr); taken {
 			return runstate.State{}, saveErr

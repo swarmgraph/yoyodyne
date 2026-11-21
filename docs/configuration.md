@@ -4932,10 +4932,13 @@ log, `yoyo status`, and the Slack heartbeat carry the cause, including
 Once you commit or stash, the next poll can start the queued work without a
 session restart or an edit to the item. The harness's own short-lived files in the tracker's directory, its write locks
 and the tickets its tracker calls hold under `.beads/yoyodyne-writes/`, are never counted as
-uncommitted changes. A run waiting for its pause to end, such as a wait for
-GitHub's checks, is asked about the checkout before it takes a developer slot
-back, so a refusal leaves it waiting with no slot held, and it is tried again
-at the first poll after the checkout is clean. Other refusals carry the condition and
+uncommitted changes. Every way the harness takes a run up again asks about the
+checkout before the run takes a developer slot: a run waiting for its pause to
+end, such as a wait for GitHub's checks, and a stopped run the harness
+continues or resumes, or puts back to bring its change up to date or to answer
+feedback on its pull request. A refusal leaves the run as it was, holding no
+slot, and it is tried again at the first poll or sweep after the checkout is
+clean. Other refusals carry the condition and
 the beginning of the cause separately, so bounding a long cause does not spend
 the detail limit repeating the condition.
 

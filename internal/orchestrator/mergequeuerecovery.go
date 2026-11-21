@@ -1019,6 +1019,10 @@ type MergeQueueRunHandback struct {
 	// every such hand-back the stop instead.
 	CatchUp  MergeQueueCatchUpRuns
 	Capacity int
+	// Checkout is the main checkout, asked immediately before the run is made
+	// live and takes its developer slot (checkoutReadyToTakeUp). Optional:
+	// without it nothing is asked here.
+	Checkout CheckoutReadiness
 }
 
 var _ MergeQueueRepair = MergeQueueRunHandback{}

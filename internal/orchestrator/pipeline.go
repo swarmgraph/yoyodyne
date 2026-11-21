@@ -2045,6 +2045,44 @@ func (p Pipeline) refuseUnreadyResume(ctx context.Context, state runstate.State)
 	return refused
 }
 
+// CheckoutReadiness is the main checkout's readiness, which every path that
+// makes a stopped or waiting run live again asks immediately before the save
+// that takes a developer slot (checkoutReadyToTakeUp).
+type CheckoutReadiness interface {
+	ValidateReady(ctx context.Context) error
+}
+
+// CheckoutNotReadyToTakeUpError is a run left as it was recorded because the
+// main checkout was not the harness's to work from when the run was about to
+// be made live. It unwraps to the checkout's own refusal, so
+// gitworktree.ErrPrimaryNotReady finds it.
+type CheckoutNotReadyToTakeUpError struct {
+	RunID string
+	Cause error
+}
+
+func (e CheckoutNotReadyToTakeUpError) Error() string {
+	return fmt.Sprintf("run %s was not taken up again, because the main checkout is not ready: %v; nothing was written to the run and it holds no developer slot, so the next pass tries again", e.RunID, e.Cause)
+}
+
+func (e CheckoutNotReadyToTakeUpError) Unwrap() error { return e.Cause }
+
+// checkoutReadyToTakeUp asks the main checkout whether a run may be made live
+// again. It is asked before the save that takes the run's developer slot,
+// because the pipeline asks the same question only once the run holds the slot,
+// and a refusal there leaves the slot held with nobody working the run. A
+// refusal here leaves the run exactly as recorded, holding no slot, for the
+// next pass to try again. A path wired with no checkout asks nothing.
+func checkoutReadyToTakeUp(ctx context.Context, checkout CheckoutReadiness, runID string) error {
+	if checkout == nil {
+		return nil
+	}
+	if err := checkout.ValidateReady(ctx); err != nil {
+		return CheckoutNotReadyToTakeUpError{RunID: runID, Cause: err}
+	}
+	return nil
+}
+
 // recordTakenUpSlot gives a run taken up again — a repair, a continuation, a
 // resumption — that holds a developer slot and whose record names no slot
 // number the first free one, by the claim a fresh run records its slot with

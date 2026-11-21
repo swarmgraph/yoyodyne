@@ -1003,6 +1003,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		Tracker:         parts.tracker(),
 		Children:        parts.tracker(),
 		Worktrees:       parts.worktrees,
+		Checkout:        parts.worktrees,
 		IntentWorktrees: reconcileIntentWorktreesOf(parts),
 		Store:           parts.store,
 		Repository:      parts.repository,
@@ -1644,6 +1645,7 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		Repair: orchestrator.MergeQueueRunHandback{
 			Store: parts.store, Tracker: pipeline.Tracker, Docket: docketerFrom(parts),
 			CatchUp: parts.store, Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+			Checkout: parts.worktrees,
 		},
 	}
 	// What takes up the changes the queue held because the target required the

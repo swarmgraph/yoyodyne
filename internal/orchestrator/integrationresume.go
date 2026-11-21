@@ -354,6 +354,9 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 			result.RecordProblem = noteSlotTaken(ctx, r.Items, entry.WorkItemID, prior.RunID, capacity)
 			return result, nil
 		}
+		if errors.Is(err, ErrCheckoutNotReady) {
+			return result, err
+		}
 		return result, fmt.Errorf("record the resumption on run %s, whose item has already been put back and told why: %w", prior.RunID, err)
 	}
 	result.Resumed = true
@@ -639,6 +642,13 @@ func (r IntegrationResumer) supersedeOnRun(ctx context.Context, prior runstate.S
 	// answered by it.
 	resumed.TakeUpRecoveryContinuation(runstate.RecoverFinishMerge, r.now())
 	resumed.RecoveryHold = nil
+	// The checkout is asked again here, immediately before the slot is taken:
+	// the item was told and claimed since the first ask, which can take as long
+	// as a tracker call, and a refusal once the run holds the slot would leave
+	// the slot held with nobody working the run.
+	if err := r.Worktrees.ValidateReady(ctx); err != nil {
+		return runstate.State{}, CheckoutNotReadyError{RunID: prior.RunID, Cause: err}
+	}
 	// The slot is taken by this save, not by the reading the caller made, which a
 	// reservation beside this one can overtake.
 	if err := r.Runs.ReserveLive(ctx, resumed, r.Capacity); err != nil {

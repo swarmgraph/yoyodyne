@@ -397,6 +397,9 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 		}
 		return keep("every developer slot is taken")
 	}
+	if checkoutReadyToTakeUp(ctx, r.Checkout, recorded.RunID) != nil {
+		return keep("the main checkout has uncommitted changes")
+	}
 
 	state, lease, err := r.Store.AdoptRun(ctx, recorded.RunID)
 	switch {
@@ -462,6 +465,9 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 	// head (activeRun.complete); while the run is live it holds a developer slot
 	// and is not waiting on anybody.
 	resumed := state.PutBackToBringUpToDate(boundedReason(reason), r.clock().Now())
+	if checkoutReadyToTakeUp(ctx, r.Checkout, state.RunID) != nil {
+		return keep("the main checkout has uncommitted changes")
+	}
 	if err := r.Store.ReserveLive(ctx, resumed, r.Capacity); err != nil {
 		if _, taken := slotTakenMeanwhile(err); taken {
 			return keep("the last developer slot went to another run first")

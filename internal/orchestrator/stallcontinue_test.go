@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -203,6 +205,7 @@ func exerciseFirstStall(t *testing.T, repairing, restarted, reviewing bool) {
 	continuer := StallContinuer{
 		Docket: docket, Redocket: docketer, Runs: store, Intake: intake, Items: tracker, Worktrees: worktrees,
 		Capacity: pipeline.Config.Execution.MaxConcurrentDevelopers,
+		Checkout: worktrees,
 		Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
 			return pipeline.Continue(ctx, workItemID, runID)
 		},
@@ -237,6 +240,22 @@ func exerciseFirstStall(t *testing.T, repairing, restarted, reviewing bool) {
 	unchanged("the intake hold")
 	if _, _, err := intake.Release(); err != nil {
 		t.Fatalf("Release() error = %v", err)
+	}
+	// A file somebody left in the main checkout makes it wait too: the run is
+	// not made live, so it takes no developer slot, and the next pull asks again.
+	dirty := filepath.Join(repository, "dirty.txt")
+	if err := os.WriteFile(dirty, []byte("somebody's change\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if carried, _, err := carrying().Carry(context.Background(), tasks[0]); err != nil || carried.Carried || !carried.Waiting || !strings.Contains(carried.Problem, "dirty.txt") {
+		t.Fatalf("Carry() with a dirty checkout = %#v, %v; want it waiting, naming the file", carried, err)
+	}
+	unchanged("the dirty checkout")
+	if again, _ := store.Load(paused.RunID); again.HoldsDeveloperSlot() {
+		t.Fatalf("a continuation the checkout refused holds a developer slot: %#v", again)
+	}
+	if err := os.Remove(dirty); err != nil {
+		t.Fatal(err)
 	}
 
 	// The next pull continues it, with no decision recorded, in its own session

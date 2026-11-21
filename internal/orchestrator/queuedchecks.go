@@ -438,6 +438,9 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 		}
 		return waiting("every developer slot is taken")
 	}
+	if checkoutReadyToTakeUp(ctx, r.Checkout, state.RunID) != nil {
+		return waiting("the main checkout has uncommitted changes")
+	}
 
 	// The merge is withdrawn first, because the replay rewrites the head: a merge
 	// left armed would land the rewritten head the moment its checks passed,
@@ -500,6 +503,15 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// beside this sweep can overtake. A refusal wrote nothing to the run, and the
 	// merge withdrawn above stays withdrawn: the next sweep finds it no longer
 	// held by the forge and puts the run back as it does any dropped merge.
+	if checkoutReadyToTakeUp(ctx, r.Checkout, state.RunID) != nil {
+		const why = "the main checkout has uncommitted changes, so the run was not made live"
+		if dropped {
+			return waiting(why)
+		}
+		result.Detail += fmt.Sprintf("; the queued merge of pull request %d was withdrawn to bring its head up to date onto %s, and %s, so the next sweep puts it back at its promotion as a dropped merge",
+			published.Number, target, why)
+		return result, nil
+	}
 	if err := r.Store.ReserveLive(ctx, resumed, r.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			if dropped {
