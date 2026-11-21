@@ -86,14 +86,14 @@ func (r Reconciler) SettleTeamMerges(ctx context.Context) ([]TeamMergeSettlement
 		if err := ctx.Err(); err != nil {
 			return settled, err
 		}
-		settled = append(settled, r.settleTeamMerge(ctx, reader, state))
+		settled = append(settled, r.settleTeamMerge(ctx, reader, state, waiting))
 	}
 	return settled, nil
 }
 
 // settleTeamMerge reads the team's branch for one wait and settles it under the
 // run's own lease where the landing commit is there.
-func (r Reconciler) settleTeamMerge(ctx context.Context, reader TeamBranchReader, recorded runstate.State) TeamMergeSettlement {
+func (r Reconciler) settleTeamMerge(ctx context.Context, reader TeamBranchReader, recorded runstate.State, waiting []runstate.State) TeamMergeSettlement {
 	wait := *recorded.TeamMerge
 	result := TeamMergeSettlement{
 		RunID:          recorded.RunID,
@@ -111,6 +111,13 @@ func (r Reconciler) settleTeamMerge(ctx context.Context, reader TeamBranchReader
 		return result
 	}
 	result.Found, result.FoundOn = true, reading.Tip
+	// A later run of the same item landed a repair decided from feedback, and the
+	// team has not merged it. The earlier change reaching the team's branch does
+	// not finish the item, so it stays open until the later one is found too.
+	if later, ok := laterWaitOfItem(waiting, recorded); ok {
+		result.Kept = fmt.Sprintf("run %s landed a repair of %s after run %s, and the team has not merged it, so the item stays open", later.RunID, recorded.WorkItemID, recorded.RunID)
+		return result
+	}
 
 	state, lease, err := r.Store.AdoptRun(ctx, recorded.RunID)
 	switch {
@@ -220,4 +227,19 @@ func teamMergeFoundHeadline(wait runstate.TeamMerge) string {
 func teamMergeCompletionReason(state runstate.State, wait runstate.TeamMerge) string {
 	return fmt.Sprintf("Reviewed by Yoyodyne run %s and landed on %s as %s, which the team merged into %s",
 		state.RunID, wait.TargetBranch, wait.LandingCommit, strings.TrimSpace(wait.UpstreamBranch))
+}
+
+// laterWaitOfItem is a run of the same item that landed after the given one and
+// is still waiting for the team's merge: the repair a development manager's
+// decision from feedback on a tracked pull request starts.
+func laterWaitOfItem(waiting []runstate.State, run runstate.State) (runstate.State, bool) {
+	for _, other := range waiting {
+		if other.RunID == run.RunID || other.WorkItemID != run.WorkItemID || other.TeamMerge == nil || !other.TeamMerge.Waiting() {
+			continue
+		}
+		if other.TeamMerge.Since.After(run.TeamMerge.Since) {
+			return other, true
+		}
+	}
+	return runstate.State{}, false
 }

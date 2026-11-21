@@ -18,10 +18,10 @@ package orchestrator
 //   - A person's approval is recorded on each item as information, and never
 //     stands in for the independent review its change already passed.
 //
-// Whether the feedback calls for a change is her decision. A repair of a landed
-// item cannot yet be started from here, because her decisions today attach
-// only to a stopped run and an item waiting for the team's merge has none, so
-// the report tells her to ask for a work item to be admitted instead.
+// Whether the feedback calls for a change is her decision. The report names the
+// pull request and the piece of feedback, which is the entry her decision to
+// repair one item answers (teamfeedbackrepair.go); nothing is started until she
+// decides.
 //
 // The cursor that keeps a piece of feedback from being acted on twice is kept
 // on every run the request carries (runstate.TeamPullRequest.Feedback), and a
@@ -405,9 +405,9 @@ func teamFeedbackMessage(runs []runstate.State, number int, url string, item run
 	if len(named) == 1 {
 		workItem = named[0]
 	}
-	return said + about + " Nothing was started, and a repair of a landed item cannot yet be started from feedback on a tracked pull request. " +
-		"If the feedback calls for a change, ask the Lead Product Manager to admit a work item for it, naming this pull request and quoting the feedback; " +
-		"that work runs on " + wait.TargetBranch + " through the configured checks and an independent review like any other.", report.SeverityWarning, workItem
+	return said + about + fmt.Sprintf(" Nothing was started. To repair one of those items from this feedback, record the decision %q naming pull_request %d, feedback %q and the one item; "+
+		"that starts a new run of it from %s through the configured checks and an independent review, spends one of the item's attempts, and answers this entry once.",
+		"repair-from-feedback", number, item.ID, wait.TargetBranch), report.SeverityWarning, workItem
 }
 
 // describeTeamItems names each item by its title with its identifier after
