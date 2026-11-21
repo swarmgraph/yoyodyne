@@ -146,6 +146,10 @@ revisions:
       by: architect
       at: 2026-11-20T22:09:22.684512Z
       reason: 'User Interaction section only, from main 9ceb3e5d5590. Replaces the four uses of the retired word for a required step with plain words, rewords ''blast radius'' and joined-up compounds the word check refuses, and corrects the paragraph on how a conversation''s document reaches the repository: it lands through a reviewed run of its own, not the operator''s commit. Part of the vocabulary item yoyodyne-ifd.437.21; that item''s program-manager share waits for that design''s split.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T00:12:28.377678Z
+      reason: 'yoyodyne-ifd.437.82: The release tag section only, from main 8d03f3a2c. Carries approved amendment-675d9b72: the automatic cut tags the commit the release notes name, which origin/main must contain, not the tip of main; notes and stamp are read from main; stamp, walkthrough and make check are judged at that commit; the cut refuses when no commit is named or it is not on main; the forge release text is the notes.'
 approvals:
     - revision: 0
       by: operator
@@ -185,6 +189,11 @@ approvals:
       by: harness
       at: 2026-11-20T22:09:22.684512Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3242, for document-3242.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 35
+      by: harness
+      at: 2026-11-21T00:12:28.377678Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3274, for document-3274.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -584,7 +593,19 @@ When publishing is enabled and the merge queue is off:
 
 A release the Lead Product Manager has decided under the release schedule the operator delegated is cut by the harness, and its tag is the one ref besides run branches and merge queue candidates the harness pushes. The decision is the Lead Product Manager's recorded act: the release item admitted under that delegated schedule, which the operator recorded as a directive. The cut is the supervisor's periodic pass and nothing else — never an agent, never a conversation, never a developer run. Agents push no tags, and that is unchanged.
 
-It is an opt in, `approvals.releases`, defaulting to `human`, for the reason publishing is one: a tag is visible outside the machine. Under `human` the cut stays a person's, and a release item's done condition says so. Under `automatic` the pass cuts when every condition the cut already requires holds — the release's notes on `main` carrying a readiness stamp whose verdict and pinned definition match a fresh reading of the commit to be tagged, the adoption walkthrough and `make check` passing, `HEAD` at `origin/main` — and when the operator's pause is not placed; the intake hold does not apply, because a cut selects no work. The cut writes nothing to `main`: the notes and their stamp land through the release item's own reviewed run, which drafts the notes and stamps them with `yoyo conformance --notes` in its worktree, so the one path into the target branch stays a run's reviewed promotion. A cut that finds the notes absent or the stamp stale refuses as it does today and hands the release item back to the Lead Product Manager rather than opening a pull request of its own. The tag is pushed under the harness's own identity, recorded on the release item and on the pass record, and said in the channel at warning severity, because a release is visible outside the machine. A release is not a deploy: the operations goal that a deploy happens only with the operator's explicit approval is untouched by any of this.
+It is an opt in, `approvals.releases`, defaulting to `human`, for the reason publishing is one: a tag is visible outside the machine. Under `human` the cut stays a person's, and a release item's done condition says so. Under `automatic` the pass cuts when every condition below holds and the operator's pause is not placed; the intake hold does not apply, because a cut selects no work.
+
+**The tag goes on the commit the notes name, not on the tip of `main`.** `main` keeps moving while a release is prepared: the release item's own run lands the notes, and other runs land after it. A tag placed on the tip would name a commit nobody judged. So the release's notes name the one commit they describe, and that commit is what is tagged. The conditions are judged at it:
+
+- the notes and their readiness stamp are read from `main` as it stands when the cut runs;
+- the notes name exactly one commit, and `origin/main` contains it;
+- the stamp's verdict and pinned definition match a fresh reading of that commit, and the adoption walkthrough and `make check` pass at that commit.
+
+Where a release had alphas, [the alpha releases design](alpha-releases.md) says which commit its notes name; the conditions above apply to it unchanged.
+
+The cut refuses, and says which condition failed, when the notes are absent, the stamp does not match, the notes name no commit, or the commit they name is not on `origin/main`. A refused cut hands the release item back to the Lead Product Manager rather than opening a pull request of its own.
+
+The cut writes nothing to `main`: the notes and their stamp land through the release item's own reviewed run, which drafts the notes, names the commit they describe, and stamps them with `yoyo conformance --notes` in its worktree, so the one path into the target branch stays a run's reviewed promotion. Where the forge shows a release for the tag, its text is the release's notes as they stand on `main`, and nothing else. The tag is pushed under the harness's own identity, recorded on the release item and on the pass record, and said in the channel at warning severity, because a release is visible outside the machine. A release is not a deploy: the operations goal that a deploy happens only with the operator's explicit approval is untouched by any of this.
 
 ### How the two approvals compose
 
