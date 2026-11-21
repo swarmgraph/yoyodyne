@@ -547,6 +547,14 @@ type Trigger struct {
 	// every trigger did before a critical report could wait eight hours through a
 	// pass that had been shown it. See criticalreports.go.
 	Pile RecurringPile
+	// HandEntries is the operator's needs-a-human line as `yoyo status` reads
+	// it, and CapabilityReports the pile, read before each scheduled pass of
+	// the Lead Product Manager's: a role's decision there that needs his hand
+	// and names no work item to end the need is filed as the harness's report
+	// to her, once per entry. Optional: a trigger wired without both tells her
+	// nothing about missing capabilities. See missingcapability.go.
+	HandEntries       HandEntries
+	CapabilityReports MissingCapabilityReports
 	// Amendments is the log of proposed changes, read on every pass for the
 	// undecided ones against the woken role's own documents, which are put to
 	// it in the wake. Optional: a trigger wired without one puts no proposals to

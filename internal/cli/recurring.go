@@ -128,6 +128,15 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	// manager's report her passes have left standing is named as overdue.
 	if parts.reports != nil {
 		trigger.Pile = parts.reports
+		// And the needs-a-human line `yoyo status` reads, so a role's decision
+		// that needs the operator's hand and names no work item to end the need
+		// is told to the Lead Product Manager once, for her to admit the
+		// capability it lacks (orchestrator/missingcapability.go).
+		trigger.CapabilityReports = parts.reports
+		trigger.HandEntries = func(ctx context.Context) ([]readmodel.Attention, string) {
+			standing := readmodel.ReadStanding(ctx, standingSources(configPath))
+			return standing.NeedsHuman, standing.NeedsHumanProblem
+		}
 	}
 	// The docket a development manager's pass carries, built by the docketer her
 	// conversation builds it with and rendered by the section her conversation
