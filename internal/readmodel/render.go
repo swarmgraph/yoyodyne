@@ -498,7 +498,7 @@ func (s Standing) renderDocumentWaits() string {
 	var rendered strings.Builder
 	listed, further := bound(len(s.DocumentsWaitingForSlot))
 	for _, wait := range s.DocumentsWaitingForSlot[:listed] {
-		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, wait.Says(), documentWaitNext)
+		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, wait.Says(), wait.Next())
 	}
 	rendered.WriteString(remainder(further, "waiting document"))
 	if s.DocumentsWaitingProblem != "" {

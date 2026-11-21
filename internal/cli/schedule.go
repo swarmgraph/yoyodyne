@@ -1022,6 +1022,17 @@ func (d waitingDocuments) DocumentWaits() ([]runstate.DocumentWait, error) {
 	return d.parts.store.DocumentWaits()
 }
 
+// PublishingAhead reads, from the run store, whether another copy of a waiting
+// document is still publishing (orchestrator.DocumentsAhead).
+func (d waitingDocuments) PublishingAhead(document runstate.DocumentPublication) (runstate.DocumentAhead, bool, error) {
+	runs, err := d.parts.store.DocumentRuns(document.Candidate.Artifact.ID)
+	if err != nil {
+		return runstate.DocumentAhead{}, false, err
+	}
+	ahead, found := runstate.PublishingAhead(document, runs)
+	return ahead, found, nil
+}
+
 func (d waitingDocuments) Publish(ctx context.Context, document runstate.DocumentPublication) (orchestrator.Outcome, error) {
 	return pipelineFrom(d.parts).PublishWaitingDocument(ctx, document)
 }

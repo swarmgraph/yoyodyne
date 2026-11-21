@@ -963,11 +963,13 @@ type Standing struct {
 	// the harness starts the next of it as a run finishes.
 	WaitingForSlot *SlotWait `json:"waiting_for_slot,omitempty"`
 	// DocumentsWaitingForSlot is the confirmed documents whose reviewed run found
-	// every document landing taken, longest waiting first, each with the role
-	// that owns it. They are not admitted work and are counted nowhere above: the
-	// harness starts each as a document landing frees, without taking a
-	// developer slot, and nothing is asked of anybody. DocumentsWaitingProblem
-	// says they could not be read.
+	// every document landing taken, or another copy of the same document still
+	// going or waiting in a merge queue, longest waiting first, each with the
+	// role that owns it and, for the second, what it waits behind. They are not
+	// admitted work and are counted nowhere above: the harness starts each as a
+	// document landing frees, or once the copy ahead of it lands or is handed
+	// back, without taking a developer slot, and nothing is asked of anybody.
+	// DocumentsWaitingProblem says they could not be read.
 	DocumentsWaitingForSlot []DocumentSlotWait `json:"documents_waiting_for_slot,omitempty"`
 	DocumentsWaitingProblem string             `json:"documents_waiting_problem,omitempty"`
 	// OperatorDecisions is what the attention line names as the operator's
