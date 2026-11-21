@@ -10,7 +10,7 @@ import (
 func TestAPathCheckNamesItsCommandAndAListInsideTheRepository(t *testing.T) {
 	t.Parallel()
 
-	if problems := (PathCheck{Command: "make adoption", Paths: "scripts/walk-adoption.paths"}).problems(0); len(problems) != 0 {
+	if problems := (PathCheck{Command: "make getting-started", Paths: "scripts/walk-adoption.paths"}).problems(0); len(problems) != 0 {
 		t.Fatalf("problems = %q, want none", problems)
 	}
 	for _, test := range []struct {
@@ -18,10 +18,10 @@ func TestAPathCheckNamesItsCommandAndAListInsideTheRepository(t *testing.T) {
 		want  string
 	}{
 		{check: PathCheck{Paths: "scripts/walk-adoption.paths"}, want: "command cannot be empty"},
-		{check: PathCheck{Command: "make adoption"}, want: "paths must name the file"},
-		{check: PathCheck{Command: "make adoption", Paths: "/etc/paths"}, want: "must be relative"},
-		{check: PathCheck{Command: "make adoption", Paths: "../elsewhere.paths"}, want: "inside the repository"},
-		{check: PathCheck{Command: "make adoption", Paths: "."}, want: "inside the repository"},
+		{check: PathCheck{Command: "make getting-started"}, want: "paths must name the file"},
+		{check: PathCheck{Command: "make getting-started", Paths: "/etc/paths"}, want: "must be relative"},
+		{check: PathCheck{Command: "make getting-started", Paths: "../elsewhere.paths"}, want: "inside the repository"},
+		{check: PathCheck{Command: "make getting-started", Paths: "."}, want: "inside the repository"},
 	} {
 		problems := test.check.problems(2)
 		if len(problems) != 1 || !strings.HasPrefix(problems[0], "path check 2: ") || !strings.Contains(problems[0], test.want) {
@@ -39,7 +39,7 @@ func TestAPathCheckSaysWhetherItNeedsTheProviderCLIs(t *testing.T) {
   - command: make codex-resume
     paths: scripts/codex-resume.paths
     needs_provider_clis: true
-  - command: make adoption
+  - command: make getting-started
     paths: scripts/walk-adoption.paths
 `))
 	if err != nil {

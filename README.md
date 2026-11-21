@@ -233,8 +233,8 @@ precedence](docs/provider-plugins.md#executable-setup-and-precedence) covers
 terminal chats, scheduled runs, fallback providers and account login commands.
 
 CI executes this section on every change via
-[`scripts/walk-adoption.sh`](scripts/walk-adoption.sh), against a throwaway
-Python project; `make adoption` runs it locally.
+[`scripts/walk-getting-started.sh`](scripts/walk-getting-started.sh), against a
+throwaway Python project; `make getting-started` runs it locally.
 
 ### 1. Install `yoyo`
 
