@@ -4000,8 +4000,10 @@ attempt, as the point on promotions below says:
   from the records. The session's line names the queue, the candidate's
   generation, the check, and until when.
 - A document landing run — a confirmed document a role wrote, landed through
-  its reviewed run — is never stopped for a restart, at any step: its checks,
-  its review, or its promotion. It is short and bounded by its own checks' and
+  its reviewed run — is never stopped by the session for a restart, at any
+  step: its checks, its review, or its promotion, until thirty minutes past the
+  session's limit for winding down, when the supervisor restarts the session
+  whatever it is still waiting out. It is short and bounded by its own checks' and
   review's limits, so the session waits for it, whether it hosts the run itself
   or one of its recurring passes started it, and restarts once it has ended.
   Past the bound no new one starts: the session's own pull starts none, and a
@@ -4073,13 +4075,18 @@ first, every moment in the machine's local time with the zone named, and the not
 restarting until two minutes past that moment; it is said again whenever the
 runs it waits on change, and every ten minutes while they do not. While it is
 waiting for a document landing run, its line says how many, and is said again
-the same way. A run at its promotion is never stopped: it holds
-the target branch's lease, and the session waits it out however long it takes
-and restarts the moment it ends. While it does, its line says how many runs it
+the same way. The session itself never stops a run at its promotion: it holds
+the target branch's lease, and the session waits it out and restarts the moment
+it ends. That wait lasts at most thirty minutes past the session's limit for
+winding down: past that the supervisor restarts the session onto the new build
+whatever it is still waiting out, the run keeps its record, branch, worktree
+and change, and reconciliation against the remote settles a promotion cut off
+part-way. While the session waits, its line says how many runs it
 is waiting out at their promotion and since when, and the not-startable line
 names the restart that way, dated from when that wait began. The session says
-it again every ten minutes while the wait lasts, so a promotion that runs for
-an hour is never reported as a problem; a line saying so that has gone thirty
+it again every ten minutes while the wait lasts, so a promotion still being
+waited out is not reported as a problem before the supervisor restarts the
+session thirty minutes past its limit; a line saying so that has gone thirty
 minutes without being said again is a session that died waiting. A session
 giving an already-finished check stage its brief grace to record its verdict
 writes nothing while that wait is unchanged. The session's limit for winding
@@ -4096,7 +4103,10 @@ while it waited — and is reported as a factory problem rather than as a sessio
 on its way back: `yoyo status`, the dashboard's **Problems** section,
 and the channel's heartbeat name the session, say since when and for how long
 it has been past its limit, and say that the supervisor restarts it once it is
-five minutes past that limit, whose move is the harness's. The supervisor's
+five minutes past that limit, whose move is the harness's. A session still
+saying it is waiting out a promotion or a document landing run is not reported
+this way, and the supervisor restarts it all the same once it is thirty minutes
+past its limit, saying in its log what the session was still waiting out. The supervisor's
 restart takes up the deployed build with the runs it stopped picked up by the
 session that comes back
 ([moving onto a deployed build](#starting-the-product-and-stopping-it)). It is
