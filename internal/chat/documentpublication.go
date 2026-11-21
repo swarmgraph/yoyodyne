@@ -99,6 +99,17 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			if behind, _ := s.waitingBehind(record); behind != nil {
 				continue
 			}
+			// The same holds across conversations: while a copy of this document
+			// from anywhere is still going or waiting in a merge queue, this
+			// revision is not confirmed, so it is confirmed against the copy that
+			// lands rather than the one it replaces.
+			held, err := s.holdBehindPublishingCopy(record, publisher)
+			if err != nil {
+				return err
+			}
+			if held {
+				continue
+			}
 			_, landsDecided := s.approvedDocumentRoute()
 			confirmed, err := s.confirmDocument(record, publisher.PublishesDocuments(), landsDecided)
 			if err != nil {
@@ -167,6 +178,19 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			}
 			continue
 		}
+		if delivery.WaitingBehind != nil {
+			// Another copy of the document is still going or waiting in a merge
+			// queue, so this one's run did not start. It is kept waiting where the
+			// scheduler starts it once that copy lands or is handed back, and the
+			// role is told so once; what it waits for is what its listing says.
+			if said := delivery.WaitingBehind.Says(); record.failure != said {
+				record.failure = said
+				if err := s.carryResults(delivery.Detail); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if !delivery.Settled {
 			// A run that stopped without judging the document is followed by
 			// another of the same text; the owning role is told once, and what
@@ -210,6 +234,37 @@ func withoutDeadline(ctx context.Context) (context.Context, context.CancelFunc) 
 		stop()
 		cancel(nil)
 	}
+}
+
+// publishingCopies is the part of the publisher that says whether a copy of a
+// document, from any conversation, the scheduler, a retry or a standing
+// approval, is still going or waiting in a merge queue. It is satisfied by
+// orchestrator.Pipeline; a publisher without it holds nothing back here, and
+// its own start of the run is what keeps two copies from publishing at once.
+type publishingCopies interface {
+	ArtifactPublishingAhead(id string) (runstate.DocumentAhead, bool, error)
+}
+
+// holdBehindPublishingCopy keeps an unconfirmed revision unconfirmed while a
+// copy of its document is still publishing, and tells the owning role once
+// what it waits for. It reports whether it held the revision. A read that
+// fails holds nothing: the run's own start reads the same thing again.
+func (s *Session) holdBehindPublishingCopy(record *writeRecord, publisher DocumentPublisher) (bool, error) {
+	copies, ok := publisher.(publishingCopies)
+	if !ok {
+		return false, nil
+	}
+	ahead, found, err := copies.ArtifactPublishingAhead(strings.TrimSpace(record.pending.Write.ID))
+	if err != nil || !found {
+		return false, nil
+	}
+	said := ahead.Says()
+	if record.waitsFor == said {
+		return true, nil
+	}
+	record.waitsFor = said
+	return true, s.carryResults(fmt.Sprintf("Document %s (%s) is recorded and not yet confirmed: %s. It is confirmed and sent once that copy lands or is handed back, as a revision of what is then on the target branch; it does not need writing again.\n",
+		record.pending.ID, strings.TrimSpace(record.pending.Write.ID), said))
 }
 
 // documentWaitingForSlot is what a document's last offer is remembered as while

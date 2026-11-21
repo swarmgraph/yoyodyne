@@ -8460,6 +8460,7 @@ func (s *Started) record(done completed) {
 	}
 	var capacity runstate.CapacityError
 	var existing ExistingRunError
+	var behind DocumentBehindError
 	var note PauseNoteError
 	var design NeedsDesignError
 	switch {
@@ -8480,6 +8481,8 @@ func (s *Started) record(done completed) {
 			capacity.Active, capacity.Limit)
 	case errors.As(done.err, &existing):
 		s.Declined = fmt.Sprintf("another process is already running %s as %s", existing.State.WorkItemID, existing.State.RunID)
+	case errors.As(done.err, &behind):
+		s.Declined = behind.Error()
 	case teamClaimDeclined(done.err):
 		s.Declined, _ = teamClaimHeld(done.err)
 		s.heldOnRemote = true

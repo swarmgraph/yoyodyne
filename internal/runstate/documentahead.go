@@ -75,8 +75,17 @@ func (a DocumentAhead) Says() string {
 // handoff's own, and never holds it. Where more than one is publishing, the
 // latest started is named, because it is the copy that lands last.
 func PublishingAhead(document DocumentPublication, runs []State) (DocumentAhead, bool) {
-	own := document.RunID()
-	id := document.Candidate.Artifact.ID
+	return publishingAhead(document.Candidate.Artifact.ID, document.RunID(), runs)
+}
+
+// PublishingCopyOf finds, among runs, a run of the document with the given id
+// still publishing its copy, for a revision that has no handoff yet: one its
+// owning conversation has not confirmed.
+func PublishingCopyOf(id string, runs []State) (DocumentAhead, bool) {
+	return publishingAhead(id, "", runs)
+}
+
+func publishingAhead(id, own string, runs []State) (DocumentAhead, bool) {
 	var ahead []State
 	for _, run := range runs {
 		if run.Document == nil || run.Document.Candidate.Artifact.ID != id || run.Document.RunID() == own {

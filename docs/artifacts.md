@@ -399,6 +399,18 @@ another, and where it goes depends on the revision before it:
   it no longer counts as the document's waiting revision, and the new revision
   opens a fresh run at once.
 
+A document is published by one run at a time, wherever its revisions come
+from: another conversation of the same role, a retry the development manager
+decided, or an approval given with `yoyo artifact approve`. While any run of a
+document is still going, or has passed and waits in the merge queue, no other
+revision of it starts a run. A revision not yet confirmed stays unconfirmed, so
+it is confirmed against what lands rather than the copy it replaces. A revision
+already confirmed is kept waiting, and a watching session passes it over until
+the copy ahead of it lands or is handed back, then starts it once. The owning
+role is told once what it waits for: which earlier copy, its merge queue entry
+and pull request, and since when. Its list of waiting documents says the same,
+and so do `yoyo status` and the dashboard, under the not-startable line.
+
 Every document a role writes is answered by its next turn: recorded and where it
 waits and why, then confirmed, refused with the reason, or how its run went. A
 write the harness recorded and never answered — a process that stopped between

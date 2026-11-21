@@ -437,21 +437,42 @@ type DocumentRunLister interface {
 
 // DocumentPublishingAhead reads whether a run of another handoff of the same
 // document is still publishing its copy — going, or passed and waiting in a
-// merge queue — and names it where one is (runstate.PublishingAhead). Its
-// owning conversation reads it before confirming a new revision, so the
-// revision is confirmed against the copy that lands rather than the one before
-// it, and PublishDocument reads it before starting a run.
+// merge queue — and names it where one is (runstate.PublishingAhead).
+// PublishDocument reads it before starting a run.
 func (p Pipeline) DocumentPublishingAhead(document runstate.DocumentPublication) (runstate.DocumentAhead, bool, error) {
-	lister, ok := p.Store.(DocumentRunLister)
-	if !ok {
-		return runstate.DocumentAhead{}, false, nil
-	}
-	runs, err := lister.DocumentRuns(document.Candidate.Artifact.ID)
+	runs, err := p.documentRuns(document.Candidate.Artifact.ID)
 	if err != nil {
-		return runstate.DocumentAhead{}, false, fmt.Errorf("read whether another copy of document %s is still publishing: %w", document.Candidate.Artifact.ID, err)
+		return runstate.DocumentAhead{}, false, err
 	}
 	ahead, found := runstate.PublishingAhead(document, runs)
 	return ahead, found, nil
+}
+
+// ArtifactPublishingAhead reads whether any run of the document with the given
+// id is still publishing its copy, for a revision its owning conversation has
+// not confirmed yet (runstate.PublishingCopyOf). The conversation holds the
+// revision unconfirmed while one is, so it is confirmed against the copy that
+// lands.
+func (p Pipeline) ArtifactPublishingAhead(id string) (runstate.DocumentAhead, bool, error) {
+	runs, err := p.documentRuns(id)
+	if err != nil {
+		return runstate.DocumentAhead{}, false, err
+	}
+	ahead, found := runstate.PublishingCopyOf(id, runs)
+	return ahead, found, nil
+}
+
+// documentRuns lists one document's runs, or none where the store cannot.
+func (p Pipeline) documentRuns(id string) ([]runstate.State, error) {
+	lister, ok := p.Store.(DocumentRunLister)
+	if !ok {
+		return nil, nil
+	}
+	runs, err := lister.DocumentRuns(id)
+	if err != nil {
+		return nil, fmt.Errorf("read whether another copy of document %s is still publishing: %w", id, err)
+	}
+	return runs, nil
 }
 
 // waitBehind keeps a handoff from starting its run beside another handoff's run

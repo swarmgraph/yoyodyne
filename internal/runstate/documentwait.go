@@ -17,6 +17,12 @@ package runstate
 // (DocumentPublication.RunIDFor), and that run never runs twice: a reservation
 // refuses a second run of one attempt under the same lock that writes the wait,
 // and the wait is cleared once that run is recorded.
+//
+// The same wait keeps a confirmed document whose run was not started because
+// another copy of it is still going or waiting in a merge queue
+// (PublishingAhead). The record does not say which of the two it waits for:
+// that is read from the runs each time, so it can never go stale, and the
+// scheduler passes such a document over until nothing is ahead of it.
 
 import (
 	"context"
