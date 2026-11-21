@@ -197,6 +197,7 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry,
 	if err != nil {
 		return LandingSweep{}, fmt.Errorf("read the artifact homes the landings are in: %w", err)
 	}
+	unfinished := unfinishedOf(items)
 	var sweep LandingSweep
 	for _, entry := range candidates {
 		// An entry carrying a landing is one the harness closed on that revision
@@ -239,7 +240,7 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry,
 		// 03:00 on November 21 was one tracker call in five
 		// (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md). The next pull
 		// after the blocker closes closes it.
-		if waiting := landingWaitsOn(entry, item); len(waiting) > 0 {
+		if waiting := landingWaitsOn(entry, item, unfinished); len(waiting) > 0 {
 			sweep.Problems = append(sweep.Problems, fmt.Sprintf("%s landed as the %s revision of %s and was not closed, because it waits on unfinished work (%s) and the tracker closes nothing that does; it closes at the first pull after that work is closed",
 				entry.ID, landing.RevisedAt.UTC().Format(time.RFC3339), landing.Document, strings.Join(waiting, ", ")))
 			continue
@@ -277,16 +278,34 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry,
 // and as the tracker's reading of the item states it: the same reading the
 // claim and the queue make (beads.WorkItem.WaitingOn), so an item the tracker
 // would refuse to close is one this does not ask it to.
-func landingWaitsOn(entry backlog.Entry, item beads.WorkItem) []string {
+//
+// unfinished is every item the pull read that is not closed, the ones already
+// claimed by a run included. The pull reads items with listings, which name an
+// item's blockers without their status, and the queue counts only admitted
+// work as unfinished, so a blocker somebody had already pulled was missed by
+// both: an item waiting on work in progress was written, refused and written
+// back at every pull for as long as that work ran.
+func landingWaitsOn(entry backlog.Entry, item beads.WorkItem, unfinished map[string]struct{}) []string {
 	seen := make(map[string]bool, len(entry.WaitingOn))
 	var waiting []string
-	for _, id := range append(append([]string(nil), entry.WaitingOn...), item.WaitingOn(nil)...) {
+	for _, id := range append(append([]string(nil), entry.WaitingOn...), item.WaitingOn(unfinished)...) {
 		if id = strings.TrimSpace(id); id != "" && !seen[id] {
 			seen[id] = true
 			waiting = append(waiting, id)
 		}
 	}
 	return waiting
+}
+
+// unfinishedOf is the identifiers of the items read that are not closed.
+func unfinishedOf(items map[string]beads.WorkItem) map[string]struct{} {
+	unfinished := make(map[string]struct{}, len(items))
+	for id, item := range items {
+		if !strings.EqualFold(item.Status, "closed") {
+			unfinished[id] = struct{}{}
+		}
+	}
+	return unfinished
 }
 
 // landsInADocument reports an executor whose conversation's landing could be a

@@ -134,6 +134,86 @@ func TestATicketLeftByADeadCallIsPassedAndAHeldOneIsWaitedFor(t *testing.T) {
 	}
 }
 
+// A listing joins the line as soon as it is asked, like every other call. It
+// used to take a lock shared by every listing first and hold it while it waited
+// for its turn, so a second listing could not even join the line until the
+// first had waited and run, and then waited its own turn from the back: on the
+// live factory listings waited about three times as long as other calls.
+// Here a held ticket stands for a call running ahead of both listings; the
+// second listing, from another process, has to be in the line beside the first
+// while the first is still waiting, and the two are answered in the order they
+// asked.
+func TestASecondListingJoinsTheLineWhileTheFirstWaitsForItsTurn(t *testing.T) {
+	dir := listingStore(t)
+	turns := filepath.Join(dir, ".beads", turnDirectory)
+	if err := os.MkdirAll(turns, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(filepath.Join(turns, turnName(time.Now().Add(-time.Minute), 2, 1)), os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	var mu sync.Mutex
+	listing := func(binary string, done chan<- error) {
+		// Distinct binaries keep the two from sharing one read in memory, standing
+		// for two processes. The runner notes when each one's bd starts, which is
+		// what the line orders.
+		runner := startRunner{started: func(name string) {
+			mu.Lock()
+			order = append(order, name)
+			mu.Unlock()
+		}}
+		_, err := Client{Runner: runner, Binary: binary, Dir: dir}.List(context.Background(), "open")
+		done <- err
+	}
+	waitForTickets := func(want int, within time.Duration) bool {
+		for deadline := time.Now().Add(within); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+			if len(tickets(t, dir)) >= want {
+				return true
+			}
+		}
+		return false
+	}
+	first, second := make(chan error, 1), make(chan error, 1)
+	go listing("bd-a", first)
+	if !waitForTickets(2, 5*time.Second) {
+		t.Fatal("the first listing never joined the line")
+	}
+	go listing("bd-b", second)
+	if !waitForTickets(3, 2*time.Second) {
+		t.Errorf("the second listing did not join the line while the first waited for its turn: tickets %v", tickets(t, dir))
+	}
+	_ = syscall.Flock(int(held.Fd()), syscall.LOCK_UN)
+	_ = os.Remove(held.Name())
+	for _, done := range []chan error{first, second} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("a listing was not answered once the call ahead of it ended")
+		}
+	}
+	if got := strings.Join(order, " "); got != "bd-a bd-b" {
+		t.Errorf("listings ran in the order %s, want the order they asked", got)
+	}
+}
+
+// startRunner answers every bd call with one item at once, noting which bd
+// binary it was started as.
+type startRunner struct{ started func(string) }
+
+func (r startRunner) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
+	r.started(command.Name)
+	return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: oneItemListing}, nil
+}
+
 // A call whose turn does not come within its bound is not made, reads as
 // unanswered, and is still logged, with how long its caller waited, so the
 // limits step counts it.

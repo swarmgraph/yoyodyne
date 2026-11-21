@@ -64,10 +64,11 @@ func (c Client) sharedListingKey(args []string) (listingKey, bool) {
 //
 // Within this process, a request for a listing already being read waits for
 // that read and is answered from it, its failure included: every waiter gets
-// the one answer or the one error. Across processes, the read holds an advisory
-// lock inside the store, which the operating system drops when its holder
-// dies, so no two harness processes have the store open for a listing at once.
-// The answer is the bytes bd wrote, so each caller decodes its own copy.
+// the one answer or the one error. Across processes, no two harness processes
+// have the store open for a listing at once: the line every call waits in
+// (turns.go) keeps that, and a client whose calls do not wait in it holds an
+// advisory lock inside the store instead (runLocked). The answer is the bytes
+// bd wrote, so each caller decodes its own copy.
 func (c Client) runListing(ctx context.Context, args ...string) ([]byte, error) {
 	key, shared := c.sharedListingKey(args)
 	if !shared {
@@ -101,12 +102,24 @@ func (c Client) runListing(ctx context.Context, args ...string) ([]byte, error) 
 	}
 }
 
-// runLocked is one listing under the store's listing lock. Where no store is
-// found there is nothing to lock and bd is left to say so itself.
-// The wait for the listing lock is counted as part of the listing's wait for
-// its answer, as the wait for its turn is (turns.go).
+// runLocked is one listing under the store's listing lock, for a client whose
+// calls do not wait in the line. Where no store is found there is nothing to
+// lock and bd is left to say so itself. The wait for the listing lock is
+// counted as part of the listing's wait for its answer, as the wait for its
+// turn is (turns.go).
+//
+// A client whose calls wait in the line takes no listing lock: the line already
+// lets one of the harness's bd processes in at a time, in the order they asked.
+// The lock was held for as long as its listing waited for its turn, so a second
+// listing could not join the line until the first had waited and run, and then
+// waited for its own turn from the back. On the live factory listings waited
+// about three times as long as other calls for that reason
+// (docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md).
 func (c Client) runLocked(ctx context.Context, args ...string) ([]byte, error) {
 	ctx = withWaitingSince(ctx, time.Now())
+	if c.takesTurns() {
+		return c.run(ctx, args...)
+	}
 	unlock, err := c.lockListings(ctx)
 	if err != nil {
 		if errors.Is(err, ErrUnanswered) {

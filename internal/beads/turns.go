@@ -76,13 +76,20 @@ type turnBusy struct{ error }
 func (b turnBusy) Unwrap() error        { return b.error }
 func (b turnBusy) Is(target error) bool { return target == ErrUnanswered }
 
+// takesTurns reports whether this client's calls wait in the line: every
+// client on the live store, except the rebuild's, one running bd in server mode,
+// and one made to skip it (UnorderedCalls).
+func (c Client) takesTurns() bool {
+	return c.Dir != "" && !c.storeLocked && !c.serverMode && !c.UnorderedCalls && turnsSupported
+}
+
 // takeTurn waits until no bd call the harness asked to make on this client's
 // store before this one is still waiting or running, for at most one call's
 // bound, and returns what ends the turn. Where no store is found, or the call
 // is the rebuild's or runs against a server, it returns at once with nothing to
 // end.
 func (c Client) takeTurn(ctx context.Context) (func(), error) {
-	if c.Dir == "" || c.storeLocked || c.serverMode || c.UnorderedCalls || !turnsSupported {
+	if !c.takesTurns() {
 		return func() {}, nil
 	}
 	store := storeDirectory(c.Dir, c.beadsDirVariable())
