@@ -887,6 +887,17 @@ func (r *teamBranchRun) review(ctx context.Context, path string) (bool, string, 
 // reviewContext is what the harness tells the reviewer about the merge, and
 // nothing an agent wrote.
 func (r *teamBranchRun) reviewContext(attempt runstate.TeamBranchUpdateAttempt) string {
+	if attempt.ResolvedBy != "" {
+		lines := []string{
+			fmt.Sprintf("# Bringing %s into %s, with conflicts resolved by a run", r.upstream, r.target),
+			"",
+			fmt.Sprintf("This change brings the team's merged work from `%s` into `%s`. Merging `%s` at `%s`, the team's branch tip, onto `%s` at `%s` conflicts, so the development manager had a developer settle it: %s. The merge is commit `%s`. Everything outside the conflicting files was already on one of the two branches; the resolutions in those files were written by a developer, not by the harness.",
+				r.upstream, r.target, r.upstream, attempt.TeamCommit, r.target, attempt.TargetBase, attempt.Resolution(), attempt.Candidate),
+			"",
+			"What you are asked is whether each resolution keeps what both sides meant to do and adds nothing unrelated. Read the resolved files closely: this is the one part of the merge nobody else wrote. Also check that the merge carries what the team's branch gained and what the target already held, and loses neither. The configured checks have already run on exactly this commit, and their results are below; judge whether they pass.",
+		}
+		return strings.Join(lines, "\n") + "\n\n"
+	}
 	lines := []string{
 		fmt.Sprintf("# Bringing %s into %s", r.upstream, r.target),
 		"",
@@ -1048,6 +1059,10 @@ func (r *teamBranchRun) pullRequestBody(attempt runstate.TeamBranchUpdateAttempt
 	checked := "no checks are configured"
 	if len(commands) > 0 {
 		checked = "passed " + strings.Join(commands, ", ")
+	}
+	if attempt.ResolvedBy != "" {
+		return fmt.Sprintf("Brings the team's merged work into %s: %s at %s merged onto %s at %s, as commit %s. The merge conflicted, so a developer settled it: %s. The harness wrote no line of the resolution.\n\nThe configured checks %s on this commit, and an independent reviewer approved it.\n",
+			r.target, r.upstream, attempt.TeamCommit, r.target, attempt.TargetBase, attempt.Candidate, attempt.Resolution(), checked)
 	}
 	return fmt.Sprintf("Brings the team's merged work into %s: %s at %s merged onto %s at %s, as commit %s. The harness built the merge and wrote no line of its own.\n\nThe configured checks %s on this commit, and an independent reviewer approved it.\n",
 		r.target, r.upstream, attempt.TeamCommit, r.target, attempt.TargetBase, attempt.Candidate, checked)

@@ -93,6 +93,20 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 	} else if held {
 		return TeamBranchConflictResult{}, fmt.Errorf("the operator has paused harness activity since %s", hold.HeldAt.Local().Format("2006-01-02 15:04 MST"))
 	}
+	// The harness is choosing this item on the development manager's decision, so
+	// the run records who chose it and why, and starts nothing while the
+	// operator's hold on the work the harness chooses stands. Nothing is reserved
+	// in that case, so the round is not spent and the next check tries again.
+	p.Selection = runstate.Selection{
+		By: runstate.SelectedByDevelopmentManager,
+		Reason: fmt.Sprintf("%s decided that a run of this item resolves the conflict in bringing %s up to date with %s (round %d of %d for the update): %s",
+			request.DecidedBy, request.TargetBranch, request.UpstreamBranch, request.Round, runstate.MaxTeamBranchConflictRounds, request.Reason),
+	}
+	if _, held, err := p.holdIntake(itemID); err != nil {
+		return TeamBranchConflictResult{}, err
+	} else if held {
+		return TeamBranchConflictResult{}, errors.New("the operator is holding the work the harness chooses, so no run is started until it is released")
+	}
 	publishing, skipped, err := p.resolvePublishing(ctx)
 	if err != nil {
 		return TeamBranchConflictResult{}, err
@@ -316,7 +330,8 @@ func (r *teamBranchRun) resolve(ctx context.Context) error {
 	// as the run found it, which is its first parent.
 	d.Merge = result.Merge
 	pending.Candidate, pending.TargetBase = result.Merge, parents[0]
-	pending.ResolvedBy, pending.ResolvedItem = result.RunID, d.Item.ID
+	pending.ResolvedBy, pending.ResolvedItem, pending.ResolvedItemTitle = result.RunID, d.Item.ID, d.Item.Title
+	pending.ResolvedPaths = append([]string(nil), pending.Conflict.Paths...)
 	pending.Conflict, pending.Refused, pending.RefusedAt = nil, "", nil
 	pending.Checks, pending.ChecksFinishedAt, pending.Review = nil, nil, nil
 	if err := r.save(); err != nil {

@@ -5315,11 +5315,16 @@ could never match a conflict; the paths that differ from both the target and the
 team's tip, which are the ones the run wrote, are put through the ordinary check
 on protected paths under the grants of the item the run was for, and a refusal
 reaches the development manager's list naming them. A file that holds what the
-team's tip holds is the team's own and is not refused.
+team's tip holds is the team's own and is not refused. The independent reviewer
+and the pull request are told that a developer resolved the conflicts, by which
+run and in which files, and are asked to judge those resolutions closely. The
+run records the development manager as the one who chose it, with her reason, the
+conversation and the round, and it starts nothing while the operator's hold on
+the work the harness chooses stands; the round is not spent in that case.
 
 **Three rounds, kept beside the update.** The runs decided on for one update are
-limited to three (`ConflictRounds` on the update's record, which `yoyo status`
-shows as the update waiting). They are counted against that limit only, and are
+limited to three (the update's own record counts the rounds, and `yoyo status`
+says which round a decided run is). They are counted against that limit only, and are
 never charged to the item's repair attempts or its other budgets, because
 another contributor's work caused the conflict. A round is counted when the
 decision is recorded and given back if the conflict goes away before its run

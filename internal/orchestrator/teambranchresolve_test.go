@@ -251,3 +251,63 @@ func TestADecisionForAConflictThatWentAwayIsNotChargedARound(t *testing.T) {
 		t.Fatalf("record rounds %d, decision %#v, want no round spent on a conflict that went away", record.ConflictRounds, record.Decision)
 	}
 }
+
+func TestTheRunRecordsWhoChoseItAndStartsNothingWhileIntakeIsHeld(t *testing.T) {
+	t.Parallel()
+
+	f, _, _ := conflictFixture(t)
+	f.developer = writeIn("", "app.txt", "one\nstaging and team two\nthree\n")
+	intake := newIntakeHoldStore(t)
+	f.pipeline.Intake = intake
+	if _, err := intake.Hold(runstate.IntakeHolderOperator, "the queue is heading somewhere wrong", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.decide(); err != nil {
+		t.Fatal(err)
+	}
+	outcome := f.update()
+	if outcome.Landed != "" || !strings.Contains(outcome.Waiting, "holding the work the harness chooses") {
+		t.Fatalf("Update() = %#v, want nothing started while intake is held", outcome)
+	}
+	if record := f.record(); record.Decision == nil || record.Decision.Started() || record.ConflictRounds != 1 {
+		t.Fatalf("record = %#v, want the decision standing with its run not started", record.Decision)
+	}
+	if runs, err := f.waiting.StateStore.(*runstate.Store).Runs("yoyodyne-task"); err != nil || len(runs) != 0 {
+		t.Fatalf("runs = %d, %v, want none reserved", len(runs), err)
+	}
+
+	if _, _, err := intake.Release(); err != nil {
+		t.Fatal(err)
+	}
+	outcome = f.update()
+	if outcome.Landed == "" {
+		t.Fatalf("Update() after the release = %#v, want the merge landed", outcome)
+	}
+	run, err := f.waiting.StateStore.(*runstate.Store).Load(f.record().Landed[0].ResolvedBy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Selection == nil || run.Selection.By != runstate.SelectedByDevelopmentManager ||
+		!strings.Contains(run.Selection.Reason, "chat-test, turn 1") || !strings.Contains(run.Selection.Reason, "round 1 of 3") || !strings.Contains(run.Selection.Reason, "knows both wordings") {
+		t.Fatalf("selection = %#v, want the development manager, her conversation and turn, the round and her reason", run.Selection)
+	}
+}
+
+func TestTheReviewerIsToldARunResolvedTheMergeAndWhere(t *testing.T) {
+	t.Parallel()
+
+	r := &teamBranchRun{upstream: "main", target: "staging"}
+	attempt := runstate.TeamBranchUpdateAttempt{
+		TeamCommit: strings.Repeat("a", 40), TargetBase: strings.Repeat("b", 40), Candidate: strings.Repeat("c", 40),
+		ResolvedBy: "run-1", ResolvedItem: "yoyodyne-task", ResolvedItemTitle: "Reword the greeting", ResolvedPaths: []string{"app.txt"},
+	}
+	for name, text := range map[string]string{"review context": r.reviewContext(attempt), "pull request": r.pullRequestBody(attempt)} {
+		if !strings.Contains(text, "run-1") || !strings.Contains(text, "Reword the greeting (yoyodyne-task)") || !strings.Contains(text, "app.txt") ||
+			strings.Contains(text, "wrote no line of its own") {
+			t.Fatalf("%s = %q, want it to name the run, the item and the paths and not say the harness wrote nothing", name, text)
+		}
+	}
+	if clean := r.reviewContext(runstate.TeamBranchUpdateAttempt{TeamCommit: attempt.TeamCommit, TargetBase: attempt.TargetBase, Candidate: attempt.Candidate}); !strings.Contains(clean, "wrote no line of its own") {
+		t.Fatalf("a merge no run touched lost its statement: %q", clean)
+	}
+}

@@ -121,6 +121,21 @@ type TeamBranchUpdateAttempt struct {
 	// ResolvedItem is the work item that run was for, whose grants the check on
 	// protected paths reads.
 	ResolvedItem string `json:"resolved_item,omitempty"`
+	// ResolvedItemTitle and ResolvedPaths say what the run settled, so the
+	// reviewer and the pull request can name it: the item as a person reads it,
+	// and the files the merge conflicted in.
+	ResolvedItemTitle string   `json:"resolved_item_title,omitempty"`
+	ResolvedPaths     []string `json:"resolved_paths,omitempty"`
+}
+
+// Resolution says who resolved the merge's conflicts and where, in plain words,
+// and is empty for a merge the harness built without a conflict.
+func (a TeamBranchUpdateAttempt) Resolution() string {
+	if a.ResolvedBy == "" {
+		return ""
+	}
+	item := TeamBranchUpdateConflictItem{ID: a.ResolvedItem, Title: a.ResolvedItemTitle}.Name()
+	return fmt.Sprintf("run %s of %s resolved the conflicts in %s", a.ResolvedBy, item, strings.Join(a.ResolvedPaths, ", "))
 }
 
 // MaxTeamBranchConflictRounds is how many runs the development manager may
