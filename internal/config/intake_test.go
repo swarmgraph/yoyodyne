@@ -293,6 +293,15 @@ func TestARoleMayNotApplyTheIntakeSection(t *testing.T) {
 // are given is unchanged (TestWithheldDocumentsAreNotCarriedAsIntent in
 // internal/contextbundle). The conversations' briefing reads it the same way,
 // in internal/cli/ground.go, through a field this walk does not name.
+//
+// The query run reads it in four more files, none of which builds a role's
+// launch or instructions. internal/intake/run.go and internal/intake/answer.go
+// run each declared query and read its answer, writing only the intake record;
+// internal/cli/intakequeries.go builds that runner for a watching session, and
+// returns nil where no query is declared, so a project with no intake section
+// runs nothing and writes no record (TestAQueryWithNoIntakeSectionIsNeverDue in
+// internal/intake); internal/mcpcall/path.go reads a query's one tool to build
+// the caller whose call record keeps no result.
 var intakeReaders = map[string]bool{
 	"internal/config/config.go":                 true,
 	"internal/config/document.go":               true,
@@ -303,6 +312,10 @@ var intakeReaders = map[string]bool{
 	"internal/orchestrator/branchreview.go":     true,
 	"internal/orchestrator/mergequeueworker.go": true,
 	"internal/orchestrator/pipeline.go":         true,
+	"internal/intake/run.go":                    true,
+	"internal/intake/answer.go":                 true,
+	"internal/cli/intakequeries.go":             true,
+	"internal/mcpcall/path.go":                  true,
 }
 
 // intakeNames is every exported name the section's types and values go by.
