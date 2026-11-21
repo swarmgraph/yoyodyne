@@ -604,7 +604,7 @@ func (r *teamBranchRun) resolvedMerge(ctx context.Context, candidate, base, tip 
 	refused := protectedpath.Protect(r.p.Config, exports...).Refused(written, protectedpath.Grants(grantEvidence(item)...))
 	if len(refused) > 0 {
 		return &mergeDiffers{fmt.Sprintf("the merge %s, in which run %s resolved the conflict, changes paths no run may write and %s does not grant: %s. A person can look at the merge and, if it should stand, merge %s into %s by hand",
-			shortCommit(candidate), pending.ResolvedBy, pending.ResolvedItem, strings.Join(refused, ", "), r.upstream, r.target)}
+			shortCommit(candidate), pending.ResolvedBy, runstate.TeamBranchUpdateConflictItem{ID: pending.ResolvedItem, Title: pending.ResolvedItemTitle}.Name(), strings.Join(refused, ", "), r.upstream, r.target)}
 	}
 	return nil
 }

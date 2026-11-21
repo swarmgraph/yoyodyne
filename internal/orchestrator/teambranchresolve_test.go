@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -309,5 +310,33 @@ func TestTheReviewerIsToldARunResolvedTheMergeAndWhere(t *testing.T) {
 	}
 	if clean := r.reviewContext(runstate.TeamBranchUpdateAttempt{TeamCommit: attempt.TeamCommit, TargetBase: attempt.TargetBase, Candidate: attempt.Candidate}); !strings.Contains(clean, "wrote no line of its own") {
 		t.Fatalf("a merge no run touched lost its statement: %q", clean)
+	}
+}
+
+func TestADecisionWhoseItemHasClosedIsDroppedWithItsRoundGivenBackAndTold(t *testing.T) {
+	t.Parallel()
+
+	f, _, _ := conflictFixture(t)
+	if _, err := f.decide(); err != nil {
+		t.Fatal(err)
+	}
+	// The item closes before the run starts, as it does once the team's merge
+	// carries its landing.
+	f.pipeline.Tracker.(*orchestratortest.Tracker).Item.Status = "closed"
+	outcome := f.update()
+	if outcome.Landed != "" || !strings.Contains(outcome.Waiting, "could not be started") {
+		t.Fatalf("Update() = %#v, want the run not started", outcome)
+	}
+	record := f.record()
+	if record.Decision != nil || record.ConflictRounds != 0 {
+		t.Fatalf("decision %#v, rounds %d; want the decision dropped and its round given back", record.Decision, record.ConflictRounds)
+	}
+	told := f.toldTheDevelopmentManager()
+	if len(told) != 2 || !strings.Contains(told[1].Message, "Reword the greeting (yoyodyne-task)") || !strings.Contains(told[1].Message, "could not be started") || !strings.Contains(told[1].Message, "you can decide again") {
+		t.Fatalf("reports = %#v, want a second one naming the item by title with its identifier and saying she can decide again", told)
+	}
+	// She can decide again, and the next check does not tell her twice.
+	if _, err := f.decide(); err != nil {
+		t.Fatalf("a new decision after the drop: %v", err)
 	}
 }

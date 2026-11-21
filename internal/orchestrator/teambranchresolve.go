@@ -63,6 +63,15 @@ type TeamBranchConflictResult struct {
 	Base string
 }
 
+// teamConflictPassing is a refusal to start the run that will clear by itself:
+// the operator's pause or hold, no free developer slot, a run of the item already
+// in flight, or the repository not being ready yet. The update waits and asks
+// again at the next check. Any other refusal to start is lasting, and the
+// decision is dropped and told (teamBranchRun.resolve).
+type teamConflictPassing struct{ error }
+
+func (e teamConflictPassing) Unwrap() error { return e.error }
+
 // errTeamConflictGone says the merge the run was to resolve applied cleanly
 // when it was started, so there was nothing to resolve.
 var errTeamConflictGone = errors.New("the merge of the team's branch no longer conflicts, so there is nothing for a run to resolve")
@@ -89,9 +98,9 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 		return TeamBranchConflictResult{}, errors.New("this worktree manager cannot begin the merge a run that resolves a conflict settles")
 	}
 	if hold, held, err := p.operatorHold(); err != nil {
-		return TeamBranchConflictResult{}, err
+		return TeamBranchConflictResult{}, teamConflictPassing{err}
 	} else if held {
-		return TeamBranchConflictResult{}, fmt.Errorf("the operator has paused harness activity since %s", hold.HeldAt.Local().Format("2006-01-02 15:04 MST"))
+		return TeamBranchConflictResult{}, teamConflictPassing{fmt.Errorf("the operator has paused harness activity since %s", hold.HeldAt.Local().Format("2006-01-02 15:04 MST"))}
 	}
 	// The harness is choosing this item on the development manager's decision, so
 	// the run records who chose it and why, and starts nothing while the
@@ -103,9 +112,9 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 			request.DecidedBy, request.TargetBranch, request.UpstreamBranch, request.Round, runstate.MaxTeamBranchConflictRounds, request.Reason),
 	}
 	if _, held, err := p.holdIntake(itemID); err != nil {
-		return TeamBranchConflictResult{}, err
+		return TeamBranchConflictResult{}, teamConflictPassing{err}
 	} else if held {
-		return TeamBranchConflictResult{}, errors.New("the operator is holding the work the harness chooses, so no run is started until it is released")
+		return TeamBranchConflictResult{}, teamConflictPassing{errors.New("the operator is holding the work the harness chooses, so no run is started until it is released")}
 	}
 	publishing, skipped, err := p.resolvePublishing(ctx)
 	if err != nil {
@@ -125,8 +134,8 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 		return TeamBranchConflictResult{}, err
 	}
 	if err := p.Worktrees.ValidateReady(ctx); err != nil {
-		return TeamBranchConflictResult{}, fmt.Errorf("repository is not ready for an isolated run: %w",
-			refusedByEnvironment("the repository is not ready for an isolated run", err))
+		return TeamBranchConflictResult{}, teamConflictPassing{fmt.Errorf("repository is not ready for an isolated run: %w",
+			refusedByEnvironment("the repository is not ready for an isolated run", err))}
 	}
 	dispatchProvider, dispatchNamed, err := p.dispatchBackend(ctx)
 	if err != nil {
@@ -163,9 +172,10 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 	if err != nil {
 		var existing runstate.ExistingWorkItemError
 		if errors.As(err, &existing) {
-			return TeamBranchConflictResult{}, ExistingRunError{State: existing.State}
+			return TeamBranchConflictResult{}, teamConflictPassing{ExistingRunError{State: existing.State}}
 		}
-		return TeamBranchConflictResult{}, err
+		// No slot free, or the reservation could not be written: either clears.
+		return TeamBranchConflictResult{}, teamConflictPassing{err}
 	}
 	defer reservation.Release()
 	result := TeamBranchConflictResult{RunID: runID}
@@ -311,9 +321,19 @@ func (r *teamBranchRun) resolve(ctx context.Context) error {
 		// No run was started: the harness is paused, no developer slot was free,
 		// or the item could not be run. The round is not spent, and the next check
 		// tries again.
+		var passing teamConflictPassing
+		if errors.As(err, &passing) {
+			d.StartedAt = nil
+			r.wait("a run of %s could not be started yet: %v; it is tried again at the next check", d.Item.Name(), err)
+			return r.save()
+		}
+		// A refusal that will not clear by itself, such as an item that has since
+		// closed: the decision is dropped with its round given back, and the
+		// development manager is told, so she can decide again.
+		item, round := d.Item.Name(), d.Round
 		d.StartedAt = nil
-		r.wait("a run of %s could not be started yet: %v; it is tried again at the next check", d.Item.Name(), err)
-		return r.save()
+		r.record.RefundUnstartedRound()
+		return r.resolutionFailed(fmt.Sprintf("the run of %s that was to resolve the conflict (round %d of %d) could not be started, and the round was not spent: %v", item, round, runstate.MaxTeamBranchConflictRounds, err))
 	case err != nil:
 		r.record.GiveUpConflictRun()
 		return r.resolutionFailed(fmt.Sprintf("the run %s of %s that was to resolve the conflict (round %d of %d) ended without a merge: %v", result.RunID, d.Item.Name(), d.Round, runstate.MaxTeamBranchConflictRounds, err))
