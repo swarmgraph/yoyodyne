@@ -197,6 +197,80 @@ func TestVerifyDecidesEachStateFromTheRecord(t *testing.T) {
 	}
 }
 
+// A repair, continuation or re-run is decided on the run's latest stop, so only
+// work taken up after that stop answers that it started. The case it was found
+// on: a repair taken up the evening before, the run stopping again the next
+// morning, and the repair decided after that stop not yet started.
+func TestVerifyCountsOnlyWhatStartedAfterTheLatestStop(t *testing.T) {
+	t.Parallel()
+
+	earlierRepair := observed.Add(-14 * time.Hour)
+	stoppedAt := observed.Add(-3 * time.Hour)
+	stopped := runningState()
+	stopped.StartedAt = observed.Add(-20 * time.Hour)
+	stopped.Status = runstate.StatusFailed
+	stopped.Failure = "the check make test failed"
+	stopped.CompletedAt = &stoppedAt
+	stopped.Stops = []runstate.RunStop{
+		{StoppedAt: observed.Add(-16 * time.Hour), Reason: runstate.StopUnknown, Cause: runstate.StopCauseWork, Charged: true},
+		{StoppedAt: stoppedAt, Reason: runstate.StopUnknown, Cause: runstate.StopCauseWork, Charged: true},
+	}
+	stopped.RepairContinuations = []runstate.RepairContinuation{{GrantedAttempts: 1, ContinuedAt: earlierRepair, Reason: "the earlier decision"}}
+	// A record written before stops were kept names its stop only by when it ended.
+	unlisted := stopped
+	unlisted.Stops = nil
+
+	for name, state := range map[string]runstate.State{"stops kept": stopped, "no stops kept": unlisted} {
+		for _, expect := range []Expected{ExpectRepairStarted, ExpectContinuationStarted} {
+			verification := inspector(fakeRuns{state: state}).Verify(context.Background(), state.RunID, expect)
+			evidence := strings.Join(verification.Evidence, " ")
+			if verification.Verdict != NotMet || !strings.Contains(evidence, "last stopped at "+stoppedAt.Format(time.RFC3339)) || !strings.Contains(evidence, "has started since") {
+				t.Errorf("%s: Verify(%s) with only a repair from before the latest stop = %+v, want not met naming the stop", name, expect, verification)
+			}
+		}
+	}
+	notStarted := inspector(fakeRuns{state: stopped}).Verify(context.Background(), stopped.RunID, ExpectRepairStarted)
+	if evidence := strings.Join(notStarted.Evidence, " "); !strings.Contains(evidence, "no repair has started since") || !strings.Contains(evidence, earlierRepair.Format(time.RFC3339)+", before that stop") {
+		t.Errorf("not met evidence = %q, want it to say no repair has started since and when the earlier one was", evidence)
+	}
+
+	// The decided repair is taken up: the run is going again.
+	repaired := stopped
+	repaired.Status, repaired.CompletedAt, repaired.Failure = runstate.StatusRunning, nil, ""
+	repaired.RepairContinuations = append(append([]runstate.RepairContinuation(nil), stopped.RepairContinuations...),
+		runstate.RepairContinuation{GrantedAttempts: 1, ContinuedAt: stoppedAt.Add(time.Hour), Reason: "the later decision"})
+	for _, expect := range []Expected{ExpectRepairStarted, ExpectContinuationStarted} {
+		if verification := inspector(fakeRuns{state: repaired}).Verify(context.Background(), repaired.RunID, expect); verification.Verdict != Met {
+			t.Errorf("Verify(%s) once the later repair is taken up = %+v, want met", expect, verification)
+		}
+	}
+	// Recorded after the stop and not yet confirmed is unknown, never met.
+	pending := repaired
+	pending.RepairContinuations = slicesWithLast(repaired.RepairContinuations, func(c *runstate.RepairContinuation) { c.DispatchPending = true })
+	if verification := inspector(fakeRuns{state: pending}).Verify(context.Background(), pending.RunID, ExpectRepairStarted); verification.Verdict != Unknown {
+		t.Errorf("Verify(repair started) for a later repair not yet confirmed = %+v, want unknown", verification)
+	}
+
+	// A re-run counts only where it started after the latest stop.
+	before := runningState()
+	before.RunID, before.StartedAt = "run-9f8e7d6c", stoppedAt.Add(-time.Hour)
+	if verification := inspector(fakeRuns{state: stopped, active: []runstate.State{before}}).Verify(context.Background(), stopped.RunID, ExpectRerunHoldsItem); verification.Verdict != NotMet ||
+		!strings.Contains(strings.Join(verification.Evidence, " "), "last stopped at "+stoppedAt.Format(time.RFC3339)) {
+		t.Errorf("Verify(rerun holds the item) with a run started before the latest stop = %+v, want not met naming the stop", verification)
+	}
+	after := before
+	after.StartedAt = stoppedAt.Add(time.Hour)
+	if verification := inspector(fakeRuns{state: stopped, active: []runstate.State{after}}).Verify(context.Background(), stopped.RunID, ExpectRerunHoldsItem); verification.Verdict != Met {
+		t.Errorf("Verify(rerun holds the item) with a run started after the latest stop = %+v, want met", verification)
+	}
+}
+
+func slicesWithLast(all []runstate.RepairContinuation, change func(*runstate.RepairContinuation)) []runstate.RepairContinuation {
+	copied := append([]runstate.RepairContinuation(nil), all...)
+	change(&copied[len(copied)-1])
+	return copied
+}
+
 // The list of expected states is closed, and a block naming any other is
 // refused whole before anything is read.
 func TestABlockNamingAnExpectedStateOffTheListIsRefused(t *testing.T) {
