@@ -60,6 +60,11 @@ type StallContinuer struct {
 	Worktrees RepairWorktrees
 	// Capacity is execution.max_concurrent_developers. Required: the continued
 	// run holds a slot for exactly as long as any run does.
+	// Checkout is the main checkout, asked before anything is written and again
+	// immediately before the run takes its developer slot
+	// (checkoutReadyToTakeUp). Optional: without it nothing is asked here and
+	// the pipeline asks once the run holds the slot.
+	Checkout CheckoutReadiness
 	Capacity int
 	// Backends and Events are the repair continuer's, for the same reasons: a
 	// stall carried on in its developer attempt is carried on in the session the
@@ -199,6 +204,9 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 		result.CapacityFull = &full
 		return result, nil
 	}
+	if err := checkoutReadyToTakeUp(ctx, c.Checkout, prior.RunID); err != nil {
+		return result, err
+	}
 	// The worktree last, on the repair's conditions. Either failing is a person's
 	// to look at, so it is written down and the harness stops asking. A stall in
 	// the attempt need not hold a change yet: an empty worktree is exactly what
@@ -231,6 +239,9 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	}
 	// The slot is taken by the save that makes the run live, not by the reading
 	// above, which a reservation beside this one can overtake.
+	if err := checkoutReadyToTakeUp(ctx, c.Checkout, prior.RunID); err != nil {
+		return result, err
+	}
 	if err := c.Runs.ReserveLive(ctx, continuedAfterStall(prior, result.Reason, c.now()), c.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			result.CapacityFull = &capacity

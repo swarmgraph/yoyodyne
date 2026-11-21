@@ -394,6 +394,9 @@ func checkStageContinuerFrom(parts components) orchestrator.CheckStageContinuer 
 		// wait for machine load to fall.
 		Load:     gitworktree.MachineLoad,
 		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		// Asked before the run takes its developer slot back, so a dirty checkout
+		// leaves it stopped and holding none rather than live with nobody working it.
+		Checkout: parts.worktrees,
 		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
 			return pipelineFrom(parts).Continue(ctx, workItemID, runID)
 		},
@@ -416,6 +419,7 @@ func stallContinuerFrom(parts components) orchestrator.StallContinuer {
 		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
 		Backends:  developerBackendsFrom(parts),
 		Events:    parts.store,
+		Checkout:  parts.worktrees,
 		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
 			return pipelineFrom(parts).Continue(ctx, workItemID, runID)
 		},
@@ -733,6 +737,7 @@ func repairContinuerFrom(parts components) orchestrator.RepairContinuer {
 		// failed attempt erased from its record is restored from.
 		Backends: developerBackendsFrom(parts),
 		Events:   parts.store,
+		Checkout: parts.worktrees,
 		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
 			// The continuation names the run it re-enters, and takes the entry
 			// point that can do nothing else: a repair is worth the change one

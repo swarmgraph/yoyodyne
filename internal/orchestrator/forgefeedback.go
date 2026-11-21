@@ -210,6 +210,10 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 			}
 			return result
 		}
+		if checkoutReadyToTakeUp(ctx, r.Checkout, state.RunID) != nil {
+			result.Detail = fmt.Sprintf("changes were asked for on pull request %d, and the main checkout has uncommitted changes, so the repair round is left for the next check", published.Number)
+			return result
+		}
 	}
 	now := r.clock().Now()
 	// Comments go on the development manager's list first: a report that could
@@ -247,6 +251,10 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 		result.Detail = describeFeedbackSettlement(result)
 	case startsRound:
 		live, err := state.PutBackForFeedback(forgeFeedbackRound(published, repairs, now), fresh, limit, now)
+		if err == nil && checkoutReadyToTakeUp(ctx, r.Checkout, state.RunID) != nil {
+			result.Detail = fmt.Sprintf("changes were asked for on pull request %d, and the main checkout has uncommitted changes, so the repair round is left for the next check", published.Number)
+			return result
+		}
 		if err == nil {
 			err = r.Store.ReserveLive(ctx, live, r.Capacity)
 		}

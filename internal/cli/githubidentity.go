@@ -55,6 +55,7 @@ func gitHubIdentityStopsFrom(parts components) *orchestrator.GitHubIdentityStops
 		Items:     continuer.Items,
 		Worktrees: continuer.Worktrees,
 		Capacity:  continuer.Capacity,
+		Checkout:  continuer.Checkout,
 		Start:     continuer.Start,
 		Answers:   gitHubIdentityProbe(parts),
 		ResumeLanding: func(ctx context.Context, runID, reason string) (orchestrator.IntegrationResumeResult, error) {

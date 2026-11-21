@@ -20,3 +20,8 @@
 # bd's atomic-write temp files: an export mid-write must never read as a dirty
 # checkout (two reviewed rounds died on this race in one afternoon, 2026-09-05)
 .beads/.~*
+
+# The harness's own item write locks and the tickets its tracker calls hold
+# (internal/beads/writelock.go, turns.go). A ticket lives as long as a tracker
+# call does; read as an uncommitted change it would refuse every run start.
+.beads/yoyodyne-writes/

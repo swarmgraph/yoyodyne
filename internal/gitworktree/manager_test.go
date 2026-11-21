@@ -1906,6 +1906,78 @@ func TestManagerReadiesThroughAnExportBeingRewritten(t *testing.T) {
 	}
 }
 
+// The harness's own tracker calls each hold a ticket file under the tracker's
+// directory for as long as the call waits and runs. Read as uncommitted work,
+// one refused every run start and continuation for as long as it existed, so
+// the check passes over the directory the harness declares — and only that
+// directory: a file a person leaves anywhere else, or beside it, still refuses.
+func TestManagerReadiesThroughTheHarnessesOwnTrackerTickets(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	manager, err := New(Options{
+		Runner:                  execution.OSProcessRunner{},
+		RepositoryRoot:          repository,
+		WorktreeRoot:            filepath.Join(t.TempDir(), "worktrees"),
+		AllowedPrimaryChanges:   []string{".beads/interactions.jsonl", ".beads/issues.jsonl"},
+		HarnessWriteDirectories: []string{".beads/yoyodyne-writes"},
+		Timeout:                 testGitBudget,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	harnessFiles := []string{
+		".beads/yoyodyne-writes/turns/01795256487569255000-0000034417-00000000000000000090.turn",
+		".beads/yoyodyne-writes/yoyodyne-1.lock",
+	}
+	for _, name := range harnessFiles {
+		path := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
+	}
+	if err := manager.ValidateReady(context.Background()); err != nil {
+		t.Fatalf("ValidateReady() with the harness's own tickets error = %v", err)
+	}
+	if _, err := manager.Create(context.Background(), CreateRequest{RunID: testRunID, WorkItemID: "yoyodyne-1", BaseRef: "HEAD"}); err != nil {
+		t.Fatalf("Create() with the harness's own tickets error = %v", err)
+	}
+
+	for _, name := range []string{"dirty.txt", ".beads/yoyodyne-writes.txt", ".beads/notes.md"} {
+		path := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.WriteFile(path, []byte("somebody's change\n"), 0o600); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
+		var dirty PrimaryDirtyError
+		err := manager.ValidateReady(context.Background())
+		if !errors.As(err, &dirty) || len(dirty.Paths) != 1 || dirty.Paths[0] != name {
+			t.Errorf("ValidateReady() with %s error = %v, want only it named", name, err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("Remove(%s) error = %v", name, err)
+		}
+	}
+}
+
+func TestManagerRejectsAHarnessWriteDirectoryOutsideTheRepository(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	for _, directory := range []string{"/tmp/writes", "..", "../writes", "."} {
+		if _, err := New(Options{
+			Runner:                  execution.OSProcessRunner{},
+			RepositoryRoot:          repository,
+			WorktreeRoot:            filepath.Join(t.TempDir(), "worktrees"),
+			HarnessWriteDirectories: []string{directory},
+		}); err == nil {
+			t.Errorf("New() with harness write directory %q error = nil", directory)
+		}
+	}
+}
+
 func TestManagerSummarizeChangesIncludesTrackedAndUntrackedFiles(t *testing.T) {
 	t.Parallel()
 

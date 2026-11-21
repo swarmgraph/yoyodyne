@@ -1329,6 +1329,9 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
 			capacityWaitSays(*result.CapacityFull),
 			capacityWaitClears(*result.CapacityFull)+"; nothing was spent, so the item keeps its grant"), Outcome{}, nil
+	case !result.Continued && checkoutNotReadyToTakeUp(runErr):
+		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, true, refusalText(runErr),
+			checkoutNotReadyClears+"; nothing was spent, so the item keeps its grant"), Outcome{}, nil
 	case !result.Continued:
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
 			carried.Cause = carryOutCause(runErr)
@@ -1346,6 +1349,19 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 	carried.RecordProblem = result.RecordProblem
 	return carried, result.Outcome, runErr
 }
+
+// checkoutNotReadyToTakeUp reports a continuation that left its run as
+// recorded, holding no slot, because the main checkout was not ready when the
+// run was about to be made live (checkoutReadyToTakeUp). It is a wait the next
+// pull asks about again, like a full harness, not a refusal for somebody to
+// decide.
+func checkoutNotReadyToTakeUp(err error) bool {
+	var unready CheckoutNotReadyToTakeUpError
+	return errors.As(err, &unready)
+}
+
+// checkoutNotReadyClears is what ends that wait.
+const checkoutNotReadyClears = "the main checkout being left with no uncommitted changes, which the next pull asks about again"
 
 // continueChecks continues a run the check stage bound stopped, at its checks.
 // A wait is said on the pass and, after thirty minutes, on the item. A refusal
@@ -1396,6 +1412,8 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
+	case !result.Continued && checkoutNotReadyToTakeUp(runErr):
+		return waiting(runstate.TriageGateHarness, strings.TrimSpace(refusalText(runErr)))
 	case !result.Continued:
 		carried.Gate = runstate.TriageGateHarness
 		carried.Problem = fmt.Sprintf("the harness did not continue the check stage the bound stopped on run %s: %s", task.RunID, strings.TrimSpace(refusalText(runErr)))
@@ -1449,6 +1467,8 @@ func (c CarryOut) continueStall(ctx context.Context, task CarryOutTask, carried 
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
+	case !result.Continued && checkoutNotReadyToTakeUp(runErr):
+		return waiting(runstate.TriageGateHarness, strings.TrimSpace(refusalText(runErr)))
 	case !result.Continued:
 		carried.Gate = runstate.TriageGateHarness
 		carried.Problem = fmt.Sprintf("the harness did not continue run %s after its stall: %s", task.RunID, strings.TrimSpace(refusalText(runErr)))

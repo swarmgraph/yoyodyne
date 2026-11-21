@@ -489,10 +489,11 @@ func newSharedPipeline(t *testing.T, repository, worktreeRoot string, store Stat
 	t.Helper()
 	processRunner := execution.OSProcessRunner{}
 	worktrees, err := gitworktree.New(gitworktree.Options{
-		Runner:                processRunner,
-		RepositoryRoot:        repository,
-		WorktreeRoot:          worktreeRoot,
-		AllowedPrimaryChanges: []string{".beads/interactions.jsonl", ".beads/issues.jsonl"},
+		Runner:                  processRunner,
+		RepositoryRoot:          repository,
+		WorktreeRoot:            worktreeRoot,
+		AllowedPrimaryChanges:   []string{".beads/interactions.jsonl", ".beads/issues.jsonl"},
+		HarnessWriteDirectories: []string{beads.HarnessWritePath},
 		// What `yoyo run` configures, so a pipeline built here refreshes and
 		// refuses exactly what a real one does. A repository that carries no such
 		// file is unaffected: there is nothing to copy across and nothing to hold.

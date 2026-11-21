@@ -82,6 +82,11 @@ type CheckStageContinuer struct {
 	Load MachineLoad
 	// Capacity is execution.max_concurrent_developers. Required: the continued
 	// run holds a slot for exactly as long as any run does.
+	// Checkout is the main checkout, asked before anything is written and again
+	// immediately before the run takes its developer slot
+	// (checkoutReadyToTakeUp). Optional: without it nothing is asked here and
+	// the pipeline asks once the run holds the slot.
+	Checkout CheckoutReadiness
 	Capacity int
 	Start    RepairContinueStarter
 	Clock    execution.Clock
@@ -216,6 +221,9 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 		result.CapacityFull = &full
 		return result, nil
 	}
+	if err := checkoutReadyToTakeUp(ctx, c.Checkout, prior.RunID); err != nil {
+		return result, err
+	}
 	// Repository facts, rather than removal flags, decide whether the recorded
 	// checkout needs restoring. Intake and capacity waits leave it untouched.
 	remains, _ := c.Worktrees.(readmodel.Remains)
@@ -268,6 +276,9 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 	}
 	// The slot is taken by the save that makes the run live, not by the reading
 	// above, which a reservation beside this one can overtake.
+	if err := checkoutReadyToTakeUp(ctx, c.Checkout, prior.RunID); err != nil {
+		return result, err
+	}
 	if err := c.Runs.ReserveLive(ctx, continuedAtChecks(prior, result.Reason, c.now()), c.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			result.CapacityFull = &capacity

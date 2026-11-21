@@ -248,6 +248,7 @@ type Manager struct {
 	remote                string
 	pushRemote            string
 	allowedPrimaryChanges map[string]struct{}
+	harnessWrites         []string
 	currentExports        []string
 	prepareExports        func(context.Context) error
 	// timeout is the local Git budget a caller named, and zero where it left
@@ -280,6 +281,11 @@ type Options struct {
 	// AllowedPrimaryChanges lists repository-relative control-plane files that
 	// may be updated after preflight without becoming part of the worktree base.
 	AllowedPrimaryChanges []string
+	// HarnessWriteDirectories lists repository-relative directories the harness
+	// itself writes short-lived files into while it works, such as the tracker's
+	// write locks and call tickets. An untracked file under one is never read as
+	// somebody's uncommitted change, so it never refuses a run.
+	HarnessWriteDirectories []string
 	// CurrentExports lists repository-relative files derived from a store that is
 	// authoritative outside Git, which a new worktree is given the primary
 	// checkout's copy of rather than the copy its base commit happened to carry.
@@ -1271,6 +1277,14 @@ func New(options Options) (*Manager, error) {
 		}
 		allowedPrimaryChanges[filepath.ToSlash(clean)] = struct{}{}
 	}
+	var harnessWrites []string
+	for _, path := range options.HarnessWriteDirectories {
+		clean := filepath.Clean(path)
+		if filepath.IsAbs(path) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("harness write directory %q must be a repository-relative directory path", path)
+		}
+		harnessWrites = append(harnessWrites, filepath.ToSlash(clean)+"/")
+	}
 	currentExports, err := cleanExportPaths(options.CurrentExports)
 	if err != nil {
 		return nil, err
@@ -1283,6 +1297,7 @@ func New(options Options) (*Manager, error) {
 		remote:                remote,
 		pushRemote:            pushRemote,
 		allowedPrimaryChanges: allowedPrimaryChanges,
+		harnessWrites:         harnessWrites,
 		currentExports:        currentExports,
 		prepareExports:        options.PrepareExports,
 		timeout:               options.Timeout,

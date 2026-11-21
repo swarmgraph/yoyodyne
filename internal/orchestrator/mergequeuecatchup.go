@@ -45,7 +45,8 @@ type MergeQueueCatchUpRuns interface {
 }
 
 // MergeQueueCatchUpWaiting is a catch-up owed to a run that could not be made
-// yet: every developer slot is taken, or another process holds the run. The
+// yet: every developer slot is taken, another process holds the run, or the
+// main checkout is not ready. The
 // hand-back stays owed and the queue gives it again at a later pass
 // (MergeQueueHandbackUndelivered); nothing is stopped and nothing is spent.
 type MergeQueueCatchUpWaiting struct {
@@ -161,6 +162,9 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 		return false, refusal, nil
 	}
 	live := catchUpState(adopted, entry, handback, marker, h.now())
+	if checkoutReadyToTakeUp(ctx, h.Checkout, entry.RunID) != nil {
+		return false, "", MergeQueueCatchUpWaiting{RunID: entry.RunID, TargetBranch: entry.TargetBranch, Why: "the main checkout has uncommitted changes, so the run is not made live and holds no developer slot"}
+	}
 	if err := h.CatchUp.ReserveLive(ctx, live, h.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			return false, "", MergeQueueCatchUpWaiting{RunID: entry.RunID, TargetBranch: entry.TargetBranch, Why: slotWentElsewhere(capacity)}
