@@ -136,7 +136,13 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     limit, scaled and capped), `checkTimedOut` (a check unfinished at its own
     limit), `checkStopSays` (how every check that ran out of time is said: what it
     ran for and the limit that stopped it), `landingCheckTimeout`, `gateProtectedPaths`,
-    `pathRefusal`, `checkFailure`. A stage every check of which could not run
+    `pathRefusal`, `checkFailure`. A stage that ends on a failure confined to
+    tests the change does not touch runs those tests once more before any
+    repair attempt is spent (`rerunUntouched` in `untouchedrerun.go`, decided by
+    `checks.PlanUntouchedRerun` and recorded as `runstate.UntouchedRerun` before
+    it starts); the reviewer is shown each test that failed and then passed
+    (`describeUntouchedReruns`), and `checkCandidateWhole` checks the merge
+    candidate whole after one (`untouchedRerunPassedBeforeReview`). A stage every check of which could not run
     stops the run instead of earning evidence (`noCheckVerified`,
     `blockOnNoCheckRan` in `nocheckran.go`), and the scheduler then holds new
     work (`machineChecksHold`, same file): where `followups.go` recognises the

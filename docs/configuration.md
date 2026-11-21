@@ -4181,11 +4181,41 @@ and at most five of them. Anything else is an ordinary failed check. The design
 also lets a project's change-aware analyser add tests to the touched set, but
 no setting declares one yet, so the path rule decides alone.
 
-A reading only describes a failure. A check fails or passes exactly as it
-would without one, and a reading spends nothing and decides nothing. The
-judgment is recorded and nothing acts on it yet; running such a failure once
-more is later work (see [the design for failures in tests a change does not
+**Running those tests once more.** Where a run's check fails only in tests the
+change does not touch, the harness runs those tests once more, on the same
+commit, before any repair attempt is spent. It runs the check's own command
+again under the check's own time limit, with the tests named in
+`YOYODYNE_FAILING_TESTS`, one to a line: each test's name, then the directory
+of each test's file as `./dir` (`.` for the top of the repository). It knows
+nothing of your test runner, so a check narrows itself by reading the variable;
+one that does not read it runs whole again. This repository's `make test`,
+`make race` and `make test-macos` read it (`scripts/rerun-failing.sh`).
+
+- The rerun is written on the run's record, under `untouched_reruns`, before it
+  starts. Each check stage gets one per candidate commit: the checks before
+  review, and the checks over the merge candidate before it is promoted. A
+  restart of the harness finds the rerun it already spent and never grants a
+  second for the same stage and commit. A new candidate commit starts again.
+- If every rerun test passes, the check counts as passed, the checks after it
+  run, and no repair attempt or review round is spent. The record keeps the
+  first failure with its output beside the passing rerun, and the reviewer is
+  shown every test that failed and then passed, with the first failure's
+  output.
+- If a test fails again, or the rerun is stopped by its time limit or cannot be
+  started, the first failure is handled as an ordinary failed check, exactly as
+  it would have been without the rerun.
+- It is separate from the two runs again of a check stopped by its time limit:
+  neither counts toward the other.
+- The merge candidate is still checked whole before it is promoted, even where
+  the checks before review already ran whole, so a test that passed only when
+  run once more runs again before the change lands.
+
+The run on the base commit after a second failure, and the dashboard's count of
+tests that failed and then passed, are later work (see [the design for failures
+in tests a change does not
 touch](designs/recoverable-and-terminal-failures.md#a-check-that-fails-only-in-tests-the-change-does-not-touch)).
+A reading by itself only describes a failure: a check no reading names, or one
+whose failing tests could not be named, fails or passes exactly as before.
 
 `failing_tests` is a configuration key. A running part of the product on a
 build from before it refuses a file that carries it, so restart the product

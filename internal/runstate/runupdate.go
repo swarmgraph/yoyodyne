@@ -324,6 +324,31 @@ func (u InstallRecorded) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// UntouchedRerunRecorded writes one rerun of a failure confined to untouched
+// tests onto the run (untouchedrerun.go): added before it starts, and replaced
+// by the same rerun, matched by stage, commit and start, once it has ended.
+type UntouchedRerunRecorded struct {
+	Rerun UntouchedRerun
+	At    time.Time
+}
+
+func (u UntouchedRerunRecorded) apply(state *State) (bool, error) {
+	reruns := append([]UntouchedRerun(nil), state.UntouchedReruns...)
+	for index, rerun := range reruns {
+		if rerun.Stage == u.Rerun.Stage && rerun.Commit == u.Rerun.Commit && rerun.StartedAt.Equal(u.Rerun.StartedAt) {
+			reruns[index] = u.Rerun
+			state.UntouchedReruns = reruns
+			state.UpdatedAt = u.At
+			return true, nil
+		}
+	}
+	probe := State{UntouchedReruns: reruns}
+	probe.BeginUntouchedRerun(u.Rerun)
+	state.UntouchedReruns = probe.UntouchedReruns
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // InstallWaitRecorded puts a wait to try an install step again on the run, or
 // takes it off where Wait is nil (InstallWait).
 type InstallWaitRecorded struct {

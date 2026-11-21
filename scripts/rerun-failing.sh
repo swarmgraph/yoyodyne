@@ -1,14 +1,17 @@
 #!/bin/sh
 #
 # rerun-failing.sh - run once more only the Go tests a check's first run named
-# failing, for `make race` when the harness's checks on main run it a second
-# time (internal/maincheck, runFailingAgain).
+# failing: for `make race` when the harness's checks on main run it a second
+# time (internal/maincheck, runFailingAgain), and for `make test`, `make race`
+# and `make test-macos` when a run's check failed only in tests the change does
+# not touch (internal/checks/untouchedrerun.go).
 #
 #   sh scripts/rerun-failing.sh GO TIMEOUT [GO TEST FLAG...]
 #
 # The names are read from YOYODYNE_FAILING_TESTS, one to a line, as the first
 # run's output named them: test names such as TestQueue or TestQueue/empty, and
-# the packages Go reported failing, such as github.com/example/queue. Each
+# the packages Go reported failing, such as github.com/example/queue, or the
+# directories their test files are in, such as ./internal/queue. Each
 # package named is run with -count=1, so nothing is read from the test cache,
 # and with -run naming only the top-level tests whose declarations are in that
 # package's test files. A package none of the named tests is declared in --
