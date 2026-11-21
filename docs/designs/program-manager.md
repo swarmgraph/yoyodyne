@@ -62,6 +62,10 @@ revisions:
       by: architect
       at: 2026-11-21T09:18:00.74403Z
       reason: 'Replacing the coined vocabulary in the governed documents, first of the last three program manager sections (yoyodyne-ifd.437.21): ''never gates one'' becomes ''never holds one back''. Nothing else in the section changes. Section read at main e1aab23b.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T10:50:10.775929Z
+      reason: 'Replacing the coined vocabulary in the governed documents, second of the last three program manager sections (yoyodyne-ifd.437.21): ''never a gate'' becomes ''never holds one back'', and four words a reader would stop on (judgment-only, decisionless, round-capped, event-triggered) become plain phrases with the same meaning. Nothing else in the section changes. Section read at main cd5590fec8a4.'
 approvals:
     - policy: approvals.designs
       revision: 6
@@ -103,6 +107,11 @@ approvals:
       by: harness
       at: 2026-11-21T09:18:00.74403Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3305, for document-3305.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 14
+      by: harness
+      at: 2026-11-21T10:50:10.775929Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3315, for document-3315.1 under the automatic approval policy
 ---
 # The program manager: one role type, one lane per instance, requests batched to the Lead Product Manager
 
@@ -175,9 +184,9 @@ yoyodyne-ifd.430.13.16. The standing goals apply to every item and every role's 
 
 **One digest per instance per pass**, and nothing per finding. The digest is a report — filed through `report.file`, carried into the Lead Product Manager's conversation in the slices she already works, decided with her `handle` action — at `note` severity, or `warning` where it carries an objection to an admission or a blocker of the instance's own. Its shape is fixed so a slice of them reads alike: the lane and the pass; the admissions the pass made in the lane; each request outside the lane as one entry with the work it recommends, the goal it would serve, the recommended priority, and why; each objection to a new admission as one entry naming the item and the concern; the counts of each repeated stop cause, with the original report each names; and the instance's open requests from earlier passes, restated by id rather than repeated. A pass with nothing to say files no digest.
 
-**Requests to the development manager and the architect** are asks on the exchange channel — judgment-only, decisionless, durable, round-capped — because what a program manager wants from either is a judgment, never an act, and the acts it might want (a triage decision, a ruling) land through those roles' own paths.
+**Requests to the development manager and the architect** are asks on the exchange channel, which carry a judgment only, decide nothing, are kept on the record, and are limited in rounds, because what a program manager wants from either is a judgment, never an act, and the acts it might want (a triage decision, a ruling) land through those roles' own paths.
 
-**Review of new admissions is after the fact and never a gate.** An event-triggered pass sees the items admitted since its last pass; an instance whose remit reaches one of them may object in the digest, and may park it only where the item is in its own lane. Nothing an instance says holds an admission out of the queue.
+**Review of new admissions comes after the fact and never holds one back.** A pass started by an event sees the items admitted since its last pass; an instance whose remit reaches one of them may object in the digest, and may park it only where the item is in its own lane. Nothing an instance says holds an admission out of the queue.
 
 ## Repeated stop causes
 
