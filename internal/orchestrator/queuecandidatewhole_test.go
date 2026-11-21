@@ -183,14 +183,14 @@ func TestTheQueueStandsInOnlyForAWholeCheckItsOwnChecksCovered(t *testing.T) {
 	}
 	run := func(left bool) runstate.State {
 		return runstate.State{RunID: "run-1", ChecksPassed: &runstate.ChecksPassed{
-			Commands: []string{"make test", "make race", "make adoption"}, Narrowed: "./internal/checks", WholeLeftToQueue: left,
+			Commands: []string{"make test", "make race", "make getting-started"}, Narrowed: "./internal/checks", WholeLeftToQueue: left,
 			CouldNotRun: []runstate.CheckCouldNotRun{{Command: "make vet", Reason: "no toolchain"}},
 		}}
 	}
 	pass := func(command string) runstate.MergeQueueCheckResult {
 		return runstate.MergeQueueCheckResult{Command: command, Passed: true}
 	}
-	paths := []config.PathCheck{{Command: "make adoption"}}
+	paths := []config.PathCheck{{Command: "make getting-started"}}
 	all := generation(pass("make test"), pass("make race"), pass("make vet"))
 
 	for _, test := range []struct {

@@ -51,8 +51,8 @@ var recordsRatherThanInstallPath = []string{".beads/", "docs/diagnoses/", "docs/
 // install path naming one Beads home. It sweeps every file this repository
 // carries for a Beads URL and fails on any that is not under beads.Home,
 // outside the files that record the other name on purpose -- so the README,
-// the install script, the operations guide, the adoption walkthrough, the CI
-// workflow, and the two remedies in Go cannot disagree about where bd comes
+// the install script, the operations guide, the getting-started walkthrough,
+// the CI workflow, and the two remedies in Go cannot disagree about where bd comes
 // from, and a newcomer following any one of them is sent to the same place.
 func TestEveryBeadsHomeThisRepositoryNamesIsTheCanonicalOne(t *testing.T) {
 	t.Parallel()

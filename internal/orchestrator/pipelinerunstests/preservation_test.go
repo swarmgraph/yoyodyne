@@ -68,8 +68,8 @@ func TestPipelinePreservesFailedWorkAndRecordsFailure(t *testing.T) {
 	}
 }
 
-// The order the refusals a newcomer meets come in. The adoption walk executes
-// the README's claim that a run refuses an uncommitted primary checkout and
+// The order the refusals a newcomer meets come in. The getting-started walk
+// executes the README's claim that a run refuses an uncommitted primary checkout and
 // names every file that is dirty, and it executes it where a newcomer stands:
 // on a machine that has not installed Claude Code yet. A dispatch that asked the
 // provider first answered that claim with "Claude Code is not installed" —
