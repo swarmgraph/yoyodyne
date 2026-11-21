@@ -86,6 +86,10 @@ revisions:
       by: architect
       at: 2026-11-21T06:10:19.247734Z
       reason: 'yoyodyne-ifd.437.61: the dashboard address passage. A configured address that is not loopback is refused both when the configuration is loaded and again when the dashboard starts, each refusal naming this section, suggesting no other address, and never falling back to loopback. Answers the reports that the code refuses at start while the design said only at load. Three joined words put in plain words. Only this section changes; written from main at 848597d0.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T14:53:16.983184Z
+      reason: 'yoyodyne-ifd.437.61: the generated token section no longer speaks of a token supplied for an address that is not loopback, since the dashboard now listens only on loopback and refuses any other address. Its opening says it governs the token generated each start, and its reviewer line drops the sentence about a configured token. This is the last passage the item asked for. Only this section changes; written from main at 7732866bdc84.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -152,6 +156,11 @@ approvals:
       by: harness
       at: 2026-11-21T06:10:19.247734Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3301, for document-3301.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 20
+      by: harness
+      at: 2026-11-21T14:53:16.983184Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3326, for document-3326.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -418,7 +427,7 @@ The dashboard is one part of the product: started, stopped, restarted, and moved
 
 ### The generated token
 
-This governs only the token generated for a loopback bind. A token supplied for a non-loopback bind, and every person's `dashboard_token`, are never written here and are unchanged by it.
+This governs only the token the dashboard generates each time it starts. Every person's `dashboard_token` is never written here and is unchanged by it.
 
 - **Where.** The file `dashboard/token` under the product's state root; never a worktree, `.yoyodyne`, a run record, a log, or anything the harness hands an agent.
 - **Permissions.** The `dashboard` directory is created with mode `0700` and the file with mode `0600`, both owned by the user the dashboard runs as.
@@ -432,7 +441,7 @@ This governs only the token generated for a loopback bind. A token supplied for 
 - **A dashboard started by hand.** A dashboard a person starts from a terminal prints its token to that terminal, which is that person's own, and also publishes the file. A dashboard the supervisor starts prints none, because its output goes to logs.
 - **Alternatives rejected.** Showing the value in `yoyo status` was rejected because status output reaches conversations and agents. Posting it to Slack was rejected because a channel is read by others and keeps the message after the token has rotated.
 
-**What a reviewer can check.** No log, status output, run record, conversation, channel post, or URL contains the token value. A symbolic link, a wrong owner, or wider permissions at the path stop the dashboard becoming ready and raise a factory problem of kind broken. Readiness is never reported before the file exists and an authenticated request has succeeded. Restarting the supervisor while the dashboard keeps running keeps the token; replacing the dashboard changes it. A build change replaces the dashboard with no moment at which no dashboard is ready. A configured token never appears in the file.
+**What a reviewer can check.** No log, status output, run record, conversation, channel post, or URL contains the token value. A symbolic link, a wrong owner, or wider permissions at the path stop the dashboard becoming ready and raise a factory problem of kind broken. Readiness is never reported before the file exists and an authenticated request has succeeded. Restarting the supervisor while the dashboard keeps running keeps the token; replacing the dashboard changes it. A build change replaces the dashboard with no moment at which no dashboard is ready.
 
 ## Deferred, deliberately
 
