@@ -58,6 +58,10 @@ revisions:
       by: architect
       at: 2026-11-20T16:23:02.313856Z
       reason: 'Approved amendment-645896574114e1e18b036497d9147f0a from the developer on the build letting the Lead Product Manager grant attempts past the development manager''s five (yoyodyne-ifd.432.25.13): that raise leaves the hand cases, which become three, and the section says the harness carries out her grant, tells the operator afterwards, and refuses a raise past ten. Held until that build closes, so the design does not run ahead of the code. Written against main at 84b45228; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T03:37:12.779943Z
+      reason: 'Approved amendment-df79a1a66adf9cb96e3eba21804f854a from the developer on the build of the rule for a watch session left on an older build (yoyodyne-ifd.431.13): the table gains a row for the stale build kind, owned by the harness, the development manager or the Lead Product Manager by case, never the operator. Held until that build closes, so the design does not run ahead of the code. Written against main at 7b178c05; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -119,6 +123,11 @@ approvals:
       by: harness
       at: 2026-11-20T16:23:02.313856Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3150, for document-3150.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-11-21T03:37:12.779943Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3278, for document-3278.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -199,6 +208,7 @@ her pass, and she files it against the registry.
 | hold | the operator for a hold or pause he placed, reason `own-hold`; the development manager for the brake's hold on new work, and the Lead Product Manager once the development manager escalates it, with the operator told; the harness for its own pause on new work for lack of provider capacity, which it lifts at the provider's reset or after a successful check of the provider |
 | outage, provider's usage limit | nobody, since a provider outage or a provider's usage limit lifts on the provider's clock; the operator for an expired login, reason `credential`, and for a provider's program that cannot be found on the machine the harness runs on, reason `install` |
 | stall | the harness for a stalled queue, shown as a degraded service once the harness has left it down; for a run whose AI session went silent, the harness the first time and the development manager after that |
+| stale build | a watch session or supervisor still running an older build than the one main holds: the harness while the session or the supervisor moves itself onto the new build; the development manager when that move is stuck, or when the build of main fails so there is nothing to move onto; the Lead Product Manager when uncommitted changes in the main checkout stop the move, to classify them; the harness when no supervisor is running; never the operator (yoyodyne-ifd.431.13) |
 | stoppage | the development manager |
 | escalation | the role it names; the operator only when it carries a reason from the closed list |
 | held work | the owner of the group it is held in |
@@ -208,6 +218,8 @@ her pass, and she files it against the registry.
 | follow-up | the owner the follow-up recorded when it was written, which the rule for what it is about resolved then; the operator only with a reason from the closed list; a follow-up the operator or his assistant records is never owned by the operator, and is the Lead Product Manager's unless it names another role |
 | intake question | as the query's `questions` setting says, in [scheduled message intake](scheduled-message-intake.md): the Lead Product Manager by default; the operator only under `questions: person`, which only he can set, reason `human-gate` |
 | pile or queue age | the role that works that pile or queue |
+
+The stale build kind joins the kinds the registry names, with the rule in its row above; the list of kinds under *One registry, one resolver* gains it in the next revision of that section.
 
 ## Who decides a proposed change
 
