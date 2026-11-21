@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-21T01:12:30.385869Z
       reason: Answers report f5c2d5e7. The intake edits to the MCP and ownership designs were checked at main 725f326f and both are already there, in revisions of November 7. This section now says each change is an architect revision and where it stands, and the MCP bullet says the link and the reader's line go by direct message or on the operator's list where Slack is not in use, never a channel, matching section 7. Nothing else changes.
+    - action: amended
+      by: architect
+      at: 2026-11-21T18:01:21.856581Z
+      reason: 'report-a84223d8: a work item''s grant of .yoyodyne/config.yaml could let a developer''s change rewrite the intake section, which section 1 says is the operator''s. Section 1 now says a grant never reaches intake: the harness compares that section at the run''s base and in the change and refuses a difference, and the section names who builds it. Written from a read of the whole section at main 06c1e5248; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -97,6 +101,11 @@ approvals:
       by: harness
       at: 2026-11-21T01:12:30.385869Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3265, for document-3265.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-21T18:01:21.856581Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3335, for document-3335.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -152,7 +161,9 @@ intake:
 - **`more_field`** is optional and names a field saying the source held back more than it returned. Where it is set and true, the answer counts as cut.
 - **`items`** and **`fields`** say where the messages and their parts are in the tool's answer, by plain field names. No expression language is added, and no knowledge of any one service is built in.
 - **`rules`** is the path of the query's rules document from the repository root, wherever the project keeps it, as section 6 says.
-- **All of `intake` is the operator's,** as `mcp` is. The typed write of section 6 of portable agent configuration refuses it, and a developer's change cannot touch `.yoyodyne/`.
+- **All of `intake` is the operator's,** as `mcp` is. The typed write of section 6 of portable agent configuration refuses it. A developer's change may not alter it either, and that holds even where a work item grants the path `.yoyodyne/config.yaml` or `.yoyodyne/`: a grant lets a run change other settings in that file, never the `intake` section. The harness reads the `intake` section of the configuration at the run's base commit and in the change, as configuration rather than as lines of text, and refuses the change where the two differ, before any check runs, naming the query or setting that changed. No grant widens this, because a grant is written by a role, and the reason the section is the operator's is that no role may repoint a query or send its questions to him. The operator changes `intake` by editing the file himself.
+
+**Building the refusal of a grant over `intake`.** It belongs to piece 1, the configuration (yoyodyne-ifd.435.51). Where piece 1 has already landed without it, it is one piece of its own for the Lead Product Manager to admit: the comparison above, its refusal and its wording, and tests for a grant of the file and a grant of the directory, each with a change to another setting, which passes, and a change to `intake`, which is refused.
 
 **Building the time format.** It is one piece of its own, for the Lead Product Manager to admit, after piece 3 and before piece 8: the `time_format` key with its default and its refusal at load; filling `since_argument` and `until_argument` in the chosen format; reading `sent_at` in it, with a decimal part accepted for `unix_seconds`; `yoyo config show` naming it; and tests for both values, the default, and the refusal. Piece 3 fills both times in the default format already, so nothing built changes for a query that names none.
 
