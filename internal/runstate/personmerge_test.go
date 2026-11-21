@@ -113,3 +113,86 @@ func TestWaitingPullRequestsCountOnlyTheWaitsStillStanding(t *testing.T) {
 		}
 	}
 }
+
+// A wait a later run of the item superseded is over without a merge, records who
+// superseded it and when together, and is never both superseded and merged.
+func TestPersonMergeSupersededByALaterRunIsOverAndRecordsWho(t *testing.T) {
+	t.Parallel()
+	since := time.Date(2026, 11, 21, 1, 0, 0, 0, time.UTC)
+	later := since.Add(time.Hour)
+	superseder := "run-" + strings.Repeat("b", 32)
+
+	superseded := PersonMerge{Number: 7, Since: since, SupersededBy: superseder, SupersededAt: &later}
+	if err := superseded.Validate(); err != nil || superseded.Waiting() || !superseded.Superseded() {
+		t.Fatalf("superseded = %v (waiting %t), want a valid ended wait", err, superseded.Waiting())
+	}
+	for name, invalid := range map[string]PersonMerge{
+		"no time":         {Number: 7, Since: since, SupersededBy: superseder},
+		"no run":          {Number: 7, Since: since, SupersededAt: &later},
+		"not a run":       {Number: 7, Since: since, SupersededBy: "elsewhere", SupersededAt: &later},
+		"also merged":     {Number: 7, Since: since, SupersededBy: superseder, SupersededAt: &later, MergedAt: &later},
+		"a repeated pair": {Number: 7, Since: since, Repairs: []TeamFeedbackRepair{{PullRequest: 7, FeedbackID: "comment-1"}, {PullRequest: 7, FeedbackID: "comment-1"}}},
+	} {
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("%s: Validate() = nil, want it refused", name)
+		}
+	}
+
+	state := State{RunID: "run-" + strings.Repeat("a", 32), Status: StatusSucceeded, PullRequest: &PullRequest{Number: 7}, PersonMerge: &PersonMerge{Number: 7, Since: since}}
+	changed, err := PersonMergeSuperseded{Number: 7, RunID: superseder, At: later}.apply(&state)
+	if err != nil || !changed || state.WaitingForPersonMerge() || state.PersonMerge.SupersededBy != superseder {
+		t.Fatalf("apply() = %v, %v; want the wait ended in favour of %s", changed, err, superseder)
+	}
+	if changed, err := (PersonMergeSuperseded{Number: 7, RunID: superseder, At: later}).apply(&state); err != nil || changed {
+		t.Fatalf("second apply() = %v, %v; want it a no-op", changed, err)
+	}
+	if _, err := (PersonMergeSuperseded{Number: 7, RunID: state.RunID, At: later}).apply(&State{RunID: state.RunID, Status: StatusSucceeded, PullRequest: &PullRequest{Number: 7}, PersonMerge: &PersonMerge{Number: 7, Since: since}}); err == nil {
+		t.Fatal("a run was superseded by itself, want it refused")
+	}
+}
+
+// A decision to repair from feedback is kept on the wait of a run whose change
+// waits on a pull request the harness opened, and a run in flight on it is read.
+func TestPersonMergeKeepsRepairsDecidedFromFeedback(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 21, 1, 0, 0, 0, time.UTC)
+	repair := TeamFeedbackRepair{
+		PullRequest: 7, FeedbackID: "comment-41", WorkItemID: "yoyodyne-a", Reason: "fair", DecidedBy: "Development Manager", Conversation: "chat-dm", Turn: 3, DecidedAt: at,
+		Feedback: ForgeFeedbackItem{ID: "comment-41", Kind: FeedbackComment, Author: "teammate", At: at, Body: "why?"},
+	}
+	state := State{RunID: "run-" + strings.Repeat("a", 32), WorkItemID: "yoyodyne-a", Status: StatusSucceeded, PullRequest: &PullRequest{Number: 7}, PersonMerge: &PersonMerge{Number: 7, Since: at}}
+	if changed, err := (TeamFeedbackRepairDecided{Repair: repair}).apply(&state); err != nil || !changed {
+		t.Fatalf("decide = %v, %v", changed, err)
+	}
+	if _, err := (TeamFeedbackRepairDecided{Repair: repair}).apply(&state); err == nil || !strings.Contains(err.Error(), "already answered") {
+		t.Fatalf("second decision = %v, want it refused as already answered", err)
+	}
+	other := repair
+	other.WorkItemID = "yoyodyne-b"
+	other.FeedbackID, other.Feedback.ID = "comment-42", "comment-42"
+	if _, err := (TeamFeedbackRepairDecided{Repair: other}).apply(&state); err == nil {
+		t.Fatal("a decision about another item was recorded on this run's wait")
+	}
+	if state.PersonMerge.RepairInFlight() || len(state.PersonMerge.RepairsOwed()) != 1 {
+		t.Fatalf("wait = %#v, want one decision owed and none in flight", state.PersonMerge)
+	}
+	if _, err := (TeamFeedbackRepairTaken{PullRequest: 7, FeedbackID: "comment-41", At: at}).apply(&state); err != nil {
+		t.Fatalf("taken = %v", err)
+	}
+	if !state.PersonMerge.RepairInFlight() || state.WaitingOnAPersonsMerge() {
+		t.Fatalf("wait = %#v, want a repair in flight and the run's feedback left to it", state.PersonMerge)
+	}
+	started := TeamFeedbackRepairStarted{PullRequest: 7, FeedbackID: "comment-41", RunID: "run-" + strings.Repeat("c", 32), At: at}
+	if changed, err := started.apply(&state); err != nil || !changed || state.PersonMerge.RepairInFlight() {
+		t.Fatalf("started = %v, %v; want the repair recorded and no longer in flight", changed, err)
+	}
+	if changed, err := started.apply(&state); err != nil || changed {
+		t.Fatalf("started again = %v, %v; want a no-op", changed, err)
+	}
+	// A decision after the run's wait ended is refused.
+	merged := at.Add(time.Hour)
+	state.PersonMerge.MergedAt = &merged
+	if _, err := (TeamFeedbackRepairDecided{Repair: other}).apply(&State{RunID: state.RunID, WorkItemID: "yoyodyne-b", PullRequest: state.PullRequest, PersonMerge: state.PersonMerge}); err == nil {
+		t.Fatal("a decision was recorded on a wait that ended")
+	}
+}

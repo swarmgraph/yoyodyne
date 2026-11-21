@@ -5487,8 +5487,10 @@ func (s State) Validate() error {
 			problems = append(problems, err)
 		}
 		// The pull request publishes this run's branch, so a record naming a
-		// different one describes a publication this run never made.
-		if s.Branch != "" && s.PullRequest.Branch != s.Branch {
+		// different one describes a publication this run never made. The one
+		// exception is a run selected to update a request an earlier run opened,
+		// which publishes onto that request's branch.
+		if s.Branch != "" && s.PullRequest.Branch != s.Branch && !s.updatesPullRequestBranch(s.PullRequest.Branch) {
 			problems = append(problems, fmt.Errorf("pull_request branch %q does not match the run branch %q", s.PullRequest.Branch, s.Branch))
 		}
 		// The forge is only asked to merge a pull request once the promotion it
@@ -6346,4 +6348,10 @@ func (s State) SlotMoveUnrecorded() bool {
 		return false
 	}
 	return s.SlotMoveRecorded == nil || !s.SlotMoveRecorded.Equal(s.Routing.Slot.RecordedAt)
+}
+
+// updatesPullRequestBranch reports a run selected to update the pull request
+// carried by the named branch, which is a branch an earlier run cut.
+func (s State) updatesPullRequestBranch(branch string) bool {
+	return s.Selection != nil && s.Selection.UpdatePullRequest != nil && s.Selection.UpdatePullRequest.Branch == branch
 }

@@ -476,8 +476,10 @@ func (r Reconciler) listComment(state runstate.State, comment runstate.ForgeFeed
 	if state.WorkItemTitle != "" {
 		title = " (" + oneline.Bound(state.WorkItemTitle, 200) + ")"
 	}
-	message := fmt.Sprintf("%s commented on pull request #%d of %s%s at %s, which waits for a person to merge it: %q. It is a comment rather than a requested change, so no repair round was started; whether it calls for one is yours to decide.",
-		comment.Author, state.PullRequest.Number, state.WorkItemID, title, localTime(comment.At), oneline.Bound(comment.Body, 1500))
+	message := fmt.Sprintf("%s commented on pull request #%d of %s%s at %s, which waits for a person to merge it: %q. It is a comment rather than a requested change, so no repair round was started; whether it calls for one is yours to decide. "+
+		"To repair %s from it, record the decision %q naming pull_request %d, feedback %q and the item; that starts a new run of it from the change this pull request carries, through the configured checks and an independent review, which updates this same pull request, spends one of the item's attempts, and answers this entry once.",
+		comment.Author, state.PullRequest.Number, state.WorkItemID, title, localTime(comment.At), oneline.Bound(comment.Body, 1500),
+		state.WorkItemID, "repair-from-feedback", state.PullRequest.Number, comment.ID)
 	entry := report.Entry{Severity: report.SeverityNote, Message: oneline.Fold(message, report.MaxMessageBytes), For: domain.RoleDevelopmentManager}
 	collected, err := report.Collect([]report.Entry{entry}, report.Attribution{
 		Role: report.HarnessReporter, RunID: state.RunID, WorkItemID: state.WorkItemID, Build: state.Build,

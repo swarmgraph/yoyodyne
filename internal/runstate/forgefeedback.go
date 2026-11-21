@@ -341,6 +341,11 @@ func (s State) WaitingOnAPersonsMerge() bool {
 	if s.Status != StatusSucceeded || s.Integration != nil || s.Retirement != nil || s.StopClass != StopIntegrationPolicy {
 		return false
 	}
+	// A later run of the item replaced this run's change on the request and waits
+	// on it now, and a decided repair running there is answering feedback itself.
+	if s.PersonMerge != nil && (s.PersonMerge.Superseded() || s.PersonMerge.RepairInFlight()) {
+		return false
+	}
 	published := s.PullRequest
 	if published == nil || published.Number <= 0 || published.Merged || published.Superseded != "" || published.HandedBack != nil {
 		return false
@@ -393,6 +398,16 @@ func (s *State) forgeFeedbackTexts(unstated func(key, path string, text *string,
 			unstated("team_merge.repairs[].reason", path+".reason", &repair.Reason, MaxTeamFeedbackRepairReasonBytes)
 			unstated("team_merge.repairs[].decided_by", path+".decided_by", &repair.DecidedBy, MaxTriageDecisionByBytes)
 			unstated("team_merge.repairs[].conversation", path+".conversation", &repair.Conversation, MaxTriageDecisionConversationBytes)
+		}
+	}
+	if s.PersonMerge != nil {
+		for index := range s.PersonMerge.Repairs {
+			repair := &s.PersonMerge.Repairs[index]
+			path := fmt.Sprintf("person_merge.repairs[%d]", index)
+			item("person_merge.repairs[].feedback", path+".feedback", &repair.Feedback)
+			unstated("person_merge.repairs[].reason", path+".reason", &repair.Reason, MaxTeamFeedbackRepairReasonBytes)
+			unstated("person_merge.repairs[].decided_by", path+".decided_by", &repair.DecidedBy, MaxTriageDecisionByBytes)
+			unstated("person_merge.repairs[].conversation", path+".conversation", &repair.Conversation, MaxTriageDecisionConversationBytes)
 		}
 	}
 }

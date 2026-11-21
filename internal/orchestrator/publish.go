@@ -172,6 +172,12 @@ func (a *activeRun) publishAttempt(ctx context.Context) error {
 	if a.reconcilingPublishedBranch() {
 		return a.republishRebase(ctx, gitworktree.Rebase{HeadCommit: a.state.HarnessCommit})
 	}
+	// A run selected to repair an item whose change waits on a pull request the
+	// harness opened publishes onto that request rather than opening its own
+	// (pullrequestupdate.go).
+	if update := a.pullRequestUpdate(); update != nil {
+		return a.publishOntoPullRequest(ctx, *update)
+	}
 	// The push is the first place a run touches the network, and a reset one is
 	// what killed a run at this exact step. Asking again is safe as well as
 	// necessary: commitAttempt has already recorded the work, so a second attempt

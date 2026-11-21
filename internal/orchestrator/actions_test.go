@@ -1148,6 +1148,8 @@ var notAStep = map[string]string{
 	"prepareIntegrationRetry":    "replays a change whose promotion lost its race, so candidate.integrate can be re-earned",
 	"moveOntoTargetForRepair":    "puts a change whose replay conflicted onto the target for its developer to reconcile, which is the setup of the repair candidate.develop then performs",
 	"reconcilingPublishedBranch": "reads whether candidate.develop's publication replaces the published branch rather than extending it",
+	"publishOntoPullRequest":     "publishes the change onto the pull request an earlier run opened, inside candidate.develop's publication, for a run selected to update it",
+	"pullRequestUpdate":          "reads which pull request the run was selected to update, inside candidate.develop's publication",
 	"republishRebase":            "replaces the published run branch with the one the local branch now carries, inside candidate.develop's publication",
 	"verifyHandback":             "checks a resumed run still has the change it preserved",
 	"closeCheckStage":            "records how the check stage ended, inside candidate.check",

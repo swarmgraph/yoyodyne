@@ -71,6 +71,40 @@ type Selection struct {
 	// rest of the selection because what a run was given to start from is part of
 	// why it came out the way it did.
 	Lift *Lift `json:"lift,omitempty"`
+	// UpdatePullRequest names the pull request this run's change replaces the head
+	// of, instead of opening one of its own. It is set by one selection only: the
+	// carrying out of the development manager's repair, from feedback, of an item
+	// whose change waits on a pull request the harness opened.
+	UpdatePullRequest *PullRequestUpdate `json:"update_pull_request,omitempty"`
+}
+
+// PullRequestUpdate is the pull request a run publishes onto: the earlier run
+// that opened it, the request's number, the branch it carries, and the head the
+// harness last put there. The run's own change is pushed to that branch, from
+// exactly that head, so the same request carries it.
+type PullRequestUpdate struct {
+	RunID      string `json:"run_id"`
+	Number     int    `json:"number"`
+	Branch     string `json:"branch"`
+	HeadCommit string `json:"head_commit"`
+}
+
+// Validate refuses an update that names no request, branch or head.
+func (u PullRequestUpdate) Validate() error {
+	var problems []error
+	if !ValidRunID(strings.TrimSpace(u.RunID)) {
+		problems = append(problems, fmt.Errorf("pull request update run %q is not a run identifier", u.RunID))
+	}
+	if u.Number <= 0 {
+		problems = append(problems, errors.New("a pull request update names the request by its number"))
+	}
+	if branch := strings.TrimSpace(u.Branch); branch == "" || len(branch) > maxLiftBranchBytes || strings.ContainsAny(branch, " \t\r\n") {
+		problems = append(problems, fmt.Errorf("pull request update branch %q is not a branch name the harness cut", u.Branch))
+	}
+	if !commitPattern.MatchString(u.HeadCommit) {
+		problems = append(problems, fmt.Errorf("pull request update head %q is not a commit", u.HeadCommit))
+	}
+	return errors.Join(problems...)
 }
 
 // Lift is the preserved change a run starts from: the earlier run that made it
@@ -141,6 +175,11 @@ func (s Selection) Validate() error {
 			problems = append(problems, err)
 		}
 	}
+	if s.UpdatePullRequest != nil {
+		if err := s.UpdatePullRequest.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	return errors.Join(problems...)
 }
 
@@ -165,7 +204,7 @@ func (s Selection) Stamped(at time.Time) (Selection, bool) {
 	if !s.Stated() {
 		return Selection{}, false
 	}
-	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At, Lift: s.Lift}
+	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At, Lift: s.Lift, UpdatePullRequest: s.UpdatePullRequest}
 	if stamped.At.IsZero() {
 		stamped.At = at.UTC()
 	}
