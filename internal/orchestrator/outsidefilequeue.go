@@ -105,7 +105,7 @@ func outsideFileItemStatus(state runstate.State) string {
 // told, as with any document run (documentItemRecorder).
 func (t HarnessRunItems) note(ctx context.Context, state runstate.State, what string) error {
 	if document := state.Document; document != nil {
-		documentItemRecorder{tracker: t.WorkTracker, document: *document}.note(ctx, fmt.Sprintf("Publishing %s (run %s): %s", document.Candidate.Artifact.Path, state.RunID, what))
+		recordedDocumentItem(t.WorkTracker, state).note(ctx, fmt.Sprintf("Publishing %s (run %s): %s", document.Candidate.Artifact.Path, state.RunID, what))
 		return nil
 	}
 	landing := state.OutsideFile
@@ -191,7 +191,11 @@ func (t HarnessRunItems) Complete(ctx context.Context, id, reason string) (beads
 	if state.Document != nil {
 		landed = "the document landed. "
 	}
-	return t.settle(ctx, id, landed+reason, "closed")
+	item, err := t.settle(ctx, id, landed+reason, "closed")
+	if err == nil && state.Document != nil {
+		recordedDocumentItem(t.WorkTracker, state).complete(ctx, fmt.Sprintf("Document %s landed through run %s: %s", state.Document.WriteID, state.RunID, reason))
+	}
+	return item, err
 }
 
 func (t HarnessRunItems) Reopen(ctx context.Context, id, reason string, parking domain.WorkItemParking) (beads.WorkItem, error) {

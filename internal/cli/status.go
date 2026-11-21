@@ -1396,6 +1396,7 @@ func printRunHistory(writer io.Writer, history runstate.RunHistory, workItemID s
 		if printRunReasons(writer, run) {
 			reasoned = true
 		}
+		printRunQueue(writer, run)
 		printRunArtifacts(writer, run)
 		printOutstandingSteps(writer, run)
 	}
@@ -1733,6 +1734,19 @@ func shortBuild(build string) string {
 		return trimmed[:12]
 	}
 	return build
+}
+
+// printRunQueue says where a run's passed change waits to land, and which work
+// item a document run is recorded against. A run admitted to the merge queue
+// ended succeeded with nothing integrated, so without the first line its entry
+// reads like a run that lost its change.
+func printRunQueue(writer io.Writer, run runstate.RunSummary) {
+	if run.DocumentItem != "" {
+		fmt.Fprintf(writer, "  publishes a document for work item %s\n", run.DocumentItem)
+	}
+	if run.Queued != "" {
+		fmt.Fprintf(writer, "  merge queue: %s\n", run.Queued)
+	}
 }
 
 // printOutstandingSteps says what a finished run still owes, so a run marked

@@ -462,3 +462,21 @@ func TestADocumentThatWouldOverfillTheRecordIsRefusedWithTheReason(t *testing.T)
 		t.Fatalf("a small document was refused: %v", err)
 	}
 }
+
+// A document whose run passed it and whose change waits in the merge queue is
+// listed as in the merge queue, with where it waits, and not as handed back or
+// merely running.
+func TestTheListingSaysADocumentWaitingInTheMergeQueueIsThere(t *testing.T) {
+	t.Parallel()
+
+	queued := confirmedRecord(t, "rules-q", "document-7.1", "# Rules", "")
+	standing := running("run-7")
+	standing.Delivery.Queued = "it passed its checks and the independent review and waits in the merge queue for main as entry 170 (mqe-1) on pull request #1899, admitted Nov 15 01:00 PST; nothing has landed it or handed it back yet"
+	session, _ := standingSession(t, map[string]runstate.DocumentStanding{"document-7.1": standing}, queued)
+
+	listed := session.renderWaitingDocuments()
+	want := "In the merge queue: run run-7 ended once " + standing.Delivery.Queued + ". It is not handed back."
+	if !strings.Contains(listed, want) || strings.Contains(listed, "Running: run run-7") {
+		t.Fatalf("the listing does not say the document waits in the merge queue:\n%s", listed)
+	}
+}

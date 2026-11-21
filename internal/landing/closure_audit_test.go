@@ -87,6 +87,13 @@ const (
 	// excluded by somebody writing down why rather than by the sweep quietly not
 	// seeing it.
 	kindUnrelated closureKind = "unrelated"
+	// kindFiledForPublication is the harness closing a work item it filed itself
+	// for one document publication whose revision named no item, once that
+	// document has landed. The item's whole work is that publication, so the
+	// landing is the discharge; no developer claimed anything and the reviewer
+	// approved the document itself. An item a revision names is never closed this
+	// way, only noted.
+	kindFiledForPublication closureKind = "filed-for-publication"
 )
 
 // closureSite is one declaration that closes a work item, and what makes it safe
@@ -158,7 +165,12 @@ var auditedClosures = []closureSite{
 	{
 		File: "internal/orchestrator/outsidefilequeue.go", Declaration: "(HarnessRunItems) Complete", Calls: 1,
 		ConsultsDischarge: false, Kind: kindUnrelated,
-		Why: "the tracker the merge queue is given, passing a closure on unchanged. For a work item the tracker holds it forwards exactly the closure its caller decided, and the merge queue's only caller is MergeQueueRunCompletion.settleLandedItem, which reads the run's discharge first; for the bookkeeping item of a run that brings a file in, or of a document run, it closes nothing and writes a note on the item the run is for. It decides no closure of its own.",
+		Why: "the tracker the merge queue is given, passing a closure on unchanged. For a work item the tracker holds it forwards exactly the closure its caller decided, and the merge queue's only caller is MergeQueueRunCompletion.settleLandedItem, which reads the run's discharge first; for the bookkeeping item of a run that brings a file in, or of a document run, it closes nothing and writes a note on the item the run is for, and for a document run whose landing the queue confirmed it asks documentItemRecorder.complete to close the item the harness filed for that publication, audited below. It decides no closure of its own.",
+	},
+	{
+		File: "internal/orchestrator/documentpublication.go", Declaration: "(documentItemRecorder) complete", Calls: 1,
+		ConsultsDischarge: false, Kind: kindFiledForPublication,
+		Why: "the harness closing the work item it filed for one document publication whose revision named no item, once that document has landed: from settledDocumentAttempt when the run lands it, and from HarnessRunItems.Complete when the merge queue does. The item exists only to record that publication and says so in its description, so the landing is its whole work. It closes nothing where the revision names an item, which is the owner's to close, and nothing for a document handed back or still waiting.",
 	},
 	{
 		File: "internal/orchestrator/conversationlanding.go", Declaration: "(ConversationLander) Settle", Calls: 1,

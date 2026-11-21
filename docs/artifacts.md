@@ -393,7 +393,16 @@ another, and where it goes depends on the revision before it:
   is taken off the wait for a landing, so no queued start can publish it, and
   the role is told which revision it replaced.
 - If that revision's run is going, the new revision waits behind it and is sent
-  once that run ends.
+  once that run ends. A run that passed the document and whose change waits in
+  the merge queue counts as going: it is not handed back, and the role, the
+  work item the run is recorded against, and `yoyo status` each say it waits in
+  the merge queue, naming the queue entry and the pull request.
+- If the process running that revision's run stopped before the run ended — at
+  a move onto a new build, for instance — the harness's next reconcile sweep ends
+  the run, says why on its work item, and the role's next message runs the same
+  text again as the next attempt and tells the role why. Nothing about the
+  document was judged, so nothing needs writing again, and later revisions no
+  longer wait behind a run nobody is driving.
 - If that revision's run ended without landing it — the independent review
   refused it, a check failed, or the run stopped short of the target branch —
   it no longer counts as the document's waiting revision, and the new revision
@@ -410,6 +419,13 @@ the copy ahead of it lands or is handed back, then starts it once. The owning
 role is told once what it waits for: which earlier copy, its merge queue entry
 and pull request, and since when. Its list of waiting documents says the same,
 and so do `yoyo status` and the dashboard, under the not-startable line.
+
+Every publication is recorded against a work item: the one the revision's
+reason names first ("yoyodyne-ifd.433.11: ..."), or, where it names none, an
+item the harness files when the publication's first run starts. That item names
+the document and the role that wrote it, is marked as that role's
+conversation's work so no developer run is started for it, gets the run's
+start, stops, and end in its notes, and is closed when the document lands.
 
 Every document a role writes is answered by its next turn: recorded and where it
 waits and why, then confirmed, refused with the reason, or how its run went. A
