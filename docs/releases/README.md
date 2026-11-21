@@ -42,6 +42,20 @@ checkout that has fetched `main`:
 bash scripts/release-body.sh v0.7.0 body.md      # these notes, install instructions under them
 ```
 
+GitHub runs a tag's workflow and scripts as they are at the tagged commit. A
+release tagged at a commit from before the workflow read notes from `main`
+publishes the install instructions alone, and the harness cannot write the
+text of a forge release. For such a tag, whoever cuts it puts the notes on the
+page afterwards, from a checkout of `main` that carries them:
+
+```sh
+bash scripts/release-body.sh v0.7.0 body.md
+gh release edit v0.7.0 --notes-file body.md
+```
+
+`v0.7.0` is to be tagged at the commit where this change landed or a later
+one, so its page needs no such step.
+
 ## The shape
 
 Three sections, in this order, because it is the order a reader needs them in:
