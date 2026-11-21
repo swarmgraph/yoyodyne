@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-11-21T03:38:41.723142Z
       reason: 'amendment-b3e82c78 approved: a run taken up again whose own slot is busy takes any free slot ahead of fresh work, as the operating rules require for work on a change already written, instead of waiting while the free slot takes fresh work. A run with an explicit pair is pinned again to the new slot''s own pair, keeping its operation, budgets and any spent switch, with the move recorded. Acceptance criterion 2 is revised to match in the next revision.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T10:06:16.260746Z
+      reason: 'amendment-b3e82c78 follow-up: acceptance criterion 2 still said a run with an explicit endpoint pair waits for its own slot, contradicting the slot section that landed at revision 7. It now tests that a run taken up again takes any free slot ahead of fresh work, that a run with an explicit pair is pinned again to the new slot''s pair with its operation, budgets and spent switch kept and the move recorded, and that a waiting run holds no slot. The other twelve criteria are unchanged.'
 approvals:
     - revision: 3
       by: operator
@@ -63,6 +67,11 @@ approvals:
       by: harness
       at: 2026-11-21T03:38:41.723142Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3293, for document-3293.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-21T10:06:16.260746Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3313, for document-3313.1 under the automatic approval policy
 ---
 # Execution routing: pinned invocations, developer slots, and safe provider fallback
 
@@ -254,7 +263,7 @@ Existing live invocations remain pinned. Rollback restores the prior configurati
 
 1. Validation accepts the exact four-slot table and same-provider model alternates, rejects malformed or ineligible pairs, and exposes effective origins. Slot 1 still prefers reliability work. Explicit pairs win over conflicting label-model rules; legacy slots retain prior precedence.
 
-2. Actual initial dispatch, repair, and resume consume the recorded slot pair. Slots 1 through 4 launch their specified primaries when available. A scheduler restart rebuilds slot ownership from durable records rather than numbering live processes again, and neither a restart nor released capacity ever lets two workers run in one run's worktree. A resumed run whose snapshot records an explicit endpoint pair waits for its own slot and is never moved to another. A resumed run with no explicit pair whose recorded slot is busy takes a free slot; the earlier slot, the new slot, the time, and the reason are recorded on the run, its slot-specific settings come from the new slot, and status and the run's history show the move. A run waiting for its own slot holds no other slot, a free slot goes to the next ready work while it waits, and a decision to take it up again is not counted as carried out until the run starts.
+2. Actual initial dispatch, repair, and resume consume the recorded slot pair. Slots 1 through 4 launch their specified primaries when available. A scheduler restart rebuilds slot ownership from durable records rather than numbering live processes again, and neither a restart nor released capacity ever lets two workers run in one run's worktree. A run taken up again whose own slot is busy takes a free developer slot ahead of fresh work of any priority, including a slot kept for one kind of work: a test holds such a run behind its busy slot while another slot is free, and shows it starts in the free slot before any fresh run does. A run with no explicit pair records the earlier slot, the new slot, the time, and the reason, and takes its slot-specific settings from the new slot. A run whose snapshot records an explicit endpoint pair is pinned again to the new slot's own pair, recording the earlier slot and its pair, the new slot and its pair, the configuration revision of each, the time, and the reason; its operation identity, attempt count, recovery deadline, spent budgets, and switch count are unchanged, a committed switch stays spent, and its next attempt is rebuilt from durable state with no native session crossing to it. Status and the run's history show every move. When no developer slot is free, the run takes the first slot to come free, holds no slot while it waits, and the run and its work item say it waits for a free slot; a decision to take it up again is not counted as carried out until the run starts.
 
 3. A classified primary quota refusal causes the eligible alternate to serve a new attempt automatically in both provider directions. A known pre-launch quota block skips the primary without inventing a primary attempt. Same-provider model fallback follows the same bounded transition path.
 
