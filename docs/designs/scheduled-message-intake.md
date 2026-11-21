@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-11-20T10:04:37.582609Z
       reason: 'yoyodyne-ifd.437.78: the artifact contract bullet under Documents this changes now covers any rules document an intake query names by its path, wherever the project files it, instead of only documents under docs/product/intake, matching section 6 and the code. Section 1''s example and its bullet already name the rules by path since the previous revision, so this completes the follow-up the revision log promised. Written from a read of the whole design at main d9558b1d; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-20T23:17:13.017143Z
+      reason: 'report-03f1ccef: the query kept only the last window size that fit, so a run stopped partway through halving restarted at a size known to be too large and a busy minute was never reached, skipped or warned about. The query now keeps the size it will ask for next after every call, so halving carries on in the next run; seven calls narrow an hour to a minute, so it may take two runs and always ends. Written from a read of the whole design at main 725f326f; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -79,6 +83,11 @@ approvals:
       by: harness
       at: 2026-11-20T10:04:37.582609Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3169, for document-3169.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-20T23:17:13.017143Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3258, for document-3258.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -142,7 +151,7 @@ intake:
 
 **How a run reads.** The query keeps the time it has read up to. A run reads from there, and never closer than ten minutes to now, so a message that arrives late at the source has settled before it is read and no time is read twice. The cost is that a message waits at least ten minutes. Section 2 makes a repeat at the edge of a window harmless.
 
-**What one call can return** is the MCP design's 32 KiB, unchanged for a scheduled caller, and the harness never asks for more than one window in a call. Where an answer is cut, it halves the window and asks again from the same start. Where an answer fits, every message in it is written down, the time read up to moves to the end of that window, and the next window begins. The query remembers the last size that fit, starts its next window at that size, and doubles it after each answer that fits. A run makes at most 5 calls, the MCP design's limit for a batch, and the next run carries on from where it stopped. So a busy hour, or days of catching up, moves forward without anybody changing anything.
+**What one call can return** is the MCP design's 32 KiB, unchanged for a scheduled caller, and the harness never asks for more than one window in a call. Where an answer is cut, it halves the window and asks again from the same start. Where an answer fits, every message in it is written down, the time read up to moves to the end of that window, and the next window begins. The query keeps the size of the window it will ask for next, written down after every call, whether that call's answer fit or was cut. A run starts at that size, and after each answer that fits it doubles the size for the window after. A run makes at most 5 calls, the MCP design's limit for a batch, and the next run carries on from where it stopped: at the same start, with the size the last call left. So halving that one run did not finish goes on in the next run, rather than starting again from a size already known to be too large. Narrowing one hour down to one minute takes seven calls, so it may take two runs, and it always ends. So a busy hour, or days of catching up, moves forward without anybody changing anything.
 
 **A window that cannot be narrowed.** The smallest window is one minute. If an answer for one minute is still cut, the harness records that minute as skipped with its start, its end and why, moves on, and files one warning report for the development manager. The messages in that minute are not read. `yoyo status` counts skipped windows. Losing a minute is accepted, because the alternative is one oversized message stopping the query for good.
 
