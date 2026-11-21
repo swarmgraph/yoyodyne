@@ -150,6 +150,10 @@ revisions:
       by: architect
       at: 2026-11-21T00:12:28.377678Z
       reason: 'yoyodyne-ifd.437.82: The release tag section only, from main 8d03f3a2c. Carries approved amendment-675d9b72: the automatic cut tags the commit the release notes name, which origin/main must contain, not the tip of main; notes and stamp are read from main; stamp, walkthrough and make check are judged at that commit; the cut refuses when no commit is named or it is not on main; the forge release text is the notes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T14:09:19.640503Z
+      reason: 'yoyodyne-hs28: point 5 of the five design corrections, and the last part left. The pull request body bullet said every request names its merge method; one left open for a person to merge names none, so the method is named only where the harness merges. Also rewords ''blast radius'' in plain words. Point 1''s program manager half needs no revision: that design points to tool-interface, which names both holders. Subsection read whole at main 8fcb9d337; nothing else changes.'
 approvals:
     - revision: 0
       by: operator
@@ -194,6 +198,11 @@ approvals:
       by: harness
       at: 2026-11-21T00:12:28.377678Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3274, for document-3274.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 36
+      by: harness
+      at: 2026-11-21T14:09:19.640503Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3324, for document-3324.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -563,7 +572,7 @@ A change replayed onto a target that moved is a new candidate revision, and it i
 
 ### Remotes and pull requests
 
-Publishing is off by default, and a project turns it on under `approvals.publishing` the way it turns on automatic integration. It is a separate opt in because it has the wider blast radius of the two: integration moves a branch on the operator's machine, while publishing puts the work somewhere other people see. `execution.remote` names the remote, defaulting to `origin`.
+Publishing is off by default, and a project turns it on under `approvals.publishing` the way it turns on automatic integration. It is a separate opt in because it reaches further than integration does: integration moves a branch on the operator's machine, while publishing puts the work somewhere other people see. `execution.remote` names the remote, defaulting to `origin`.
 
 A repository with no such remote publishes nothing and behaves exactly as a purely local project does. That is a property of the repository rather than a misconfiguration, so it is reported on the run and never fails it. A project that asked to publish but has no forge CLI, or an unauthenticated one, is a configuration failure instead, refused before any item is claimed — a harness that quietly stopped publishing would be indistinguishable from one that had nothing to publish.
 
@@ -587,7 +596,7 @@ When publishing is enabled and the merge queue is off:
 - **A queued merge ends the run rather than being waited for.** It completes minutes later, long after any wait a run could reasonably hold, so the run records the request as queued and finishes: the change is already integrated into the authoritative local branch, and what is outstanding is the forge's half. The run branch stays on the remote, because that branch is what the forge still has to merge. [Reconciliation](#recovery-and-idempotency) is what settles it afterwards.
 - **The merge method is a merge commit, deliberately.** The three methods produce different remote histories, and only one of them puts the reviewed commit itself on the base. A squash replaces it with a commit that was never reviewed, and GitHub's rebase always updates committer information and makes new commit hashes — even for a request that sits directly on its base — so both leave the remote carrying a *copy* of the work, which the authoritative local branch does not have and can never fast forward onto. A merge commit keeps the promoted commit intact as its second parent. The method is recorded on the run and on the work item, along with the commit the merge produced, because it is what decides the shape of the remote history.
 - **A refusal is reported as a refusal.** A protected branch declining even to queue the merge — because the request conflicts with its base, or the repository forbids the merge method — is the repository's rules being applied, not the harness failing, so the run reports which requirement was unmet: the forge's merge state and its own message, rather than a generic failure. A required check that has not finished is no longer one of these; it is what the queue waits for.
-- **The pull request body is governed or computed, never model output.** It names the run, the branch, the base, and the method the request will be merged by, and carries the work item's own description and acceptance criteria and the computed diffstat and changed file list. Nothing unreviewed reaches it — not because the body holds only evidence, but because every source is governed or computed: item text is written only through the harness's checked actions for the roles that own it, and the diffstat is the harness's own arithmetic. Model output is still not republished through it.
+- **The pull request body is governed or computed, never model output.** It names the run, the branch, and the base, and, where the harness will merge the request, the method it will be merged by; a request left open for a person to merge names no method, because the person merging chooses it. It carries the work item's own description and acceptance criteria and the computed diffstat and changed file list. Nothing unreviewed reaches it — not because the body holds only evidence, but because every source is governed or computed: item text is written only through the harness's checked actions for the roles that own it, and the diffstat is the harness's own arithmetic. Model output is still not republished through it.
 
 ### The release tag
 
