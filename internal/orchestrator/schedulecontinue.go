@@ -140,6 +140,25 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		return strings.Compare(a.RunID, b.RunID)
 	})
 	var continuing []pausedContinuation
+	// pinnedSlots is the slots the continuations chosen so far in this pass will
+	// take up, by the run that takes each. A run pinned to its slot's endpoint
+	// pair is taken up only in that slot, so a second one chosen for the same
+	// slot in this pass would be refused at its start, having spent a free slot
+	// that another continuation or fresh work could have used.
+	pinnedSlots := map[int]string{}
+	pinnedBeside := func(state runstate.State) (int, string) {
+		if number := state.RecordedSlot(); number != 0 && state.Routing.Developer != nil {
+			if holder, claimed := pinnedSlots[number]; claimed {
+				return number, holder
+			}
+		}
+		return 0, ""
+	}
+	claimSlot := func(state runstate.State) {
+		if number := state.RecordedSlot(); number != 0 && state.Routing.Developer != nil {
+			pinnedSlots[number] = state.RunID
+		}
+	}
 	for _, state := range paused {
 		if last, tried := refused[state.RunID]; tried {
 			again := last.at.Add(continuationRetry)
@@ -175,6 +194,11 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 					state.RunID, why, overdueSince(*state.CIWait, now), slot, holder))
 				continue
 			}
+			if slot, holder := pinnedBeside(state); slot != 0 {
+				passOver(state.WorkItemID, fmt.Sprintf("run %s's forge checks are decided (%s)%s, and it is continued at the first pull after developer slot %d is free: it keeps the endpoint pair that slot is configured with, and run %s is being continued into the slot in this pass",
+					state.RunID, why, overdueSince(*state.CIWait, now), slot, holder))
+				continue
+			}
 			// A run whose program ended after it took its slot back holds none now
 			// (ciWaitLostItsHost), so it takes a free one like a run still waiting.
 			_, holdsOne := occupied[state.WorkItemID]
@@ -193,6 +217,7 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 			if ciWaitLostItsHost(pull.Runs, state, now) {
 				reason = fmt.Sprintf("run %s waited for %s since %s and was being continued when the program carrying it ended; the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why)
 			}
+			claimSlot(state)
 			continuing = append(continuing, pausedContinuation{state: state, holdsOne: holdsOne, reason: reason})
 			continue
 		}
@@ -214,6 +239,11 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 				state.RunID, state.DependencyPause.Summary(), slot, holder))
 			continue
 		}
+		if slot, holder := pinnedBeside(state); slot != 0 {
+			passOver(state.WorkItemID, fmt.Sprintf("run %s was paused waiting on %s, which has closed, and it is continued at the first pull after developer slot %d is free: it keeps the endpoint pair that slot is configured with, and run %s is being continued into the slot in this pass",
+				state.RunID, state.DependencyPause.Summary(), slot, holder))
+			continue
+		}
 		_, holdsOne := occupied[state.WorkItemID]
 		if s.Limit > 0 && started+len(continuing) >= s.Limit {
 			break
@@ -226,6 +256,7 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 			}
 			free--
 		}
+		claimSlot(state)
 		continuing = append(continuing, pausedContinuation{
 			state:    state,
 			holdsOne: holdsOne,

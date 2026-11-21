@@ -3915,9 +3915,12 @@ attempt, as the point on promotions below says:
 
   The wait for a running check, in a run or in a merge queue candidate (next
   point), is given up as soon as another developer slot is sitting empty with
-  work for it: a free slot while ready work waits and neither the intake hold
+  work for it: a free slot while work waits for it and neither the intake hold
   nor the operator's pause stops it starting, or a slot still held by a run
-  already stopped for this restart. Past the bound, with nothing but checks
+  already stopped for this restart. The work a free slot counts for is ready
+  work in the queue, or work on a change a run already wrote: a re-run or
+  repair the development manager decided, or a run waiting on GitHub's checks
+  or on other work that is now due to be continued. Past the bound, with nothing but checks
   to wait for, the old build starts nothing new, so while it waits on a check
   no other slot can be filled, and a check's limit can be most of an hour. So
   the session stops the run part-way through its check instead, preserved at
@@ -3926,8 +3929,12 @@ attempt, as the point on promotions below says:
   back fills the empty slot, runs a stopped run's check again from its start,
   keeping the results of the checks the run had already passed, and runs a
   queue candidate's checks again whole. The session's line says which runs'
-  and queues' checks were stopped and why. A free slot with nothing ready for
-  it does not count. Nor is a check stopped while a promotion or a document
+  and queues' checks were stopped and why. A free slot with nothing waiting
+  for it does not count. While the restart waits past the bound, the
+  session's line names what it is waiting for: each run finishing a check, by
+  run and check, and how many runs are landing on the target branch, landing a
+  document, not yet at a step they can be continued from, or stopped and still
+  recording how far they got. Nor is a check stopped while a promotion or a document
   landing is still going, or a hosted run is not yet at a phase it can be
   stopped at: the restart could not follow, so stopping the check would gain
   nothing, and the free slot is filled by the old build instead, as the point
