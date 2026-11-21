@@ -2634,6 +2634,9 @@ func (s *State) recordedTexts() []recordedText {
 	if s.DirectivePause != nil {
 		unstated("directive_pause.unresolved", "directive_pause.unresolved", &s.DirectivePause.Unresolved, MaxRecordedTextBytes)
 	}
+	if s.CIWait != nil && s.CIWait.Decided != nil {
+		unstated("ci_wait.decided.says", "ci_wait.decided.says", &s.CIWait.Decided.Says, MaxRecordedTextBytes)
+	}
 	if s.CIWaitEnd != nil {
 		unstated("ci_wait_end.says", "ci_wait_end.says", &s.CIWaitEnd.Says, MaxRecordedTextBytes)
 		if s.CIWaitEnd.Late != nil {
@@ -2930,6 +2933,34 @@ type CIWait struct {
 	// the forge and ended it, so a process that dies in between leaves a run
 	// that still knows which commit it waited on and holds the slot it took.
 	SlotTaken bool `json:"slot_taken,omitempty"`
+	// Decided is the forge's decision on Commit as the scheduler read it while
+	// the run waited, written the first time a pass finds the checks decided —
+	// every one passed, one failed or ended otherwise, or the wait limit passed —
+	// whether or not a developer slot was free to continue the run. It is what
+	// says GitHub has answered on a run nobody has continued yet; the run itself
+	// still reads the forge for the commit when it is continued, and ends the
+	// wait (CIWaitEnd) from that reading.
+	Decided *CIWaitDecision `json:"decided,omitempty"`
+}
+
+// CIWaitDecision is the forge's decision on a waited commit, read without a
+// developer slot (CIWait.Decided).
+type CIWaitDecision struct {
+	At time.Time `json:"at"`
+	// Passed is true where every required check passed on the commit.
+	Passed bool `json:"passed,omitempty"`
+	// Says is the decision in a sentence a person reads.
+	Says string `json:"says"`
+}
+
+// DecidedSays is the recorded decision as a clause for a surface — "every
+// required check passed on the commit pushed (read at 15:02 PST)" — and empty
+// while the forge has not decided.
+func (w *CIWait) DecidedSays() string {
+	if w == nil || w.Decided == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s (read at %s)", w.Decided.Says, w.Decided.At.Local().Format("2006-01-02 15:04 MST"))
 }
 
 // Waiting reports a wait the run is still outside of: it holds no developer
@@ -2981,6 +3012,9 @@ func (w CIWait) Validate() error {
 			problems = append(problems, errors.New("every required check must have a name"))
 			break
 		}
+	}
+	if w.Decided != nil && (w.Decided.At.IsZero() || strings.TrimSpace(w.Decided.Says) == "") {
+		problems = append(problems, errors.New("a decision is recorded with when it was read and what it says"))
 	}
 	return errors.Join(problems...)
 }

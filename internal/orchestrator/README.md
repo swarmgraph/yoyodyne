@@ -213,8 +213,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
 `checkRound` instead of `verify`: `verify` over `shortLocalChecks`, then
 `pushAndWait` records `runstate.CIWait` and parks the run with `ciWaitPause`
 (`pauseForCIWait`), which holds no developer slot. A pull's
-`nextContinuations` asks `ForgeCIWaits` whether the forge has decided and
-continues the run; `settleCIWait` then reads the forge for the recorded commit
+`nextContinuations` asks `ForgeCIWaits` whether the forge has decided
+(`readCIWait`, which also records the decision on the run as
+`runstate.CIWait.Decided`; `recordCIDecisions` does the same for a pull that
+continues nothing) and continues the run; `settleCIWait` then reads the forge for the recorded commit
 without pushing, and either goes on to review, parks again, ends the wait
 and runs the full checks (`endCIWaitWithFullChecks`), or, for a required check
 that failed, reads its output and returns a `checkFailure` (`handBackCIFailure`)

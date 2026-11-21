@@ -81,9 +81,18 @@ a quarter of an hour before a pull attempts it again, rather than being tried at
 every poll. One declined only because no developer slot was free is the
 exception: it is attempted again at the next pull, ahead of new work, because
 the slot freeing is all it waits for and leaving it would hand that slot to new
-work. A run that keeps the endpoint pair of the slot it recorded waits for that
-slot alone, and while another run holds it the pull passes the run over naming
-the slot and who holds it, rather than starting it to be refused. One whose work is still open is
+work. A continued run takes the first free slot whichever slot it recorded: where
+another run holds the one it recorded it goes on in the free one, a slot kept
+for one kind of work included, and one that keeps its slot's endpoint pair is
+switched to the new slot's own endpoints — that slot's pair, or the developer's
+own endpoint where it has none — with the slot it left, the earlier and the new
+endpoints, when, and why recorded on the run. A run waiting
+on GitHub's checks that the development manager asked to have continued
+through `run.recover` is continued by this same pass, once, rather than also
+re-adopted; whatever the pass finds in its way — checks still running, no slot
+free — is written onto her request, and the status line and
+`run.inspect` show it, so the request never reads as carried out while nothing
+runs. One whose work is still open is
 passed over naming what it waits on, and the sweep leaves it alone however long
 that lasts, rather than settling it after half an hour as it does a park
 nothing continues. A stop recorded on such a run is honoured before any

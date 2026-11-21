@@ -135,73 +135,57 @@ func TestARestartedSchedulerTakesUpARunWaitingOnGitHubWhoseProgramEnded(t *testi
 	}
 }
 
-// A run waiting on GitHub's checks past its limit, whose developer slot is held
-// by another run, is passed over naming that slot rather than started to be
-// refused, and is taken up at the first pull after the slot frees, before any
-// new work can take it. Before, the refusal set the continuation aside for
-// fifteen minutes, the slot freed meanwhile, and new work was pulled into it,
-// again and again, until the development manager continued the run by hand.
-func TestARunWaitingOnGitHubGetsItsOwnSlotBeforeNewWork(t *testing.T) {
+// A run waiting on GitHub's checks past its limit that keeps slot 2's endpoint
+// pair, while another run holds slot 2 for the whole test, is continued by the
+// first slot to free — slot 1 — ahead of a fresh priority 0 item, and once.
+// Before, it waited for slot 2 alone while slot 1 went to fresh work, which is
+// how runs on slot 2 sat for hours on November 20. The store moves it and
+// switches it to slot 1's own endpoints (runstate's takeUpSlot); the scheduler
+// starts it there and says so.
+func TestARunKeepingSlotTwosPairTakesTheFirstFreedSlotBeforeNewWork(t *testing.T) {
 	t.Parallel()
 
 	const (
-		id     = "yoyodyne-ifd.428.126.4.19"
-		holder = "yoyodyne-ifd.428.164"
+		id     = "yoyodyne-ifd.429.127.2"
+		holder = "yoyodyne-ifd.428.181"
+		ending = "yoyodyne-ifd.432.25.15"
 	)
-	first := beads.WorkItem{ID: "yoyodyne-fresh-one", Title: "fresh one", Status: "open", Priority: 0}
-	second := beads.WorkItem{ID: "yoyodyne-fresh-two", Title: "fresh two", Status: "open", Priority: 0}
-	harness := newScheduleHarness(first, second)
+	fresh := beads.WorkItem{ID: "yoyodyne-ifd.431.13", Title: "warn about a stale build", Status: "open", Priority: 0}
+	harness := newScheduleHarness(fresh)
 	harness.capacity = 2
 	harness.poll = 5 * time.Millisecond
 	pushed := harness.now.Add(-2 * time.Hour)
-	waiting := inSlot(waitingOnGitHub(id, "run-13060195cae66c2d869b6fc52a4ff914", pushed), 2, pushed)
+	waiting := inSlot(waitingOnGitHub(id, "run-e63fbad1", pushed), 2, pushed)
 	waiting.CIWait.WaitLimitSeconds = int64(time.Hour / time.Second)
 	harness.inFlight[id] = waiting
-	harness.inFlight[holder] = inSlot(runstate.State{RunID: "run-a7a810a69682b78c0f4c19df98de48ed", WorkItemID: holder,
+	harness.inFlight[holder] = inSlot(runstate.State{RunID: "run-a15c973e", WorkItemID: holder,
 		Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping}, 2, pushed)
+	harness.inFlight[ending] = runstate.State{RunID: "run-380d6f6a", WorkItemID: ending, Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping,
+		Routing: &runstate.RunRouting{Version: 2, Slot: &runstate.RoutedSlot{Number: 1, Origin: runstate.RoutingClaimed, RecordedAt: pushed}}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	release := make(chan struct{})
-	var releaseOnce sync.Once
-	letGo := func() { releaseOnce.Do(func() { close(release) }) }
-	defer letGo()
+	var mu sync.Mutex
+	holderBusyAtStart := false
 	harness.run = func(h *scheduleHarness, workItemID string) (Outcome, error) {
-		if workItemID == first.ID {
-			// The first new item keeps slot 1 for the whole test, so slot 2 is the
-			// only one the waiting run and the second new item can have.
-			<-release
+		if workItemID == id {
+			h.mu.Lock()
+			_, held := h.inFlight[holder]
+			h.mu.Unlock()
+			mu.Lock()
+			holderBusyAtStart = held
+			mu.Unlock()
 		}
 		return h.complete(workItemID), nil
 	}
-	var refusals []string
-	var mu sync.Mutex
-	// The store's own refusal: a run keeping slot 2's endpoint pair is not taken
-	// up while another run holds slot 2.
-	start := func(ctx context.Context, workItemID string, selection runstate.Selection) (Outcome, error) {
-		if workItemID == id {
-			harness.mu.Lock()
-			_, held := harness.inFlight[holder]
-			harness.mu.Unlock()
-			if held {
-				mu.Lock()
-				refusals = append(refusals, workItemID)
-				mu.Unlock()
-				return Outcome{}, fmt.Errorf("reserve developer run: %w", runstate.CapacityError{Limit: 2, Active: 1, Slot: 2, HeldBy: "run-a7a810a69682b78c0f4c19df98de48ed", Pinned: true})
-			}
-		}
-		return harness.start(ctx, workItemID, selection)
-	}
-	var passedOver []string
 	harness.onPull = func(h *scheduleHarness, pulls int) {
 		if pulls == 3 {
-			// The run holding slot 2 finishes.
+			// The run in slot 1 finishes; slot 2 stays busy for the whole test.
 			h.mu.Lock()
-			delete(h.inFlight, holder)
+			delete(h.inFlight, ending)
 			h.mu.Unlock()
 		}
-		if slices.Contains(h.pullOrder(), second.ID) || pulls > 40 {
-			letGo()
+		if slices.Contains(h.pullOrder(), fresh.ID) || pulls > 40 {
 			cancel()
 		}
 	}
@@ -210,30 +194,32 @@ func TestARunWaitingOnGitHubGetsItsOwnSlotBeforeNewWork(t *testing.T) {
 		pull, err := harness.open(ctx)
 		pull.CIWaits = decidedGitHub{}
 		pull.Continuations = waitingContinuations{}
-		pull.Start = start
 		return pull, err
 	}
 	schedule, _ := Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: &recordedSessions{}}.Schedule(ctx)
-	for _, deferred := range schedule.Deferred {
-		passedOver = append(passedOver, deferred.Reason)
-	}
 
 	order := harness.pullOrder()
-	waited, fresh := slices.Index(order, id), slices.Index(order, second.ID)
-	if waited < 0 || (fresh >= 0 && fresh < waited) {
-		t.Fatalf("starts = %v, want the run waiting on GitHub taken up before the second new item", order)
+	continued, started := slices.Index(order, id), slices.Index(order, fresh.ID)
+	if continued < 0 || (started >= 0 && started < continued) {
+		t.Fatalf("starts = %v, want the run keeping slot 2's pair continued before the fresh item", order)
 	}
-	if len(refusals) != 0 {
-		t.Fatalf("the waiting run was started %d time(s) while its slot was held, want it passed over instead", len(refusals))
-	}
-	said := false
-	for _, reason := range passedOver {
-		if strings.Contains(reason, "developer slot 2 is free") && strings.Contains(reason, "run-a7a810a69682b78c0f4c19df98de48ed holds the slot now") &&
-			strings.Contains(reason, "its wait passed its limit of 1h0m0s") {
-			said = true
+	var attempts []Started
+	for _, entry := range schedule.Started {
+		if entry.WorkItemID == id {
+			attempts = append(attempts, entry)
 		}
 	}
-	if !said {
-		t.Fatalf("passed over = %q, want the run named as waiting for slot 2, who holds it, and when its wait passed its limit", passedOver)
+	if len(attempts) != 1 || attempts[0].Failure != "" || attempts[0].Declined != "" {
+		t.Fatalf("starts for the run = %#v, want it started once", attempts)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !holderBusyAtStart {
+		t.Fatalf("the run was continued only after slot 2 freed, want it continued in slot 1 while slot 2 was busy")
+	}
+	for _, says := range []string{"developer slot 2, which it recorded, is held by run run-a15c973e", "switched to that slot's own endpoints"} {
+		if !strings.Contains(attempts[0].Reason, says) {
+			t.Fatalf("reason = %q, want it to say %q", attempts[0].Reason, says)
+		}
 	}
 }

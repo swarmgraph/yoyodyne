@@ -564,6 +564,52 @@ func (u HarnessResumeRefused) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// CIWaitDecided records the forge's decision on the commit a run waits for
+// (CIWait.Decided), as the scheduler reads it without a developer slot. It
+// changes nothing on a run no longer waiting, waiting on another commit, or
+// whose wait already records a decision: the first decision read is the one
+// kept, and the run's own reading when it is continued is what ends the wait.
+//
+// The record's updated time is left alone. A waiting run is continued oldest
+// wait first by that time (nextContinuations), and recording what GitHub said
+// must not send it to the back.
+type CIWaitDecided struct {
+	Commit   string
+	Decision CIWaitDecision
+}
+
+func (u CIWaitDecided) apply(state *State) (bool, error) {
+	wait := state.CIWait
+	if wait == nil || wait.Commit != u.Commit || wait.Decided != nil || !state.Status.InFlight() {
+		return false, nil
+	}
+	if u.Decision.At.IsZero() || strings.TrimSpace(u.Decision.Says) == "" {
+		return false, fmt.Errorf("the forge's decision on run %s's commit is recorded with when it was read and what it says", state.RunID)
+	}
+	decided := *wait
+	decision := u.Decision
+	decision.At = decision.At.UTC()
+	decided.Decided = &decision
+	state.CIWait = &decided
+	return true, nil
+}
+
+// RecoveryContinuationWaited records on a run's outstanding continuation of
+// this kind what the work session last found it waiting on
+// (State.WaitRecoveryContinuation), for a writer that does not hold the run:
+// the scheduler, when the development manager's request could not start. It
+// changes nothing where no such continuation is outstanding or the same wait is
+// already written, so a pull every minute through a long wait writes once.
+type RecoveryContinuationWaited struct {
+	Action RecoveryAction
+	Why    string
+	At     time.Time
+}
+
+func (u RecoveryContinuationWaited) apply(state *State) (bool, error) {
+	return state.WaitRecoveryContinuation(u.Action, u.Why, u.At), nil
+}
+
 // QueueRerunRecorded records the one further run of GitHub's checks the sweep
 // asks for after GitHub's own merge queue dropped a request only for tests the
 // change does not touch (PullRequest.QueueRerun): first before the merge is
