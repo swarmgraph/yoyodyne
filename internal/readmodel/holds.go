@@ -155,7 +155,40 @@ func HeldForAPerson(ctx context.Context, stoppages Stoppages, decisions Decision
 	decided := standingDecisions(decisions)
 	reasons := heldReasons(runs, escalated, decided, standingStops(decided), Looking(ctx, remains, nil))
 	endWaits(ctx, reasons, waited)
+	if err := holdMergeConflicts(stoppages, reasons); err != nil {
+		return backlog.Holds{}, err
+	}
 	return holdsOf(reasons, runs), nil
+}
+
+// MergeHolds is the items held because two machines' versions of them cannot be
+// merged. It is satisfied by *runstate.Store, and is asked of the stoppages
+// rather than given beside them because every reader already has that store.
+type MergeHolds interface {
+	TrackerMergeHolds() ([]runstate.TrackerMergeHold, error)
+}
+
+// holdMergeConflicts adds those holds. An item a stopped run holds already keeps
+// that hold, which says why starting it over is wrong; the merge hold still stands
+// and comes into view when that one ends. A decided one is the harness's to carry
+// out, as any decided hold is. Holds exist only while team mode is on: the first
+// forge check or sweep after it is turned off ends any left behind.
+func holdMergeConflicts(stoppages Stoppages, reasons map[string]backlog.Hold) error {
+	source, ok := stoppages.(MergeHolds)
+	if !ok {
+		return nil
+	}
+	holds, err := source.TrackerMergeHolds()
+	if err != nil {
+		return fmt.Errorf("read the items held because two machines' versions cannot be merged: %w", err)
+	}
+	for _, hold := range holds {
+		if _, already := reasons[hold.WorkItemID]; already {
+			continue
+		}
+		reasons[hold.WorkItemID] = backlog.Hold{Reason: hold.Reason(), Decided: hold.Decision != nil, Since: hold.HeldAt}
+	}
+	return nil
 }
 
 // latestStop is the stop an item's triage record stands at, where the decision
