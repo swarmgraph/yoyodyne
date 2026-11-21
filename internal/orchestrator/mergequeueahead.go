@@ -312,6 +312,16 @@ func (w MergeQueueWorker) aheadGeneration(ctx context.Context, lease *runstate.L
 			}
 		}
 	}
-	generation, err := w.build(ctx, lease, key, next, author, configured, uint64(len(generations)+1), ahead, retried)
+	generation, err := w.build(ctx, lease, key, next, author, configured, uint64(len(generations)+1), ahead, aheadSelection(base), retried)
 	return generation, err == nil, "", err
+}
+
+// aheadSelection is the record of why an entry's candidate was built while the
+// entry ahead of it was still being verified: no order rule chose it, the
+// entry's place behind the one ahead did.
+func aheadSelection(base runstate.MergeQueueGeneration) *runstate.MergeQueueSelection {
+	return &runstate.MergeQueueSelection{
+		Rule: "checked ahead",
+		Why:  fmt.Sprintf("it is the next entry waiting behind entry %s, so its candidate was built on that entry's candidate and checked while that entry is still verified; no order rule chose it over another entry", base.EntryID),
+	}
 }
