@@ -66,9 +66,10 @@ const (
 // FailingTestsVariable is the environment variable a check run a second time
 // is given, naming the tests and packages its first run's output named
 // failing, one to a line (checks.FailingNames). A check that reads it runs
-// only those; one that does not runs as it always does. It is an environment
-// variable for the reason checks.ChangedGoPackagesVariable is.
-const FailingTestsVariable = "YOYODYNE_FAILING_TESTS"
+// only those; one that does not runs as it always does. It is the variable a
+// run's one rerun of a failure confined to untouched tests is given too
+// (checks.FailingTestsVariable).
+const FailingTestsVariable = checks.FailingTestsVariable
 
 // retryAfter is how soon after a run that could not run the next is tried,
 // instead of waiting out the whole interval. The regular schedule is unchanged.

@@ -4128,7 +4128,11 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, error) {
 	err := a.lateCIResult(ctx)
 	if err == nil {
-		if a.state.ChecksPassed == nil || a.state.ChecksPassed.Narrowed == "" {
+		// Evidence told the whole module has nothing to add, unless a test in it
+		// passed only when run once more: then the candidate is checked whole
+		// here too, so that test runs again before the change lands
+		// (untouchedrerun.go).
+		if a.state.ChecksPassed == nil || (a.state.ChecksPassed.Narrowed == "" && !a.untouchedRerunPassedBeforeReview()) {
 			return false, nil
 		}
 		if a.wholeHereBecause == "" && a.queueChecksCandidateWhole() {
@@ -7305,7 +7309,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// callback below still reads the run's own context.
 	checksCtx, checksWatched := a.watchForStop(ctx, "its checks")
 	if len(keeping.commands) > 0 {
-		ranResults, lastSequence, err = p.Checks.Run(checksCtx, checks.Request{
+		request := checks.Request{
 			RunID:        a.state.RunID,
 			Directory:    a.worktree.Path,
 			Env:          a.checkEnvironment(),
@@ -7377,7 +7381,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 					_ = p.Store.Save(a.state)
 				},
 			},
-		}, a.sink)
+		}
+		ranResults, lastSequence, err = p.Checks.Run(checksCtx, request, a.sink)
+		// A stage that ended on a failure confined to tests the change does not
+		// touch runs those tests once more before any repair attempt is spent,
+		// and the checks after it where they pass (untouchedrerun.go).
+		if err == nil {
+			ranResults, lastSequence, err = a.rerunUntouched(checksCtx, request, ranResults, lastSequence, changed)
+		}
 	}
 	cut, cutShort := checksWatched()
 	checkResults := append(append([]checks.Result(nil), keeping.kept...), ranResults...)
@@ -10238,8 +10249,11 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		// judged beside the evidence its author left rather than on the patch
 		// alone. It comes from the durable record for the reason the claim does: a
 		// repair round judges what the run currently holds.
-		Verification:            describeVerification(a.state),
-		CIChecks:                a.describeCIEvidence(ctx),
+		Verification: describeVerification(a.state),
+		CIChecks:     a.describeCIEvidence(ctx),
+		// Every test that failed and then passed when run once more on this
+		// candidate, with the first failure's output (untouchedrerun.go).
+		UntouchedReruns:         describeUntouchedReruns(a.state),
 		DeveloperSummary:        developerSummary,
 		DeveloperSummaryContext: summaryContext,
 		// Every earlier attempt's account too, so a repair's summary that leans
