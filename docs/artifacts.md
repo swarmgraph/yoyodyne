@@ -402,7 +402,9 @@ another, and where it goes depends on the revision before it:
   the run, says why on its work item, and the role's next message runs the same
   text again as the next attempt and tells the role why. Nothing about the
   document was judged, so nothing needs writing again, and later revisions no
-  longer wait behind a run nobody is driving.
+  longer wait behind a run nobody is driving. A run that paused on purpose —
+  under your hold, until a usage limit resets, or waiting on a directive — is
+  not one of these: it is left for its conversation to continue.
 - If that revision's run ended without landing it — the independent review
   refused it, a check failed, or the run stopped short of the target branch —
   it no longer counts as the document's waiting revision, and the new revision

@@ -26,11 +26,19 @@ import (
 // owning role why, and the work item the run is recorded against is told now.
 
 // documentProcessGone reports a document run, found under its lease, that is
-// still marked as going with nothing integrated, queued, or merging: a run
-// whose process died before the run ended. A run at its promotion is left to
-// the attempt that continues it, which finds whether its commit reached the
-// target (recoverDocumentIntegration), because ending it here could start a
-// second copy of a document that has already landed.
+// still marked as going with nothing integrated, queued, or merging, and with
+// no pause recorded: a run whose process died before the run ended. A run at
+// its promotion is left to the attempt that continues it, which finds whether
+// its commit reached the target (recoverDocumentIntegration), because ending it
+// here could start a second copy of a document that has already landed. A run
+// that recorded a pause and returned — the operator's hold, a usage limit, a
+// directive, a tracker or forge wait, a provider the harness stopped on time —
+// also releases its lease while still marked as going; it matches one of
+// resumeShapes and is left for its owning conversation to continue, because
+// ending it would override the operator's hold, or spend one of the document's
+// attempts on a wait that judged nothing and was going to end by itself. The
+// redeploy drain never stops a document run (holdDocumentForRestart), so a
+// run whose process died at a move onto a new build records no pause.
 func documentProcessGone(state runstate.State) bool {
 	if state.Document == nil || state.Status.Terminal() || state.Integration != nil || state.MergeQueue != nil {
 		return false
@@ -38,7 +46,7 @@ func documentProcessGone(state runstate.State) bool {
 	if state.PullRequest != nil && (state.PullRequest.MergeQueued || state.PullRequest.Merged) {
 		return false
 	}
-	return state.Phase != runstate.PhaseIntegrating
+	return state.Phase != runstate.PhaseIntegrating && !resumable(state)
 }
 
 // settleDocumentProcessGone ends a document run whose process died, says so on

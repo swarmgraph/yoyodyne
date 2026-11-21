@@ -318,3 +318,51 @@ func TestASweepSettlesAPublicationRunWhoseProcessDied(t *testing.T) {
 		}
 	}
 }
+
+// A publication run that paused and gave up its process — under the operator's
+// hold, or until a usage limit resets — is also marked as going with nobody
+// holding it. It is not a run whose process died: the sweep leaves it for its
+// conversation to continue, spends none of the document's attempts on it, and
+// never overrides the operator's hold.
+func TestASweepLeavesAPausedPublicationRunAlone(t *testing.T) {
+	t.Parallel()
+
+	items, _, runs, landed := publishedThroughAFiledItem(t)
+	resets := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)
+	for name, pause := range map[string]func(*runstate.State){
+		"held by the operator":      func(s *runstate.State) { s.OperatorHeldSince = &resets },
+		"waiting for a usage limit": func(s *runstate.State) { s.UsageLimitResetsAt = &resets },
+	} {
+		paused := landed
+		paused.Integration = nil
+		paused.CompletedAt = nil
+		paused.Status = runstate.StatusRunning
+		paused.Phase = runstate.PhaseReviewing
+		paused.BranchRemoved, paused.WorktreeRemoved = false, false
+		pause(&paused)
+		if err := runs.Save(paused); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !resumable(paused) || documentProcessGone(paused) {
+			t.Fatalf("%s: resumable = %v, documentProcessGone = %v; want a paused run left alone", name, resumable(paused), documentProcessGone(paused))
+		}
+		before := items.notesOf(paused.DocumentItem)
+		result, err := (Reconciler{Store: runs, Tracker: items}).settle(context.Background(), paused)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if result.Action != ActionResumable {
+			t.Fatalf("%s: result = %+v, want the run left for its conversation to continue", name, result)
+		}
+		after, err := runs.Load(paused.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Status != runstate.StatusRunning || after.Failure != "" {
+			t.Fatalf("%s: run = status %s, failure %q; want it untouched", name, after.Status, after.Failure)
+		}
+		if items.notesOf(paused.DocumentItem) != before {
+			t.Fatalf("%s: the sweep wrote on the item of a paused run", name)
+		}
+	}
+}
