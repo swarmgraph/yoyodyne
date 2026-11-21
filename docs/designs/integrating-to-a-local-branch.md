@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-21T21:18:03.568316Z
       reason: 'Follows amendment-3f15bd62, landed in section 2 on Nov 21: build item 3 now says a repair of an item waiting on a pull request the harness opened applies the kept branch''s change onto the target branch''s head, replaces the kept branch''s head by compare and swap, and keeps a refused push for the development manager''s list. Drops the closing line saying the contributors design should point here. The rest of the section is copied unchanged from main a99aedc98.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T22:06:04.391207Z
+      reason: 'Follows amendment-3f15bd62, landed in section 2 on Nov 21: the reviewer check for a repair of an item waiting on a pull request the harness opened now says the run starts from the kept branch''s change applied onto the target branch''s head, replaces the kept branch''s head by compare and swap, and keeps a refused push for the development manager''s list. The rest of the section is copied unchanged from main 936110b14.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-11-21T21:18:03.568316Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3346, for document-3346.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-21T22:06:04.391207Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3348, for document-3348.1 under the automatic approval policy
 ---
 # Integrating to a local branch and handing landed work to the team
 
@@ -389,7 +398,7 @@ Rejected for this route:
 - A line comment on a tracked pull request reaches the development manager's list naming the items that touched that file, and starts no run until she decides.
 - Her decision to repair from that entry starts a new run whose record names the decision and the entry, spends one of the item's attempts, starts from the target branch's head, and lands on the target branch, where the tracked pull request picks the new commit up; the item stays waiting for the team's merge.
 - The same decision for an item that has closed, or a second decision for an entry already answered, is refused in plain words and starts nothing.
-- For an item waiting on a pull request the harness opened, the decision starts a new run from that pull request's kept branch and updates the same pull request.
+- For an item waiting on a pull request the harness opened, the decision starts a new run from the change that pull request's kept branch carries, applied onto the target branch's current head, and the run's change replaces the kept branch's head by compare and swap against the head the harness last wrote, updating the same pull request. Where the kept branch holds a commit the harness did not write, the push is refused, nothing on the branch is overwritten, the run's change is kept, and the development manager's list gets one entry naming the branch and the commit found there.
 - When the team's branch moves, the target branch gains one merge commit that passed the checks and the reviewer, and the status line shows when.
 - A conflict while bringing the target branch up to date reaches the development manager's list naming paths and items, and landing on the target branch carries on; her decision on it spends one of the update's three rounds and none of the item's attempts.
 - With a landing hold set, nothing lands on that target branch, checks and reviews carry on, and the hold ends at its expiry with nobody releasing it.
