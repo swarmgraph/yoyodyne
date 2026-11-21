@@ -3954,7 +3954,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 				a.observeCheckEnded(ctx, err, stillRepairable)
 				return err
 			}
-			a.recordCheckFailure(failing.result)
+			a.recordCheckFailure(failing)
 			if a.state.RepairAttempts >= limit {
 				a.observeCheckEnded(ctx, err, budgetSpent)
 				return a.blockOnFailingCheck(limit)
@@ -4093,7 +4093,7 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 		a.observeCheckEnded(ctx, err, stillRepairable)
 		return false, err
 	}
-	a.recordCheckFailure(failing.result)
+	a.recordCheckFailure(failing)
 	if a.state.RepairAttempts >= limit {
 		a.observeCheckEnded(ctx, err, budgetSpent)
 		return false, a.blockOnFailingCheck(limit)
@@ -4161,7 +4161,14 @@ func (a *activeRun) repair(ctx context.Context, prompt string) error {
 // failing change is the developer's answer to them, and no reviewer has yet
 // seen whether that answer holds, so they go onto the failure as the review it
 // came after (see reviewBeforeCheck).
-func (a *activeRun) recordCheckFailure(result checks.Result) {
+//
+// Where the project's reading named the failing tests, each is judged touched
+// or untouched by the change's paths, and the decision whether the failure is
+// confined to tests the change does not touch is kept on the failure with its
+// reason (checks.JudgeTouched). No project can declare the change-aware
+// analyser yet, so the judgment is given none and the path rule decides alone.
+func (a *activeRun) recordCheckFailure(failing checkFailure) {
+	result := failing.result
 	before := a.reviewBeforeCheck()
 	a.clearReviewEvidence()
 	a.state.ChecksPassed = nil
@@ -4173,8 +4180,23 @@ func (a *activeRun) recordCheckFailure(result checks.Result) {
 		ExitCode:     result.Process.ExitCode,
 		Output:       boundedCheckOutput(result),
 		FailingTests: result.FailingTests,
+		TouchedTests: judgeFailingTests(failing),
 		ReviewBefore: before,
 	}
+}
+
+// judgeFailingTests is the judgment of a failed check's failing tests against
+// the change, or nil where no reading of the project's applies to the check.
+func judgeFailingTests(failing checkFailure) *checks.TouchedTests {
+	if failing.result.FailingTests == nil {
+		return nil
+	}
+	unknown := ""
+	if !failing.changedListed {
+		unknown = "the check failed outside the stage that lists them"
+	}
+	judgment := checks.JudgeTouched(*failing.result.FailingTests, failing.changed, unknown, nil)
+	return &judgment
 }
 
 // reviewBeforeCheck is the review a check failing now came after, if one
@@ -7270,7 +7292,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 			// The stage reached its verdict, so nothing it passed is owed to a
 			// later stage.
 			a.state.KeptChecks = nil
-			cause = checkFailure{result: check}
+			cause = checkFailure{result: check, changed: changed, changedListed: true}
 		case check.StoppedByCaller:
 			// The context the run was given ended under the check: a deadline
 			// on whatever started the run, or its cancellation. Neither is the
@@ -7770,6 +7792,12 @@ func (e pathRefusal) Error() string {
 // apart from verification infrastructure that could not run at all.
 type checkFailure struct {
 	result checks.Result
+	// changed is every path the change touched, as the checks stage listed it
+	// before it ran them, and changedListed says it was listed. A failure made
+	// anywhere else carries none, and its failing tests are never judged
+	// untouched (recordCheckFailure).
+	changed       []string
+	changedListed bool
 }
 
 func (e checkFailure) Error() string {

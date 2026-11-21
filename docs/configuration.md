@@ -4170,10 +4170,21 @@ that is not a test file, or output that stops before the line saying where the
 tests were. The check is then handled exactly as it would have been without a
 reading.
 
+**Whether the change touched them.** Where the tests were named, the run's
+record also judges each one against the paths the change touched, under
+`check_failure.touched_tests`. A test is touched when its own file changed, or
+when any changed path is in the same directory as its file; a deleted file
+counts, and so do both the old and the new path of a renamed file. The record
+says whether the failure is confined to tests the change does not touch, and
+why: that needs every failing test named with its file, none of them touched,
+and at most five of them. Anything else is an ordinary failed check. The design
+also lets a project's change-aware analyser add tests to the touched set, but
+no setting declares one yet, so the path rule decides alone.
+
 A reading only describes a failure. A check fails or passes exactly as it
-would without one, and a reading spends nothing and decides nothing. Later
-work uses the list to tell whether a change touched the failing tests (see
-[the design for failures in tests a change does not
+would without one, and a reading spends nothing and decides nothing. The
+judgment is recorded and nothing acts on it yet; running such a failure once
+more is later work (see [the design for failures in tests a change does not
 touch](designs/recoverable-and-terminal-failures.md#a-check-that-fails-only-in-tests-the-change-does-not-touch)).
 
 `failing_tests` is a configuration key. A running part of the product on a

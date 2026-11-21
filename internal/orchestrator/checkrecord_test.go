@@ -46,7 +46,7 @@ func TestFailedCheckRecordsNamesAndOutputOnItemAndDocket(t *testing.T) {
 			}
 		}
 		a := activeRun{state: runstate.State{}}
-		a.recordCheckFailure(result)
+		a.recordCheckFailure(checkFailure{result: result})
 		notes := strings.Join(renderCheckNotes(Outcome{Checks: []checks.Result{result}}), "\n")
 		entry := triage.Entry{Check: docketCheck(a.state.CheckFailure)}
 		for label, text := range map[string]string{"item": notes, "docket": entry.Render(), "run": a.state.CheckFailure.Output} {
@@ -91,7 +91,7 @@ func TestFailedCheckRecordsOutputAroundTheFirstFailure(t *testing.T) {
 		t.Fatalf("failed check: %v, %v", results, err)
 	}
 	a := activeRun{state: runstate.State{}}
-	a.recordCheckFailure(results[0])
+	a.recordCheckFailure(checkFailure{result: results[0]})
 	notes := strings.Join(renderCheckNotes(Outcome{Checks: results}), "\n")
 	entry := triage.Entry{Check: docketCheck(a.state.CheckFailure)}
 	for label, text := range map[string]string{"item": notes, "docket": entry.Render(), "run": a.state.CheckFailure.Output} {
