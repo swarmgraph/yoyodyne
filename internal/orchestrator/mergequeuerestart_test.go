@@ -94,9 +94,9 @@ func TestARestartDuringAQueueCheckRecordsNoStopAndTheNextPassCarriesItOn(t *test
 	}
 }
 
-// A session about to restart onto a new build asks for no review: the pass ends
-// waiting rather than starting one the restart would cut off, and the session
-// that comes back asks for it.
+// A session about to restart onto a new build asks for no review, and starts
+// no checks beside it: the pass ends waiting rather than starting one the
+// restart would cut off, and the session that comes back asks for both.
 func TestAQueueAboutToRestartStartsNoReview(t *testing.T) {
 	t.Parallel()
 
@@ -104,26 +104,21 @@ func TestAQueueAboutToRestartStartsNoReview(t *testing.T) {
 	stages := &queueCheckStages{}
 	ctx, cancel := context.WithTimeout(withQueueCheckStages(context.Background(), stages), 5*time.Minute)
 	defer cancel()
-	// The restart closes the queues just as the last check passes, so the
-	// checks finish and the next stage is the review.
-	f.checks.finished = func(call int, result checks.Result) {
-		if result.Command == queueChecks[len(queueChecks)-1] {
-			stages.close()
-		}
-	}
+	// The checks and the review start together, so a restart already coming
+	// when the candidate is taken up leaves both for the session that comes back.
+	stages.close()
 	pass := f.driver().Pass(ctx, queueKey)
-	if pass.Outcome != runstate.MergeQueuePassWaiting || !strings.Contains(pass.Says, "review is asked for by the session that comes back") {
-		t.Fatalf("Pass() = %#v, want it waiting with the review left for the session that comes back", pass)
+	if pass.Outcome != runstate.MergeQueuePassWaiting || !strings.Contains(pass.Says, "about to restart onto a new build") {
+		t.Fatalf("Pass() = %#v, want it waiting with the review and the checks left for the session that comes back", pass)
 	}
 	if f.reviewer.calls() != 0 {
 		t.Fatalf("reviews asked for = %d, want none once the restart was coming", f.reviewer.calls())
 	}
-	f.checks.finished = nil
 	if landed := f.passAgain(queueKey); landed.Outcome != runstate.MergeQueuePassLanded {
 		t.Fatalf("Pass() on the new build = %#v, want the change landed", landed)
 	}
 	if f.checks.calls() != 1 {
-		t.Fatalf("checks ran %d times, want once: the review alone was left for the new build", f.checks.calls())
+		t.Fatalf("checks ran %d times, want once, on the new build", f.checks.calls())
 	}
 }
 
