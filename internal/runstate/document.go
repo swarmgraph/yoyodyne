@@ -28,6 +28,32 @@ type DocumentPublication struct {
 	// Retried is set on a handoff the development manager's retry of a stopped
 	// document run made; see DocumentPublication.RetryOf.
 	Retried *DocumentRetried `json:"retried,omitempty"`
+	// CountRestarted is set on a handoff whose text was written against a newer
+	// copy of the document on the target branch than the copy the conversation's
+	// last returned run was written against, after automatic publication had
+	// stopped at MaxDocumentReturns. It says why the count of returned runs began
+	// again at zero for this revision.
+	CountRestarted *DocumentCountRestart `json:"count_restarted,omitempty"`
+}
+
+// DocumentCountRestart is the reason a document's count of returned runs began
+// again: the commit on the target branch that made the copy the last returned
+// run was written against, and the one that made the copy the new revision was
+// written against. Either is empty where no recent change of the document on
+// the branch made that copy, or the text was written as a new document.
+type DocumentCountRestart struct {
+	PreviousCommit string `json:"previous_commit,omitempty"`
+	NewCommit      string `json:"new_commit,omitempty"`
+}
+
+// Validate refuses a commit that is not a full commit hash.
+func (r DocumentCountRestart) Validate() error {
+	for name, commit := range map[string]string{"previous_commit": r.PreviousCommit, "new_commit": r.NewCommit} {
+		if commit != "" && !commitPattern.MatchString(commit) {
+			return fmt.Errorf("count restart %s must be a full commit hash", name)
+		}
+	}
+	return nil
 }
 
 // RunID is the run that makes the first attempt to publish this document.
@@ -238,6 +264,11 @@ func (d DocumentPublication) Validate() error {
 	}
 	if d.Retried != nil {
 		if err := d.Retried.Validate(); err != nil {
+			return err
+		}
+	}
+	if d.CountRestarted != nil {
+		if err := d.CountRestarted.Validate(); err != nil {
 			return err
 		}
 	}

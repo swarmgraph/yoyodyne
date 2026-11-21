@@ -57,6 +57,8 @@ var structuredStrings = map[string]string{
 	"document_decision.decision":                     "one of the two document decisions",
 	"document_decision.retried_as":                   "the run identifier the harness minted for the retry",
 	"document.retried.from_run":                      "matched against the run id pattern",
+	"document.count_restarted.previous_commit":       "matched against the commit pattern",
+	"document.count_restarted.new_commit":            "matched against the commit pattern",
 
 	"retirement.run_id":                                     "the validated run whose publication superseded this run",
 	"retirement.commit":                                     "the validated confirmed merge revision",
