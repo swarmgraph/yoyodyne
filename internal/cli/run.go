@@ -729,6 +729,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	return orchestrator.Pipeline{
 		Availability: machineAvailability(parts),
 		Tracker:      parts.tracker(),
+		// The priorities the merge queue last read, which order its entries while
+		// the tracker cannot be read.
+		QueuePriorities: &orchestrator.QueuePriorities{},
 		// What finds the work items a developer's or reviewer's report names, as
 		// the report is collected.
 		ReferenceFinder: referenceFinder(parts),

@@ -207,6 +207,12 @@ type MergeQueueGeneration struct {
 	// is.
 	BuiltAhead *MergeQueueAhead `json:"built_ahead,omitempty"`
 
+	// Selection is which rule chose the entry this candidate was built for, and
+	// why, in ordinary words. It is fixed when the generation is recorded, is
+	// not part of the binding, and is absent on a generation recorded before
+	// the queue kept it.
+	Selection *MergeQueueSelection `json:"selection,omitempty"`
+
 	// Checkout is where the candidate was checked out for its checks. It is
 	// where the candidate is, not what it is, so it is not part of the binding.
 	Checkout string `json:"checkout,omitempty"`
@@ -291,6 +297,20 @@ type MergeQueueAhead struct {
 	Generation uint64 `json:"generation"`
 	Candidate  string `json:"candidate"`
 	OnTarget   string `json:"on_target"`
+}
+
+// MergeQueueSelection is the order rule that chose an entry for its candidate
+// to be built, and why it chose it.
+type MergeQueueSelection struct {
+	// Rule names the rule in a few words.
+	Rule string `json:"rule"`
+	// Why says in ordinary words why that rule chose this entry, which entries
+	// it went ahead of, and whether the tracker could not be read when it did.
+	Why string `json:"why"`
+}
+
+func (s *MergeQueueSelection) validate() error {
+	return errors.Join(mergeQueueText("selection rule", s.Rule, true), mergeQueueText("selection reason", s.Why, true))
 }
 
 func (a *MergeQueueAhead) validate(base string) error {
@@ -724,6 +744,11 @@ func (g MergeQueueGeneration) validateBinding() error {
 			problems = append(problems, err)
 		}
 	}
+	if g.Selection != nil {
+		if err := g.Selection.validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	return errors.Join(problems...)
 }
 
@@ -1045,6 +1070,9 @@ func revisable(recorded, revised MergeQueueGeneration) error {
 	}
 	if (recorded.BuiltAhead == nil) != (revised.BuiltAhead == nil) || (recorded.BuiltAhead != nil && *recorded.BuiltAhead != *revised.BuiltAhead) {
 		return conflict("what it was built ahead on is fixed when it is recorded")
+	}
+	if (recorded.Selection == nil) != (revised.Selection == nil) || (recorded.Selection != nil && *recorded.Selection != *revised.Selection) {
+		return conflict("the rule that chose its entry is fixed when it is recorded")
 	}
 	if recorded.Invalidated != nil && (revised.Invalidated == nil || *revised.Invalidated != *recorded.Invalidated) {
 		return conflict("an invalidation is never withdrawn or rewritten")

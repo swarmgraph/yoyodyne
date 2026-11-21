@@ -383,7 +383,11 @@ type Pipeline struct {
 	// Availability reads the same OS and scheduler observations as services.
 	Availability func(from, to time.Time, task string) readmodel.GapCause
 	Tracker      WorkTracker
-	Worktrees    WorktreeManager
+	// QueuePriorities is the priority last read for each entry the merge queue
+	// holds, which orders entries while the tracker cannot be read
+	// (mergequeueorder.go). Nil remembers nothing.
+	QueuePriorities *QueuePriorities
+	Worktrees       WorktreeManager
 	// IntentWorktrees is the companion intent repository's worktree manager,
 	// where the project keeps its intent in one (config.Product.IntentRoot), and
 	// nil otherwise. A confirmed document lands there through a run cut from that

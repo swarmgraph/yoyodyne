@@ -452,3 +452,77 @@ func TestTheQueueReadsItsEntriesItemsInOneCall(t *testing.T) {
 		t.Fatalf("asked %d batches and %v alone, want one batch and nothing after it", len(batches), singles)
 	}
 }
+
+// A pick made while the tracker cannot be read orders entries by the priority
+// last read for each, rather than by admission alone, so a priority 0 fix is
+// not passed over for an older priority 1 change because the tracker was slow.
+func TestAnUnreadableTrackerOrdersEntriesByTheirLastReadPriority(t *testing.T) {
+	items := map[string]beads.WorkItem{
+		"item-p1": {ID: "item-p1", Priority: 1},
+		"item-p0": {ID: "item-p0", Priority: 0},
+	}
+	waiting := []runstate.MergeQueueEntry{
+		{EntryID: "p1", Order: 1, WorkItemID: "item-p1", RunID: "p1", ApprovedHead: "p1", AdmittedAt: orderNow.Add(-2 * time.Hour)},
+		{EntryID: "p0", Order: 2, WorkItemID: "item-p0", RunID: "p0", ApprovedHead: "p0", AdmittedAt: orderNow.Add(-time.Hour)},
+	}
+	memory := &QueuePriorities{}
+	choose := func(down bool, memory *QueuePriorities) MergeQueueChoice {
+		o := queueOrder{
+			pipeline: &Pipeline{Store: orderRuns{}, QueuePriorities: memory, Tracker: orderTracker{items: items, down: down}},
+			paths:    orderPaths{paths: map[string][]string{"p1": code, "p0": code}}.CandidatePaths,
+			now:      orderNow,
+		}
+		return o.choose(context.Background(), waiting, map[string]bool{})
+	}
+
+	// Nothing has been read yet: admission order, and it says so.
+	if got := choose(true, memory); got.Entry.EntryID != "p1" || got.Rule != MergeQueueRuleAdmission || got.TrackerUnread == "" {
+		t.Fatalf("chose %s by %q (%q), want admission order before any priority was read", got.Entry.EntryID, got.Rule, got.TrackerUnread)
+	}
+	// A read while the tracker answers is remembered.
+	if got := choose(false, memory); got.Entry.EntryID != "p0" || got.Rule != MergeQueueRuleUrgent || got.TrackerUnread != "" {
+		t.Fatalf("chose %s by %q (%q), want the priority 0 entry with the tracker read", got.Entry.EntryID, got.Rule, got.TrackerUnread)
+	}
+	got := choose(true, memory)
+	if got.Entry.EntryID != "p0" || got.Rule != MergeQueueRuleUrgent || !got.PriorityKnown || !got.PriorityLastRead {
+		t.Fatalf("chose %s by %q, want the priority 0 entry by its last read priority", got.Entry.EntryID, got.Rule)
+	}
+	why := got.Why()
+	for _, want := range []string{"priority 0 code", "as last read", "the tracker could not be read", "ordered by the priority last read"} {
+		if !strings.Contains(why, want) {
+			t.Fatalf("reason %q does not say %q", why, want)
+		}
+	}
+	if got.Selection() == nil || got.Selection().Rule != MergeQueueRuleUrgent || got.Selection().Why != strings.Join(strings.Fields(why), " ") {
+		t.Fatalf("selection = %#v, want the rule and reason recorded", got.Selection())
+	}
+	// A pick with the tracker unreadable and nothing remembered for p0 still
+	// takes the entry whose priority is remembered.
+	other := &QueuePriorities{}
+	other.remember("item-p1", 1)
+	if got := choose(true, other); got.Entry.EntryID != "p1" || got.Rule != MergeQueueRulePriority {
+		t.Fatalf("chose %s by %q, want the entry with a remembered priority", got.Entry.EntryID, got.Rule)
+	}
+}
+
+func TestEveryRuleThatChoosesAnEntryHasAReasonInPlainWords(t *testing.T) {
+	for rule, want := range map[string]string{
+		MergeQueueRuleOnlyWaiting: "only entry waiting",
+		MergeQueueRuleInProgress:  "already begun",
+		MergeQueueRuleAged:        "waited eight hours or more",
+		MergeQueueRuleUrgent:      "priority 0 code",
+		MergeQueueRuleDocument:    "it is a document",
+		MergeQueueRulePriority:    "most urgent priority",
+		MergeQueueRuleUnreadable:  "could not be read",
+		MergeQueueRuleAdmission:   "oldest admitted",
+	} {
+		choice := MergeQueueChoice{Rule: rule, Passed: []string{"a", "b"}}
+		why := choice.Why()
+		if !strings.Contains(why, want) || !strings.Contains(why, "went ahead of 2 entries admitted earlier (a, b)") {
+			t.Errorf("reason for %q = %q, want it to say %q and what it passed over", rule, why, want)
+		}
+		if selection := choice.Selection(); selection == nil || selection.Rule != rule || selection.Why == "" {
+			t.Errorf("selection for %q = %#v, want the rule and a reason", rule, selection)
+		}
+	}
+}
