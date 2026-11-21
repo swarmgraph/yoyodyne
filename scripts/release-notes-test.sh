@@ -377,6 +377,59 @@ else
   fail "the body for a tag with no notes is not exactly the preamble -- got: $body"
 fi
 
+step "a tagged commit with no notes takes them from the default branch, where they name it"
+# A release is tagged at the commit its notes name and the notes land on the
+# default branch afterwards, so the tagged tree has none. notes_on commits a
+# notes file onto a branch of its own with plumbing, leaving the checkout and
+# its index alone, the way the default branch gains them after the tag.
+notes_on() {
+  local branch="$1" tag="$2" named="$3" index blob tree commit
+  printf '# %s\n\nEverything up to and including commit `%s`.\n\n## Key functionality\n\n- **Landed later** (`scratch-ifd.9`)\n' "$tag" "$named" \
+    > "$scratch/later-notes.md"
+  index="$scratch/later-index"
+  blob="$(git -C "$project" hash-object -w "$scratch/later-notes.md")"
+  GIT_INDEX_FILE="$index" git -C "$project" read-tree HEAD
+  GIT_INDEX_FILE="$index" git -C "$project" update-index --add --cacheinfo "100644,$blob,docs/releases/$tag.md"
+  tree="$(GIT_INDEX_FILE="$index" git -C "$project" write-tree)"
+  commit="$(git -C "$project" commit-tree "$tree" -p HEAD -m "the notes for $tag land after the commit they name")"
+  git -C "$project" update-ref "refs/heads/$branch" "$commit"
+  rm -f "$index"
+}
+tagged="$(git -C "$project" rev-parse HEAD)"
+git -C "$project" tag -a v0.4.0 -m v0.4.0 "$tagged"
+notes_on later-main v0.4.0 "$tagged"
+if output="$( ( cd "$project" && RELEASE_NOTES_FROM=later-main bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )"; then
+  pass "composing a body from notes on the default branch succeeds"
+else
+  fail "release-body.sh failed for notes on the default branch -- got: $output"
+fi
+body="$(cat "$composed" 2>/dev/null || true)"
+contains "$body" "Landed later" "the notes on the default branch are the body"
+contains "$body" "## Install" "with the install preamble under them"
+missing "$body" "# v0.4.0" "the file's title is dropped there too"
+contains "$output" "read from later-main" "and it says where the notes came from"
+
+notes_on other-main v0.4.0 "$(git -C "$project" rev-parse 'v0.1.0^{commit}')"
+output="$( ( cd "$project" && RELEASE_NOTES_FROM=other-main bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )" || true
+contains "$output" "not $tagged, which v0.4.0 names" "notes naming another commit are not taken as this tag's"
+if cmp -s "$composed" "$project/.github/release-notes-preamble.md"; then
+  pass "and the body is the preamble alone"
+else
+  fail "notes naming another commit reached the body -- got: $(cat "$composed")"
+fi
+
+notes_on untagged-main v0.5.0 "$tagged"
+output="$( ( cd "$project" && RELEASE_NOTES_FROM=untagged-main bash scripts/release-body.sh v0.5.0 "$composed" ) 2>&1 )" || true
+contains "$output" "no tag v0.5.0 here" "notes for a tag that does not exist here are not matched against anything"
+if cmp -s "$composed" "$project/.github/release-notes-preamble.md"; then
+  pass "and the body is the preamble alone"
+else
+  fail "notes for an absent tag reached the body -- got: $(cat "$composed")"
+fi
+# The cases below draft from the last tag, so this case's tag and branches go.
+git -C "$project" tag -d v0.4.0 >/dev/null
+git -C "$project" branch -q -D later-main other-main untagged-main
+
 step "notes are written once, and then edited"
 output="$(draft v0.2.0)"
 contains "$output" "already exists" "refuses to overwrite notes that are there"

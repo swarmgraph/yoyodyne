@@ -1329,3 +1329,12 @@ environment, `RELEASE_BODY_LIMIT` and `RELEASE_BODY_WARN_PERCENT`, which is how
 the test above drives them against notes a few hundred bytes long. That test
 holds the body to being the notes and the preamble and nothing else, byte for
 byte, and covers what a tag with no notes file publishes.
+
+A release is tagged at the commit its notes name, and the notes land on `main`
+after it, so the tagged commit's own tree usually has no notes. The script then
+reads them from the branch `RELEASE_NOTES_FROM` names — the workflow sets it to
+the repository's default branch, and it is `origin/main` otherwise — and takes
+them only where they
+say "up to and including commit `<sha>`" of the very commit the tag names.
+Notes there that name another commit, or none, publish the install preamble
+alone, saying why on stderr.
