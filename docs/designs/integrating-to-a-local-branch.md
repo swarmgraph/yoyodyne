@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-21T20:32:41.401529Z
       reason: 'amendment-3f15bd62, approved Nov 21: a repair of an item waiting on a pull request the harness opened applies the kept branch''s change onto the target branch''s current head and replaces the kept branch''s head by compare and swap against the head the harness last wrote; a refused push keeps the change and goes to the development manager''s list. Adds one rejected alternative. The rest of section 2 is copied unchanged from main 0d6453a6.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T21:18:03.568316Z
+      reason: 'Follows amendment-3f15bd62, landed in section 2 on Nov 21: build item 3 now says a repair of an item waiting on a pull request the harness opened applies the kept branch''s change onto the target branch''s head, replaces the kept branch''s head by compare and swap, and keeps a refused push for the development manager''s list. Drops the closing line saying the contributors design should point here. The rest of the section is copied unchanged from main a99aedc98.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-21T20:32:41.401529Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3343, for document-3343.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-21T21:18:03.568316Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3346, for document-3346.1 under the automatic approval policy
 ---
 # Integrating to a local branch and handing landed work to the team
 
@@ -399,7 +408,7 @@ Rejected for this route:
 
 1. The team's branch setting and the state of waiting for the team's merge: kept open on landing, never pulled again, met for dependents on the same target branch, closed when the landing commit is found on the team's branch, and shown on every surface.
 2. Tracking a pull request: `yoyo pull-request track` and `untrack`, the forge read at recording, merged and closed handling on each forge check, and items found among its commits added.
-3. Feedback on a tracked pull request put on the development manager's list with the items that touched the file, and the decision to repair an item whose run has ended (section 2): recorded against the entry it answers, refused once the item has closed or the entry is answered, starting a new run from the target branch's head or, for an item waiting on a pull request the harness opened, from that pull request's kept branch, and spending one of the item's attempts. It builds on build item 2 of the contributors design, on yoyodyne-ifd.429.125, and on the fixed list of decisions in stopped-run recovery (yoyodyne-ifd.428.99.4).
+3. Feedback on a tracked pull request put on the development manager's list with the items that touched the file, and the decision to repair an item whose run has ended (section 2): recorded against the entry it answers, refused once the item has closed or the entry is answered, starting a new run from the target branch's head or, for an item waiting on a pull request the harness opened, from the change that pull request's kept branch carries, applied onto the target branch's head, with the kept branch's head replaced by compare and swap against the head the harness last wrote and a refused push kept and put on the development manager's list, and spending one of the item's attempts. It builds on build item 2 of the contributors design, on yoyodyne-ifd.429.125, and on the fixed list of decisions in stopped-run recovery (yoyodyne-ifd.428.99.4).
 4. Bringing the target branch up to date: the merge, its checks and review, landing by compare and swap, the update record and status line, and conflicts put on the development manager's list, decided with the same kind of decision as build item 3, under a limit of three rounds for the update.
 5. The landing hold: `yoyo landing hold` and `release`, the four-hour bound, reading it under the landing lease, and the status line.
 6. A validation on a scratch repository with a target branch and a team's branch, covering every check under What a reviewer can check up to the landing hold.
@@ -414,4 +423,4 @@ Rejected for this route:
 
 Items 2, 3 and 4 need item 1. Item 4 needs the fetch before each run and the forge check on its own schedule from the contributors design (its build items 3 and 10), and its conflict decision needs build item 3. Item 5 stands alone. Item 7 needs item 1. Item 8 needs items 2 and 7. Items 10, 12 and 13 need item 8. Item 9 needs items 4 and 8, and item 13 needs item 9. Item 11 needs items 3 and 8. Item 14 needs items 7 to 13.
 
-This design adds no invariant: the two rules linked above already bind every landing it describes, the batch's merge into the team's branch included. It changes no other document; the contributors design's section 2 should point to the decision in section 2 here at its next revision, for the case of a pull request the harness opened.
+This design adds no invariant: the two rules linked above already bind every landing it describes, the batch's merge into the team's branch included. It changes no other document.
