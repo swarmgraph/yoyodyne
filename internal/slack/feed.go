@@ -350,10 +350,20 @@ type HarnessFeed struct {
 	// stale — which is the silence this exists to end, so every sink the harness
 	// builds is given one.
 	Deployments Deployments
-	// StaleBuildThreshold is how far behind a session has to be before the
-	// operators are told directly rather than in the channel alone. Zero takes
-	// DefaultStaleBuildThreshold.
+	// Installation is the supervisor's record of the installed build and the
+	// session's move onto it, and the repository's account of what has landed
+	// and not been built. It is what keeps the sink silent while a session is
+	// behind by design. A feed assembled without one says a stale session by
+	// its count alone, and never tells the operators directly.
+	Installation Installation
+	// StaleBuildThreshold is how far behind a session has to be, where nothing
+	// tells the sink why, before it is said as a warning rather than a note.
+	// Zero takes DefaultStaleBuildThreshold.
 	StaleBuildThreshold int
+	// BuildGrace is how long a landing may stand unbuilt, and a move past the
+	// supervisor's deadline, before either is said. Zero takes
+	// DefaultBuildGrace.
+	BuildGrace time.Duration
 	// CapacityEscalation is how long the provider may hold every role before the
 	// hold is said as critical rather than as a warning. Zero takes
 	// DefaultCapacityEscalation.

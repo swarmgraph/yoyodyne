@@ -44,6 +44,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -56,18 +57,29 @@ import (
 // somebody reads.
 const DefaultHeartbeat = time.Hour
 
-// DefaultStaleBuildThreshold is how far behind the deployed harness a running
-// session may be before its staleness stops being a line beside the heartbeat
-// and becomes something the operators are told directly.
+// DefaultStaleBuildThreshold is how far behind what has landed a running
+// session may be, where nothing tells the sink why, before its staleness stops
+// being a note beside the heartbeat and is said as a warning.
 //
-// It is a count of changes rather than a length of time, because an afternoon
-// with nothing merged in it costs nobody anything and an hour with a fix in it
-// costs a night. Twenty is several items' worth of landed work: below it the odds
-// that one of them is the bug a session is about to burn a granted round against
-// are genuinely small, and above it they stop being. The number is the sink's,
-// changeable in one place, and deliberately not a configuration key — an operator
-// who could raise it would be buying back the silence this exists to end.
-const DefaultStaleBuildThreshold = 20
+// It is read only where the sink cannot tell the cause: no supervisor's record
+// to read, or a sink assembled without one. Where the supervisor's record is
+// there, the sink says what stands instead of counting toward a number (see
+// residentDeliveries). It counts landings that change the build rather than
+// commits or a length of time, because an afternoon of documents costs nobody
+// anything and one landed fix can cost a night. Six is a morning's landed code.
+// The number is the sink's, changeable in one place, and deliberately not a
+// configuration key.
+const DefaultStaleBuildThreshold = 6
+
+// DefaultBuildGrace is how long a landing that changes the build may stand
+// unbuilt and uninstalled before the sink reads that as a build that cannot be
+// made rather than one under way: the supervisor looks every half minute and a
+// build may take ten minutes (supervise.DefaultRebuildEvery and
+// DefaultRebuildTimeout), so twenty minutes is past both with room to spare.
+// It is also how long past the supervisor's own deadline for restarting the
+// session onto the installed build the sink waits before it reads the move as
+// stuck rather than about to happen.
+const DefaultBuildGrace = 20 * time.Minute
 
 // Backlog is how much admitted work the tracker itself reports as ready. It is a
 // count rather than the items because a count is the whole of what a heartbeat
@@ -104,6 +116,54 @@ var ErrUnrelatedBuild = errors.New("the build is not a revision this repository 
 // ErrUnrelatedBuild, which is not a failure and is not retried at somebody.
 type Deployments interface {
 	Behind(ctx context.Context, build string) (int, error)
+}
+
+// Installation is the product's own account of the build its parts are moved
+// onto: the supervisor's record of the binary it installed and of the watch
+// session's move onto it, and the repository's account of what has landed and
+// not been built. It is what lets the sink tell a session that is behind by
+// design — a build being made, or a newer one installed and waiting out the
+// least time between two moves — from one that is behind because something has
+// stopped, and say nothing about the first.
+type Installation interface {
+	// Installed is what the supervisor last recorded about the installed binary
+	// and the session's move onto it.
+	Installed(ctx context.Context) (Installed, error)
+	// Unbuilt is what has landed after build that changes what gets built, and
+	// whether the checkout holds uncommitted changes that stop a build.
+	Unbuilt(ctx context.Context, build string) (Unbuilt, error)
+}
+
+// Installed is the supervisor's record of the installed binary, as the sink
+// reads it.
+type Installed struct {
+	// Supervised is a supervisor running and holding its lease. Without one
+	// nothing builds or installs a landing, and the record beside it is a dead
+	// process's account.
+	Supervised bool
+	// Build is the revision of the installed binary every part is moved onto,
+	// and empty where the supervisor could not read one.
+	Build string
+	// MoveDue, MoveBy, and MoveHeld are the scheduler's move onto Build as the
+	// supervisor records it (runstate.SupervisedChild): when the move falls due
+	// under execution.build_move_interval, when the supervisor restarts the
+	// session itself if it has not moved, and what holds that restart.
+	MoveDue  time.Time
+	MoveBy   time.Time
+	MoveHeld string
+	// Moving is the session already winding down to move, or being restarted
+	// onto Build by the supervisor.
+	Moving bool
+}
+
+// Unbuilt is what has landed and not been built.
+type Unbuilt struct {
+	// Since is when the earliest landing after the build that changes what
+	// gets built landed, and zero where there is none.
+	Since time.Time
+	// Uncommitted is the checkout's uncommitted changes to what gets built, in
+	// Git's short form, and empty where there are none.
+	Uncommitted string
 }
 
 // switches is the operator's two holds as one reading. They are read once per
@@ -476,29 +536,103 @@ func (f *HarnessFeed) residentDeliveries(ctx context.Context, cursor Cursor, ses
 		return []Delivery{{Stream: residentStream, Cursor: armed}}, nil
 	}
 
-	// Below the threshold this is a note said beside the heartbeat: worth reading,
-	// and not worth interrupting somebody for. Past it the session has missed
-	// enough that what it is doing can no longer be trusted to be about the work,
-	// so it is a degraded system — which is said louder, and said to the operators
-	// where they will actually see it rather than in a channel nobody is reading at
-	// three in the morning. That direct word is said once per build, because the
-	// hourly line is already carrying the state and a second channel repeating it
-	// is a channel somebody mutes.
-	severity := report.SeverityNote
+	severity, mover, tell, silent, err := f.staleBuild(ctx, build, behind, now)
+	if err != nil {
+		// The supervisor's record or the repository would not answer, so the
+		// sink cannot tell a session behind by design from one that is stuck. It
+		// must not guess in either direction, so it is said where the sink says
+		// everything about itself and asked again at the next interval.
+		f.say("why the session's build %s is %d landings behind could not be read, so nothing was said about it: %v", shortBuild(build), behind, err)
+		return []Delivery{{Stream: residentStream, Cursor: armed}}, nil
+	}
+	if silent {
+		return []Delivery{{Stream: residentStream, Cursor: armed}}, nil
+	}
+	// The operators are told directly only where the registry names one of
+	// them as the one to act, and once per build: the hourly line is already
+	// carrying the state, and a second channel repeating it is a channel
+	// somebody mutes.
 	direct := false
-	if behind >= f.staleBuildThreshold() {
-		severity = report.SeverityWarning
-		if !armed.Has(escalatedMark) {
-			armed = armed.With(escalatedMark)
-			direct = true
-		}
+	if tell && !armed.Has(escalatedMark) {
+		armed = armed.With(escalatedMark)
+		direct = true
 	}
 	return []Delivery{{
 		Stream:       residentStream,
 		Cursor:       armed,
+		Tag:          tell,
 		Direct:       direct,
-		Notification: notify.FromResident(notify.Resident{Build: build, Behind: behind}, severity, now),
+		Notification: notify.FromResident(notify.Resident{Build: build, Behind: behind, Mover: mover}, severity, now),
 	}}, nil
+}
+
+// staleBuild is what a session behind by this many landings that change the
+// build calls for: how loud it is, whose move follows in the registry's words,
+// whether that names an operator, and whether nothing should be said at all.
+//
+// Nothing is said while the session is behind by design. The supervisor builds
+// and installs each landing that changes the build by itself, and the session
+// moves onto the installed build by itself between runs, at most once every
+// execution.build_move_interval; a session on the installed build while the
+// next is being made, or one waiting out that interval with a newer build
+// installed, is the harness doing what it was built to. What is said is what
+// has stopped: a landing left unbuilt past the time a build takes, a move past
+// due, or no supervisor at all. Who moves each is the ownership registry's
+// answer (ownership.ResolveStaleBuild), never this sink's.
+func (f *HarnessFeed) staleBuild(ctx context.Context, build string, behind int, now time.Time) (report.Severity, string, bool, bool, error) {
+	if f.Installation == nil {
+		// Nothing tells the sink why, so it is said by the count alone, in the
+		// channel, under the voice's own clause.
+		if behind >= f.staleBuildThreshold() {
+			return report.SeverityWarning, "", false, false, nil
+		}
+		return report.SeverityNote, "", false, false, nil
+	}
+	installed, err := f.Installation.Installed(ctx)
+	if err != nil {
+		return "", "", false, false, err
+	}
+	var cause ownership.StaleBuildCause
+	severity := report.SeverityWarning
+	switch {
+	case !installed.Supervised || installed.Build == "":
+		// Nothing builds or installs a landing, so how far behind decides how
+		// loud, as it does where nothing tells the sink why.
+		cause = ownership.StaleBuildUnsupervised
+		if behind < f.staleBuildThreshold() {
+			severity = report.SeverityNote
+		}
+	default:
+		unbuilt, err := f.Installation.Unbuilt(ctx, installed.Build)
+		if err != nil {
+			return "", "", false, false, err
+		}
+		switch {
+		case !unbuilt.Since.IsZero() && now.Sub(unbuilt.Since) >= f.buildGrace() && strings.TrimSpace(unbuilt.Uncommitted) != "":
+			cause = ownership.StaleBuildUncommitted
+		case !unbuilt.Since.IsZero() && now.Sub(unbuilt.Since) >= f.buildGrace():
+			cause = ownership.StaleBuildNotBuilt
+		case installed.Build == build, installed.Moving:
+			// On the installed build while the next is being made, or moving
+			// onto the installed build now.
+			return "", "", false, true, nil
+		case installed.MoveDue.IsZero() || now.Before(installed.MoveDue):
+			// A newer build installed, held off by rule until the least time
+			// between two moves is up. A record with no due moment is a move the
+			// supervisor has not timed yet, which it does at its next look.
+			return "", "", false, true, nil
+		case installed.MoveHeld == "" && !installed.MoveBy.IsZero() && !now.Before(installed.MoveBy.Add(f.buildGrace())):
+			cause = ownership.StaleBuildMoveStuck
+		default:
+			// Due, and the supervisor restarts the session itself if it has not
+			// moved by its own deadline, or once what holds that restart ends.
+			cause = ownership.StaleBuildMoveDue
+			severity = report.SeverityNote
+		}
+	}
+	answer := ownership.ResolveStaleBuild(cause)
+	mover := answer.Owner.Possessive() + " — " + answer.Remedy
+	return severity, mover, answer.Owner.IsOperator(), false, nil
 }
 
 // residentBuild is the build the harness is choosing and dispatching work with,
@@ -548,13 +682,22 @@ func residentBuild(sessions []runstate.WatchTransition, states []runstate.State)
 	return build, build != ""
 }
 
-// staleBuildThreshold is how far behind a session has to be before the operators
-// are told directly.
+// staleBuildThreshold is how far behind a session has to be, where nothing tells
+// the sink why, before it is said as a warning.
 func (f *HarnessFeed) staleBuildThreshold() int {
 	if f.StaleBuildThreshold > 0 {
 		return f.StaleBuildThreshold
 	}
 	return DefaultStaleBuildThreshold
+}
+
+// buildGrace is how long a landing may stand unbuilt, and a move past the
+// supervisor's deadline, before the sink reads either as stopped.
+func (f *HarnessFeed) buildGrace() time.Duration {
+	if f.BuildGrace > 0 {
+		return f.BuildGrace
+	}
+	return DefaultBuildGrace
 }
 
 // shortBuild names a revision the way somebody quoting one does. It is the

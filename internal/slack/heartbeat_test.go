@@ -829,9 +829,9 @@ func TestAStaleResidentSaysSoWhileTheRoundsAreBeingSpent(t *testing.T) {
 	harness.poll(t, cursors, notify.KindResidentStale)
 }
 
-// What it says is what somebody has to act on: how far behind the session is,
-// which build it is on, and what closes the gap — installing the build, which
-// the session then takes up itself rather than waiting to be restarted.
+// What it says is how far behind the session is, in landings that change the
+// build, which build it is on, and how the gap closes: the session moves onto
+// an installed build by itself rather than waiting to be restarted.
 func TestTheResidentLineNamesTheCountAndTheWayOutOfIt(t *testing.T) {
 	t.Parallel()
 
@@ -843,7 +843,7 @@ func TestTheResidentLineNamesTheCountAndTheWayOutOfIt(t *testing.T) {
 	cursors := harness.poll(t, harness.start(), notify.KindResidentStale)
 	harness.now = harness.now.Add(time.Hour)
 	said := harness.say(t, cursors, notify.KindResidentStale)
-	for _, fact := range []string{"7 harness changes", staleResidentBuild[:12], "restarts itself", "installing the build"} {
+	for _, fact := range []string{"7 landings that change the build", staleResidentBuild[:12], "restarts itself", "moves onto it by itself"} {
 		if !strings.Contains(said.Body, fact) {
 			t.Fatalf("body %q does not carry %q", said.Body, fact)
 		}
@@ -868,12 +868,10 @@ func TestASessionRunningWhatIsDeployedStaysSilent(t *testing.T) {
 	}
 }
 
-// Far enough past the threshold the session has missed too much for what it is
-// doing to be trusted to be about the work, so the operators are told where they
-// will see it rather than in a channel nobody is reading at three in the morning.
-// Once, because the hourly line is already carrying the state and a second
-// channel repeating it is a channel somebody mutes.
-func TestCrossingTheThresholdReachesTheOperatorsOnce(t *testing.T) {
+// Where nothing tells the sink why the session is behind, far enough past the
+// threshold is said louder, in the channel. It is never said to the operators
+// directly: nothing here has named one of them as the one to act.
+func TestCrossingTheThresholdWithNoAccountOfWhyIsAWarningInTheChannel(t *testing.T) {
 	t.Parallel()
 
 	harness := newTestHarness(t, time.Time{})
@@ -883,8 +881,8 @@ func TestCrossingTheThresholdReachesTheOperatorsOnce(t *testing.T) {
 	harness.watchedBuild(t, runstate.WatchWatching, "watching the backlog until stopped", moment, staleResidentBuild)
 
 	crossed := harness.resident(t, harness.start())
-	if !crossed.Direct {
-		t.Fatal("the threshold was crossed and nothing was said to the operators directly")
+	if crossed.Direct || crossed.Tag {
+		t.Fatal("the operators were told directly about a session nobody named them for")
 	}
 	if severity := crossed.Notification.Event.Severity; severity != report.SeverityWarning {
 		t.Fatalf("severity = %q, want a degraded harness said louder than a note", severity)
@@ -895,7 +893,7 @@ func TestCrossingTheThresholdReachesTheOperatorsOnce(t *testing.T) {
 	harness.now = harness.now.Add(time.Hour)
 	again := harness.resident(t, cursors)
 	if again.Direct {
-		t.Fatal("the operators were told a second time about the same build")
+		t.Fatal("the operators were told directly about the same build")
 	}
 	if again.Notification.Event.Kind != notify.KindResidentStale {
 		t.Fatalf("said %q, want the channel to keep carrying the state", again.Notification.Event.Kind)
@@ -919,34 +917,6 @@ func TestAResidentShortOfTheThresholdIsSaidInTheChannelAlone(t *testing.T) {
 	}
 	if severity := said.Notification.Event.Severity; severity != report.SeverityNote {
 		t.Fatalf("severity = %q, want a note", severity)
-	}
-}
-
-// A session restarted onto a binary that is still behind is a different build,
-// and being told about the last one is not being told about this one. The
-// escalation is remembered per build so it re-arms rather than being swallowed by
-// a mark about a binary nobody is running any more.
-func TestARestartOntoAStillStaleBuildIsEscalatedAfresh(t *testing.T) {
-	t.Parallel()
-
-	harness := newTestHarness(t, time.Time{})
-	harness.ready(1)
-	harness.deployed(9)
-	harness.feed.StaleBuildThreshold = 2
-	harness.watchedBuild(t, runstate.WatchWatching, "watching the backlog until stopped", moment, staleResidentBuild)
-
-	cursors := harness.start()
-	cursors.Streams[residentStream] = harness.resident(t, cursors).Cursor
-
-	// The operator restarts, and what comes back is newer and still not current.
-	harness.watchedAs(t, "watch-0123456789abcdef0123456789abcdef", runstate.WatchStopped, "the operator stopped it", harness.now)
-	harness.now = harness.now.Add(time.Minute)
-	harness.watchedBuildAs(t, "watch-fedcba9876543210fedcba9876543210", runstate.WatchWatching,
-		"watching the backlog until stopped", harness.now, newerResidentBuild)
-
-	restarted := harness.resident(t, cursors)
-	if !restarted.Direct {
-		t.Fatal("a restart onto a binary that is still behind said nothing to the operators")
 	}
 }
 

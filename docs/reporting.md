@@ -1434,16 +1434,44 @@ is installed over it — and nothing else says so, because the session goes on
 choosing work and the runs it starts go on looking ordinary. What it actually
 produces is rounds spent against defects that were fixed on the main line hours
 earlier, which reads as agents failing rather than as a process running an old
-build. So the session records the revision it was built from, and while the
-repository has moved past it the channel says so every `--heartbeat`: how many
-changes have landed since, which build it is on, and that installing the build is
-all that is left — [the session takes it up itself](work.md#letting-the-harness-choose-the-work),
-between the runs it is carrying and without interrupting one. Unlike the waiting
-line it is said the first time it is seen rather than armed silently — nothing
-else said it as it happened, and being told after the first round has been spent
-is being told too late. It is silent on a session running what is deployed, and on one whose
-binary recorded no revision at all, which is a comparison nobody can make rather
-than a session that is current.
+build. So the session records the revision it was built from, and the sink
+counts how far the main line has moved past it in **landings that change the
+build**: landings on the main line, each counted once however many commits it
+carries, and only those touching what the supervisor rebuilds for (`cmd`,
+`internal`, `go.mod`, `go.sum`). Commits are not counted, and neither are
+landings of documents, which build nothing and move no part.
+
+Being behind is usually by design, and then nothing is said. The supervisor
+builds and installs each such landing by itself, and
+[the session moves onto the installed build itself](work.md#letting-the-harness-choose-the-work),
+between the runs it is carrying, at most once every
+`execution.build_move_interval`. So the sink reads the supervisor's record
+beside the count, and is silent while the session runs the installed build
+(the next one being made, if any), and while a newer installed build waits
+within the move interval. It says something, every `--heartbeat` while it
+stands, only where something has stopped:
+
+- a landing that changes the build has stood unbuilt and uninstalled for twenty
+  minutes, past the time a build takes: a warning that the main line's build is
+  failing, or that the checkout holds uncommitted changes to what gets built,
+  which the supervisor will not build over;
+- the move has fallen due and the session has not begun it: a note while the
+  supervisor's own deadline for restarting the session stands, and a warning
+  once that deadline is twenty minutes past;
+- no supervisor is running, so nothing builds or installs a landing: a note,
+  and a warning from six landings behind.
+
+Who moves each is [the ownership registry's](designs/ownership-and-the-operator.md)
+answer, and the message ends on it. None of these is on the operator's closed
+list, so none is sent to the operators directly or tagged to them: a stuck move
+and a failing build are the development manager's, a move the supervisor is
+about to make and a missing supervisor are the harness's, and uncommitted
+changes in the checkout, which only whoever made them should commit or set
+aside, are the Lead Product Manager's to classify. Unlike the waiting line it is
+said the first time it is seen rather than armed silently — nothing else said it
+as it happened. It is silent on a session running what is deployed, and on one
+whose binary recorded no revision at all, which is a comparison nobody can make
+rather than a session that is current.
 
 Two records answer which build that is, and they are asked in that order. The
 watch log is the direct one: that process is the resident, and it stamps what it
@@ -1478,17 +1506,8 @@ which is worse than the silence. Measuring a resident against a harness reposito
 that is not the product's would need that repository named in configuration, and
 nothing names it today.
 
-Far enough behind — twenty changes — it stops being a line worth reading and
-becomes a degraded harness, said as a warning and sent as a direct message to each
-person the project granted direct-work, once per build. That needs the `im:write`
-scope the checked-in manifest asks for; a workspace that refuses it costs the
-direct message and not the channel's copy. What is left for it to say is
-narrower than it was: a watching session now restarts itself into a build
-installed over it, so the ordinary case clears itself within one run and the line
-is a transient rather than a standing chore. It still has the cases the session
-cannot answer for — a build nobody has installed yet, a session started before it
-could do this, and a dispatcher that is not a watch session at all — and it stays
-until those have an owner too.
+A sink given no way to read the supervisor's record says the state by the count
+alone: a note, and a warning from six landings behind, in the channel only.
 
 The third of these states is the one the other two structurally cannot see: **the
 harness having stopped doing anything at all**. Everything above is read from
@@ -2086,7 +2105,7 @@ not four times a minute.
 All of them need the `im:write` scope the checked-in manifest asks for, and the
 ask needs `im:history` and the `message.im` event beside it to read the reply.
 A workspace that refuses them costs the direct messages and nothing else: the
-stale build, the provider's hold, the provider nobody is logged into or nobody
+provider's hold, the provider nobody is logged into or nobody
 can reach, the improvement, the released claim, each finding, and the stopped
 line are in the channel either way, and the stall is in the durable
 record `yoyo status` reads back.

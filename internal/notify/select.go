@@ -881,7 +881,8 @@ func FromLine(line Line, severity report.Severity, at time.Time) Notification {
 }
 
 // Resident is the binary a live watch session is running: the revision it was
-// built from, and how many harness changes the repository has taken on since.
+// built from, and how many landings that change the build the repository has
+// taken on since.
 //
 // It is the second thing here that is a state rather than a crossing, and it is
 // the only one no durable record says on its own. A held line is at least
@@ -896,10 +897,16 @@ type Resident struct {
 	// Build is the revision the session's binary was built from, carried so a
 	// reader can check the count rather than take it.
 	Build string
-	// Behind is how many harness changes have landed since. It is never said at
-	// zero: a session running what is deployed is the ordinary state, and the
-	// whole discipline here is that silence keeps meaning nothing to do.
+	// Behind is how many landings that change the build have landed since:
+	// landings on the main line touching what the supervisor rebuilds for, never
+	// commits and never documents. It is never said at zero: a session running
+	// what is deployed is the ordinary state, and the whole discipline here is
+	// that silence keeps meaning nothing to do.
 	Behind int
+	// Mover is whose move follows, in the ownership registry's words for the
+	// cause that stands, and empty where the sink could not tell the cause; the
+	// voice's own clause is said then.
+	Mover string
 }
 
 // FromResident says that the session choosing work is running a build the
@@ -917,6 +924,7 @@ func FromResident(resident Resident, severity report.Severity, at time.Time) Not
 	notification := productNotification(KindResidentStale, at, Detail{
 		Commit: strings.TrimSpace(resident.Build),
 		Behind: resident.Behind,
+		Mover:  strings.TrimSpace(resident.Mover),
 	})
 	notification.Event.Severity = severity
 	return notification

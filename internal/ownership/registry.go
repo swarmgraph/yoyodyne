@@ -86,6 +86,9 @@ type Record struct {
 	// work waited, on an empty slot. Where it is a hold, the hold's facts above
 	// say whose hold it is.
 	EmptySlot EmptySlotCause
+	// StaleBuild is why the watch session is on an older build than what has
+	// landed, on a stale build.
+	StaleBuild StaleBuildCause
 	// OutageCause is why the provider answers nobody, on an outage or a stall
 	// that is one.
 	OutageCause domain.ProviderOutageCause
@@ -213,6 +216,7 @@ var registry = map[Kind]Rule{
 	KindStoppage:          stoppageRule,
 	KindFollowUp:          followUpRule,
 	KindEmptySlot:         emptySlotRule,
+	KindStaleBuild:        staleBuildRule,
 }
 
 // HasRule reports whether the registry keeps a rule for a kind.

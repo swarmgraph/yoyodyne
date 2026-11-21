@@ -551,6 +551,13 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 			fmt.Fprintf(stdout, "directives from Slack replies are recorded here and sent to the team's other factories at the next forge check, not as each reply arrives, because the shared records could not be opened: %v\n", err)
 		}
 	}
+	// How far the session choosing work is behind, counted in landings that
+	// change the build, shared by the count and by the account of why.
+	landings := buildLandings{repositoryDeployments{
+		repository: repository,
+		runner:     execution.OSProcessRunner{},
+		timeout:    chatTrackerTimeout,
+	}}
 	sink, err := slack.New(slack.Options{
 		Channel: settings.Channel,
 		// What the project configured is the picture beside each name and nothing
@@ -617,11 +624,16 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 			// written for. Nothing here asserts that: the reading refuses a build
 			// the repository does not hold, so a product that is somebody else's
 			// gets silence rather than a count taken from an unrelated history.
-			Deployments: repositoryDeployments{
-				repository: repository,
-				runner:     execution.OSProcessRunner{},
-				timeout:    chatTrackerTimeout,
-			},
+			//
+			// It counts landings that change the build, by the paths the
+			// supervisor rebuilds for, so a morning of published documents is not
+			// read as a session left behind.
+			Deployments: landings,
+			// And why a session is behind: the supervisor's record of the build it
+			// installed and of the session's move onto it. A session waiting out
+			// the least time between two moves, or one on the installed build while
+			// the next is made, is behind by design and nothing is said about it.
+			Installation: supervisedInstallation{supervision: supervision, landings: landings},
 			// Whether anything is happening at all. Every message above this is read
 			// from something a process wrote about itself, which leaves one state
 			// unreported: the process that would have written it being dead. The
@@ -990,8 +1002,17 @@ func (d repositoryDeployments) Behind(ctx context.Context, build string) (int, e
 	// rather than a second opinion about it. A record written by something that
 	// did not is a comparison that is refused rather than an argument handed to
 	// Git.
+	if err := d.holds(ctx, build); err != nil {
+		return 0, err
+	}
+	return d.count(ctx, "rev-list", "--count", build+"..HEAD")
+}
+
+// holds refuses a build that is not a revision, and reports one this
+// repository has never held as slack.ErrUnrelatedBuild.
+func (d repositoryDeployments) holds(ctx context.Context, build string) error {
 	if !buildRevision.MatchString(build) {
-		return 0, fmt.Errorf("%q is not a revision the repository could be asked about", build)
+		return fmt.Errorf("%q is not a revision the repository could be asked about", build)
 	}
 	// Whether this repository is the one that binary came out of, asked rather
 	// than assumed. Git answering that it has no such commit is the whole of the
@@ -999,23 +1020,38 @@ func (d repositoryDeployments) Behind(ctx context.Context, build string) (int, e
 	// the repository that history is in.
 	held, err := d.git(ctx, "cat-file", "-e", build+"^{commit}")
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if held.Status != execution.ProcessSucceeded {
-		return 0, fmt.Errorf("%w: %s is not in %s", slack.ErrUnrelatedBuild, build, d.repository)
+		return fmt.Errorf("%w: %s is not in %s", slack.ErrUnrelatedBuild, build, d.repository)
 	}
-	result, err := d.git(ctx, "rev-list", "--count", build+"..HEAD")
+	return nil
+}
+
+// count runs a Git question whose answer is one number.
+func (d repositoryDeployments) count(ctx context.Context, args ...string) (int, error) {
+	result, err := d.output(ctx, args...)
 	if err != nil {
 		return 0, err
 	}
-	if result.Status != execution.ProcessSucceeded {
-		return 0, fmt.Errorf("git rev-list failed: %s", singleLine(firstNonEmpty(result.Stderr, result.Stdout)))
-	}
-	count, err := strconv.Atoi(strings.TrimSpace(result.Stdout))
+	count, err := strconv.Atoi(result)
 	if err != nil {
-		return 0, fmt.Errorf("git rev-list did not answer with a count: %s", singleLine(result.Stdout))
+		return 0, fmt.Errorf("git %s did not answer with a count: %s", args[0], singleLine(result))
 	}
 	return count, nil
+}
+
+// output runs a Git question and returns what it printed, trimmed, or why it
+// failed.
+func (d repositoryDeployments) output(ctx context.Context, args ...string) (string, error) {
+	result, err := d.git(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return "", fmt.Errorf("git %s failed: %s", args[0], singleLine(firstNonEmpty(result.Stderr, result.Stdout)))
+	}
+	return strings.TrimSpace(result.Stdout), nil
 }
 
 func (d repositoryDeployments) git(ctx context.Context, args ...string) (execution.ProcessResult, error) {
