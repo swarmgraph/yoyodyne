@@ -146,3 +146,39 @@ func TestBriefingSectionsNamesWhatGivesWay(t *testing.T) {
 		}
 	}
 }
+
+// A recurring turn's briefing opens with what does not move when work lands —
+// the header, the recorded-intent section and the product intent whole — and
+// the split ends exactly there, so two turns with the same intent are given the
+// same opening byte for byte while every section that moves is in the rest.
+func TestSplitUnchangingEndsAfterTheProductIntent(t *testing.T) {
+	t.Parallel()
+	kept := PassContext(sizedBriefing()).Text
+	unchanging, rest := SplitUnchanging(kept)
+	if unchanging+rest != kept {
+		t.Fatal("the two parts do not join to the briefing")
+	}
+	for _, want := range []string{"# Product context", "## Recorded product intent", "## Standing goals", "brief line of text"} {
+		if !strings.Contains(unchanging, want) {
+			t.Errorf("the unchanging opening lacks %q", want)
+		}
+	}
+	if !strings.HasPrefix(rest, "## Decision record: docs/decisions/old.md") {
+		t.Fatalf("the rest does not open with the first section after the intent: %q", firstLine(rest))
+	}
+	for _, moving := range []string{"## Beads work items", PassHeading, "[Left out"} {
+		if strings.Contains(unchanging, moving) {
+			t.Errorf("the unchanging opening carries %q, which moves when work lands", moving)
+		}
+	}
+
+	changed := strings.Replace(strings.Replace(sizedBriefing(), "- current work", "- other work", 1), "design line of text\n", "design line of text\nmore design\n", 1)
+	again, otherRest := SplitUnchanging(PassContext(changed).Text)
+	if again != unchanging || otherRest == rest {
+		t.Fatal("a change to the work or a design moved the unchanging opening")
+	}
+
+	if opening, whole := SplitUnchanging("no header here\n"); opening != "" || whole != "no header here\n" {
+		t.Fatal("a briefing without the product context's header was split")
+	}
+}
