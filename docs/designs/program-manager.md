@@ -58,6 +58,10 @@ revisions:
       by: architect
       at: 2026-11-21T05:26:11.598437Z
       reason: 'yoyodyne-ifd.437.42: the stoppages trigger reads the run records the harness keeps and carries every run that failed, timed out, was cancelled or is waiting on a decision, identified by run and stop time as Repeated stop causes counts them; it no longer names a docket entry or docket records. Hyphenated compounds in the section are put in plain words. Section revision from main 8a1667e9, written behind the capability list revision (document-3283.1) now being published; nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T09:18:00.74403Z
+      reason: 'Replacing the coined vocabulary in the governed documents, first of the last three program manager sections (yoyodyne-ifd.437.21): ''never gates one'' becomes ''never holds one back''. Nothing else in the section changes. Section read at main e1aab23b.'
 approvals:
     - policy: approvals.designs
       revision: 6
@@ -94,6 +98,11 @@ approvals:
       by: harness
       at: 2026-11-21T05:26:11.598437Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3291, for document-3291.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-11-21T09:18:00.74403Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3305, for document-3305.1 under the automatic approval policy
 ---
 # The program manager: one role type, one lane per instance, requests batched to the Lead Product Manager
 
@@ -101,7 +110,7 @@ approvals:
 
 The harness has five roles, each defined by what it owns: intent, design, decomposition, the change, the verdict. Nothing owns an outcome that cuts across all of them — the factory not stalling, tokens not being wasted, the writing staying clear — and each of those has so far been the operator's own attention, exercised by noticing. A program manager is a role instance that owns one such outcome, watches it on a schedule or when asked, admits the work it needs inside a bounded lane, and asks the Lead Product Manager for everything outside it. It serves the goal that configurable roles collaborate without redefining upstream intent: an instance is configured, its lane is a label or a standing goal, and its authority is fixed in code and narrower than the Lead Product Manager's on every axis.
 
-The operator decided the shape on 2026-09-24 and those decisions are restated here as binding rather than re-argued: one role type with capabilities fixed in code; instances defined in configuration, each with a name, a remit as prose, its own triggers, and its own memory store; it writes no code; each instance has exactly one tracker label as its lane and admits work only under it, at any priority, with no cap; everything outside the lane goes to the Lead Product Manager as one batched asynchronous digest per pass through the report channel; it reviews new admissions after they land and never gates one; it keeps a brief lane report, rewritten each pass, pulled and never pushed; the dashboard lists each instance with its status; and the development manager's hourly sweep stays, with the boundary written below. On 2026-09-27 he added that an instance may own one of the standing goals as its lane, and that every lane report opens with what was completed, what was handed off, and what is blocked on him; both are ruled below. He later asked for a second instance, for technical health, which is specified under *The technical-health program manager*, and on 2026-10-13 directed that it run only when asked. The name is written in full wherever a person reads it, and `pgm` is the identifier form only, per the terms register.
+The operator decided the shape on 2026-09-24 and those decisions are restated here as binding rather than re-argued: one role type with capabilities fixed in code; instances defined in configuration, each with a name, a remit as prose, its own triggers, and its own memory store; it writes no code; each instance has exactly one tracker label as its lane and admits work only under it, at any priority, with no cap; everything outside the lane goes to the Lead Product Manager as one batched asynchronous digest per pass through the report channel; it reviews new admissions after they land and never holds one back; it keeps a brief lane report, rewritten each pass, pulled and never pushed; the dashboard lists each instance with its status; and the development manager's hourly sweep stays, with the boundary written below. On 2026-09-27 he added that an instance may own one of the standing goals as its lane, and that every lane report opens with what was completed, what was handed off, and what is blocked on him; both are ruled below. He later asked for a second instance, for technical health, which is specified under *The technical-health program manager*, and on 2026-10-13 directed that it run only when asked. The name is written in full wherever a person reads it, and `pgm` is the identifier form only, per the terms register.
 
 ## The role, and its instances
 
