@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-20T20:43:38.056438Z
       reason: 'Point 2 of checking six designs against what has landed (yoyodyne-ifd.437.72): case 2 did not say that, with checks on CI on, GitHub''s required checks on the exact candidate commit can show the queue''s full check, as the quick local checks item (yoyodyne-ifd.429.186) built on November 18, nor that GitHub''s required race check passed on the candidate is a full race result. Case 4, the record, the reviewer lines and the fit list follow. Read whole at main 4e4f5fe9.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T06:51:10.917077Z
+      reason: 'Part of rewording the designs that still call the README walk the adoption check, now that the rename to getting-started has landed (yoyodyne-ifd.437.67): the Repeated checks bullet now says the getting started check. Nothing else changes. Written against main at 96c90b9b. The v1 harness design''s mention follows last.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-20T20:43:38.056438Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3228, for document-3228.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-21T06:51:10.917077Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3303, for document-3303.1 under the automatic approval policy
 ---
 # Choosing checks by what a change touches, through one shared policy
 
@@ -167,7 +176,7 @@ Coverage, CPU time and wall time are measured separately, before and after, and 
 ## How this fits the other designs
 
 - **[One owner for each guarantee](one-owner-for-each-guarantee.md)** owns checks as guarantee 9. Its one plan reads this policy, its one runner launches what the plan names, and its race check ruling is this repository's application of both. Where a result is kept across commits rather than the check run again, that is guarantee 9's and repeated checks', not narrowing.
-- **[Repeated checks](repeated-checks.md)** removes true duplicate runs of the same commit; narrowing release packaging or the adoption check later uses this policy rather than a filter of its own.
+- **[Repeated checks](repeated-checks.md)** removes true duplicate runs of the same commit; narrowing release packaging or the getting started check later uses this policy rather than a filter of its own.
 - **[Checks on CI](checks-on-ci.md)** keeps a short local check; tests that only behave correctly on macOS stay in it unless CI gains a macOS job. With it switched on, GitHub's required checks on the candidate commit can show case 2's full check.
 - **[Capacity for heavy checks](heavy-check-capacity.md)** bounds how many heavy checks run at once; shadow runs count against it.
 - **[Integration through a merge queue](integration-through-a-merge-queue.md)** is the switch that decides whether case 1 or one of cases 2 to 4 above applies. Its queue runs the declared list and the narrowed race check that case 2 names, and its section on GitHub's required checks sets the conditions under which those checks stand as the queue's full check.
