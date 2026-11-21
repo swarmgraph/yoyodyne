@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -71,6 +73,144 @@ func withoutAutoExport(environment []string) []string {
 // tracker's store for one export rather than one each.
 func (c Client) RefreshExport(ctx context.Context) error {
 	return c.refreshExport(ctx, 0)
+}
+
+// ExportRows is the store's export as it stands now, published nowhere: what a
+// merge with the shared export compares against (exportmerge.go).
+func (c Client) ExportRows(ctx context.Context) ([]byte, error) {
+	return c.run(ctx, "export")
+}
+
+// ImportAnswer is what ImportRows did with the rows it was given. Kept names the
+// rows it passed over because this machine's own row had moved, so they are still
+// to be taken.
+type ImportAnswer struct {
+	Kept []string
+}
+
+// ImportRows writes merged rows into the store through `bd import`, which is an
+// upsert, against seen, the export the rows were merged with. Writing the same
+// rows again changes nothing.
+//
+// bd does not serialize two writes to one item (write, in writelock.go), so every
+// item's write lock is held from before the rows are checked until the last write
+// is made, taken in sorted order so that two imports cannot wait on each other. A
+// row whose item has moved since seen was read is passed over rather than written:
+// an imported row carries the other machine's clock, so bd's own rule of keeping
+// the later row could otherwise lay it over the newer write.
+//
+// bd import adds labels and dependencies and never takes one away, so a row that
+// no longer carries one has it removed here, as a separate write. Anything that
+// fails is left for the next check, which reads the same difference again.
+func (c Client) ImportRows(ctx context.Context, rows [][]byte, seen []byte) (ImportAnswer, error) {
+	if len(rows) == 0 {
+		return ImportAnswer{}, nil
+	}
+	parsed := map[string]*exportRow{}
+	for _, row := range rows {
+		item, err := parseExportRow(string(row))
+		if err != nil {
+			return ImportAnswer{}, fmt.Errorf("a merged row: %w", err)
+		}
+		if item == nil {
+			continue
+		}
+		parsed[item.id()] = item
+	}
+	ids := slices.Sorted(maps.Keys(parsed))
+	for _, id := range ids {
+		unlock, err := c.lockItem(ctx, id)
+		if err != nil {
+			return ImportAnswer{}, err
+		}
+		defer unlock()
+	}
+	before, err := parseExportRows(seen)
+	if err != nil {
+		return ImportAnswer{}, fmt.Errorf("the export the rows were merged with: %w", err)
+	}
+	exported, err := c.run(ctx, "export")
+	if err != nil {
+		return ImportAnswer{}, err
+	}
+	current, err := parseExportRows(exported)
+	if err != nil {
+		return ImportAnswer{}, fmt.Errorf("this machine's export: %w", err)
+	}
+	var answer ImportAnswer
+	var writing []string
+	var input bytes.Buffer
+	for _, id := range ids {
+		if !sameExportRow(current[id], before[id]) {
+			answer.Kept = append(answer.Kept, id)
+			continue
+		}
+		writing = append(writing, id)
+		input.WriteString(parsed[id].line)
+		input.WriteByte('\n')
+	}
+	if len(writing) == 0 {
+		return answer, nil
+	}
+	data, err := c.runWithInput(ctx, c.timeout(), &input, "import", "--json", "-")
+	if err != nil {
+		return ImportAnswer{}, err
+	}
+	var imported struct {
+		Stale []string `json:"stale_skipped_ids"`
+		Tied  []string `json:"tie_kept_local_ids"`
+	}
+	if err := decodeJSON(data, &imported); err != nil {
+		return ImportAnswer{}, fmt.Errorf("decode what bd import did: %w", err)
+	}
+	answer.Kept = append(append(answer.Kept, imported.Stale...), imported.Tied...)
+	for _, id := range writing {
+		if slices.Contains(answer.Kept, id) || current[id] == nil {
+			continue
+		}
+		labels, dependencies := removedLinks(current[id], parsed[id])
+		for _, label := range labels {
+			if _, err := c.run(ctx, "label", "remove", id, label); err != nil {
+				return ImportAnswer{}, fmt.Errorf("remove the label %s from %s, as the merged version has it: %w", label, id, err)
+			}
+		}
+		for _, dependency := range dependencies {
+			if _, err := c.run(ctx, "dep", "remove", id, dependency, "--json"); err != nil {
+				return ImportAnswer{}, fmt.Errorf("remove the dependency of %s on %s, as the merged version has it: %w", id, dependency, err)
+			}
+		}
+	}
+	return answer, nil
+}
+
+// removedLinks is the labels and dependencies before carries and after does not.
+func removedLinks(before, after *exportRow) (labels, dependencies []string) {
+	stringsOf := func(row *exportRow) []string {
+		var values []string
+		_ = json.Unmarshal(row.fields["labels"], &values)
+		return values
+	}
+	dependsOn := func(row *exportRow) []string {
+		var links []struct {
+			DependsOn string `json:"depends_on_id"`
+		}
+		_ = json.Unmarshal(row.fields["dependencies"], &links)
+		var ids []string
+		for _, link := range links {
+			ids = append(ids, link.DependsOn)
+		}
+		return ids
+	}
+	missing := func(from, in []string) []string {
+		var gone []string
+		for _, value := range from {
+			if !slices.Contains(in, value) {
+				gone = append(gone, value)
+			}
+		}
+		return gone
+	}
+	return missing(stringsOf(before), stringsOf(after)), missing(dependsOn(before), dependsOn(after))
 }
 
 // ExportBeforeCommit takes the fresh export a commit that carries the export
@@ -175,6 +315,7 @@ func (c Client) refreshExport(ctx context.Context, interval time.Duration) error
 	if info, err := beads.Lstat("issues.jsonl"); err == nil {
 		writeExportStamp(beads, exportStamp{StartedAt: started, ModifiedAt: info.ModTime(), Size: info.Size()})
 	}
+	c.recordExportedVersions(ctx, store, data)
 	return nil
 }
 
