@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-11-21T10:06:16.260746Z
       reason: 'amendment-b3e82c78 follow-up: acceptance criterion 2 still said a run with an explicit endpoint pair waits for its own slot, contradicting the slot section that landed at revision 7. It now tests that a run taken up again takes any free slot ahead of fresh work, that a run with an explicit pair is pinned again to the new slot''s pair with its operation, budgets and spent switch kept and the move recorded, and that a waiting run holds no slot. The other twelve criteria are unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-21T13:18:51.172875Z
+      reason: 'amendment-b3e82c78 follow-up: acceptance criterion 2 now matches this section (revision 8), so the temporary paragraph saying it still disagreed and that this section governs until then is removed. Nothing else in the section changes.'
 approvals:
     - revision: 3
       by: operator
@@ -72,6 +76,11 @@ approvals:
       by: harness
       at: 2026-11-21T10:06:16.260746Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3313, for document-3313.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-21T13:18:51.172875Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3321, for document-3321.1 under the automatic approval policy
 ---
 # Execution routing: pinned invocations, developer slots, and safe provider fallback
 
@@ -111,8 +120,6 @@ In both cases the unfinished logical operation keeps its identity, attempt count
 When no developer slot is free, the run waits for the first slot to come free, whichever it is, and takes it ahead of fresh work. While it waits, what the harness records on the run and on its work item says that it waits for a free slot and why, never a count of active runs that implies a slot is free. A run waiting for a slot holds no slot, and a decision to take it up again that cannot start because no slot is free is not counted as carried out until the run starts.
 
 Three alternatives were rejected. Carrying a run's own pair into a slot configured for another would break the authorized mapping below, in which each slot runs only its own pair. Keeping a run with an explicit pair waiting for its own slot, which this design required from November 1 to November 20, 2026, contradicts the operating rule that work on a change already written goes first in any freed slot; on November 20 it left runs recorded on slot 2 waiting over two hours while slots 1 and 3 took fresh work. Keeping every run waiting for its own slot left a free slot idle for over two hours on October 31 while ready work waited. Both waits are what the milestone goal of a week on this repository with no hour of ready work waiting beside an idle slot rules out.
-
-Acceptance criterion 2 below still says a run with an explicit pair waits for its own slot. The next revision of this design changes it to match this section; until then, this section governs.
 
 Run ownership and slot capacity are separate: both must be valid before execution. A scheduler restart reconstructs ownership from durable records rather than numbering live processes again. Configuration cannot remove or reinterpret an occupied slot; reject that change until it can be applied without changing existing owners.
 
