@@ -367,6 +367,13 @@ func (m *Manager) primaryChanges(ctx context.Context) (primaryStatus, error) {
 			if strings.HasPrefix(line, "??") && isExportWriteInProgress(m.allowedPrimaryChanges, path) {
 				continue
 			}
+			// Nor is a file the harness keeps for itself while it works, such as a
+			// tracker call's ticket, which exists for as long as the call does. The
+			// repository may also ignore the directory; this is the half that holds
+			// in a repository that does not.
+			if strings.HasPrefix(line, "??") && m.isHarnessWrite(path) {
+				continue
+			}
 			status.unexpected = append(status.unexpected, path)
 			continue
 		}
@@ -427,6 +434,18 @@ func isExportWriteInProgress(declared map[string]struct{}, path string) bool {
 		}
 		suffix := path[len(prefix):]
 		if suffix != "" && !strings.Contains(suffix, "/") {
+			return true
+		}
+	}
+	return false
+}
+
+// isHarnessWrite reports whether an untracked path lies under one of the
+// directories the harness writes its own short-lived files into. Only an
+// untracked path is asked: a tracked file there is committed content.
+func (m *Manager) isHarnessWrite(path string) bool {
+	for _, directory := range m.harnessWrites {
+		if strings.HasPrefix(path, directory) {
 			return true
 		}
 	}

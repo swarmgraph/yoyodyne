@@ -494,12 +494,13 @@ func buildComponents(configPath string) (components, error) {
 		return components{}, err
 	}
 	worktrees, err := gitworktree.New(gitworktree.Options{
-		Runner:                processRunner,
-		RepositoryRoot:        repository,
-		WorktreeRoot:          worktreeRoot,
-		Remote:                cfg.Execution.Remote,
-		PushRemote:            cfg.Execution.PushRemote,
-		AllowedPrimaryChanges: []string{".beads/interactions.jsonl", ".beads/issues.jsonl"},
+		Runner:                  processRunner,
+		RepositoryRoot:          repository,
+		WorktreeRoot:            worktreeRoot,
+		Remote:                  cfg.Execution.Remote,
+		PushRemote:              cfg.Execution.PushRemote,
+		AllowedPrimaryChanges:   []string{".beads/interactions.jsonl", ".beads/issues.jsonl"},
+		HarnessWriteDirectories: []string{beads.HarnessWritePath},
 		// The tracker's export of the work items themselves is what a run reads to
 		// see the work around its own, so a worktree is given the primary
 		// checkout's copy rather than the one its base commit carried. The

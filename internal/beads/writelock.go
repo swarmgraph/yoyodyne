@@ -18,6 +18,12 @@ import (
 // there already keeps `*.lock` out of the repository.
 const writeLockDirectory = "yoyodyne-writes"
 
+// HarnessWritePath is the directory, relative to an ordinary checkout's root,
+// that holds the harness's own write locks and the tickets its tracker calls hold (turns.go).
+// Nothing in it is anybody's change, so the check that refuses a run over
+// uncommitted changes in the primary checkout passes over it.
+const HarnessWritePath = ".beads/" + writeLockDirectory
+
 // write runs one bd invocation that changes the item id names, holding that
 // item's write lock for as long as bd runs.
 //
