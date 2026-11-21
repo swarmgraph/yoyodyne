@@ -37,14 +37,22 @@ type personMergeUpdateFixture struct {
 
 func newPersonMergeUpdateFixture(t *testing.T) personMergeUpdateFixture {
 	t.Helper()
+	return newPersonMergeUpdateFixtureWriting(t, func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	})
+}
+
+// newPersonMergeUpdateFixtureWriting is the same run with the developer's writes
+// chosen by the test, which is how a later run is made to change what the first
+// one wrote.
+func newPersonMergeUpdateFixtureWriting(t *testing.T, write func(backend.RunRequest) error) personMergeUpdateFixture {
+	t.Helper()
 	repository, worktreeRoot, store := restartableFixture(t)
 	remote := addBareRemote(t, repository)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	// The developer writes the change, and on every later attempt — a conflict
 	// handed back — settles the file to the change's own content again.
-	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
-		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
-	}, approveVerdict)
+	provider := orchestratortest.RoleBackend(write, approveVerdict)
 	forge := &orchestratortest.CheckedForge{Forge: &orchestratortest.Forge{Remote: remote}}
 	pipeline := publishing(automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider), forge)
 	pipeline.Config.Approvals.Integration = domain.ApprovalHuman

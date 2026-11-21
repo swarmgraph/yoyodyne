@@ -96,7 +96,7 @@ func (t TeamMerge) Validate() error {
 	if t.FoundBy < 0 || (t.FoundBy > 0 && t.FoundAt == nil) {
 		problems = append(problems, errors.New("team_merge found_by_pull_request requires found_at"))
 	}
-	problems = append(problems, validateTeamFeedbackRepairs(t.Repairs)...)
+	problems = append(problems, validateTeamFeedbackRepairs("team_merge", t.Repairs)...)
 	if t.Returned != nil {
 		if t.Returned.Number <= 0 {
 			problems = append(problems, errors.New("team_merge returned number must be positive"))

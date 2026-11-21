@@ -39,6 +39,16 @@ type PersonMerge struct {
 	// developer session. While it is set the wait is the development manager's
 	// to decide, not only the person's to merge.
 	UpdateRefused string `json:"update_refused,omitempty"`
+	// Repairs are the development manager's decisions to repair this item from
+	// feedback on the request, each answering one piece of feedback
+	// (teamfeedbackrepair.go).
+	Repairs []TeamFeedbackRepair `json:"repairs,omitempty"`
+	// SupersededBy is the run that replaced this run's change on the same pull
+	// request, and SupersededAt when. A run is superseded by the new run a
+	// decided repair from feedback started; the request is then waited on by that
+	// run, so this wait is over without the request having merged or closed.
+	SupersededBy string     `json:"superseded_by,omitempty"`
+	SupersededAt *time.Time `json:"superseded_at,omitempty"`
 }
 
 // maxForgeLoginBytes bounds the forge account a closing is recorded under. A
@@ -53,7 +63,11 @@ func (p PersonMerge) Merged() bool { return p.MergedAt != nil }
 func (p PersonMerge) Returned() bool { return p.ReturnedAt != nil }
 
 // Waiting reports a wait that has not ended.
-func (p PersonMerge) Waiting() bool { return !p.Merged() && !p.Returned() }
+func (p PersonMerge) Waiting() bool { return !p.Merged() && !p.Returned() && !p.Superseded() }
+
+// Superseded reports a wait that ended because a later run of the item replaced
+// this run's change on the same pull request.
+func (p PersonMerge) Superseded() bool { return p.SupersededBy != "" }
 
 // Says is the wait in the words every surface uses for it.
 func (p PersonMerge) Says() string {
@@ -88,6 +102,16 @@ func (p PersonMerge) Validate() error {
 	if !p.Returned() && (p.ClosedAt != nil || strings.TrimSpace(p.ClosedBy) != "") {
 		problems = append(problems, errors.New("person_merge closed_at and closed_by require returned_at"))
 	}
+	if (p.SupersededBy == "") != (p.SupersededAt == nil) {
+		problems = append(problems, errors.New("a superseded person_merge records the run that superseded it and when, together"))
+	}
+	if p.SupersededBy != "" && !ValidRunID(p.SupersededBy) {
+		problems = append(problems, fmt.Errorf("person_merge superseded_by %q is not a run identifier", p.SupersededBy))
+	}
+	if p.Superseded() && (p.Merged() || p.Returned()) {
+		problems = append(problems, errors.New("a person_merge cannot be superseded and also merged or returned"))
+	}
+	problems = append(problems, validateTeamFeedbackRepairs("person_merge", p.Repairs)...)
 	return errors.Join(problems...)
 }
 
@@ -398,4 +422,33 @@ func (w WaitingPullRequest) Says() string {
 		return fmt.Sprintf("#%d for %s", w.Number, w.WorkItemID)
 	}
 	return fmt.Sprintf("#%d for %s (%s)", w.Number, w.Title, w.WorkItemID)
+}
+
+// PersonMergeSuperseded ends the wait of a run whose change a later run of the
+// item has replaced on the same pull request. The later run is the one that now
+// waits on the request, so this one stops being read as waiting for it: its
+// feedback, its merge and its bringing up to date belong to the later run. The
+// run's own branch and checkout are left as they were.
+type PersonMergeSuperseded struct {
+	Number int
+	RunID  string
+	At     time.Time
+}
+
+func (u PersonMergeSuperseded) apply(state *State) (bool, error) {
+	if state.PersonMerge != nil && state.PersonMerge.SupersededBy == u.RunID && state.PersonMerge.Number == u.Number {
+		return false, nil
+	}
+	if !state.WaitingForPersonMerge() || state.PersonMerge.Number != u.Number {
+		return false, fmt.Errorf("run %s is not waiting for a person to merge pull request %d, so it is not superseded on it", state.RunID, u.Number)
+	}
+	if !ValidRunID(u.RunID) || u.RunID == state.RunID {
+		return false, fmt.Errorf("%q is not another run of the item", u.RunID)
+	}
+	wait := *state.PersonMerge
+	at := u.At
+	wait.SupersededBy, wait.SupersededAt = u.RunID, &at
+	state.PersonMerge = &wait
+	state.UpdatedAt = u.At
+	return true, nil
 }

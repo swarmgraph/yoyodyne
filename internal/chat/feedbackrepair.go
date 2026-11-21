@@ -1,7 +1,8 @@
 package chat
 
 // The development manager's decision to repair an item whose run has ended, from
-// feedback on a pull request into the team's branch that the harness tracks
+// feedback on a pull request into the team's branch that the harness tracks, or
+// on a pull request the harness opened for a person to merge
 // (docs/designs/integrating-to-a-local-branch.md, section 2).
 //
 // It is not one of the decisions about a stopped run: the run that landed the
@@ -9,7 +10,7 @@ package chat
 // entry it answers instead, the pull request and the piece of feedback the report
 // on her list quotes, and the one item to repair. The harness refuses it, in
 // plain words, once the item has closed, when the entry already has a decision,
-// when the item is not waiting for the team's merge on that pull request, and
+// when the item is not waiting for a merge of that pull request, and
 // when the item has no attempts left; it records the decision on the run that
 // landed the item and spends one of the item's attempts. A later pass of the
 // harness starts the new run. Nothing here starts a run.
@@ -98,6 +99,6 @@ func (s *Session) carryOutFeedbackRepair(ctx context.Context, outcome *TrackerOu
 		s.settleTrackerNote(ctx, outcome, id, note, "the decision recorded on the item")
 		return
 	}
-	outcome.applied("decided to repair %s from %s on pull request #%d, recorded on run %s and one of the item's attempts spent; a new run of it starts from the target branch at the harness's next pass, and it stays waiting for the team's merge",
+	outcome.applied("decided to repair %s from %s on pull request #%d, recorded on run %s and one of the item's attempts spent; a new run of it starts at the harness's next pass, and the item keeps waiting for the merge of the pull request",
 		id, strings.TrimSpace(action.Feedback), action.PullRequest, decided.RunID)
 }
