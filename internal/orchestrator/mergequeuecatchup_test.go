@@ -55,9 +55,11 @@ func newCatchUpRun(t *testing.T, resolve func(dir string) error) (*queueRun, *or
 // wires it: able to give a run its catch-up.
 func (r *queueRun) catchUpDriver() MergeQueueDriver {
 	driver := r.driver()
+	checkouts, _ := r.pipeline.Worktrees.(MergeQueueCatchUpCheckouts)
 	driver.Promoter.Repair = MergeQueueRunHandback{
 		Store: r.runs, Tracker: r.tracker,
 		CatchUp: r.runs, Capacity: r.pipeline.Config.Execution.MaxConcurrentDevelopers,
+		Checkouts: checkouts,
 	}
 	return driver
 }
@@ -227,5 +229,182 @@ func TestACatchUpThatFailsItsChecksStopsForTheDevelopmentManager(t *testing.T) {
 	}
 	if record := r.tracker.Record(); !record.Blocked {
 		t.Fatal("the item was not blocked when the catch-up failed")
+	}
+}
+
+// clearCheckout does to a queued run what the maintenance sweep does to one
+// whose change waits long in the queue: its checkout is removed and its record
+// says so. With deleteBranch the branch goes too, and the record says that.
+func (r *queueRun) clearCheckout(t *testing.T, runID string, deleteBranch bool) runstate.State {
+	t.Helper()
+	state, err := r.runs.Load(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, r.repository, "worktree", "remove", "--force", state.WorktreePath)
+	swept := time.Now().UTC()
+	state.WorktreeRemoved = true
+	state.WorktreeSweptAt = &swept
+	if deleteBranch {
+		runPipelineGit(t, r.repository, "branch", "-D", state.Branch)
+		state.BranchRemoved = true
+		state.BranchSweptAt = &swept
+	}
+	if err := r.runs.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(state.WorktreePath); !os.IsNotExist(err) {
+		t.Fatalf("checkout %s still there after clearing: %v", state.WorktreePath, err)
+	}
+	return state
+}
+
+func TestAHandedBackChangeWhoseCheckoutWasClearedCatchesUpFromItsKeptBranch(t *testing.T) {
+	t.Parallel()
+
+	r, provider := newCatchUpRun(t, resolveBothSides)
+	admitted := r.run(t)
+	if admitted.MergeQueue == nil {
+		t.Fatalf("Run() = %#v, want the approved change admitted to the queue", admitted)
+	}
+	key := admitted.MergeQueue.Key()
+	cleared := r.clearCheckout(t, admitted.RunID, false)
+	conflictOnTarget(t, r.repository, "something else\n")
+
+	if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassHandedBack {
+		t.Fatalf("Pass() = %#v, want the conflicting change handed back", pass)
+	}
+	put, err := r.runs.Load(admitted.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The checkout is rebuilt at the path the run records, on its branch at the
+	// approved head, and the record says it is there again.
+	if put.WorktreeRemoved || put.WorktreeSweptAt != nil {
+		t.Fatalf("worktree removed = %t, swept at %v; want the record to say the checkout is back", put.WorktreeRemoved, put.WorktreeSweptAt)
+	}
+	head, err := attemptPipelineGit(cleared.WorktreePath, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("read the rebuilt checkout's head: %v: %s", err, head)
+	}
+	if got := strings.TrimSpace(head); got != cleared.HarnessCommit {
+		t.Fatalf("rebuilt checkout is at %s, want the approved head %s", got, cleared.HarnessCommit)
+	}
+	// And the catch-up is given exactly as for a run whose checkout was there.
+	if put.Status != runstate.StatusRunning || put.Phase != runstate.PhaseDeveloping || strings.TrimSpace(put.Blocker) != "" {
+		t.Fatalf("run = status %q, phase %q, blocker %q; want it live at its developer attempt", put.Status, put.Phase, put.Blocker)
+	}
+	if put.Reconciliation == nil || put.RepairAttempts != 0 || !catchUpNotTakenUp(put) || !owedUpdateContinuation(put) {
+		t.Fatalf("run = reconciliation %#v, repair attempts %d; want its one free catch-up, owed to the sweep", put.Reconciliation, put.RepairAttempts)
+	}
+	if record := r.tracker.Record(); record.Blocked || !strings.Contains(record.Notes, "gets its one attempt to bring the change up to date") {
+		t.Fatalf("blocked = %t, notes:\n%s\nwant the item told, not blocked", record.Blocked, record.Notes)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	rejoined, err := r.pipeline.Continue(ctx, "yoyodyne-task", admitted.RunID)
+	if err != nil {
+		t.Fatalf("Continue() error = %v", err)
+	}
+	if rejoined.Status != runstate.StatusSucceeded || rejoined.MergeQueue == nil || rejoined.MergeQueue.EntryID == admitted.MergeQueue.EntryID {
+		t.Fatalf("Continue() = %#v, want the reconciled change admitted to the queue again", rejoined)
+	}
+	if provider.DeveloperAttempts != 2 || rejoined.RepairAttempts != 0 {
+		t.Fatalf("developer attempts = %d, repair attempts = %d; want one catch-up attempt charged to nothing", provider.DeveloperAttempts, rejoined.RepairAttempts)
+	}
+	if runs, err := r.runs.Recorded(); err != nil || len(runs) != 1 {
+		t.Fatalf("runs = %d, %v; want the same run, no fresh one", len(runs), err)
+	}
+	if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassLanded {
+		t.Fatalf("Pass() = %#v, want the reconciled change landed", pass)
+	}
+	if got := readQueueFile(t, r.repository, "feature.txt"); got != "implemented\nsomething else\n" {
+		t.Fatalf("feature.txt on the target = %q, want the reconciled change", got)
+	}
+}
+
+func TestAHandedBackChangeWithNoCheckoutAndNoBranchStopsSayingTheBranchIsGone(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		// recordBranchRemoved is whether the record says the branch went, or the
+		// record still names it and the ref itself is missing.
+		recordBranchRemoved bool
+		want                string
+	}{
+		{name: "recorded removed", recordBranchRemoved: true, want: "the run's worktree is gone, and so is the branch it would be rebuilt from"},
+		{name: "ref missing", recordBranchRemoved: false, want: "could not be rebuilt from its branch"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			r, provider := newCatchUpRun(t, resolveBothSides)
+			admitted := r.run(t)
+			key := admitted.MergeQueue.Key()
+			cleared := r.clearCheckout(t, admitted.RunID, true)
+			if !test.recordBranchRemoved {
+				cleared.BranchRemoved = false
+				cleared.BranchSweptAt = nil
+				if err := r.runs.Save(cleared); err != nil {
+					t.Fatal(err)
+				}
+			}
+			conflictOnTarget(t, r.repository, "something else\n")
+
+			if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassHandedBack {
+				t.Fatalf("Pass() = %#v, want the conflicting change handed back", pass)
+			}
+			stopped, err := r.runs.Load(admitted.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stopped.Status != runstate.StatusFailed || stopped.Reconciliation != nil || provider.DeveloperAttempts != 1 {
+				t.Fatalf("run = status %q, reconciliation %#v, developer attempts %d; want it stopped with no catch-up", stopped.Status, stopped.Reconciliation, provider.DeveloperAttempts)
+			}
+			if !strings.Contains(stopped.Blocker, test.want) {
+				t.Fatalf("blocker = %q, want it to say %q", stopped.Blocker, test.want)
+			}
+			if record := r.tracker.Record(); !record.Blocked || !strings.Contains(record.BlockReason, test.want) {
+				t.Fatalf("blocked = %t, reason:\n%s\nwant the item blocked saying %q", record.Blocked, record.BlockReason, test.want)
+			}
+		})
+	}
+}
+
+func TestACatchUpRefusalForAClearedCheckoutNamesWhatIsMissing(t *testing.T) {
+	t.Parallel()
+
+	ready := runstate.State{
+		Status: runstate.StatusSucceeded, Branch: "yoyodyne/item/run", WorktreePath: "/worktrees/item",
+		WorktreeRemoved: true, HarnessCommit: strings.Repeat("a", 40), BaseCommit: strings.Repeat("b", 40),
+		TargetBranch: "main", ProviderSessionID: "session",
+	}
+	handback := runstate.MergeQueueHandback{Conflict: &runstate.MergeQueueConflict{}, ApprovedHead: ready.HarnessCommit}
+	for _, test := range []struct {
+		name        string
+		change      func(*runstate.State, *runstate.MergeQueueHandback)
+		rebuildable bool
+		want        string
+	}{
+		{name: "rebuildable", rebuildable: true},
+		{name: "nothing to rebuild with", want: "the run's worktree is gone"},
+		{name: "no branch", rebuildable: true, change: func(s *runstate.State, _ *runstate.MergeQueueHandback) { s.BranchRemoved = true }, want: "and so is the branch it would be rebuilt from"},
+		{name: "no head", rebuildable: true, change: func(s *runstate.State, h *runstate.MergeQueueHandback) { s.HarnessCommit = ""; h.ApprovedHead = "" }, want: "records no approved head"},
+		{name: "another head", rebuildable: true, change: func(_ *runstate.State, h *runstate.MergeQueueHandback) { h.ApprovedHead = strings.Repeat("c", 40) }, want: "is not the approved head the queue held"},
+		{name: "captured work", rebuildable: true, change: func(s *runstate.State, _ *runstate.MergeQueueHandback) {
+			s.PreservedWorkRef = "refs/yoyodyne/preserved/run"
+		}, want: "kept uncommitted work on refs/yoyodyne/preserved/run"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state, back := ready, handback
+			if test.change != nil {
+				test.change(&state, &back)
+			}
+			got := catchUpRefusal(state, back, test.rebuildable)
+			if test.want == "" && got != "" || !strings.Contains(got, test.want) {
+				t.Fatalf("catchUpRefusal() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

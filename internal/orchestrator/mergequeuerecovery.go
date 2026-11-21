@@ -1023,6 +1023,10 @@ type MergeQueueRunHandback struct {
 	// live and takes its developer slot (checkoutReadyToTakeUp). Optional:
 	// without it nothing is asked here.
 	Checkout CheckoutReadiness
+	// Checkouts rebuilds the checkout of a run the sweep cleared while its
+	// change waited, so the catch-up is still given; nil gives such a run the
+	// stop instead.
+	Checkouts MergeQueueCatchUpCheckouts
 }
 
 var _ MergeQueueRepair = MergeQueueRunHandback{}
