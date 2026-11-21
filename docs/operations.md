@@ -775,7 +775,7 @@ else in the way, the step:
    commit `<the commit's whole name>`". A release covers everything up to that
    commit and is tagged there, and its notes land on `main` after it, so notes
    waiting in review never claim work that landed while they waited;
-4. runs every gate a person's cut runs, in a worktree of its own detached at
+4. runs every check a person's cut runs, in a worktree of its own detached at
    the named commit under the product's state directory, handed the notes as
    `main` holds them, since the named commit's own tree does not carry them:
    `HEAD` at the named commit, which `origin/main` holds, with a clean tree, the

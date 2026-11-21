@@ -60,8 +60,8 @@
 # from the file YOYODYNE_RELEASE_NOTES names, which the harness writes from
 # origin's default branch, because the named commit's own tree lacks them; origin
 # being unreachable refuses rather than being named as unchecked, because
-# HEAD being on origin's default branch is a gate the harness cannot skip; and once
-# every gate is green it prints the commit they ran on and exits 0 with no tag
+# HEAD being on origin's default branch is a check the harness cannot skip; and
+# once every check passes it prints the commit they ran on and exits 0 with no tag
 # written.
 #
 # Requires git 1.9 or newer, for the `:(exclude)` pathspec the cleanliness
