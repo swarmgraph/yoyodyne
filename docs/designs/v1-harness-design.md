@@ -162,6 +162,10 @@ revisions:
       by: architect
       at: 2026-11-21T17:21:45.303705Z
       reason: Program manager subsection only, copied from main 6c195eec0. Replaces 'never gates an admission' with plain words, names the Lead Product Manager, and rewords 'collapsed events', 'triage', 'mints' and two joined-up compounds the word check refuses. Nothing the role may do changes.
+    - action: amended
+      by: architect
+      at: 2026-11-21T18:49:29.869694Z
+      reason: 'The deferred section still called the dashboard read-only, which has been out of date since the operator amended the v1 non-goals on October 11, 2026: the dashboard may take his own decisions, recorded as the command line records them, and stays local with no work state of its own. Three other bullets are reworded in plain words with the same meaning. No design decision changes.'
 approvals:
     - revision: 0
       by: operator
@@ -221,6 +225,11 @@ approvals:
       by: harness
       at: 2026-11-21T17:21:45.303705Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3333, for document-3333.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 39
+      by: harness
+      at: 2026-11-21T18:49:29.869694Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3337, for document-3337.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -801,13 +810,19 @@ Each decision should be captured in the owning design artifact and linked from t
 
 - Remote workers and transport protocols.
 - Multiple simultaneously active products and repositories.
-- Cross-host worktree and lease management.
-- Provider API backends and non-CLI model integrations.
-- Rich graphical interfaces beyond the reduced, read-only, locally hosted
-  dashboard, which [observability-and-dashboard](observability-and-dashboard.md)
-  brings into v1 as a projection of the shared read model - never a workflow
-  store or control plane.
-- Organization-level policy, audit, and multi-user access controls.
+- Worktrees and leases managed across more than one machine.
+- Model integrations through provider APIs rather than a local command line.
+- Rich graphical interfaces beyond the reduced, local dashboard that
+  [observability-and-dashboard](observability-and-dashboard.md) brings into
+  v1. That dashboard projects the shared read model and keeps no work state of
+  its own. Since the operator's decision of October 11, 2026, recorded in
+  [the v1 non-goals](../product/goals/v1-non-goals.md), it may take the
+  operator's own decisions: first approving or declining what waits on him,
+  and later other acts the command line offers, added one at a time. Each act
+  is recorded exactly as the same act from the command line is recorded. The
+  dashboard is never hosted, never a separate store of work state, and no role
+  acts through it.
+- Policy, audit, and access controls for an organization or for several users.
 
 ## References
 
