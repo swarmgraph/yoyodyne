@@ -9822,7 +9822,7 @@ func (a *activeRun) recordReviewVerdict(ctx context.Context, decision review.Dec
 	for {
 		_, err := counters.RecordReviewRound(ctx, a.state.WorkItemID, attempt, charger, a.pipeline.clock().Now())
 		if err == nil {
-			return nil
+			return a.endSpendWait(ctx)
 		}
 		// With team mode on the round is a record on the shared remote first. One that
 		// could not be pushed is not charged, and the run waits for the remote rather
@@ -9830,10 +9830,62 @@ func (a *activeRun) recordReviewVerdict(ctx context.Context, decision review.Dec
 		if !runstate.IsSpendNotShared(err) {
 			return fmt.Errorf("count the review round attempt %s produced: %w", attempt, err)
 		}
+		// The wait is written on the run's record before each sleep, so `yoyo status`
+		// and the dashboard say the run is waiting on the remote, since when, and
+		// after how many tries, instead of showing it as one that is working. That
+		// line is the only thing that flags the wait. The stall watchdog
+		// (internal/watchdog) neither ends nor flags such a run: it never ends a run
+		// at all, its Checker counts a run whose record was written within the last
+		// hour as in flight and still moving (readmodel.ActiveRuns), and every
+		// refused try rewrites this record, so the run reads to it as working; its
+		// FactoryWatch judges pulls and passes rather than any one run. Nor does the
+		// provider session's idle bound (execution.Command.IdleTimeout) reach it,
+		// because this wait runs in the harness's own process with no session open.
+		if noteErr := a.noteSpendWait(ctx, err); noteErr != nil {
+			return fmt.Errorf("record that the shared remote has not taken the review round attempt %s produced: %w", attempt, noteErr)
+		}
 		if sleepErr := a.pipeline.sleep(ctx, teamSpendRetryInterval); sleepErr != nil {
 			return fmt.Errorf("count the review round attempt %s produced: %w", attempt, errors.Join(err, sleepErr))
 		}
 	}
+}
+
+// noteSpendWait writes one more refused try onto the run's record, keeping the
+// time of the first.
+func (a *activeRun) noteSpendWait(ctx context.Context, cause error) error {
+	wait := runstate.SpendWait{Since: a.pipeline.clock().Now()}
+	if a.state.SpendWait != nil {
+		wait = *a.state.SpendWait
+	}
+	wait.Tries++
+	wait.Failure = boundedFailureDetail(cause.Error())
+	return a.setSpendWait(ctx, &wait)
+}
+
+// endSpendWait clears the wait once the remote has taken the round, and does
+// nothing for a run that never waited.
+func (a *activeRun) endSpendWait(ctx context.Context) error {
+	if a.state.SpendWait == nil {
+		return nil
+	}
+	return a.setSpendWait(ctx, nil)
+}
+
+// setSpendWait puts wait on the run's record, or takes it off where wait is nil,
+// and takes what it wrote onto the run's copy so its later saves are made from a
+// copy in step with the record (adoptInstallUpdate says how).
+func (a *activeRun) setSpendWait(ctx context.Context, wait *runstate.SpendWait) error {
+	held := a.state.Revision
+	written, err := a.pipeline.Store.Update(context.WithoutCancel(ctx), a.state.RunID, runstate.SpendWaitRecorded{Wait: wait, At: a.pipeline.clock().Now()})
+	if err != nil {
+		return fmt.Errorf("record whether the shared remote has taken the review round: %w", err)
+	}
+	if written.Revision == held+1 {
+		a.state.SpendWait, a.state.Revision, a.state.UpdatedAt = written.SpendWait, written.Revision, written.UpdatedAt
+		return nil
+	}
+	a.state = written
+	return nil
 }
 
 // teamSpendRetryInterval is how long a run waits before it asks again to record a
