@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-19T16:38:56.879661Z
       reason: Replaces the retired word for a required check in its two remaining places with plain words (a late event cannot count as a passed check or an approved review; adoption preserves all existing checks and approvals), and names the operator by role rather than by first name, under the item replacing retired words in the architect's documents (yoyodyne-ifd.437.21). Nothing else changes.
+    - action: amended
+      by: architect
+      at: 2026-11-21T03:38:41.723142Z
+      reason: 'amendment-b3e82c78 approved: a run taken up again whose own slot is busy takes any free slot ahead of fresh work, as the operating rules require for work on a change already written, instead of waiting while the free slot takes fresh work. A run with an explicit pair is pinned again to the new slot''s own pair, keeping its operation, budgets and any spent switch, with the move recorded. Acceptance criterion 2 is revised to match in the next revision.'
 approvals:
     - revision: 3
       by: operator
@@ -54,6 +58,11 @@ approvals:
       by: harness
       at: 2026-11-19T16:38:56.879661Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3102, for document-3102.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-21T03:38:41.723142Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3293, for document-3293.1 under the automatic approval policy
 ---
 # Execution routing: pinned invocations, developer slots, and safe provider fallback
 
@@ -81,14 +90,20 @@ These are enforceable requirements of this design. This revision does not create
 
 A developer slot is a stable positive number in the product's configured developer capacity, not a PID, provider account, agent name, work label, or position in a transient worker list. The first through fourth configured slots are slots 1 through 4. Persist the slot number when a run claims capacity, and retain it through developer invocations, repairs, waits, and resumes while the run owns that slot. Releasing execution capacity during a wait does not erase the run's routing identity or authorize a second worker on its worktree.
 
-A run that is taken up again, whether a repair, a continuation, or a resumed run, must hold a slot's execution capacity before it launches. Which slot it may take depends on its routing snapshot:
+A run that is taken up again, whether a repair, a continuation, or a resumed run, must hold a slot's execution capacity before it launches. It takes its own recorded slot when that slot is free. When another run holds its recorded slot and another developer slot is free, it takes the free slot, ahead of fresh work of any priority, as the operating rules require for work on a change a run has already written. This includes a slot kept for one kind of work, such as the reliability slot. A run taken up again never waits for its own slot while a free slot goes to fresh work.
 
-- A run whose snapshot records an explicit endpoint pair from its slot waits for that slot. Moving it would either run another slot's pair or put its own pair in a slot configured for a different one, and either breaks the mapping the operator authorized below. While it waits, what the harness records on the run and on its work item names the slot it waits for and why, never a count of active runs that implies no slot is free.
-- A run with no explicit pair whose recorded slot another run holds takes any free developer slot under the ordinary order of work. This includes a slot kept for one kind of work, as the operating rules allow for work on a change already written. The move is recorded on the run: the earlier slot, the new slot, the time, and the reason. The run then settles every slot-specific setting, such as whether developer sub-agents are on, from the new slot, and records the settings it now uses. Status and the run's history show the move, so it is never silent.
+What a move does depends on the run's routing snapshot:
 
-A run waiting for one particular slot holds no other slot and never keeps fresh work out of a free one. A decision to take a run up again that cannot start because its slot is busy is not counted as carried out. It stays waiting, and the free slot goes to the next ready work.
+- A run with no explicit pair records the move on the run: the earlier slot, the new slot, the time, and the reason. It then settles every slot-specific setting, such as whether developer sub-agents are on, from the new slot, and records the settings it now uses.
+- A run whose snapshot records an explicit endpoint pair is pinned again to the new slot's own pair. This is the supported reconfiguration described under Pinning and configuration changes, made at the one boundary where it is always safe: no invocation of the run can still execute while it waits to be taken up again. The harness records on the run the earlier slot and its pair, the new slot and its pair, the configuration revision of each, the time, and the reason, which is that its own slot was busy and this one was free. Every slot-specific setting comes from the new slot.
 
-Two alternatives were rejected. Moving every run to any free slot would let a run carry its pair into a slot configured for another, against the authorized mapping. Keeping every run waiting for its own slot left a free slot idle for over two hours on October 31 while ready work waited, which the milestone goal of a week on this repository with no hour of ready work waiting beside an idle slot rules out.
+In both cases the unfinished logical operation keeps its identity, attempt count, recovery deadline, spent budgets, and switch count. A switch already committed stays spent: the operation starts on the new pair's primary unless that endpoint is known to be limited, and it cannot switch again within that operation. Because the new pair may name another provider or model, the next attempt is rebuilt from durable state as Native resume and durable reconstruction requires, and no native session crosses to it. Checks and findings stay evidence for the candidate they checked; a move alone erases none. Status and the run's history show every move, so it is never silent.
+
+When no developer slot is free, the run waits for the first slot to come free, whichever it is, and takes it ahead of fresh work. While it waits, what the harness records on the run and on its work item says that it waits for a free slot and why, never a count of active runs that implies a slot is free. A run waiting for a slot holds no slot, and a decision to take it up again that cannot start because no slot is free is not counted as carried out until the run starts.
+
+Three alternatives were rejected. Carrying a run's own pair into a slot configured for another would break the authorized mapping below, in which each slot runs only its own pair. Keeping a run with an explicit pair waiting for its own slot, which this design required from November 1 to November 20, 2026, contradicts the operating rule that work on a change already written goes first in any freed slot; on November 20 it left runs recorded on slot 2 waiting over two hours while slots 1 and 3 took fresh work. Keeping every run waiting for its own slot left a free slot idle for over two hours on October 31 while ready work waited. Both waits are what the milestone goal of a week on this repository with no hour of ready work waiting beside an idle slot rules out.
+
+Acceptance criterion 2 below still says a run with an explicit pair waits for its own slot. The next revision of this design changes it to match this section; until then, this section governs.
 
 Run ownership and slot capacity are separate: both must be valid before execution. A scheduler restart reconstructs ownership from durable records rather than numbering live processes again. Configuration cannot remove or reinterpret an occupied slot; reject that change until it can be applied without changing existing owners.
 
