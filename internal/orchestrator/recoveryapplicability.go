@@ -616,7 +616,7 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 	if c.Notes != nil && !found.noItem {
 		noting, stopNoting := trackerRecordContext(ctx)
 		defer stopNoting()
-		if err := c.deliverItemNotes(noting, task.WorkItemID); err != nil {
+		if err := c.deliverItemNotes(noting, task.WorkItemID, onceRecorded(c.Runs)); err != nil {
 			carried.RecordProblem = fmt.Sprintf("the finding is on the triage record but could not be appended to the item's notes; its note remains pending for a later pull: %v", err)
 		}
 	}

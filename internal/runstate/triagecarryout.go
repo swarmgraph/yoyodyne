@@ -454,6 +454,67 @@ func (s *TriageStore) DeliverCarryOutNotes(ctx context.Context, workItemID strin
 	return err
 }
 
+// UndeliverableCarryOutNote is a pending note that had no work item to go on,
+// and why. It is kept on the record so what the note said is not lost, and is
+// never offered to the tracker again.
+type UndeliverableCarryOutNote struct {
+	Note     string    `json:"note"`
+	Reason   string    `json:"reason"`
+	SetAside time.Time `json:"set_aside_at"`
+}
+
+// SetAsideCarryOutNotes moves every pending note on the record into its
+// undeliverable notes with the reason, under the record's lock. It is what a
+// pull does once for notes recorded under an item no tracker holds whose run is
+// for no work item, so later pulls neither retry them nor ask the tracker about
+// them. The oldest set-aside notes are dropped past the bound.
+func (s *TriageStore) SetAsideCarryOutNotes(ctx context.Context, workItemID, reason string, at time.Time) error {
+	when := at
+	if when.IsZero() {
+		when = time.Now()
+	}
+	why := strings.TrimSpace(reason)
+	if why == "" {
+		return errors.New("a reason is required to set aside a carry-out note as undeliverable")
+	}
+	if len(why) > MaxTriageCarryOutClearsBytes {
+		why = strings.ToValidUTF8(why[:MaxTriageCarryOutClearsBytes], "")
+	}
+	_, err := s.update(ctx, workItemID, when, func(counters *TriageCounters) error {
+		if len(counters.PendingCarryOutNotes) == 0 {
+			return errNoTriageChange
+		}
+		for _, note := range counters.PendingCarryOutNotes {
+			counters.UndeliverableCarryOutNotes = append(counters.UndeliverableCarryOutNotes, UndeliverableCarryOutNote{Note: note, Reason: why, SetAside: when.UTC()})
+		}
+		if extra := len(counters.UndeliverableCarryOutNotes) - MaxTriageCarryOuts; extra > 0 {
+			counters.UndeliverableCarryOutNotes = append([]UndeliverableCarryOutNote(nil), counters.UndeliverableCarryOutNotes[extra:]...)
+		}
+		counters.PendingCarryOutNotes = nil
+		return nil
+	})
+	return err
+}
+
+func validateUndeliverableCarryOutNotes(notes []UndeliverableCarryOutNote) []error {
+	var problems []error
+	if len(notes) > MaxTriageCarryOuts {
+		problems = append(problems, fmt.Errorf("%d undeliverable carry-out notes exceed the bound of %d", len(notes), MaxTriageCarryOuts))
+	}
+	for index, note := range notes {
+		if strings.TrimSpace(note.Note) == "" || len(note.Note) > MaxTriageCarryOutRefusalBytes+MaxTriageCarryOutClearsBytes+1024 {
+			problems = append(problems, fmt.Errorf("undeliverable carry-out note %d is empty or exceeds its refusal and clearing text bounds", index))
+		}
+		if strings.TrimSpace(note.Reason) == "" || len(note.Reason) > MaxTriageCarryOutClearsBytes {
+			problems = append(problems, fmt.Errorf("undeliverable carry-out note %d needs a reason of at most %d bytes", index, MaxTriageCarryOutClearsBytes))
+		}
+		if note.SetAside.IsZero() {
+			problems = append(problems, fmt.Errorf("undeliverable carry-out note %d needs the time it was set aside", index))
+		}
+	}
+	return problems
+}
+
 func validatePendingCarryOutNotes(notes []string) []error {
 	var problems []error
 	if len(notes) > MaxTriageCarryOuts {

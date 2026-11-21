@@ -250,7 +250,7 @@ func reconcileFindingResolved(state runstate.State, step runstate.ReconcileStep)
 		// settled: nothing is left open for anybody to decide.
 		return published != nil && (published.Superseded != "" || published.Merged || strings.EqualFold(strings.TrimSpace(published.State), "CLOSED"))
 	case runstate.ReconcileWorktree:
-		return state.WorktreeRemoved && (state.PreservedWorkRef == "" || state.PreservedWorkNotedAt != nil)
+		return state.WorktreeRemoved && !state.PreservedWorkNotePending()
 	case runstate.ReconcileEscalation:
 		return state.EscalationEnded != nil
 	case runstate.ReconcileRedTarget:
