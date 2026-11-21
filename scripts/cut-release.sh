@@ -54,11 +54,14 @@
 # refuse with exit status 3 and write nothing -- no draft, no branch, no pull
 # request -- which is the harness's cue to hand the release back to the Lead
 # Product Manager; a checkout on a detached HEAD is accepted, because the
-# harness cuts in a worktree of its own at the commit origin's default branch
-# holds, and that commit is still required to be what origin holds; origin
+# harness cuts in a worktree of its own at the commit the release's notes name,
+# and that commit is required to be one origin's default branch holds rather
+# than its tip, since the notes landed after it; the notes themselves are read
+# from the file YOYODYNE_RELEASE_NOTES names, which the harness writes from
+# origin's default branch, because the named commit's own tree lacks them; origin
 # being unreachable refuses rather than being named as unchecked, because
-# HEAD at origin's default branch is a gate the harness cannot skip; and once
-# every gate is green it prints the commit they ran on and exits 0 with no tag
+# HEAD being on origin's default branch is a check the harness cannot skip; and
+# once every check passes it prints the commit they ran on and exits 0 with no tag
 # written.
 #
 # Requires git 1.9 or newer, for the `:(exclude)` pathspec the cleanliness
@@ -209,10 +212,19 @@ printf 'HEAD: %s (%s)\n' "$head" "$default_branch"
 origin_reachable=0
 if git -C "$repository" fetch --quiet origin "$default_branch" 2>/dev/null; then
   remote="$(git -C "$repository" rev-parse FETCH_HEAD)"
-  if [ "$head" != "$remote" ]; then
+  if [ "$automatic" = "1" ]; then
+    # The harness cuts at the commit the release's notes name, which is older
+    # than the notes and so older than origin's tip; what it has to be is a
+    # commit origin's default branch holds.
+    if ! git -C "$repository" merge-base --is-ancestor "$head" "$remote"; then
+      refuse "HEAD ($head) is not on origin/$default_branch ($remote), so $tag would name a commit the product does not have"
+    fi
+    printf 'origin/%s holds it, at %s\n' "$default_branch" "$remote"
+  elif [ "$head" != "$remote" ]; then
     refuse "HEAD is not where origin/$default_branch is ($remote), so $tag would name a commit the product does not have. Pull or push first"
+  else
+    printf 'origin/%s agrees\n' "$default_branch"
   fi
-  printf 'origin/%s agrees\n' "$default_branch"
   origin_reachable=1
 elif [ "$automatic" = "1" ]; then
   refuse "origin is unreachable, so whether HEAD is where origin/$default_branch is could not be checked, and the harness cuts nothing it has not checked"
@@ -309,6 +321,14 @@ step "gate: this release's notes"
 # items that landed and the cut refuses, leaving the operator a file to read,
 # place, and commit. The tag then names a commit that carries its own notes.
 notes_file="$notes_home/$tag.md"
+# The harness hands over the notes as origin's default branch holds them,
+# because the commit it cuts at is the one they name, which they landed after.
+if [ "$automatic" = "1" ] && [ -n "${YOYODYNE_RELEASE_NOTES:-}" ]; then
+  [ -f "$YOYODYNE_RELEASE_NOTES" ] ||
+    refuse "the notes the harness handed over, $YOYODYNE_RELEASE_NOTES, are not there, so $tag was not cut"
+  notes_file="$YOYODYNE_RELEASE_NOTES"
+  printf "docs/releases/%s.md is read as origin/%s holds it, handed over by the harness\n" "$tag" "$default_branch"
+fi
 if [ ! -f "$notes_file" ] && [ "$automatic" = "1" ]; then
   refuse_preparation "docs/releases/$tag.md is not on $default_branch, so $tag was not cut and nothing was written. The release item's reviewed run drafts and curates the notes; the harness does not draft them"
 fi

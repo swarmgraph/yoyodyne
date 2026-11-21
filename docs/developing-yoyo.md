@@ -1108,7 +1108,7 @@ checked by the same command as changing anything else.
 has its own work item, and that item's reviewed run is where the notes are
 drafted, curated, and stamped. Its change lands them on `main` like any other.
 Under `approvals.releases: automatic` the supervisor's maintenance pass then
-runs this same verb, with `YOYODYNE_RELEASE_CUT=automatic`, as the gates of a
+runs this same verb, with `YOYODYNE_RELEASE_CUT=automatic`, as the checks of a
 cut it makes itself, and pushes the tag under the harness's identity.
 [Cutting a decided release](operations.md#cutting-a-decided-release) says what
 it checks, what it refuses, and how an interrupted cut is finished. In that
@@ -1116,10 +1116,13 @@ mode the verb prepares nothing and tags nothing. Notes that are missing, or a
 readiness result that is not current, make it exit 3, writing no draft, no
 branch, and no pull request, and the harness hands the release back to the Lead
 Product Manager. A checkout on a detached `HEAD` is accepted, because the
-harness cuts in a worktree of its own at the commit `origin/main` holds, and
-that commit is still required to be what origin holds. Origin being unreachable
-refuses the cut rather than being named as unchecked. Once every gate is green,
-the verb prints `checked commit: <commit>` and exits 0 without writing a tag.
+harness cuts in a worktree of its own at the commit the release's notes name.
+That commit has to be one `origin/main` holds, but not its tip, because the
+notes land on `main` after it. The notes are read from the file
+`YOYODYNE_RELEASE_NOTES` names, which the harness writes from `origin/main`,
+because the named commit's own tree does not carry them. Origin being
+unreachable refuses the cut rather than being named as unchecked. Once every
+check passes, the verb prints `checked commit: <commit>` and exits 0 without writing a tag.
 Under `human`, the default, everything above is yours, unchanged.
 
 ## Release readiness
@@ -1332,3 +1335,12 @@ environment, `RELEASE_BODY_LIMIT` and `RELEASE_BODY_WARN_PERCENT`, which is how
 the test above drives them against notes a few hundred bytes long. That test
 holds the body to being the notes and the preamble and nothing else, byte for
 byte, and covers what a tag with no notes file publishes.
+
+A release is tagged at the commit its notes name, and the notes land on `main`
+after it, so the tagged commit's own tree usually has no notes. The script then
+reads them from the branch `RELEASE_NOTES_FROM` names — the workflow sets it to
+the repository's default branch, and it is `origin/main` otherwise — and takes
+them only where they
+say "up to and including commit `<sha>`" of the very commit the tag names.
+Notes there that name another commit, or none, publish the install preamble
+alone, saying why on stderr.
