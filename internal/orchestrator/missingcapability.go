@@ -139,7 +139,7 @@ func missingCapabilityMessage(entry readmodel.Attention) string {
 	hand := entry.Ownership.Hand
 	return fmt.Sprintf("%s decision needs the operator's hand because the harness has no way yet of %s, and no work item is admitted to give it that capability; the entry on his line reads: %s. "+
 		"Admit a defect for that capability, or record why none is needed; until it lands he types `%s`, the entry stays on his line, and this report is not filed again for it.",
-		capitalize(entry.Mover.Possessive()), hand.Missing, strings.Join(strings.Fields(entry.What()), " "), hand.Types)
+		capitalize(entry.Mover.Possessive()), hand.Missing, strings.Join(strings.Fields(entry.CitedWhat()), " "), hand.Types)
 }
 
 // withdrawMissingCapabilities records, as the harness, that each report about
@@ -164,7 +164,7 @@ func (t Trigger) withdrawMissingCapabilities(closed []readmodel.Attention, filed
 			RunID:         reported.RunID,
 			ProductID:     reported.ProductID,
 			RepositoryID:  reported.RepositoryID,
-			Reason:        "needs nothing more: the entry now names " + entry.Ownership.Hand.ClosedBy + " as the work item that gives the harness the capability, so a defect for it is already admitted",
+			Reason:        "needs nothing more: the entry now names " + entry.HandEnds() + " as the work item that gives the harness the capability, so a defect for it is already admitted",
 			RecordedAt:    now.UTC(),
 		}
 		if err := t.CapabilityReports.Handle(handling); err != nil {
