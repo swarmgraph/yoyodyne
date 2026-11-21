@@ -2527,6 +2527,7 @@ pulling:
 				}
 			case replaced:
 				drain.begin(s.now())
+				landings.moving(drain.limit, s.SessionID)
 				// A pass going round on its own stops at its next turn, so the
 				// restart is not held for a queue waiting on the forge.
 				queuePasses.settle()
@@ -2672,6 +2673,7 @@ pulling:
 		// pull rather than at the next deploy.
 		drain.arm(pull.RedeployDrainLimit, s.now())
 		if drain.active {
+			landings.moving(drain.limit, s.SessionID)
 			schedule.Drain.Bound = drain.limit
 			session.draining(drain.record(running))
 		}
@@ -8044,8 +8046,8 @@ func readoptionReason(state runstate.State) string {
 		return fmt.Sprintf("re-adopted because the development manager asked through run.recover (request %s, at %s) for run %s to be continued from its %s phase: %s; the run continues from durable state with every counter as it was",
 			asked.RequestID, asked.RequestedAt.UTC().Format(time.RFC3339), state.RunID, nonEmpty(string(state.Phase), "unrecorded"), asked.Reason)
 	}
-	return fmt.Sprintf("re-adopted by the watch session that restarted into the deployed build: run %s was stopped at its %s phase at %s by the session before this one, after that session had drained for its bound of %s to restart; the run continues from durable state with every counter as it was",
-		state.RunID, state.RedeployStop.Phase, state.RedeployStop.At.UTC().Format(time.RFC3339), state.RedeployStop.Bound())
+	return fmt.Sprintf("re-adopted by the watch session that restarted into the deployed build: run %s was stopped at its %s phase at %s by the session before this one, after that session had drained for its bound of %s to restart; %s; the run continues from durable state with every counter as it was",
+		state.RunID, state.RedeployStop.Phase, state.RedeployStop.At.UTC().Format(time.RFC3339), state.RedeployStop.Bound(), redeployStepSays(*state.RedeployStop))
 }
 
 type watchSession struct {

@@ -126,6 +126,12 @@ func (p Pipeline) resolvePublishing(ctx context.Context) (bool, string, error) {
 // review is bound to names a tip commit, and a tip that is not the round's is
 // exactly how an approval comes to authorize a change nobody read.
 func (a *activeRun) commitAttempt(ctx context.Context) error {
+	// A commit already started is let finish when the run is stopped under it,
+	// for a restart onto a new build above all: its Git commands killed part-way
+	// would end the round on a failure that says nothing about the work, and
+	// the stop that follows is the restart's (finishingStep).
+	ctx, finished := finishingStep(ctx, redeployCommitTimeout)
+	defer finished()
 	commit, err := a.pipeline.Worktrees.CommitAttempt(ctx, a.worktree, attemptMessage(a.item, a.outcome))
 	if commit != "" {
 		// Recorded the moment it exists, for the reason the publishing commit below
