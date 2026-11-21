@@ -276,10 +276,17 @@ func TestAReviewFinishingAfterTheChecksUncertainSaveKeepsBothResults(t *testing.
 	f := newQueueFixture(t)
 	uncertain := make(chan struct{})
 	var once sync.Once
+	// Only the checks' own save of their result is uncertain, and only once.
+	// The review may record that it began either side of that save; a save it
+	// makes after the checks finished is an ordinary one, so the review still
+	// runs and writes its result over what the checks saved.
 	f.records.fail = func(g runstate.MergeQueueGeneration) (bool, error) {
 		if g.CheckRun != nil && g.CheckRun.FinishedAt != nil && (g.Review == nil || g.Review.FinishedAt == nil) {
-			once.Do(func() { close(uncertain) })
-			return true, runstate.ErrMergeQueueGenerationSaveUncertain
+			first := false
+			once.Do(func() { first = true; close(uncertain) })
+			if first {
+				return true, runstate.ErrMergeQueueGenerationSaveUncertain
+			}
 		}
 		return false, nil
 	}
