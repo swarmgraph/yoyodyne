@@ -18,7 +18,8 @@ package mcpcall
 // to be unsure about.
 //
 // The record stays on this machine. It holds up to maxRecordedResultBytes of
-// each result, which is more than reaches an agent. `yoyo mcp calls` reads it
+// each result, which is more than reaches an agent, except for an intake
+// query's calls, whose results it never holds (IntakeQueryCaller). `yoyo mcp calls` reads it
 // back, and every other surface sees it only through the read model's counts
 // (internal/readmodel/mcpcalls.go), which carry names and outcomes and no
 // content.
@@ -159,6 +160,13 @@ type Record struct {
 	// what a result with nothing shown reads as; the schema version stays 1
 	// because the field only adds.
 	ShownBytes int `json:"shown_bytes,omitempty"`
+	// ResultWithheld says the record deliberately keeps no result for this
+	// call, only its size and digest: an intake query's calls
+	// (IntakeQueryCaller). AnswerCut then says whether what reached the caller
+	// was cut at the caller's bound, which is the one thing about the content
+	// such a record keeps.
+	ResultWithheld bool `json:"result_withheld,omitempty"`
+	AnswerCut      bool `json:"answer_cut,omitempty"`
 	// Dropped is each item of content dropped because it was not text or JSON.
 	Dropped []Dropped `json:"dropped,omitempty"`
 	// ToolError is the server saying the tool itself failed.

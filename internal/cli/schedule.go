@@ -905,7 +905,10 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// execution.merge_queue says now: an entry admitted while it was on
 		// drains in the mode it was admitted in after it is turned off.
 		MergeQueues: mergeQueueDriverFrom(parts),
-		Build:       buildinfo.Commit(),
+		// The intake queries run beside every pull too, each holding no
+		// developer slot and reading the operator's pause before it spends.
+		IntakeQueries: intakeQueriesFrom(parts),
+		Build:         buildinfo.Commit(),
 		// The provider a slot without an endpoint pair of its own dispatches onto,
 		// so a hold on one provider passes over only the slots on it.
 		DeveloperProvider: agentForRole(parts.config, domain.RoleDeveloper).Backend,
