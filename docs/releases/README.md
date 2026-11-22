@@ -4,9 +4,8 @@
 [yoyo's documentation](../../README.md#further-reading).*
 
 `v0.3.1.md` is what changed in `v0.3.1`. The file is written before the tag
-exists and committed with the commit the tag names, so the release page and the
-repository tell one story rather than two: the
-[release workflow](../../.github/workflows/release.yml) publishes this file as
+exists, so the release page and the repository tell one story rather than two:
+the [release workflow](../../.github/workflows/release.yml) publishes this file as
 the release's body, with the install preamble under it and nothing else — the
 forge's own commit-derived changelog is never appended, because a commit says
 what one change did and these notes say what somebody wanted. The forge
@@ -26,19 +25,38 @@ describe shipped in `v0.7.0`, whose notes, [`v0.7.0.md`](v0.7.0.md), carry it
 and cover everything from `v0.5.0`. The file stays as the record of what was
 prepared, and says at its top that it was never tagged.
 
-[`v0.7.0.md`](v0.7.0.md) is an exception the other way: its notes exist
-before its tag, but not at the commit the tag names. They cover everything
-merged into `main` up to a named commit, so that work landing while they wait
-in review cannot make them wrong, and the tag is cut from that commit, which
-the notes landed after. The release workflow reads the notes from the tagged
-commit, does not find them, and publishes the install instructions alone, so
-whoever cuts the tag puts the notes on the release page afterwards, from a
-checkout of `main` that carries them:
+From [`v0.7.0.md`](v0.7.0.md) on, a release's notes exist before its tag but
+are not at the commit the tag names. They cover everything merged into `main`
+up to a commit they name, in the words "up to and including commit `<the
+commit's whole name>`", so that work landing while they wait in review cannot
+make them wrong, and the tag is cut at that commit, which the notes landed
+after. The harness's cut reads the commit from the notes on `main` and refuses
+notes that name none, or one `main` does not hold
+([cutting a decided release](../operations.md#cutting-a-decided-release)).
+The release workflow finds no notes in the tagged commit's tree, so it reads
+them from `main` and publishes them as the page's text, taking them only where
+they name the tagged commit. To see the body a page will carry, from a
+checkout that has fetched `main`:
 
 ```sh
 bash scripts/release-body.sh v0.7.0 body.md      # these notes, install instructions under them
+```
+
+GitHub runs a tag's workflow and scripts as they are at the tagged commit. A
+release tagged at a commit from before the workflow read notes from `main`
+publishes the install instructions alone, and the harness cannot write the
+text of a forge release. For such a tag, whoever cuts it puts the notes on the
+page afterwards, from a checkout of `main` that carries them:
+
+```sh
+bash scripts/release-body.sh v0.7.0 body.md
 gh release edit v0.7.0 --notes-file body.md
 ```
+
+`v0.7.0`'s notes name a commit from before the release workflow began reading
+notes from `main`, so a tag at that commit needs the manual step above. Naming
+a later commit in the notes, one that has that workflow, makes the step
+unnecessary; which commit v0.7.0 names is for its own release item to decide.
 
 ## The shape
 
@@ -128,7 +146,7 @@ at the end of the file. It is what
 found when the cut ran ahead of the tag — the artifacts, the references, the
 links, the invariants, the goal every admitted item serves, and what a change
 upstream left unanswered downstream — so a published release says what was
-true of the tree it names rather than only that its tests passed.
+true when the notes were stamped, rather than only that its tests passed.
 
 For a release the Lead Product Manager decided, the release item's reviewed run
 writes it: it puts the section `yoyo conformance --notes --from-export` prints
@@ -152,10 +170,12 @@ in the sections above.
 [Cutting a release](../developing-yoyo.md#cutting-a-release) gates on this file
 being present: `make release VERSION=<tag>` with no notes for `<tag>` drafts
 them and refuses, so the judgement happens before the tag rather than after the
-release page is published. The notes commit has to reach `origin/main` before
-the cut will go through, because the cut refuses a `HEAD` the remote does not
-have; and then the readiness result has to reach it too, through the pull
-request the cut opens, before the cut tags.
+release page is published. For a cut a person makes, the notes commit has to
+reach `origin/main` before the cut will go through, because the cut refuses a
+`HEAD` the remote does not have; and then the readiness result has to reach it
+too, through the pull request the cut opens, before the cut tags. The
+harness's own cut works the other way round: it reads the notes from `main`,
+where they may have landed after the commit they name, and tags that commit.
 
 The notes and their stamp on `main` are the preparation, not the release. A
 release is its tag on origin. When the harness cuts one, the tag's push is

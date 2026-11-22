@@ -69,9 +69,17 @@ jobs:
       # workflow first executes against a real published release; that one is
       # exercised by scripts/release-notes-test.sh on every change, including
       # what it does for a tag whose notes file does not exist.
+      #
+      # A release is tagged at the commit its notes name and the notes land on
+      # the default branch afterwards, so the tagged tree usually has none.
+      # The script then reads them from the default branch, fetched here, and
+      # takes them only where they name the tagged commit.
       - name: Assemble the release notes
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          bash scripts/release-body.sh "$TAG" "$RUNNER_TEMP/release-body.md"
+          git fetch --quiet --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          RELEASE_NOTES_FROM="origin/$DEFAULT_BRANCH" bash scripts/release-body.sh "$TAG" "$RUNNER_TEMP/release-body.md"
           echo "NOTES_FILE=$RUNNER_TEMP/release-body.md" >> "$GITHUB_ENV"
 
       # The body is the composed notes file and nothing else. The forge is never

@@ -101,14 +101,19 @@ type fixture struct {
 	repository string
 	origin     string
 	mode       string
-	tracker    *fakeTracker
-	reports    *fakeReports
-	cuts       *runstate.ReleaseCutStore
-	runner     *countingRunner
-	now        time.Time
+	// named is the commit the notes name: the first commit, which the notes
+	// landed after.
+	named   string
+	tracker *fakeTracker
+	reports *fakeReports
+	cuts    *runstate.ReleaseCutStore
+	runner  *countingRunner
+	now     time.Time
 }
 
 const stamped = `# v0.6.0
+
+Everything up to and including commit ` + "`NAMED`" + `.
 
 ## Key functionality
 
@@ -136,10 +141,11 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// newFixture builds a repository whose main is on a bare origin, with notes
-// for v0.6.0 committed and a stub gate script whose answer the test sets: the
-// real scripts/cut-release.sh is its own suite's claim, and what is claimed
-// here is what the harness does with each way it can end.
+// newFixture builds a repository whose main is on a bare origin, with a stub
+// gate script whose answer the test sets: the real scripts/cut-release.sh is
+// its own suite's claim, and what is claimed here is what the harness does
+// with each way it can end. With notes, a second commit lands notes for v0.6.0
+// naming the first, as a release's notes land after the commit they name.
 func newFixture(t *testing.T, notes bool) *fixture {
 	t.Helper()
 	base := t.TempDir()
@@ -166,22 +172,19 @@ case "$mode" in
   preparation) echo "cut-release: docs/releases/$1.md does not carry a readiness result matching this reading" >&2; exit 3 ;;
   red) echo "cut-release: make check is red, so $1 was not cut and nothing was written" >&2; exit 1 ;;
 esac
+grep -q "up to and including commit" "$YOYODYNE_RELEASE_NOTES" || { echo "cut-release: the harness handed over no notes from main" >&2; exit 9; }
 echo "=== gates green"
 echo "checked commit: $(git -C "$(dirname "$0")/.." rev-parse HEAD)"
 `
 	if err := os.WriteFile(filepath.Join(f.repository, "scripts", "cut-release.sh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if notes {
-		if err := os.MkdirAll(filepath.Join(f.repository, "docs", "releases"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(f.repository, "docs", "releases", "v0.6.0.md"), []byte(stamped), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 	git(t, f.repository, "add", "-A")
 	git(t, f.repository, "commit", "-qm", "the commit a release would name")
+	f.named = f.head(t)
+	if notes {
+		f.landNotes(t, strings.ReplaceAll(stamped, "NAMED", f.named))
+	}
 	git(t, f.repository, "remote", "add", "origin", f.origin)
 	git(t, f.repository, "push", "-q", "origin", "main")
 
@@ -212,6 +215,26 @@ func (f *fixture) gate(t *testing.T, mode string) {
 }
 
 func (f *fixture) head(t *testing.T) string { return git(t, f.repository, "rev-parse", "HEAD") }
+
+// landNotes commits the release's notes on main, after whatever they name.
+func (f *fixture) landNotes(t *testing.T, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(f.repository, "docs", "releases"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repository, "docs", "releases", "v0.6.0.md"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, f.repository, "add", "-A")
+	git(t, f.repository, "commit", "-qm", "the notes land after the commit they name")
+}
+
+// renameNotes lands notes naming commit on origin's main.
+func (f *fixture) renameNotes(t *testing.T, commit string) {
+	t.Helper()
+	f.landNotes(t, strings.ReplaceAll(stamped, "NAMED", commit))
+	git(t, f.repository, "push", "-q", "origin", "main")
+}
 
 func (f *fixture) originTag(t *testing.T) string {
 	t.Helper()
@@ -267,7 +290,10 @@ func TestTheOperatorsPauseStopsTheCut(t *testing.T) {
 func TestADecidedReleaseIsCutPushedAndRecorded(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
-	commit := f.head(t)
+	commit, main := f.named, f.head(t)
+	if commit == main {
+		t.Fatalf("the fixture's notes name main's tip, so nothing here tells the named commit from it")
+	}
 
 	step := f.cutter.Pass(context.Background())
 	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "pushed v0.6.0") {
@@ -281,7 +307,7 @@ func TestADecidedReleaseIsCutPushedAndRecorded(t *testing.T) {
 		t.Errorf("tagger = %q, want the harness's identity", tagger)
 	}
 	records := f.records(t)
-	if len(records) != 1 || records[0].State != runstate.ReleaseCutPushed || records[0].Commit != commit ||
+	if len(records) != 1 || records[0].State != runstate.ReleaseCutPushed || records[0].Commit != commit || records[0].MainCommit != main ||
 		records[0].ReadinessVerdict != "ready" || records[0].ReadinessDefinition != "release-readiness@abc123" ||
 		records[0].NotesDigest == "" || len(records[0].Gates) != len(gates) || !records[0].Noted || !records[0].Reported {
 		t.Fatalf("records = %+v, want one pushed cut carrying its intent", records)
@@ -400,18 +426,19 @@ func TestARedGateWritesNoTagAndWaitsForMainToMove(t *testing.T) {
 	f.moveMain(t)
 	f.gate(t, "green")
 	cut := f.cutter.Pass(context.Background())
-	if cut.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+f.head(t) {
-		t.Errorf("after main moved = %+v, want it cut on the new commit", cut)
+	if cut.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+f.named {
+		t.Errorf("after main moved = %+v, want it cut on the commit the notes name", cut)
 	}
 }
 
 // intent records a cut whose gates passed, as an interrupted pass leaves it.
 func (f *fixture) intent(t *testing.T, commit string) runstate.ReleaseCut {
 	t.Helper()
-	digest := git(t, f.repository, "rev-parse", commit+":docs/releases/v0.6.0.md")
+	main := f.head(t)
+	digest := git(t, f.repository, "rev-parse", main+":docs/releases/v0.6.0.md")
 	recorded := runstate.ReleaseCut{
 		SchemaVersion: runstate.ReleaseCutSchemaVersion, ProductID: "calc", Version: "v0.6.0",
-		WorkItemID: "calc-fvn", Commit: commit, State: runstate.ReleaseCutIntent,
+		WorkItemID: "calc-fvn", Commit: commit, MainCommit: main, State: runstate.ReleaseCutIntent,
 		ReadinessVerdict: "ready", ReadinessDefinition: "release-readiness@abc123", NotesDigest: digest,
 		Gates: gates, CutBy: "an earlier pass", RecordedAt: f.now, UpdatedAt: f.now,
 	}
@@ -425,7 +452,7 @@ func (f *fixture) intent(t *testing.T, commit string) runstate.ReleaseCut {
 func TestALocalTagNotOnOriginIsPushed(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
-	commit := f.head(t)
+	commit := f.named
 	f.intent(t, commit)
 	git(t, f.repository, "tag", "-a", "v0.6.0", "-m", "v0.6.0", commit)
 	step := f.cutter.Pass(context.Background())
@@ -442,7 +469,7 @@ func TestALocalTagNotOnOriginIsPushed(t *testing.T) {
 func TestAMatchingTagOnOriginIsAdopted(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
-	commit := f.head(t)
+	commit := f.named
 	f.intent(t, commit)
 	git(t, f.repository, "tag", "-a", "v0.6.0", "-m", "v0.6.0", commit)
 	git(t, f.repository, "push", "-q", "origin", "refs/tags/v0.6.0")
@@ -461,7 +488,7 @@ func TestAMatchingTagOnOriginIsAdopted(t *testing.T) {
 func TestAConflictingTagHoldsTheCutAndMovesNothing(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
-	commit := f.head(t)
+	commit := f.named
 	f.intent(t, commit)
 	f.moveMain(t)
 	other := f.head(t)
@@ -486,23 +513,117 @@ func TestAConflictingTagHoldsTheCutAndMovesNothing(t *testing.T) {
 	}
 }
 
-// No tag anywhere and main moved: the gates describe nothing that would be
-// tagged, so the intent is stale and the next cut runs them again.
-func TestAnIntentWithNoTagGoesStaleOnceMainMoves(t *testing.T) {
+// No tag anywhere and the notes on main now name another commit: the gates
+// describe nothing that would be tagged, so the intent is stale and the next
+// cut runs them again on the commit the notes name now.
+func TestAnIntentWithNoTagGoesStaleOnceTheNotesNameAnotherCommit(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
-	f.intent(t, f.head(t))
+	f.intent(t, f.named)
 	f.moveMain(t)
+	renamed := f.head(t)
+	f.renameNotes(t, renamed)
 	step := f.cutter.Pass(context.Background())
-	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "cuts it afresh") {
-		t.Fatalf("step = %+v, want the intent stale", step)
+	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "cuts it afresh") || !strings.Contains(step.Detail, "now names") {
+		t.Fatalf("step = %+v, want the intent stale on the renamed commit", step)
 	}
 	if f.originTag(t) != "" || len(f.reports.all()) != 0 {
 		t.Errorf("a stale intent tagged or reported")
 	}
 	next := f.cutter.Pass(context.Background())
-	if next.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+f.head(t) || f.runner.gateRuns() != 1 {
-		t.Errorf("next pass = %+v, want a fresh cut with the gates run on the new commit", next)
+	if next.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+renamed || f.runner.gateRuns() != 1 {
+		t.Errorf("next pass = %+v, want a fresh cut with the gates run on the commit the notes name now", next)
+	}
+}
+
+// No tag anywhere and main moved on with the notes still naming the intent's
+// commit: the gates still describe what would be tagged, so it is tagged
+// without running them again.
+func TestAnIntentWithNoTagIsTriedAgainAfterMainMovesWhileTheNotesStillNameIt(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	f.intent(t, f.named)
+	f.moveMain(t)
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+f.named || f.runner.gateRuns() != 0 {
+		t.Fatalf("step = %+v, origin %q, want the same intent tagged without the gates", step, f.originTag(t))
+	}
+}
+
+// Notes that name no commit say nothing about where to tag: the release goes
+// back to the Lead Product Manager with that said plainly, and no gate runs.
+func TestNotesNamingNoCommitAreHandedBack(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, false)
+	f.landNotes(t, strings.ReplaceAll(stamped, "Everything up to and including commit `NAMED`.\n", ""))
+	git(t, f.repository, "push", "-q", "origin", "main")
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "name no commit for the tag") ||
+		!strings.Contains(step.Detail, "up to and including commit") {
+		t.Fatalf("step = %+v, want the notes refused for naming no commit, saying how to name one", step)
+	}
+	if f.runner.gateRuns() != 0 || f.originTag(t) != "" || git(t, f.repository, "tag", "--list") != "" {
+		t.Errorf("notes naming no commit ran the gates or wrote a tag")
+	}
+	if records := f.records(t); len(records) != 1 || records[0].State != runstate.ReleaseCutRefused || !records[0].Preparation {
+		t.Errorf("records = %+v, want one refusal over preparation", records)
+	}
+	if filed := f.reports.all(); len(filed) != 1 || !strings.Contains(filed[0].Message, "name no commit") {
+		t.Errorf("reports = %+v, want the release handed back once, saying why", filed)
+	}
+}
+
+// Notes that name a commit origin's main does not hold would tag work the
+// product does not have, whether the commit is somewhere else here or nowhere.
+func TestNotesNamingACommitNotOnMainAreHandedBack(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		commit func(t *testing.T, f *fixture) string
+	}{
+		{"a commit on another branch", func(t *testing.T, f *fixture) string {
+			git(t, f.repository, "checkout", "-q", "-b", "elsewhere")
+			git(t, f.repository, "commit", "-q", "--allow-empty", "-m", "work main never took")
+			commit := f.head(t)
+			git(t, f.repository, "checkout", "-q", "main")
+			return commit
+		}},
+		{"a commit nobody has", func(*testing.T, *fixture) string { return strings.Repeat("ab", 20) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, false)
+			commit := test.commit(t, f)
+			f.renameNotes(t, commit)
+			step := f.cutter.Pass(context.Background())
+			if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "names commit "+commit[:12]+", which is not on origin/main") {
+				t.Fatalf("step = %+v, want the notes refused for naming a commit main does not hold", step)
+			}
+			if f.runner.gateRuns() != 0 || f.originTag(t) != "" || git(t, f.repository, "tag", "--list") != "" {
+				t.Errorf("notes naming a commit off main ran the gates or wrote a tag")
+			}
+			if filed := f.reports.all(); len(filed) != 1 || !strings.Contains(filed[0].Message, "which is not on origin/main") {
+				t.Errorf("reports = %+v, want the release handed back once, saying why", filed)
+			}
+		})
+	}
+}
+
+func TestNamedCommitReadsTheOneCommitTheNotesName(t *testing.T) {
+	t.Parallel()
+	whole := strings.Repeat("0123456789", 4)
+	if got, err := NamedCommit("covering everything up to and including commit `" + whole + "`, of today"); err != nil || got != whole {
+		t.Errorf("NamedCommit = %q, %v, want %s", got, err, whole)
+	}
+	twice := "up to and including commit `" + whole + "` ... again up to and including commit `" + whole + "`"
+	if got, err := NamedCommit(twice); err != nil || got != whole {
+		t.Errorf("the same commit named twice = %q, %v, want it read", got, err)
+	}
+	if _, err := NamedCommit("up to and including commit `" + whole + "` or up to and including commit `" + strings.Repeat("f", 40) + "`"); err == nil {
+		t.Errorf("notes naming two commits were read as naming one")
+	}
+	if _, err := NamedCommit("up to and including commit `abb18900`"); err == nil {
+		t.Errorf("an abbreviated commit name was read as the commit to tag")
 	}
 }
 
@@ -510,7 +631,7 @@ func TestAnIntentWithNoTagGoesStaleOnceMainMoves(t *testing.T) {
 func TestAnIntentWithNoTagIsTriedAgainWhileMainHolds(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
-	commit := f.head(t)
+	commit := f.named
 	f.intent(t, commit)
 	step := f.cutter.Pass(context.Background())
 	if step.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+commit || f.runner.gateRuns() != 0 {
@@ -523,7 +644,7 @@ func TestAnIntentWithNoTagIsTriedAgainWhileMainHolds(t *testing.T) {
 func TestAnUnreadableOriginIsCountedAndTheThirdPassHoldsTheCut(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
-	f.intent(t, f.head(t))
+	f.intent(t, f.named)
 	git(t, f.repository, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
 	for turn := 1; turn < MaxUnconfirmedTurns; turn++ {
 		step := f.cutter.Pass(context.Background())
