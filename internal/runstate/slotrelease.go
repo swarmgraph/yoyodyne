@@ -33,6 +33,32 @@ import (
 // long that nothing is behind it.
 const UncertainWorkerQuiet = 30 * time.Minute
 
+// UnheldRunQuiet is how long a run whose worker's program is still running,
+// with nothing holding the run's lease, has to have gone unwritten before its
+// slot is let go. The lease is what says whether anything works on a run: the
+// pipeline holds it for the whole of a run it is executing, so a live program
+// holding no lease is either between one step and the next — a continuation
+// that has given the lease up and not yet been adopted by the pipeline — or
+// done with the run without writing its ending, as a continuation refused after
+// it made the run live is. The second lasts until somebody restarts the
+// program, which is what held every developer slot while ready work waited.
+// The bound only has to outlast the first, whose length is a few tracker
+// reads: one is allowed beads.DefaultTimeout, two minutes, before it is
+// stopped, so ten minutes outlasts several reads that each run to that limit
+// (TestUnheldRunQuietOutlastsSlowTrackerReads). A run whose last write is a
+// refusal does not wait for it (refusedLast).
+//
+// A release that does land inside such a gap costs nothing it should not: the
+// pipeline takes the run up as a new worker attempt, which holds a slot again
+// under the reservation's own count (TestAReleasedRunTakenUpAgainHoldsASlot).
+const UnheldRunQuiet = 10 * time.Minute
+
+// refusalWriteSlack is how much later than a refusal the run may last have
+// been written for the refusal still to count as the last thing that happened
+// to it: the save that carries the refusal, and the event that says so, land a
+// moment after the refusal is stamped.
+const refusalWriteSlack = time.Minute
+
 // SlotRelease is the harness letting go of the developer slot of a run with no
 // live worker behind it.
 type SlotRelease struct {
@@ -49,6 +75,11 @@ type SlotRelease struct {
 	// OpenAttempts is the provider attempts that could not be shown stopped and
 	// were left as they are, with why.
 	OpenAttempts []string `json:"open_attempts,omitempty"`
+	// Refusal is the cause of the refusal the slot was given back for, where the
+	// last thing written on the run was the harness refusing to go on with it —
+	// the main checkout not being the harness's to work from, for one — and
+	// empty where the slot was given back only because nothing works on the run.
+	Refusal EnvironmentalCause `json:"refusal,omitempty"`
 	// Says is what was released and why, in a sentence a person reads.
 	Says string `json:"says"`
 }
@@ -84,11 +115,13 @@ type ReleasedSlot struct {
 // ReleaseSlotsWithNoLiveWorker lets go of the developer slot of every run in
 // flight that counts against the slots with no live worker behind it, and
 // returns what it released. A run is released when its worker's process is
-// shown to be gone (WorkerReading.ProcessGone), or when its worker can be shown
-// neither alive nor gone and nothing has held or written the run for
-// UncertainWorkerQuiet (Presence). A run whose worker is alive, or may be, is
-// left alone, and so is one its session stopped for a redeploy, whose slot is
-// kept for the session that comes back for it.
+// shown to be gone (WorkerReading.ProcessGone); when that process is still
+// running the program that took the run but nothing holds the run's lease, and
+// nothing has written the run for UnheldRunQuiet; or when its worker can be
+// shown neither alive nor gone and nothing has held or written the run for
+// UncertainWorkerQuiet (Presence). A run whose worker holds its lease, or may,
+// is left alone, and so is one its session stopped for a redeploy, whose slot
+// is kept for the session that comes back for it.
 //
 // Each release is made under the run's lease, so a run some process holds is
 // never touched: a lease that cannot be taken is a live holder, and the run is
@@ -110,7 +143,7 @@ func (s *Store) ReleaseSlotsWithNoLiveWorker(ctx context.Context, now time.Time)
 	var released []ReleasedSlot
 	var problems []error
 	for _, state := range active {
-		if why, ok := s.noLiveWorker(state, now); !ok || why == "" {
+		if why, ok := s.noLiveWorker(state, now); !ok || why.says == "" {
 			continue
 		}
 		release, done, err := s.releaseSlot(ctx, state.RunID, now)
@@ -125,24 +158,94 @@ func (s *Store) ReleaseSlotsWithNoLiveWorker(ctx context.Context, now time.Time)
 	return released, errors.Join(problems...)
 }
 
+// releaseWhy is why a run's slot is given back: in words, and the refusal it
+// is given back for where there is one.
+type releaseWhy struct {
+	says    string
+	refusal *EnvironmentalRefusal
+}
+
 // noLiveWorker says why a run counts against the developer slots with no live
 // worker behind it, and reports false for every other run.
-func (s *Store) noLiveWorker(state State, now time.Time) (string, bool) {
+//
+// A run nothing holds whose last write is a refusal (refusedLast) is given
+// back at once and for that refusal, whether or not the program that took it is
+// still running: the refusal is the run's own record that nothing went on with
+// it, so there is no step to wait out.
+func (s *Store) noLiveWorker(state State, now time.Time) (releaseWhy, bool) {
 	if !state.HoldsDeveloperSlot() || state.RedeployStop != nil || state.SlotRelease.releasesWorker(state.Worker) {
-		return "", false
+		return releaseWhy{}, false
 	}
 	reading := s.Worker(state, now)
+	if reading.Liveness == WorkerAbsent {
+		if refusal, ok := s.refusedLast(state); ok {
+			return releaseWhy{says: refusalSays(*refusal), refusal: refusal}, true
+		}
+	}
 	if reading.ProcessGone() {
-		return reading.Says, true
+		return releaseWhy{says: reading.Says}, true
+	}
+	if reading.Liveness == WorkerAbsent {
+		// The program that took the run is still running and nothing holds the
+		// run's lease (UnheldRunQuiet): the lease decides, not the program.
+		presence, err := s.presence(state, UnheldRunQuiet, now, false)
+		if err != nil || presence.Found {
+			return releaseWhy{}, false
+		}
+		return releaseWhy{says: fmt.Sprintf("%s, and nothing has been written to the run since %s", reading.Says, presence.LastMoved.Local().Format(personTime))}, true
 	}
 	if reading.Liveness != WorkerUncertain {
-		return "", false
+		return releaseWhy{}, false
 	}
 	presence, err := s.presence(state, UncertainWorkerQuiet, now, false)
 	if err != nil || presence.Found {
-		return "", false
+		return releaseWhy{}, false
 	}
-	return fmt.Sprintf("whether its worker is alive cannot be shown (%s), and %s", reading.Says, presence.Says), true
+	return releaseWhy{says: fmt.Sprintf("whether its worker is alive cannot be shown (%s), and %s", reading.Says, presence.Says)}, true
+}
+
+// LastWriteRefusal reports the refusal on a run in flight where it is the
+// last thing written on the run's record: the harness turned the run away from
+// outside the work — the main checkout carrying files the harness does not own
+// is the common one — and settled it as refused, and nothing has written the
+// record since. A continuation refused that way after it made its run live
+// leaves exactly this, still counted against the slots. A refusal some later
+// write has overtaken is an earlier round's, and is not read as this one's.
+// The vanished-process account is never one: it is the reconciling sweep's,
+// written as the run is ended.
+func (s State) LastWriteRefusal() (*EnvironmentalRefusal, bool) {
+	refusal := s.Environmental
+	if !s.Status.InFlight() || refusal == nil || !refusal.Refused || !refusal.Settled || !refusal.Cause.Valid() ||
+		refusal.Cause == CauseProcessVanished || refusal.RecordedAt.IsZero() {
+		return nil, false
+	}
+	if s.UpdatedAt.After(refusal.RecordedAt.Add(refusalWriteSlack)) {
+		return nil, false
+	}
+	return refusal, true
+}
+
+// refusedLast is LastWriteRefusal with the run's event log asked as well, so
+// an event written after the refusal overtakes it too.
+func (s *Store) refusedLast(state State) (*EnvironmentalRefusal, bool) {
+	refusal, ok := state.LastWriteRefusal()
+	if !ok {
+		return nil, false
+	}
+	moved, err := s.lastMoved(state)
+	if err != nil || moved.After(refusal.RecordedAt.Add(refusalWriteSlack)) {
+		return nil, false
+	}
+	return refusal, true
+}
+
+// refusalSays is the refusal a slot is given back for, in words.
+func refusalSays(refusal EnvironmentalRefusal) string {
+	says := fmt.Sprintf("the harness refused to go on with the run at %s (%s)", refusal.RecordedAt.Local().Format(personTime), refusal.Cause.Title())
+	if detail := strings.TrimSpace(refusal.Detail); detail != "" {
+		says += ": " + strings.TrimSuffix(detail, ".")
+	}
+	return says + ", and nothing has held the run's lease or written to it since"
 }
 
 // releaseSlot is one release, under the run's lease.
@@ -163,6 +266,9 @@ func (s *Store) releaseSlot(ctx context.Context, runID string, now time.Time) (S
 		return SlotRelease{}, false, nil
 	}
 	release := SlotRelease{At: now.UTC(), Slot: state.RecordedSlot()}
+	if why.refusal != nil {
+		release.Refusal = why.refusal.Cause
+	}
 	if state.Worker != nil {
 		release.WorkerAttempt = state.Worker.Attempt
 	}
@@ -193,7 +299,7 @@ func (s *Store) releaseSlot(ctx context.Context, runID string, now time.Time) (S
 	}
 	sort.Strings(release.EndedAttempts)
 	sort.Strings(release.OpenAttempts)
-	release.Says = release.sentence(why)
+	release.Says = release.sentence(why.says)
 	state.SlotRelease = &release
 	if err := s.Save(state); err != nil {
 		return SlotRelease{}, false, err
@@ -221,6 +327,9 @@ func (r SlotRelease) sentence(why string) string {
 		slot = fmt.Sprintf("developer slot %d", r.Slot)
 	}
 	says := fmt.Sprintf("The harness freed %s at %s because no live worker is behind the run: %s.", slot, r.At.Local().Format(personTime), why)
+	if r.Refusal != "" {
+		says = fmt.Sprintf("The harness freed %s at %s because the run was refused, not because its process vanished: %s.", slot, r.At.Local().Format(personTime), why)
+	}
 	if len(r.EndedAttempts) > 0 {
 		says += fmt.Sprintf(" It ended provider attempt %s as interrupted, since its process had stopped.", strings.Join(r.EndedAttempts, ", "))
 	}

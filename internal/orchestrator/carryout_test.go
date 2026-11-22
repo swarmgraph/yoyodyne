@@ -1102,7 +1102,13 @@ func TestSchedulingRecoversRepairSuccessNotesWithoutAnotherDispatch(t *testing.T
 				}
 				calls := append([]string(nil), items.Calls...)
 				pass()
-				if !reflect.DeepEqual(harness.reload(t), after) || !reflect.DeepEqual(items.Calls, calls) {
+				// A run left in flight with nothing holding its lease has its
+				// developer slot given back by a pass (runstate.UnheldRunQuiet),
+				// which is written on the run and is not a note delivery, so it is
+				// left out of what must not change.
+				later := harness.reload(t)
+				later.SlotRelease, after.SlotRelease = nil, nil
+				if !reflect.DeepEqual(later, after) || !reflect.DeepEqual(items.Calls, calls) {
 					t.Fatal("a later pass repeated confirmed note delivery")
 				}
 			})

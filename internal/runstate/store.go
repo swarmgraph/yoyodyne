@@ -469,7 +469,8 @@ func HoldingDeveloperSlots(states []State) int {
 // the operating system could not make would otherwise let the harness start
 // more runs than its configured limit; so is one still running the program
 // that took the run with nothing holding its lease, which is the moment
-// between one step and the next. A run its session stopped for a redeploy is
+// between one step and the next; one that stays that way past UnheldRunQuiet
+// is let go by the slot release at the next pull. A run its session stopped for a redeploy is
 // counted too: its worker is the program that was replaced, and the slot is
 // kept for the session that comes back and picks it up.
 //

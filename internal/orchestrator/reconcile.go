@@ -2073,6 +2073,9 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 // something is preserved that a person has to replan, reuse, or retire.
 func (r Reconciler) abandon(ctx context.Context, state runstate.State, observation gitworktree.Observation) (Reconciliation, error) {
 	reason := fmt.Sprintf("the run was interrupted in the %s phase with nothing integrated, and no attempt of the harness can finish it", nonEmpty(string(state.Phase), "unrecorded"))
+	if refusal, refused := state.LastWriteRefusal(); refused {
+		reason = refusedReason(*refusal)
+	}
 	return r.abandonFor(ctx, state, observation, reason)
 }
 
@@ -2180,8 +2183,15 @@ func (r Reconciler) settleVanished(ctx context.Context, state runstate.State, pa
 		}
 	}
 	now := r.clock().Now().UTC()
-	state.Environmental = vanishedRefusal(&state, observation, park, now)
+	// A run whose last write was a refusal keeps it as the account of why it
+	// stopped (runstate.State.LastWriteRefusal): it was refused, and nothing
+	// vanished.
 	reason := vanishedReason(state, park, r.vanishedGrace())
+	if refusal, refused := state.LastWriteRefusal(); refused {
+		reason = refusedReason(*refusal)
+	} else {
+		state.Environmental = vanishedRefusal(&state, observation, park, now)
+	}
 	// A park is an instruction to continue later, and the record refuses to
 	// carry one on a terminal run: what it said is kept in the refusal's detail
 	// and in the reason, which is where a reader of the settled run finds it.
@@ -2248,6 +2258,20 @@ func vanishedReason(state runstate.State, park recordedPark, grace time.Duration
 	return fmt.Sprintf(
 		"the run was recorded as running in the %s phase with no live process behind it: at %s %s, no ending was ever recorded, and nothing continued the run within %s of that, so the harness ended the run. The cause was outside the work, so nothing about the change was judged, and the change was kept: the branch and worktree are left exactly as the run left them",
 		nonEmpty(string(state.Phase), "unrecorded"), park.since.UTC().Format(time.RFC3339), park.says, grace)
+}
+
+// refusedReason is the sweep's account of ending a run whose last write was
+// the harness refusing to go on with it (runstate.State.LastWriteRefusal),
+// such as a continuation the main checkout turned away after it made the run
+// live. It names the refusal, because that is what stopped the run; saying its
+// process vanished would send whoever reads it looking for a crash.
+func refusedReason(refusal runstate.EnvironmentalRefusal) string {
+	says := fmt.Sprintf("the harness refused to go on with the run at %s because %s",
+		refusal.RecordedAt.Local().Format("2006-01-02 15:04:05 MST"), refusal.Cause.Title())
+	if detail := strings.TrimSpace(refusal.Detail); detail != "" {
+		says += " (" + strings.TrimSuffix(detail, ".") + ")"
+	}
+	return says + ", and nothing took the run up again, so the harness ended it. The run was refused rather than lost: its process did not vanish. The cause was outside the work, so nothing about the change was judged, and the change was kept: the branch and worktree are left exactly as the run left them"
 }
 
 // honoursStop reports a run the sweep may end on a stop request: one in flight
@@ -2465,6 +2489,13 @@ func (r Reconciler) saveTerminalFailure(state runstate.State, reason string) (ru
 			if state.Environmental.ProviderStop != "" {
 				state.StopClass = runstate.ProviderStopClassAt(state.Environmental.ProviderStop, state.Phase)
 			}
+		}
+		// A run whose last write was the harness refusing it — a continuation
+		// the main checkout turned away after it made the run live — stopped on
+		// that refusal, and its process going away afterwards is not what
+		// stopped it, so the refusal is its cause.
+		if refusal, refused := state.LastWriteRefusal(); refused {
+			state.StopClass = refusal.Cause.StopClass()
 		}
 		state.Status = runstate.StatusFailed
 		state.SettledQuietSince = settledQuietSince(state, completedAt)
