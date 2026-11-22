@@ -338,6 +338,126 @@ func TestCheckOutputRemovesSecretsFromTheOutputAndTheTestNames(t *testing.T) {
 	}
 }
 
+// ghLogRunner answers the log read the way gh does: a gh that knows the
+// escape-sequence flag refuses to print a log carrying escape sequences
+// without it, and an older gh refuses the flag itself.
+type ghLogRunner struct {
+	log      string
+	knowFlag bool
+	commands [][]string
+}
+
+func (r *ghLogRunner) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
+	r.commands = append(r.commands, append([]string(nil), command.Args...))
+	if contains(command.Args, "get-url") {
+		return execution.ProcessResult{Status: succeeded, Stdout: ciRemote}, nil
+	}
+	flagged := contains(command.Args, "--allow-escape-sequences")
+	switch {
+	case flagged && !r.knowFlag:
+		return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "unknown flag: --allow-escape-sequences\n\nUsage:  gh api <endpoint> [flags]"}, nil
+	case !flagged && r.knowFlag && strings.Contains(r.log, "\x1b"):
+		return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "the response contains terminal escape sequences; pass --allow-escape-sequences to print them"}, nil
+	}
+	return execution.ProcessResult{Status: succeeded, Stdout: r.log}, nil
+}
+
+// colouredLog is a failing Go test job's log as GitHub keeps it, with the
+// colour codes and the other terminal sequences the runner printed.
+const colouredLog = "2026-11-19T15:11:00.0000000Z \x1b[36;1mmake test\x1b[0m\n" +
+	"2026-11-19T15:11:01.0000000Z \x1b]0;window title\x07=== RUN   TestWidget\n" +
+	"2026-11-19T15:11:02.0000000Z \x1b[31m--- FAIL\x1b[0m: \x1b[1mTestWidget\x1b[0m (0.01s)\n" +
+	"2026-11-19T15:11:02.0000000Z     widget_test.go:12: got 1, want 2\x1b[K\r\n" +
+	"2026-11-19T15:11:03.0000000Z \x1b[31mFAIL\x1b[0m\tgithub.com/acme/thing/widget\t0.2s\n" +
+	"2026-11-19T15:11:03.0000000Z ##[error]Process completed with exit code 1.\n"
+
+// A log carrying terminal colour codes is read, and the codes are gone from
+// everything returned: the failing test is named through them, and the end of
+// the output keeps its words without them.
+func TestCheckOutputReadsALogCarryingColourCodes(t *testing.T) {
+	t.Parallel()
+
+	runner := &ghLogRunner{log: colouredLog, knowFlag: true}
+	output, err := (GitHub{Runner: runner}).CheckOutput(context.Background(), RequiredCheck{Name: "test", ID: 42})
+	if err != nil {
+		t.Fatalf("CheckOutput() error = %v", err)
+	}
+	if strings.Join(output.FailingTests, ",") != "TestWidget" {
+		t.Errorf("failing tests = %v, want TestWidget", output.FailingTests)
+	}
+	if strings.ContainsAny(output.Tail, "\x1b\x07") {
+		t.Errorf("the end of the output still carries terminal sequences: %q", output.Tail)
+	}
+	for _, want := range []string{"--- FAIL: TestWidget (0.01s)", "widget_test.go:12: got 1, want 2", "=== RUN   TestWidget", "Process completed with exit code 1."} {
+		if !strings.Contains(output.Tail, want) {
+			t.Errorf("the end of the output lacks %q:\n%s", want, output.Tail)
+		}
+	}
+	reads := 0
+	for _, command := range runner.commands {
+		if contains(command, "api") {
+			reads++
+			if !contains(command, "--allow-escape-sequences") {
+				t.Errorf("the log was asked for without the escape-sequence flag: %v", command)
+			}
+		}
+	}
+	if reads != 1 {
+		t.Errorf("the log was read %d times, want once", reads)
+	}
+}
+
+// A gh older than the escape-sequence flag refuses the flag and never refuses
+// escape sequences, so the log is read again without it.
+func TestCheckOutputReadsTheLogWithAGhThatLacksTheFlag(t *testing.T) {
+	t.Parallel()
+
+	runner := &ghLogRunner{log: colouredLog}
+	output, err := (GitHub{Runner: runner}).CheckOutput(context.Background(), RequiredCheck{Name: "test", ID: 42})
+	if err != nil {
+		t.Fatalf("CheckOutput() error = %v", err)
+	}
+	if strings.Join(output.FailingTests, ",") != "TestWidget" || strings.Contains(output.Tail, "\x1b") {
+		t.Errorf("output = %#v", output)
+	}
+}
+
+// The other readers of a job's log — the failing step the merge queue and a red
+// target branch record, and the end of a job's log — read a coloured log the
+// same way and get it without terminal sequences.
+func TestEveryJobLogReaderReadsALogCarryingColourCodes(t *testing.T) {
+	t.Parallel()
+
+	tail, err := (GitHub{Runner: &ghLogRunner{log: colouredLog, knowFlag: true}}).JobLogTail(context.Background(), 42, 50)
+	if err != nil || strings.Contains(tail, "\x1b") || !strings.Contains(tail, "--- FAIL: TestWidget") {
+		t.Errorf("JobLogTail() = %q, %v, want the log read without terminal sequences", tail, err)
+	}
+	failure, err := (GitHub{Runner: &ghLogRunner{log: colouredLog, knowFlag: true}}).FailedStep(context.Background(), 42, 4096)
+	if err != nil || strings.Contains(failure.Output, "\x1b") || !strings.Contains(failure.Output, "--- FAIL: TestWidget") {
+		t.Errorf("FailedStep() = %#v, %v, want the log read without terminal sequences", failure, err)
+	}
+}
+
+func TestPlainLogRemovesWhatATerminalWouldActOn(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct{ log, want string }{
+		{"plain text\twith a tab\r\n", "plain text\twith a tab\r\n"},
+		{"\x1b[1;31mred\x1b[0m and \x1b[38;5;208morange\x1b[m", "red and orange"},
+		{"\x1b]0;title\x07after", "after"},
+		{"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\", "link"},
+		{"\x1bPdevice\x1b\\kept", "kept"},
+		{"\x1b(Bcharset \x1b=keypad", "charset keypad"},
+		{"\u009b31meight-bit\u009b0m", "eight-bit"},
+		{"bell\x07 backspace\x08 nul\x00", "bell backspace nul"},
+		{"naïve – unicode stays", "naïve – unicode stays"},
+	} {
+		if got := PlainLog(test.log); got != test.want {
+			t.Errorf("PlainLog(%q) = %q, want %q", test.log, got, test.want)
+		}
+	}
+}
+
 func TestCheckOutputOnALogItCannotReadIsAnError(t *testing.T) {
 	t.Parallel()
 

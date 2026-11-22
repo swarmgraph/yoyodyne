@@ -3050,6 +3050,10 @@ type CIWaitEnd struct {
 	// Commit they are the CI evidence CountsFor judges.
 	Checks         []CICheckEvidence `json:"checks,omitempty"`
 	WorkflowDigest string            `json:"workflow_digest,omitempty"`
+	// UnreadLogReported is true once the harness has reported that the log of
+	// a check that failed on the forge for Commit could not be read, so a later
+	// read of the same commit's logs does not report it again.
+	UnreadLogReported bool `json:"unread_log_reported,omitempty"`
 }
 
 // CICheckEvidence is one required check as the forge reported it: its name, how

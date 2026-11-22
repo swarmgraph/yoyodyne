@@ -226,11 +226,16 @@ continues nothing) and continues the run; `settleCIWait` then reads the forge fo
 without pushing, and either goes on to review, parks again, ends the wait
 and runs the full checks (`endCIWaitWithFullChecks`), or, for a required check
 that failed, reads its output and returns a `checkFailure` (`handBackCIFailure`)
-that the repair loop answers with one repair round like a local failure. After
-the fallback `lateCIResult` reads the forge again for the same commit — once
-the local checks pass, and from `checkCandidateWhole` before promotion —
-records any answer on `runstate.CIWaitLate`, and returns a forge failure as a
-`checkFailure`. A refused push ends in `blockOnRefusedPush`.
+that the repair loop answers with one repair round like a local failure. A log
+that cannot be read is handed back all the same, with why and where it is, and
+reported once for the commit (`readCIOutputs`,
+`runstate.CIWaitEnd.UnreadLogReported`) rather than sending the run to the full
+checks. After the fallback `lateCIResult` reads the forge again for the same
+commit — once the local checks pass, and from `checkCandidateWhole` before
+promotion — records any answer on `runstate.CIWaitLate`, and returns a forge
+failure as a `checkFailure` carrying the failing tests and the end of each
+failing check's log (`lateCIFailureSays`). A refused push ends in
+`blockOnRefusedPush`.
 
 ### Where does a run move from checks to review, and back to the developer?
 `repairLoop`. Each round: `holdForDirective`, `holdForDependency`, then
