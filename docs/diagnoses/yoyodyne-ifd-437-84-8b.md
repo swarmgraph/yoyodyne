@@ -1,6 +1,6 @@
 # yoyodyne-ifd.437.84: second reading of the design documents against the code, group 8: the machine and configuration
 
-A second, adversarial reading of the report `yoyodyne-ifd-437-84-designs-against-the-code-8-machine-and-configuration.md` beside this file. It re-read every finding there that differs or is not built against the code, tried to settle the unclear ones, checked a sample of the matches, and looked for what the first reading missed. **Where the two files disagree, this one stands.**
+A second, adversarial reading of the report `yoyodyne-ifd-437-84-8.md` beside this file. It re-read every finding there that differs or is not built against the code, tried to settle the unclear ones, checked a sample of the matches, and looked for what the first reading missed. **Where the two files disagree, this one stands.**
 
 - **Read on:** 2026-11-21, in the evening, between 18:33 and 18:43 PST, with main at `848d86190`. The code had moved since the first reading; each finding is judged against the code as it was at this reading.
 - **Read by:** a read-only reader on Opus 5.5 in the operator's assistant's session. It read code and ran nothing, tests included.

@@ -10,9 +10,36 @@
 - **A second reading on a stronger model corrected the first.** Of 186 findings re-read, 129 were confirmed, 47 needed a detail corrected and 10 were wrong. The hand check of 30 findings, of which 29 held, had made the first reading look more reliable than it was.
 - **This is evidence for the architect, not a ruling.** The documents are hers to change.
 
+## The files
+
+Short names, so the repository listing that every review reads stays within its bound.
+
+| File | What it holds |
+|---|---|
+| `yoyodyne-ifd-437-84-0.md` | this summary |
+| `yoyodyne-ifd-437-84-1.md` | group 1, core architecture: first reading |
+| `yoyodyne-ifd-437-84-1b.md` | group 1, core architecture: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-2.md` | group 2, run recovery and forward progress: first reading |
+| `yoyodyne-ifd-437-84-2b.md` | group 2, run recovery and forward progress: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-3.md` | group 3, integration and merging: first reading |
+| `yoyodyne-ifd-437-84-3b.md` | group 3, integration and merging: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-4.md` | group 4, checks and the run sandbox: first reading |
+| `yoyodyne-ifd-437-84-4b.md` | group 4, checks and the run sandbox: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-5.md` | group 5, roles and management: first reading |
+| `yoyodyne-ifd-437-84-5b.md` | group 5, roles and management: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-6.md` | group 6, execution, providers and cost: first reading |
+| `yoyodyne-ifd-437-84-6b.md` | group 6, execution, providers and cost: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-7.md` | group 7, what the operator sees: first reading |
+| `yoyodyne-ifd-437-84-7b.md` | group 7, what the operator sees: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-8.md` | group 8, the machine and configuration: first reading |
+| `yoyodyne-ifd-437-84-8b.md` | group 8, the machine and configuration: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-9.md` | group 9, tools and message intake: first reading |
+| `yoyodyne-ifd-437-84-9b.md` | group 9, tools and message intake: second reading, which stands where the two disagree |
+| `yoyodyne-ifd-437-84-rules.md` | the rules in the code that decide order and choice of work |
+
 ## The second reading
 
-Nine readers on Opus 5.5 re-read the nine reports in the evening of 2026-11-21, with main at `848d86190`. Each re-read every finding that differs or is not built, tried to settle the unclear ones, checked a sample of the matches, and looked for what the first reading missed. Their files sit beside the first reports, named `...-second-reading.md`. **Where a first report and its second reading disagree, the second reading stands.**
+Nine readers on Opus 5.5 re-read the nine reports in the evening of 2026-11-21, with main at `848d86190`. Each re-read every finding that differs or is not built, tried to settle the unclear ones, checked a sample of the matches, and looked for what the first reading missed. Their files sit beside the first reports, named with a `b` after the group number: the second reading of `yoyodyne-ifd-437-84-3.md` is `yoyodyne-ifd-437-84-3b.md`. **Where a first report and its second reading disagree, the second reading stands.**
 
 - **186 findings re-read:** 129 confirmed, 47 corrected in a detail, 10 wrong.
 - **About 50 of the 55 unclear claims were settled.**
@@ -33,7 +60,7 @@ The operator asked on 2026-11-21 for "a thorough review of all of the design doc
 - **Sample check.** Three findings from each of the ten reports were checked against the code by hand: 29 of 30 held. The doubtful one is named under "What to treat with care".
 - **Size of the work.** The ten readers used about 1.77 million tokens in all and took between three and eight minutes each.
 
-The ten full reports are the files beside this one in `docs/diagnoses/` whose names begin `yoyodyne-ifd-437-84-`: nine named `designs-against-the-code-<group>-...` and one named `ordering-rules-in-the-code`.
+The ten full reports are the files beside this one in `docs/diagnoses/`: `yoyodyne-ifd-437-84-1.md` to `yoyodyne-ifd-437-84-9.md`, one per group as listed under "The files" below, and `yoyodyne-ifd-437-84-rules.md`, the ordering rules.
 
 ## Verdict for each document
 
