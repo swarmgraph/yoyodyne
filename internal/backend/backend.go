@@ -161,7 +161,12 @@ type RunRequest struct {
 	// execution is registered before the provider can begin work. An adapter
 	// passes it to the command that runs the provider and to nothing else, such
 	// as a version check.
-	LaunchGate   *execution.LaunchGate
+	LaunchGate *execution.LaunchGate
+	// Recorder keeps what this invocation is sent before the provider starts.
+	// The harness names one for every developer and reviewer invocation, and an
+	// adapter that is handed one records through it and starts the provider only
+	// if that succeeded (RecordInvocation). Nil keeps nothing.
+	Recorder     InvocationRecorder
 	LastSequence uint64
 	RedactValues []string
 	EventSink    func(execution.Event) error

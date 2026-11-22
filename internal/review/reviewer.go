@@ -380,8 +380,13 @@ type Reviewer struct {
 	// it was launched under and reports what does not match (internal/tooluse).
 	// It only observes; nil reports nothing, which is for a test.
 	ToolUse spend.ToolUseObserver
-	Timeout time.Duration
-	Clock   execution.Clock
+	// Invocations keeps what each review of a run is sent before the provider
+	// starts, so it can be read back exactly; a review whose record cannot be
+	// written is not started. Nil keeps nothing, which is for a test. A branch
+	// review belongs to no run and is never kept.
+	Invocations backend.InvocationLog
+	Timeout     time.Duration
+	Clock       execution.Clock
 }
 
 // Review invokes the configured reviewer backend and decodes its final response
@@ -585,7 +590,13 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		AccountAlias:     request.AccountAlias,
 		AccountConfigDir: request.AccountConfigDir,
 		LaunchGate:       request.LaunchGate,
+		Recorder:         r.invocationRecorder(request),
 	})
+	if err != nil && backend.IsInvocationNotRecorded(err) {
+		// The review was never started, so there is no resume that failed to ask
+		// again: the run stops on the harness's own store, and no repair is spent.
+		return Result{RequestedModel: r.Model, LastSequence: lastSequence}, runstate.StopError{Class: runstate.StopRecording, Cause: err}
+	}
 	if err != nil {
 		err = fmt.Errorf("reviewer backend failed: %w", err)
 		// A resume that failed is said as one, so the caller can ask again in a

@@ -209,15 +209,20 @@ func repositoryContext(directory string) (settings, plugins, instructions []back
 	return settings, plugins, instructions
 }
 
-// appendNamed is the system prompt with what the project named added after it,
-// so it reads as part of the role's standing instructions rather than the task.
-func appendNamed(systemPrompt, named string) string {
+// appendNamedPart adds a part after the system prompt, so what the project named
+// reads as part of the role's standing instructions rather than the task. A part
+// that is blank adds nothing, a prompt that was blank is replaced by it, and
+// otherwise the separator goes at the end of the part it follows.
+func appendNamedPart(parts []backend.SentPart, next backend.SentPart) []backend.SentPart {
+	joined := backend.SentMessage{Parts: parts}.Text()
 	switch {
-	case strings.TrimSpace(named) == "":
-		return systemPrompt
-	case strings.TrimSpace(systemPrompt) == "":
-		return named
+	case strings.TrimSpace(next.Text) == "":
+		return parts
+	case strings.TrimSpace(joined) == "":
+		return []backend.SentPart{next}
 	default:
-		return systemPrompt + "\n\n" + named
+		parts = append([]backend.SentPart(nil), parts...)
+		parts[len(parts)-1].Text += "\n\n"
+		return append(parts, next)
 	}
 }
