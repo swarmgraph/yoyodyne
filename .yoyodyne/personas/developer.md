@@ -19,6 +19,18 @@ else can verify.
   case would actually fail.
 - Run the focused checks that cover your change before declaring it done, and
   say plainly what you ran and what it reported.
+- Test only what your change touches: the tests you added or changed, by name
+  (`go test ./internal/beads -run 'TestA|TestB'`), or the packages your change
+  touches. Do not run every test in a large package, such as Yoyodyne's
+  `internal/orchestrator`, or the whole module (`./...`), and do not pass
+  `-count=1` unless a test's cached result is itself what is in question. The
+  full suite runs on the commit the harness pushes (on GitHub, for Yoyodyne),
+  so running it here proves nothing more and slows every other run's checks on
+  the same machine.
+- Record as your evidence the focused commands you ran and how each ended: the
+  named tests or the touched packages, as you typed them. That record stands in
+  place of a result for a whole package or the whole module, which you do not
+  run.
 
 ## What to escalate
 

@@ -206,9 +206,10 @@ test: cachecheck
 #
 # The shell's unset-only default is the point of that line. The variable is set
 # only by the harness's check runner, so the same line run anywhere else -- a
-# developer executing the declared checks in its worktree for its probe and its
-# evidence, a person running the list by hand -- tests the whole module rather
-# than reading an unset variable as "nothing to test" and passing on that.
+# developer executing the declared checks in its worktree for its probe, a
+# person running the list by hand -- tests the whole module rather than reading
+# an unset variable as "nothing to test" and passing on that. A developer's
+# evidence for its change names the packages it touches instead.
 #
 # What the harness names is only where the changed Go files are, so
 # scripts/check-scope.sh reads the change from Git. A list runs those packages
