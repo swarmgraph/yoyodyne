@@ -121,6 +121,11 @@ execution:
   # a slot keeps it, and new work waits until fewer than two slots are held.
   # A third slot stays out until the operator says otherwise.
   max_concurrent_developers: 2  # slot 1 no preference, slot 2 cost (dedicated)
+  # Temporarily one hour, at the operator's direction of 2026-11-22 ("Move early,
+  # then revert"), so the scheduler takes up the build carrying the merge
+  # queue's listing fix (yoyodyne-ifd.429.277) without waiting out three hours.
+  # The three-hour default comes back once the queue is moving again.
+  build_move_interval: 1h
   # docs/configuration.md, "A developer slot that prefers a label", explains
   # what a preference does and does not change: it selects what a slot pulls
   # first, and never what it may do.
