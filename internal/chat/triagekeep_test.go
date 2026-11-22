@@ -91,8 +91,61 @@ func TestAWaitNamingNoWorkLeavesADecidedRepairStanding(t *testing.T) {
 	if standing.Decision != runstate.TriageDecisionWait || standing.WaitsOn != "yoyodyne-ifd.398" {
 		t.Fatalf("decision = %#v, want the wait on named work in place of the repair", standing)
 	}
-	if strings.Contains(renderTrackerOutcomes(domain.RoleDevelopmentManager, named.Actions), "still stands") {
+	rendered = renderTrackerOutcomes(domain.RoleDevelopmentManager, named.Actions)
+	if strings.Contains(rendered, "still stands") {
 		t.Fatal("a wait that did replace the repair was reported as leaving it standing")
+	}
+	for _, want := range []string{"this replaces the repair you decided on run " + stoppedRun, "had not been carried out yet", "will not carry it out", "decide it again"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("she was not told her wait ended the repair (%q missing):\n%s", want, rendered)
+		}
+	}
+}
+
+// A re-run decided about a stopped run and not yet carried out is ended by a
+// wait naming work recorded about the same run, whichever of the run's docket
+// entries the wait was meant for, and she is told so as she records it rather
+// than left reading the re-run as queued for a developer slot. A wait recorded
+// once nothing is left to carry out says nothing of the kind.
+func TestAWaitNamingWorkThatEndsADecidedRerunSaysSo(t *testing.T) {
+	t.Parallel()
+
+	gate := newRunStoreBudgetGate(t)
+	tracker := &fakeTracker{items: map[string]beads.WorkItem{
+		"yoyodyne-ifd.432.25.15": {ID: "yoyodyne-ifd.432.25.15", Title: "the guides item", Status: "blocked"},
+		"yoyodyne-ifd.428.99.31": {ID: "yoyodyne-ifd.428.99.31", Title: "the fix the publication waits on", Status: "open"},
+	}}
+	rerun := triageReply(t, tracker, gate, trackerReply("Decided.",
+		`{"action":"triage","id":"yoyodyne-ifd.432.25.15","run":"`+stoppedRun+`","decision":"rerun","reason":"a fresh run that resolves only the Makefile conflict"}`))
+	if len(rerun.Actions) != 1 || !rerun.Actions[0].Applied {
+		t.Fatalf("actions = %#v", rerun.Actions)
+	}
+
+	waited := triageReply(t, tracker, gate, trackerReply("Decided.",
+		`{"action":"triage","id":"yoyodyne-ifd.432.25.15","run":"`+stoppedRun+`","decision":"wait","waits_on":"yoyodyne-ifd.428.99.31","reason":"nothing more is owed on this publication; the fresh run carries the work"}`))
+	if len(waited.Actions) != 1 || !waited.Actions[0].Applied {
+		t.Fatalf("actions = %#v", waited.Actions)
+	}
+	standing, _ := gate.counters(t, "yoyodyne-ifd.432.25.15").DecisionOf(stoppedRun)
+	if standing.Decision != runstate.TriageDecisionWait {
+		t.Fatalf("decision = %#v, want the wait on named work in place of the re-run", standing)
+	}
+	rendered := renderTrackerOutcomes(domain.RoleDevelopmentManager, waited.Actions)
+	for _, want := range []string{"this replaces the re-run you decided on run " + stoppedRun, "will not carry it out", "If you meant that re-run to stand, decide it again"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("she was not told her wait ended the re-run (%q missing):\n%s", want, rendered)
+		}
+	}
+
+	// The same wait recorded again replaces only a wait, so it says nothing of an
+	// ended re-run.
+	again := triageReply(t, tracker, gate, trackerReply("Decided.",
+		`{"action":"triage","id":"yoyodyne-ifd.432.25.15","run":"`+stoppedRun+`","decision":"wait","waits_on":"yoyodyne-ifd.428.99.31","reason":"still nothing owed on this publication"}`))
+	if len(again.Actions) != 1 || !again.Actions[0].Applied {
+		t.Fatalf("actions = %#v", again.Actions)
+	}
+	if rendered := renderTrackerOutcomes(domain.RoleDevelopmentManager, again.Actions); strings.Contains(rendered, "this replaces the") {
+		t.Fatalf("a wait that replaced only a wait was reported as ending a re-run:\n%s", rendered)
 	}
 }
 
