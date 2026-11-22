@@ -117,6 +117,15 @@ type Revision struct {
 	// CandidateFiles lists the reviewed head when it is not the working tree.
 	// It must be complete, just like ListFiles. Nil compares with RepositoryRoot.
 	CandidateFiles func() ([]string, error)
+	// ListDirectory returns every repository-relative file under one folder at
+	// this revision, and is how product documents are discovered: the folder
+	// holding them is read whole, whatever the size of the rest of the repository.
+	// A folder that cannot be read whole must return an error naming it. It is
+	// used in preference to ListFiles where set.
+	ListDirectory func(directory string) ([]string, error)
+	// CandidateDirectory is ListDirectory for the reviewed head when it is not
+	// the working tree. It is used in preference to CandidateFiles where set.
+	CandidateDirectory func(directory string) ([]string, error)
 	// Read answers one repository-relative, slash-separated path as the commit
 	// holds it: its size, and its whole content where the size is within
 	// maxBytes. A path the commit does not hold as a regular file answers an

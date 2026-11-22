@@ -103,6 +103,9 @@ type WorktreeManager interface {
 	// the checkout holds by the time the review is asked for.
 	FileAtCommit(ctx context.Context, commit, path string, maxBytes int64) (gitworktree.FileAt, error)
 	FilesAtCommit(ctx context.Context, commit string, maxFiles, maxBytes int) (gitworktree.CommitListing, error)
+	// FilesUnderAtCommit lists one folder whole, which is how product documents
+	// are found without reading the whole repository's listing.
+	FilesUnderAtCommit(ctx context.Context, commit, folder string) ([]string, error)
 	// CommitsChanging lists, newest first, the commits reachable from a ref that
 	// changed one path. A document run whose target copy changed reads it to name
 	// the commit its text was written against.
