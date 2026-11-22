@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-15T19:17:00.400736Z
       reason: 'yoyodyne-ifd.435.64: the Slack bullet no longer says the operator''s workplace approved the Slack connector, which the operator ruled out on November 13; it now says the session works through a Slack connection on the operator''s Claude account. The closing paragraph now says plainly that this route holds only while he has no Slack app, as the item asks. The rest of the section is unchanged. The earlier revision entry''s wording is left as recorded. Read whole at main 7639c9c2.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T22:15:50.167118Z
+      reason: 'Brings the list of what is enforced into line with the code, from the second reading of the design review for tools and intake: signing in, renewal and the Slack route move to not built, as does the rule for runs started from a message; the record is two lines; and the claim that a developer cannot touch .yoyodyne is corrected, with the decision that a change may not alter mcp or mcp_tools even under a grant, as new build piece 13.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-15T19:17:00.400736Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2832, for document-2832.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-22T22:15:50.167118Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3597, for document-3597.1 under the automatic approval policy
 ---
 # MCP tools through the harness
 
@@ -347,20 +356,36 @@ Pieces 1 and 2 can start at once and side by side. Pieces 4, 5 and 7 can go side
 
 ## What is enforced in code
 
+Checked against the code by the second reading of the review of every design, for tools and message intake (`docs/diagnoses/yoyodyne-ifd-437-84-9b.md`), taken on November 21, 2026 at main 848d86190 and read for this revision at main f50f9e66. Sections 1 to 7 are built, as build pieces 1 to 9, the containment test and the first real server included. Section 8 and build pieces 10 to 12 are a plan and are not built; the item building the Slack route (yoyodyne-ifd.435.60) is blocked.
+
+**Enforced in code today:**
+
 - Only `internal/mcpcall` speaks MCP.
-- No adapter gives a role's session a server, a connector, or a credential. The one session section 8 starts for a Slack call has only the Slack tool that call names on.
+- No adapter gives a role's session a server, a connector, or a credential. The containment test launches every role on every built-in adapter with servers configured and credentials stored, and finds none in its arguments, environment, directory or home.
 - Every call passes the caller's list, and no list names a tool whose class the caller may not hold.
-- A run of an item started from a message is launched with no MCP tools.
 - The class of a tool comes from the project's declaration, never from the server.
-- A role's write cannot change `mcp` or `mcp_tools`.
-- A record is written before each call and completed after it, and only ever added to.
+- A role's typed write cannot change `mcp` or `mcp_tools`.
+- A record is written before each call and completed after it, and only ever added to. In the code this is two lines, one when the call is asked and one when it settles, kept in daily files for each process in a folder under the project's state directory; the two together are the one entry section 4 describes.
 - An `act` call is never retried, and a repeat with the same `id` calls nothing.
 - Results are scrubbed, bounded, and framed as untrusted before they reach a prompt.
-- A server with a `url` that states no `sign_in` is refused at load, and `sign_in: connector` for any address but Slack's is refused at load.
-- Signing in listens on 127.0.0.1 only, accepts one answer whose state value matches, and writes tokens only once the exchange succeeds.
-- The access token goes only to the server's host, and the refresh token only to the recorded https address that issues tokens.
-- Renewal holds a lock, and no link for signing in is sent to Slack.
-- A Slack call whose session's output shows anything but the decided call, with the decided arguments, is recorded as failed, and a critical report is filed.
+- The reviewer's evidence holds the run's call records within their 64 KiB share of the 768 KiB review limit, and any cut is declared.
+- A listing whose digest changed since the server's last recorded call files one note for the development manager.
+
+**Not built, though earlier revisions of this design listed them here:**
+
+- Refusing at load a server with a `url` that states no `sign_in`, and refusing `sign_in: connector` for any address but Slack's. No code reads `sign_in`, `client_id`, `scopes` or `redirect_port`. Build piece 10.
+- Signing in on 127.0.0.1 with one answer whose state value matches, writing tokens only once the exchange succeeds, and sending each token only where section 8 says. Build piece 10.
+- Renewal under a lock, and never sending a link for signing in to Slack. Build piece 11.
+- Checking a Slack session's output against the decided call. Build piece 12.
+- Launching a run of an item started from a message with no MCP tools. No run starts from a message yet; this is built under the intake design's piece for starting work.
+
+**Where earlier sections are ahead of the code, or wrong:**
+
+- Section 1 says a developer's change cannot touch `.yoyodyne/`. That is wrong: a work item may grant `.yoyodyne/`, and only `.yoyodyne/roles/` is beyond every grant. The decision: even under a grant, a developer's change may not alter the `mcp` section or any agent's `mcp_tools`. The harness compares both at the change's base and in the change, and refuses a difference, naming the key. This is the comparison the intake design asks for its own section, made the way the comparison for role definitions is already made. Not built; build piece 13.
+- Section 2 says an agent's `tools:` block may tighten the limits on calls. No such key exists, and the field the tighter limits would arrive through is set only by tests. Until a design adds a key, the limits in section 2 hold the same for every agent; that sentence of section 2 describes nothing built.
+- Section 4 says `yoyo mcp calls` reads the record. An agent may run it plainly; only its `--entry` and `--json` forms are refused to an agent.
+
+**Build piece 13, for the Lead Product Manager to admit.** The comparison above: `mcp` and every agent's `mcp_tools` read at the change's base and in the change, and a difference refused before review, naming the key, whatever the work item grants. Done when a test shows a granted change that edits `mcp` refused, and a change that leaves both alone accepted.
 
 Left to role instructions: what to ask for, and not copying a private result into the tracker.
 
