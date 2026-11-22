@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-11-21T18:01:21.856581Z
       reason: 'report-a84223d8: a work item''s grant of .yoyodyne/config.yaml could let a developer''s change rewrite the intake section, which section 1 says is the operator''s. Section 1 now says a grant never reaches intake: the harness compares that section at the run''s base and in the change and refuses a difference, and the section names who builds it. Written from a read of the whole section at main 06c1e5248; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T23:34:28.457005Z
+      reason: 'Design review against the code: this section claimed the daily limits, the limit on reader starts and the operator''s pause are enforced in code, and the review''s findings did not find them built. They are now listed apart as not yet built, each with the piece that builds it. Written from a read of the whole section at main 3c424f86d; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -106,6 +110,11 @@ approvals:
       by: harness
       at: 2026-11-21T18:01:21.856581Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3335, for document-3335.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-22T23:34:28.457005Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3611, for document-3611.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -392,6 +401,8 @@ Pieces 5 and 6 can go side by side.
 
 ## What is enforced in code
 
+Built, or to be built by the pieces above, and held in code once built:
+
 - A query's tool is a declared read tool, and every query call goes through `internal/mcpcall`.
 - A query's call record holds no result.
 - The sender check runs before any provider call, and an unlisted sender's text is written nowhere.
@@ -405,7 +416,8 @@ Pieces 5 and 6 can go side by side.
 - No item is admitted from a rule while the intake hold or the brake is on.
 - A role's write cannot change `intake`.
 - A question names the operator only under `questions: person`, with the reason `human-gate`.
-- The daily limits, the limit on starts of the reader, and the operator's pause.
+
+Not yet in the code, as the November 2026 review of this design against the code found: the daily limits of section 1 (`messages_per_run`, `messages_per_day`, `starts_per_day`, `questions_per_day`), the limit of three starts of the reader for one message, and the operator's pause stopping queries and readers. Each is held in code once built: the daily limits and the limit on reader starts by piece 4, the limit on questions by piece 6, and the pause by piece 3. Until then this design does not claim them, and a query should not be switched on where a flood of messages would cost more than the operator accepts.
 
 Left to role instructions: the reader's judgment, and not copying message text further than the fix needs.
 
