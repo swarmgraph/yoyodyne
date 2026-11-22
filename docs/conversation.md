@@ -2864,13 +2864,18 @@ bounded listing the development manager is shown.
 **An earlier run's entry closes once a later run of the item holds or lands
 its approved change.** An item worked more than once leaves each earlier
 stopped run on the docket. Once a later run of the same item, started after the
-earlier one and aimed at the same target branch, has landed its change or holds
-a change the reviewer approved with its branch still there, every docket build
+earlier one and aimed at the same target branch, holds a change the reviewer
+approved with its branch still there, or has had that change promoted (landed
+on the target, or put in a pull request for the forge to merge), every docket build
 closes the earlier run's entries: the one saying it stopped, or died before it
 started, its escalation, and its unfinished publication. The closure records the decision `superseded by a later
-run`, a reason naming both runs and what the later one did (landed at which
-commit, or holds an approved change on which branch), and that the harness
-decided it from the run records. A wait standing over the entry gives way to
+run`, a reason naming both runs and what the later one did, and that the
+harness decided it from the run records. The reason says the later run landed
+its change only where that is confirmed, naming the commit on the target branch,
+or the merge commit of a pull request the forge has merged. A later run whose
+change went to a pull request the forge has not merged yet is described by that
+pull request, as waiting for the forge to merge it, and one that has not been
+promoted yet by the branch holding its approved change. A wait standing over the entry gives way to
 it; any other decision she made stands. An earlier run stays on the docket when
 no later run has been approved or landed, whatever change it kept; when it
 started after the landing; and when it landed its own change, unless that

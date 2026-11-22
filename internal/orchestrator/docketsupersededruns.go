@@ -5,7 +5,8 @@ package orchestrator
 //
 // An item worked more than once leaves every earlier stopped run on the docket.
 // Once a later run's change has been approved by the independent reviewer, or
-// has reached the target branch, nothing the development manager could decide
+// promoted (onto the target branch, or into a pull request the forge has been
+// asked to merge), nothing the development manager could decide
 // about an earlier run is still a question: a repair or re-run of it would redo
 // work a later run carries, and the item's progress is that later run's to say.
 // Before this, only a timed wait took such an entry off her docket, so it came
@@ -139,10 +140,32 @@ func holdsApprovedChange(state runstate.State) bool {
 // supersededRunReason says in plain words which later run took the earlier
 // run's place, and what that later run has done.
 func supersededRunReason(earlier, later runstate.State) string {
-	held := fmt.Sprintf("holds a change the reviewer approved, on branch %s, waiting to be merged", later.Branch)
-	if later.Integration != nil {
-		held = fmt.Sprintf("landed its change on %s at commit %s", later.Integration.TargetBranch, later.Integration.SourceCommit)
-	}
 	return fmt.Sprintf("a later run of %s, %s, %s, so nothing about this earlier run %s is left to decide: repairing or re-running it would redo work the later run carries",
-		earlier.WorkItemID, later.RunID, held, earlier.RunID)
+		earlier.WorkItemID, later.RunID, laterRunDid(later), earlier.RunID)
+}
+
+// laterRunDid says what the later run has done with its approved change, and
+// says it landed only where that is confirmed. A promotion onto a protected
+// target records its integration when the pull request is asked to merge,
+// before the forge merges it, so such a run is described by its pull request
+// until the record says the forge merged it, and then by the merge commit.
+func laterRunDid(later runstate.State) string {
+	integrated := later.Integration
+	published := later.PullRequest
+	switch {
+	case integrated == nil:
+		return fmt.Sprintf("holds a change the reviewer approved, on branch %s, waiting to be merged", later.Branch)
+	case published != nil && published.Merged:
+		commit := strings.TrimSpace(published.MergeCommit)
+		if commit == "" {
+			commit = integrated.SourceCommit
+		}
+		return fmt.Sprintf("landed its change on %s through pull request #%d, merged at commit %s", integrated.TargetBranch, published.Number, commit)
+	case integrated.ThroughPullRequest && published != nil && published.Number > 0:
+		return fmt.Sprintf("has its approved change in pull request #%d into %s, waiting for the forge to merge it", published.Number, integrated.TargetBranch)
+	case integrated.ThroughPullRequest:
+		return fmt.Sprintf("has its approved change, commit %s, waiting for the forge to merge it into %s", integrated.SourceCommit, integrated.TargetBranch)
+	default:
+		return fmt.Sprintf("landed its change on %s at commit %s", integrated.TargetBranch, integrated.SourceCommit)
+	}
 }
