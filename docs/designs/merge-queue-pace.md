@@ -15,6 +15,10 @@ revisions:
       by: architect
       at: 2026-11-19T20:09:55.758998Z
       reason: 'Brings decision 1''s run on main every four hours into line with the November 19 ruling that a failure there runs only its failing tests once more on the same commit: a pass the second time files a warning with both results and leaves the last clean commit where it was; a second failure, tests that cannot be named, or a second run that cannot run files the critical report at priority 0; the same test doing this twice in seven days files the critical report. Written from a read of the whole design at main 6df1c6caf; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T03:53:17.775361Z
+      reason: 'Writes in three approved but unwritten changes: amendment-25324898 and amendment-097450b4 (the queue passes on its own every minute while it waits on GitHub, reads only, lease unchanged, stops when the watch session drains or ends, waits recorded for the weekly figures) and amendment-cec9c712 (checking ahead gives nothing on the GitHub path, so it is off there). Adds build piece 6 and two reviewer lines. Whole revision from main 3220fd777.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -26,6 +30,11 @@ approvals:
       by: harness
       at: 2026-11-19T20:09:55.758998Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3133, for document-3133.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-22T03:53:17.775361Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3396, for document-3396.1 under the automatic approval policy
 ---
 # How the harness's merge queue lands more than one change an hour
 
@@ -91,7 +100,7 @@ The invariant needs the configured checks for integration to approve the exact c
 
 The race check produces evidence about two other things: the change's own code, recorded on the approved head, and main, recorded on main. Neither is presented as evidence about the candidate.
 
-**How this fits stopping the local full race check at landing (yoyodyne-ifd.428.126.6.5).** That item, being built now, builds case 2 of [choosing checks by change](choosing-checks-by-change.md). Case 2 says that with the harness's queue on, the local full race on the merge candidate does not run when the queue ran the configured checks whole, the race check among them. That item lands as written.
+**How this fits stopping the local full race check at landing (yoyodyne-ifd.428.126.6.5).** That item builds case 2 of [choosing checks by change](choosing-checks-by-change.md). Case 2 says that with the harness's queue on, the local full race on the merge candidate does not run when the queue ran the configured checks whole, the race check among them. That item lands as written.
 
 Once build piece 1 below lands, case 2 says instead that the local full race on the merge candidate does not run when all of these hold:
 
@@ -111,7 +120,7 @@ Today the review follows the checks. Both are bound to the same candidate commit
 - A review that refuses ends the candidate the same way.
 - A candidate lands only with every declared check passed and the review approving, as now.
 
-### 3. The next candidate is checked while the current one is still being checked
+### 3. The next candidate is checked while the current one is still being checked, where the queue lands on a local branch
 
 While the current candidate's checks and review run, the queue builds the next entry's candidate on top of the current candidate's commit, as if that commit lands, and starts its checks and review.
 
@@ -121,7 +130,7 @@ If the candidate before it failed, was withdrawn, or landed as any other commit,
 
 The queue checks at most one candidate ahead of the current one. Checking further ahead multiplies the work thrown away when one fails, and one candidate ahead already removes the wait between candidates.
 
-This design does not establish whether a candidate landed through the forge's pull request path lands as exactly its own commit. The build piece reads the landing code first. Where it does not land as its own commit, the next candidate is always rebuilt, and the piece is reported as giving nothing on that path.
+**On the GitHub path it gives nothing, so it is off there.** Ruled on November 11. A queue that lands through GitHub asks GitHub to merge each candidate directly, as [integration through a merge queue](integration-through-a-merge-queue.md) rules, and that merge puts a merge commit above the candidate. The target after a landing is therefore never the candidate's own commit, so a candidate built ahead on that commit could never land and would always be thrown away. Checking ahead is used only where the queue lands on a local branch as the candidate's own commit. With the queue landing through GitHub, as on this repository, the queue does not build a candidate ahead at all, and the time saved for each candidate here rests on decisions 1 and 2 alone.
 
 ### 4. Keeping a passing result when only main has moved
 
@@ -129,15 +138,26 @@ The queue does not keep a candidate's result for a new candidate merely because 
 
 Guarantee 9 already allows a result to be kept across commits in one case: where the project's analyser says, with complete evidence, that nothing the check covers changed, worked out on the change combined with the new main, and in a trial period first. Once that rule is built, the queue uses it and adds no rule of its own.
 
-### Combining two or three changes into one candidate: rejected for now
+### 5. The queue keeps moving while it waits on GitHub
 
-Checking several waiting changes as one combined candidate, and splitting it only on a failure, would cut the checks for each change the most. It is rejected for now for three reasons:
+Ruled on November 10, with the rule for a pass that ends while waiting approved on November 12 (yoyodyne-ifd.429.138).
 
-- On this repository's protected main, the queue lands each change through its own pull request. A combined candidate is a commit none of those pull requests holds, so landing it needs a path of its own.
+Between one landing and the next candidate's first check, the queue often sits waiting on GitHub: for checks to start, to finish, or for a merge to be reported. If it looks again only at the scheduler's next watch round, every one of those waits is lengthened by the time to that round.
+
+- A queue pass that ends while it is waiting on GitHub runs itself again every minute, on its own, apart from the watch session's rounds.
+- These passes only read GitHub. Anything they would change, such as landing a candidate, still goes through the promotion lease exactly as an ordinary queue pass does; the lease and what it covers are unchanged.
+- The passes stop when the watch session drains or ends, so a stop or a move onto a new build is never held up by them.
+- Each wait from one landing to the next candidate's first check is recorded, so the weekly figures in build piece 5 show how long the queue sat between candidates.
+
+### Combining two or three changes into one candidate: rejected for now for code
+
+Document candidates are now combined into one candidate, up to eight, as [integration through a merge queue](integration-through-a-merge-queue.md) rules. For code, checking several waiting changes as one combined candidate, and splitting it only on a failure, would cut the checks for each change the most. It is rejected for now for three reasons:
+
+- On this repository's protected main, the queue lands each code change through its own pull request. A combined candidate is a commit none of those pull requests holds, so landing it needs a path of its own.
 - A failure in a combined candidate costs a split and a second round of checks. The race check's failures, the most common kind, leave the queue under decision 1.
-- With decisions 1 to 3, the time for each code candidate is expected to fall from about 70 minutes to about the longer of `make test` and the review, roughly 20 to 30 minutes, with the next candidate already under way.
+- With decisions 1 and 2, the time for each code candidate is expected to fall from about 70 minutes to about the longer of `make test` and the review, roughly 20 to 30 minutes.
 
-It is reconsidered from the figures that build piece 5 records, if the queue is still the limit after pieces 1 to 3 land.
+It is reconsidered from the figures that build piece 5 records, if the queue is still the limit after pieces 1, 2 and 6 land.
 
 ## What does not change
 
@@ -158,11 +178,12 @@ It is reconsidered from the figures that build piece 5 records, if the queue is 
    - It takes effect here only once the run on main every four hours is running.
    - It depends on the work on stopping the local full race check at landing (yoyodyne-ifd.428.126.6.5) and on migration item 21 of the guarantees design.
 2. **Checks and the review side by side on one candidate.** A failing check stops the review, and the review's spend is recorded.
-3. **Checking the next candidate ahead.** One candidate deep. Thrown away and rebuilt when the target is not the base it was built on. Reads the forge landing code first, and reports if candidates do not land as their own commit.
+3. **Checking the next candidate ahead, for queues that land on a local branch.** One candidate deep. Thrown away and rebuilt when the target is not the base it was built on. Off when the queue lands through GitHub, and that is stated on status rather than left silent.
 4. **Keeping a queue candidate's result across a moved main by the analyser's answer.** No new piece: this is migration item 19 of the guarantees design, and the queue calls it.
-5. **The queue's weekly figures,** from its own records: candidates started and landed, time from admission to landing, time for each candidate, and candidates thrown away by checking ahead. They are shown with the weekly check-time figures.
+5. **The queue's weekly figures,** from its own records: candidates started and landed, time from admission to landing, time for each candidate, the wait from each landing to the next candidate's first check, and candidates thrown away by checking ahead. They are shown with the weekly check time figures.
+6. **The queue's own pass every minute while it waits on GitHub.** Reads GitHub only; changes go through the promotion lease as before; stops when the watch session drains or ends; records each wait for piece 5. The piece reads the queue's code first and builds only what is not already there.
 
-Pieces 1, 2 and 3 are independent of each other and can be built in any order the Lead Product Manager sets. Turning them into work items is the development manager's.
+Pieces 1, 2, 3 and 6 are independent of each other and can be built in any order the Lead Product Manager sets. Turning them into work items is the development manager's.
 
 ## How a reviewer checks an implementation
 
@@ -170,8 +191,10 @@ Pieces 1, 2 and 3 are independent of each other and can be built in any order th
 - A project with no declared list has its configured checks run whole in the queue.
 - A change whose Go code changed, and whose approved head has no passing race result, gets the narrowed race check in its candidate's run.
 - In this repository, the race check is left off the queue's list only while the run on main every four hours is running.
-- A candidate checked ahead lands only when the target equals its recorded base. Otherwise its results are thrown away, it is rebuilt, and no repair is charged.
+- A candidate checked ahead lands only when the target equals its recorded base. Otherwise its results are thrown away, it is rebuilt, and no repair is charged. With the queue landing through GitHub, no candidate is built ahead.
 - A failing check stops the review on the same candidate, and the review's spend is recorded.
+- While the queue waits on GitHub it passes again every minute without the watch session's round, those passes change nothing outside the promotion lease, and they stop when the watch session drains or ends.
+- The wait from each landing to the next candidate's first check is recorded and appears in the weekly figures.
 
 ## Designs this changes
 
@@ -180,7 +203,7 @@ Pieces 1, 2 and 3 are independent of each other and can be built in any order th
   - race point 3 and its reviewer line follow choosing checks by change;
   - its rejected alternative of keeping the local full race on every merge candidate is brought into line;
   - its entry for choosing checks under the designs it changes is brought into line.
-- **[Integration through a merge queue](integration-through-a-merge-queue.md):** the queue runs the project's declared list, runs checks and the review side by side, and checks one candidate ahead.
+- **[Integration through a merge queue](integration-through-a-merge-queue.md):** the queue runs the project's declared list, runs checks and the review side by side, checks one candidate ahead only where it lands on a local branch, and passes every minute while it waits on GitHub.
 
 Until each is revised, this design decides where they differ.
 
@@ -190,18 +213,22 @@ Until each is revised, this design decides where they differ.
 - **Running the race check on main only nightly, as proposed.** Four hours was already ruled, and it shortens the time a race found only on the combined change can sit on main.
 - **No race check before landing for a change whose developer run did not record one.** Every change with Go code changed carries a race check on its own code.
 - **Checking more than one candidate ahead.** Each further candidate multiplies the work thrown away when one fails.
-- **Combining waiting changes into one candidate.** See above.
+- **Checking ahead on the GitHub path anyway.** Every candidate built ahead would be thrown away, because GitHub's merge commit is never the base it was built on.
+- **Waiting for the watch session's next round while the queue waits on GitHub.** It adds the time to that round to every wait between candidates.
+- **Combining waiting code changes into one candidate.** See above.
 - **Keeping results when only main moved, without the analyser.** That is what the queue exists to check.
 
 ## What this rests on
 
-Read at main 06f384c0:
+Read at main 06f384c0 for the first version:
 
 - the item for this design (yoyodyne-ifd.429.132), with the operator's proposal recorded on it;
 - integration through a merge queue;
 - choosing checks by change;
 - one owner for each guarantee;
 - the invariants that integration requires evidence bound to the exact candidate revision, and that developers verify before submitting.
+
+This revision was written from a read of the whole design at main 3220fd777, and records three changes approved on November 10, 11 and 12: the queue's own pass while it waits on GitHub, that pass running every minute until the watch session drains or ends, and checking ahead giving nothing on the GitHub path.
 
 Not read:
 
