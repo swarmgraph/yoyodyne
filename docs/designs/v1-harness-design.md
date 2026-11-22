@@ -166,6 +166,10 @@ revisions:
       by: architect
       at: 2026-11-21T18:49:29.869694Z
       reason: 'The deferred section still called the dashboard read-only, which has been out of date since the operator amended the v1 non-goals on October 11, 2026: the dashboard may take his own decisions, recorded as the command line records them, and stays local with no work state of its own. Three other bullets are reworded in plain words with the same meaning. No design decision changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T16:10:48.880828Z
+      reason: One subsection only, copied from main 828db957. The reviewer paragraph said a Claude Code reviewer is refused every tool; since the change the operator approved on October 18, and as the provider adapters design records as built, it has read and search tools over the run's worktree and a shell limited to git commands that only read, while management roles hold none. Also rewords one joined-up compound. Nothing else changes.
 approvals:
     - revision: 0
       by: operator
@@ -230,6 +234,11 @@ approvals:
       by: harness
       at: 2026-11-21T18:49:29.869694Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3337, for document-3337.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 40
+      by: harness
+      at: 2026-11-22T16:10:48.880828Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3472, for document-3472.1 under the automatic approval policy
 ---
 
 # Yoyodyne V1 Harness Design
@@ -581,7 +590,7 @@ The distinction matters, because "the harness never asks an agent to do this" an
 
 **Enforced in code.** A run's worktree may only be at the HEAD durable state recorded: the base commit it was created at, or the exact commit the harness itself made. Anything else fails the ownership check that review, integration, and publishing all go through, and the run stops there. That check is a comparison against a recorded hash rather than a judgement about what a commit looks like — a developer has a shell in its worktree and the harness's commit identity is a constant in this repository, so an imitated commit is easy to produce and worth nothing, because it is not the hash run state already named. The rest of what integration requires is enforced the same way: promotion requires passing checks, an approving verdict, two demonstrably independent provider invocations, and a fast forward from the recorded base.
 
-**Enforced for the reviewer specifically.** The reviewer runs with read only access that its adapter enforces. Claude Code refuses every tool; Codex permits repository inspection under its native read only sandbox with tool network access, escalation, and external integrations disabled. Codex reads are not confined to the repository. The reviewer supplies its verdict and the harness performs integration; the provider-specific enforcement is described in [provider-adapters-and-endpoints](provider-adapters-and-endpoints.md).
+**Enforced for the reviewer specifically.** The reviewer runs with read only access that its adapter enforces. On Claude Code it is given tools that read and search files in the run's worktree, and a shell limited to git commands that only read; it holds no tool that writes, and the management roles on Claude Code are given no tools at all. Codex permits repository inspection under its native read only sandbox with tool network access, escalation, and external integrations disabled. Codex reads are not confined to the repository. The reviewer supplies its verdict and the harness performs integration; how each provider enforces this is described in [provider-adapters-and-endpoints](provider-adapters-and-endpoints.md).
 
 **Enforced for the developer's diff.** A developer's diff that touches a configured artifact home — `docs/product`, `docs/designs`, or `docs/decisions`, as configured — or the project's `.yoyodyne` directory is refused deterministically, before any check runs and before any reviewer sees it, unless the work item's own text grants the path. This is the ownership boundary holding against an editor in a worktree, not only against writes through the artifact store: a developer that edits a document it does not own no longer depends on its contract or the reviewer to be caught, because the harness's check of the diff refuses it outright. The paragraph below is unchanged by this — it is about pushing and merging, and that check grants no credential and removes none.
 
