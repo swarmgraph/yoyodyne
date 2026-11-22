@@ -55,6 +55,7 @@ func gitHubIdentityStopsFrom(parts components) *orchestrator.GitHubIdentityStops
 		Items:     continuer.Items,
 		Worktrees: continuer.Worktrees,
 		Capacity:  continuer.Capacity,
+		SlotPairs: continuer.SlotPairs,
 		Checkout:  continuer.Checkout,
 		Start:     continuer.Start,
 		Answers:   gitHubIdentityProbe(parts),

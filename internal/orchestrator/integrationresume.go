@@ -139,8 +139,14 @@ type IntegrationResumer struct {
 	// Required: re-entry makes a terminal run live again, and a promotion holds a
 	// slot for exactly as long as any run does.
 	Capacity int
-	Start    RepairContinueStarter
-	Clock    execution.Clock
+	// SlotPairs resolves each developer slot's endpoint pair from the
+	// configuration, handed to the store with the run this makes live, so a run
+	// keeping its slot's pair whose slot another run holds takes a free slot,
+	// pinned to that slot's own pair, ahead of fresh work (SlotPairsFor).
+	// Without it such a run waits for its own slot.
+	SlotPairs runstate.SlotPairs
+	Start     RepairContinueStarter
+	Clock     execution.Clock
 }
 
 // IntegrationResumeRequest is one resumption to make: the run the docket entry
@@ -651,7 +657,7 @@ func (r IntegrationResumer) supersedeOnRun(ctx context.Context, prior runstate.S
 	}
 	// The slot is taken by this save, not by the reading the caller made, which a
 	// reservation beside this one can overtake.
-	if err := r.Runs.ReserveLive(ctx, resumed, r.Capacity); err != nil {
+	if err := r.Runs.ReserveLive(withPairs(ctx, r.SlotPairs), resumed, r.Capacity); err != nil {
 		return runstate.State{}, err
 	}
 	return resumed, nil

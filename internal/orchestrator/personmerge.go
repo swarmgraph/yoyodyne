@@ -474,7 +474,7 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 	if checkoutReadyToTakeUp(ctx, r.Checkout, state.RunID) != nil {
 		return keep("the main checkout has uncommitted changes")
 	}
-	if err := r.Store.ReserveLive(ctx, resumed, r.Capacity); err != nil {
+	if err := r.Store.ReserveLive(withPairs(ctx, r.SlotPairs), resumed, r.Capacity); err != nil {
 		if _, taken := slotTakenMeanwhile(err); taken {
 			return keep("the last developer slot went to another run first")
 		}

@@ -4512,10 +4512,12 @@ none — so no slot runs another slot's pair; the earlier and the new endpoints
 and the configuration revision of each are recorded with the move, its
 unfinished developer operation is kept as it stood, and its next developer
 attempt starts a new session on the new endpoints rather than resuming the old
-one. Only a run taken up without the slots' endpoints being handed to the
-store (a repair or other continuation started outside the pipeline's own
-path) still waits for its own slot, naming the slot, the run holding it, and
-why. When two runs that recorded one slot are due to be continued in one pass,
+one. Every path that takes a run up again hands the store the slots'
+endpoints: the pipeline's own, a decided repair, a continuation after a silent
+provider stream or at the checks, a resumed merge, the merge queue's attempt to
+bring a change up to date, and the reconciling sweep's. While no slot is free
+the run waits for any slot to free, not for its own, and its record and its
+work item say every developer slot is occupied. When two runs that recorded one slot are due to be continued in one pass,
 each goes on in a free slot of its own, the older first.
 A run the scheduler pulled into a slot records that slot in every project, or
 the first free one, in the order below, where that was taken by the time the run recorded it, and

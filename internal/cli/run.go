@@ -1047,8 +1047,9 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// run live again, so it reads the hold and the slots a resumption reads.
 		// Only the sweep verb hosts the run it makes live; a pass without Continue
 		// leaves the merge queued.
-		Intake:   parts.intake,
-		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		Intake:    parts.intake,
+		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
+		SlotPairs: orchestrator.SlotPairsFor(parts.config),
 		// A merge the forge has held, or dropped and nothing has replayed, for
 		// longer than a publication may sit unmerged is asked about and handed to
 		// the development manager with GitHub's reason.
@@ -1653,6 +1654,7 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		Repair: orchestrator.MergeQueueRunHandback{
 			Store: parts.store, Tracker: pipeline.Tracker, Docket: docketerFrom(parts),
 			CatchUp: parts.store, Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+			SlotPairs: orchestrator.SlotPairsFor(parts.config),
 			Checkout:  parts.worktrees,
 			Checkouts: parts.worktrees,
 		},

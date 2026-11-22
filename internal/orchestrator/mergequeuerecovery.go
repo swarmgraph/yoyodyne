@@ -1019,6 +1019,12 @@ type MergeQueueRunHandback struct {
 	// every such hand-back the stop instead.
 	CatchUp  MergeQueueCatchUpRuns
 	Capacity int
+	// SlotPairs resolves each developer slot's endpoint pair from the
+	// configuration, handed to the store with the run a catch-up makes live, so
+	// a run keeping its slot's pair whose slot another run holds takes a free
+	// slot, pinned to that slot's own pair, ahead of fresh work (SlotPairsFor).
+	// Without it such a run waits for its own slot.
+	SlotPairs runstate.SlotPairs
 	// Checkout is the main checkout, asked immediately before the run is made
 	// live and takes its developer slot (checkoutReadyToTakeUp). Optional:
 	// without it nothing is asked here.

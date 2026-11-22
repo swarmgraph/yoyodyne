@@ -66,6 +66,12 @@ type StallContinuer struct {
 	// the pipeline asks once the run holds the slot.
 	Checkout CheckoutReadiness
 	Capacity int
+	// SlotPairs resolves each developer slot's endpoint pair from the
+	// configuration, handed to the store with the run this makes live, so a run
+	// keeping its slot's pair whose slot another run holds takes a free slot,
+	// pinned to that slot's own pair, ahead of fresh work (SlotPairsFor).
+	// Without it such a run waits for its own slot.
+	SlotPairs runstate.SlotPairs
 	// Backends and Events are the repair continuer's, for the same reasons: a
 	// stall carried on in its developer attempt is carried on in the session the
 	// run recorded, on the backend that opened it.
@@ -242,7 +248,7 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	if err := checkoutReadyToTakeUp(ctx, c.Checkout, prior.RunID); err != nil {
 		return result, err
 	}
-	if err := c.Runs.ReserveLive(ctx, continuedAfterStall(prior, result.Reason, c.now()), c.Capacity); err != nil {
+	if err := c.Runs.ReserveLive(withPairs(ctx, c.SlotPairs), continuedAfterStall(prior, result.Reason, c.now()), c.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			result.CapacityFull = &capacity
 			result.RecordProblem = noteSlotTaken(ctx, c.Items, entry.WorkItemID, prior.RunID, capacity)
