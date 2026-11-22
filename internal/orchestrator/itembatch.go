@@ -56,3 +56,16 @@ var (
 	_ itemBatchReader = beads.Client{}
 	_ itemBatchReader = HarnessRunItems{}
 )
+
+// List is the wrapped tracker's own listing, so a sweep given this tracker still
+// lists the closed items in one read rather than finding it cannot list and
+// reading each item on its own. A bookkeeping item of the harness's own is
+// never in a listing: the tracker does not hold it. Over a tracker that cannot
+// list, it lists nothing.
+func (t HarnessRunItems) List(ctx context.Context, status string) ([]beads.WorkItem, error) {
+	lister, ok := t.WorkTracker.(closedItemLister)
+	if !ok {
+		return nil, nil
+	}
+	return lister.List(ctx, status)
+}

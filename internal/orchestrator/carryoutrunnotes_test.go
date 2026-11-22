@@ -271,3 +271,27 @@ func TestAPendingReconcileFindingOfADocumentRunIsDeliveredWithoutAskingForTheRun
 		t.Fatalf("notes = %q, finding = %+v; want it delivered to the named item and settled", base.holds[answers].Notes, state.ReconcileFindings[0])
 	}
 }
+
+type runItemsListingTracker struct {
+	noteWorkTracker
+	lists int
+}
+
+func (l *runItemsListingTracker) List(context.Context, string) ([]beads.WorkItem, error) {
+	l.lists++
+	return []beads.WorkItem{{ID: "yoyodyne-ifd.903", Status: "closed"}}, nil
+}
+
+// The tracker the reconciler is given still lists closed items in one read.
+func TestTheRunItemsTrackerStillListsClosedItemsInOneRead(t *testing.T) {
+	t.Parallel()
+	base := &runItemsListingTracker{noteWorkTracker: noteWorkTracker{runNoteTracker: &runNoteTracker{}}}
+	reconciler := Reconciler{Tracker: HarnessRunItems{WorkTracker: base, Runs: loadedRuns{}}}
+	closed, unread, err := reconciler.closedItems(context.Background(), []string{"yoyodyne-ifd.903", "yoyodyne-ifd.904"})
+	if err != nil || len(unread) != 0 || !closed["yoyodyne-ifd.903"] || closed["yoyodyne-ifd.904"] {
+		t.Fatalf("closedItems() = %v, %v, %v", closed, unread, err)
+	}
+	if base.lists != 1 || len(base.runNoteTracker.asked) != 0 {
+		t.Fatalf("listed %d times, asked %v; want one listing and no single reads", base.lists, base.runNoteTracker.asked)
+	}
+}
