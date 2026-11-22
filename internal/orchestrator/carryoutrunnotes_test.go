@@ -348,3 +348,30 @@ func TestTheRunItemsTrackerKeepsTheWrappedTrackersAbilities(t *testing.T) {
 		t.Fatalf("a run identifier reached the tracker: %v, %v", base.waits, err)
 	}
 }
+
+// waitingTracker is runNoteTracker able to keep a scheduling reason, as the
+// scheduler's tracker is.
+type waitingTracker struct{ *runNoteTracker }
+
+func (w waitingTracker) RecordSchedulingWait(_ context.Context, id, _, _ string, _ time.Time) (beads.WorkItem, error) {
+	w.asked = append(w.asked, id)
+	return beads.WorkItem{ID: id}, nil
+}
+
+// A refused decision about a document run keeps its scheduling reason on the
+// item the run is for or on none, and never puts the run identifier in front of
+// the tracker.
+func TestARefusedDecisionAboutADocumentRunNeverAsksTheTrackerForTheRunIdentifier(t *testing.T) {
+	t.Parallel()
+	tracker := &runNoteTracker{holds: map[string]*beads.WorkItem{}}
+	carrying, _ := newNoteCarryOut(t, tracker, documentNoteRun(""))
+	carrying.Notes = waitingTracker{tracker}
+	task := CarryOutTask{WorkItemID: documentNoteRunID, RunID: documentNoteRunID, Decision: "repair", DecidedAt: time.Now()}
+	carrying.stopped(context.Background(), task, CarriedOut{WorkItemID: documentNoteRunID, RunID: documentNoteRunID, Decision: "repair"}, runstate.TriageGatePreservedWork, false, "the worktree is gone", "a new run")
+	if err := recordSchedulingWait(context.Background(), carrying.Notes, documentNoteRunID, runstate.PassedOverAwaitingCarryOut, "held", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if len(tracker.asked) != 0 {
+		t.Fatalf("tracker asked about %v; want nothing for a run identifier", tracker.asked)
+	}
+}
