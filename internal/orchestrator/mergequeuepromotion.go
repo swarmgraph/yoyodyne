@@ -212,11 +212,18 @@ type MergeQueuePromotion struct {
 	// be kept. It holds nothing up: the merge has landed.
 	Unreported string
 	// ForgeHeldSince is when the forge took the merge it holds queued, set
-	// beside Waiting on such a merge; Dropped is a merge the forge stopped
-	// holding without making, set beside Unresolved. Both are what the driver
-	// withdraws an entry for.
+	// beside Waiting on such a merge, or, where NotMergeable is set, when the
+	// attempt opened the pull request of a candidate GitHub would not yet merge
+	// directly; Dropped is a merge the forge stopped holding without making,
+	// set beside Unresolved. Both are what the driver withdraws an entry for.
 	ForgeHeldSince *time.Time
 	Dropped        bool
+	// NotMergeable is set beside Waiting where no merge was asked for because
+	// GitHub would not merge the candidate's pull request yet (mergeReadiness).
+	// The limits a held merge has apply to it the same way: its checks are read
+	// (readHeldChecks), and it is withdrawn once it has waited past
+	// triage.stuck_merge_age.
+	NotMergeable bool
 	// Unjudged is set beside Waiting where a check on the candidate's pull
 	// request ended without judging the change a second time, or could not be
 	// run again, and nothing else is still running there: the forge will never
@@ -413,6 +420,10 @@ type queuePromotion struct {
 	entry   runstate.MergeQueueEntry
 	landing runstate.MergeQueueLanding
 	outcome MergeQueuePromotion
+	// notMergeable is GitHub found not ready to merge the candidate's pull
+	// request under the promotion lease (mergeReadiness): its checks and what
+	// it is waiting on are read once the lease is given back (awaitMergeable).
+	notMergeable bool
 }
 
 func (q *queuePromotion) now() time.Time {
@@ -677,7 +688,10 @@ func (q *queuePromotion) proceed(ctx context.Context) error {
 	case runstate.MergeQueueOpenPullRequest:
 		return q.openPullRequest(ctx)
 	case runstate.MergeQueueMoveTarget, runstate.MergeQueueRequestMerge:
-		return q.mutateTarget(ctx, mutation)
+		if err := q.mutateTarget(ctx, mutation); err != nil || !q.notMergeable {
+			return err
+		}
+		return q.awaitMergeable(ctx)
 	default:
 		return fmt.Errorf("promotion attempt %d of merge queue entry %d has made every mutation and records no landing", attempt.Number, q.entry.Order)
 	}
@@ -1062,7 +1076,42 @@ func (q *queuePromotion) mergeReadiness(ctx context.Context, moved bool) (bool, 
 	}
 	q.outcome.Waiting = fmt.Sprintf("GitHub would not merge pull request %d yet (%s), so no merge is asked for; the next pass reads %s and the pull request again",
 		attempt.PullRequest, strings.ToUpper(strings.TrimSpace(status)), q.key.TargetBranch)
+	q.outcome.NotMergeable, q.notMergeable = true, true
 	return false, nil
+}
+
+// awaitMergeable gives a candidate GitHub would not yet merge directly the
+// limits a merge GitHub holds has (awaitForge), once the promotion lease is
+// given back: GitHub is asked what the pull request is waiting on, its checks
+// are read (readHeldChecks) — a check that ended without judging the change is
+// run again once, a failure only in tests the change does not touch has the
+// failing job run once more, and any other failure is ChecksFailed, which the
+// driver withdraws at once — and the wait is counted toward
+// triage.stuck_merge_age from when the attempt opened the pull request. An
+// attempt is begun only for the entry at the head of the queue, so the time an
+// entry waited behind others never counts.
+func (q *queuePromotion) awaitMergeable(ctx context.Context) error {
+	attempt := q.attempt()
+	reading, read, err := q.readMergeWait(ctx)
+	if err != nil {
+		return err
+	}
+	// A pass that could not ask GitHub what it is waiting on does not count
+	// toward the limit, as for a held merge (mergequeueforgewait.go).
+	if opened, asked := attempt.Mutation(runstate.MergeQueueOpenPullRequest); asked && opened.Settled != nil && (!read || reading.Unread == "") {
+		since := opened.Settled.At.Add(reading.UnreadFor)
+		q.outcome.ForgeHeldSince = &since
+	}
+	if err := q.readHeldChecks(ctx); err != nil {
+		return err
+	}
+	if read {
+		q.outcome.ForgeSays = reading.Says()
+		if q.outcome.Waiting != "" {
+			q.outcome.Waiting += "; " + q.outcome.ForgeSays
+		}
+	}
+	return nil
 }
 
 // refusedPaths is every path the attempt's candidate changes that the

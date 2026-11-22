@@ -157,9 +157,12 @@ func (d MergeQueueDriver) stuckAge() time.Duration {
 	return time.Duration(d.Promoter.Pipeline.Config.Triage.StuckMergeAge)
 }
 
-// heldTooLong reports a merge the forge has held past the limit. The limit
-// counts from when the harness asked the forge for the merge
-// (MergeQueuePromotion.ForgeHeldSince), which is only ever asked for the entry
+// heldTooLong reports a merge the forge has held past the limit, or a
+// candidate GitHub would not merge directly for that long
+// (MergeQueuePromotion.NotMergeable). The limit counts from when the harness
+// asked the forge for the merge, or opened the pull request of the candidate
+// it would not merge (MergeQueuePromotion.ForgeHeldSince), which is only ever
+// done for the entry
 // at the head of the queue, so the time an entry spent waiting behind others,
 // and having its own candidate checked and reviewed, never counts toward it.
 func (d MergeQueueDriver) heldTooLong(promoted MergeQueuePromotion) bool {
@@ -174,6 +177,12 @@ func (d MergeQueueDriver) heldTooLongReason(promoted MergeQueuePromotion) string
 	asked := *promoted.ForgeHeldSince
 	reason := fmt.Sprintf("the forge held its merge for %s after the harness asked for it at %s, longer than the %s a merge may be held (triage.stuck_merge_age)",
 		waitedFor(d.now().Sub(asked)), asked.Local().Format("2006-01-02 15:04 MST"), waitedFor(d.stuckAge()))
+	if promoted.NotMergeable {
+		// No merge was asked for: GitHub would not merge the pull request yet
+		// (mergeReadiness), and the wait counts from when it was opened.
+		reason = fmt.Sprintf("GitHub would not merge its pull request for %s after the harness opened it at %s to ask for the merge, longer than the %s a merge may wait (triage.stuck_merge_age), so no merge was asked for",
+			waitedFor(d.now().Sub(asked)), asked.Local().Format("2006-01-02 15:04 MST"), waitedFor(d.stuckAge()))
+	}
 	if joined := promoted.Entry.AdmittedAt; !joined.IsZero() && asked.After(joined) {
 		reason += fmt.Sprintf("; before that it was in the queue for %s, from when it joined at %s, waiting its turn and having its candidate checked and reviewed, and that time does not count toward the limit",
 			waitedFor(asked.Sub(joined)), joined.Local().Format("2006-01-02 15:04 MST"))

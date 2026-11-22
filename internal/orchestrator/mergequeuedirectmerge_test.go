@@ -9,6 +9,7 @@ package orchestrator
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -172,4 +173,67 @@ func TestTheQueueAsksForNoMergeGitHubWouldNotMakeNow(t *testing.T) {
 			t.Fatal("a merge was asked for, or the run charged, on a pull request behind main")
 		}
 	})
+}
+
+// A candidate GitHub would not merge directly has the limits a merge GitHub
+// holds has, so it never holds up the queue behind it without end: a check
+// that failed on the change withdraws it at once, and so does waiting past
+// triage.stuck_merge_age, counted from when its pull request was opened at the
+// head of the queue. No merge is asked for either way.
+func TestACandidateGitHubWouldNotMergeIsWithdrawnForAFailedCheck(t *testing.T) {
+	t.Parallel()
+
+	f := newDirectMergeFixture(t)
+	f.forge.MergeStatus = "BLOCKED"
+	withdrawer := &withdrawingForge{forge: f.forge.Forge}
+	f.promoter.Withdrawer = withdrawer
+	repair := &recordingRepair{}
+	f.promoter.Repair = repair
+	f.promoter.Checks = &heldChecks{f: f, reading: failingBuild(9001, "feature.txt"), log: queueTestLog}
+	f.verify()
+
+	pass := f.passAt(0)
+	if pass.Outcome != runstate.MergeQueuePassHandedBack || repair.count() != 1 {
+		t.Fatalf("Pass() = %#v, handed back %d; want the candidate withdrawn at once for its failed check", pass, repair.count())
+	}
+	if len(f.forge.MergeRequests()) != 0 || withdrawer.count() != 0 {
+		t.Fatalf("merges %#v, merges withdrawn %d; want nothing asked of GitHub, because no merge was asked for", f.forge.MergeRequests(), withdrawer.count())
+	}
+	reason := f.landing().Handback.Reason
+	for _, want := range []string{"withdrawn before any merge was asked for", "GitHub's checks on pull request"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("handback does not say %q:\n%s", want, reason)
+		}
+	}
+}
+
+func TestACandidateGitHubWouldNotMergeIsWithdrawnPastTheStuckMergeLimit(t *testing.T) {
+	t.Parallel()
+
+	f := newDirectMergeFixture(t)
+	f.forge.MergeStatus = "BLOCKED"
+	repair := &recordingRepair{}
+	f.promoter.Repair = repair
+	f.promoter.Withdrawer = &withdrawingForge{forge: f.forge.Forge}
+	f.verify()
+
+	// Half an hour in, within the one hour limit passAt sets, it waits.
+	pass := f.passAt(30 * time.Minute)
+	if pass.Outcome != runstate.MergeQueuePassWaiting || !strings.Contains(pass.Says, "BLOCKED") || f.landing().Handback != nil {
+		t.Fatalf("Pass() = %#v, want it waiting on GitHub within the limit", pass)
+	}
+	// An hour and a half in, it is withdrawn, saying how long GitHub would
+	// not merge it.
+	pass = f.passAt(90 * time.Minute)
+	if pass.Outcome != runstate.MergeQueuePassHandedBack || repair.count() != 1 {
+		t.Fatalf("Pass() = %#v, handed back %d; want the candidate withdrawn past the limit", pass, repair.count())
+	}
+	if len(f.forge.MergeRequests()) != 0 {
+		t.Fatalf("merges = %#v, want none asked for", f.forge.MergeRequests())
+	}
+	attempt, _ := f.landing().Current()
+	if attempt.SetAside == nil || !strings.Contains(attempt.SetAside.Reason, "GitHub would not merge its pull request for 1 hour 30 minutes after the harness opened it") ||
+		!strings.Contains(attempt.SetAside.Reason, "longer than the 1 hour a merge may wait") {
+		t.Fatalf("set aside = %#v, want how long GitHub would not merge it said in words", attempt.SetAside)
+	}
 }

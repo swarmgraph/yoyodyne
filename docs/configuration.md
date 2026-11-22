@@ -7493,7 +7493,9 @@ target is treated the same way. Just before asking, the queue also asks GitHub
 whether it would merge the pull request now; while it would not yet — a
 required check still running, or GitHub still working out whether the pull
 request can merge — nothing is asked for, and the next pass reads the target
-and the pull request again.
+and the pull request again. That wait has the same limits as a merge GitHub
+holds, described below, so a candidate GitHub never comes to merge does not
+hold up the entries behind it.
 
 **A failing candidate is the change's only where the target passes.** The queue
 runs no checks of the target's own, so a check that fails on a candidate is run
@@ -7517,7 +7519,11 @@ continuation moves the change onto the target and asks its developer to
 reconcile it. A handback no single run can take up goes on the development
 manager's docket. GitHub holds a candidate's merge only where a build from
 before the direct merge asked for it with merging when ready on, or where the
-entry was admitted to GitHub's own merge queue. While the forge holds a
+entry was admitted to GitHub's own merge queue. Everything this paragraph says
+about a merge the forge holds applies equally to a candidate GitHub would not
+yet merge directly, with the wait counted from when the queue opened its pull
+request at the head of the queue instead of from when a merge was asked for,
+and with no merge to take back when it is withdrawn. While the forge holds a
 candidate's merge, a check on the
 candidate's pull request that ended without judging the change — cancelled by
 its own time limit, out of time, or never started — is run again once, at once,

@@ -355,10 +355,18 @@ func (p MergeQueuePromoter) Withdraw(ctx context.Context, key runstate.MergeQueu
 	}
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
 	q.outcome.Entry = entry
+	what := "its queued merge was withdrawn: "
+	if attempt := q.attempt(); attempt != nil && attempt.SetAside == nil {
+		if _, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); !asked {
+			// A candidate GitHub would not merge directly had no merge asked for
+			// (mergeReadiness), so there was nothing queued to take back.
+			what = "it was withdrawn before any merge was asked for: "
+		}
+	}
 	if err := q.withdraw(ctx, reason); err != nil || !q.outcome.Withdrawn {
 		return q.result(), err
 	}
-	return q.result(), q.release("its queued merge was withdrawn: "+reason, "")
+	return q.result(), q.release(what+reason, "")
 }
 
 // release ends the turn of an entry whose merge was withdrawn for something
