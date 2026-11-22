@@ -1008,7 +1008,10 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		RedactValues: parts.redactValues,
 	}
 	return orchestrator.Reconciler{
-		Tracker:         parts.tracker(),
+		// A document run or a pinned-file run is recorded under a bookkeeping
+		// item the tracker does not hold, so every read or note a sweep makes
+		// for one is answered from the run's record, as the merge queue's is.
+		Tracker:         orchestrator.HarnessRunItems{WorkTracker: parts.tracker(), Runs: parts.store},
 		Children:        parts.tracker(),
 		Worktrees:       parts.worktrees,
 		Checkout:        parts.worktrees,
