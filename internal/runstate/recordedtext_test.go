@@ -747,6 +747,12 @@ func validStateCarrying(t *testing.T, key string) State {
 	case "landing_impediment_problem":
 		state.LandingOutcome = LandingEvidence
 		state.LandingReason = "the work is not doable yet"
+	case "preserved_work_note_undeliverable":
+		swept := state.UpdatedAt
+		state.Integration = nil
+		state.WorktreeRemoved = true
+		state.WorktreeSweptAt = &swept
+		state.PreservedWorkRef = "refs/yoyodyne/preserved-work/" + state.RunID
 	}
 	return state
 }

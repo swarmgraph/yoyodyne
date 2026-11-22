@@ -105,6 +105,7 @@ type CarryOutDecisions interface {
 	RecordCarryOutUnattempted(ctx context.Context, workItemID string, unattempted runstate.TriageCarryOut, at time.Time) (runstate.TriageCounters, error)
 	ClearCarryOut(ctx context.Context, workItemID, runID string, at time.Time) (runstate.TriageCounters, error)
 	DeliverCarryOutNotes(ctx context.Context, workItemID string, at time.Time, deliver func(context.Context, string) error) error
+	SetAsideCarryOutNotes(ctx context.Context, workItemID, reason string, at time.Time) error
 }
 
 // CarryOutReruns is what the harness has already claimed of the re-run decisions.
@@ -1744,7 +1745,7 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	if err == nil && carried.Cause != "" && c.Notes != nil {
 		noting, stopNoting := trackerRecordContext(ctx)
 		defer stopNoting()
-		if noteErr := c.deliverItemNotes(noting, task.WorkItemID); noteErr != nil {
+		if noteErr := c.deliverItemNotes(noting, task.WorkItemID, onceRecorded(c.Runs)); noteErr != nil {
 			carried.RecordProblem = fmt.Sprintf("the permanent refusal is on the triage record but could not be appended to the item's notes; its note remains pending for a later pull: %v", noteErr)
 		}
 	}
@@ -1774,7 +1775,8 @@ func (c CarryOut) DeliverNotes(ctx context.Context) error {
 	}
 	// A refusal of a decision about a run the docket never held is written onto
 	// an item that may have no entry at all, so its note is retried from the runs.
-	recordedItems, err := c.itemsWithRuns(onceRecorded(c.Runs))
+	history := onceRecorded(c.Runs)
+	recordedItems, err := c.itemsWithRuns(history)
 	if err != nil {
 		problems = append(problems, err)
 	}
@@ -1784,7 +1786,7 @@ func (c CarryOut) DeliverNotes(ctx context.Context) error {
 			continue
 		}
 		seen[workItemID] = true
-		if err := c.deliverItemNotes(ctx, workItemID); err != nil {
+		if err := c.deliverItemNotes(ctx, workItemID, history); err != nil {
 			problems = append(problems, fmt.Errorf("deliver pending carry-out notes on %s: %w", workItemID, err))
 		}
 	}
@@ -1856,18 +1858,54 @@ func (c CarryOut) itemsWithRuns(history func() ([]runstate.State, error)) ([]str
 	return workItems, nil
 }
 
-func (c CarryOut) deliverItemNotes(ctx context.Context, workItemID string) error {
+// deliverItemNotes writes the notes pending on one record onto the work item
+// they are for. A record kept under a run's bookkeeping item — a document run's
+// own run identifier, or a pinned file's landing item — is one the tracker does
+// not hold, so its notes go onto the item the run's record names
+// (runNoteTarget) and the tracker is never asked about the bookkeeping id. Where
+// the run is for no work item, or is no longer on record, the notes are set
+// aside once with the reason, so no later pull tries them again.
+func (c CarryOut) deliverItemNotes(ctx context.Context, workItemID string, history func() ([]runstate.State, error)) error {
+	target := workItemID
+	if runID, ours := runOfItem(workItemID); ours {
+		var reason string
+		var err error
+		target, reason, err = recordedRunNoteTarget(workItemID, runID, history)
+		if err != nil {
+			return err
+		}
+		if target == "" {
+			return c.Decisions.SetAsideCarryOutNotes(ctx, workItemID, reason+", so the note has no work item to go on", c.now())
+		}
+	}
 	return c.Decisions.DeliverCarryOutNotes(ctx, workItemID, c.now(), func(ctx context.Context, note string) error {
-		item, err := c.Notes.Show(ctx, workItemID)
+		item, err := c.Notes.Show(ctx, target)
 		if err != nil {
 			return err
 		}
 		if strings.Contains(item.Notes, note) {
 			return nil
 		}
-		_, err = c.Notes.RecordOutcome(ctx, workItemID, note)
+		_, err = c.Notes.RecordOutcome(ctx, target, note)
 		return err
 	})
+}
+
+// recordedRunNoteTarget finds the run behind a bookkeeping item among the
+// recorded runs and names the work item its notes go onto, or the reason there
+// is none.
+func recordedRunNoteTarget(workItemID, runID string, history func() ([]runstate.State, error)) (string, string, error) {
+	recorded, err := history()
+	if err != nil {
+		return "", "", err
+	}
+	for _, state := range recorded {
+		if state.RunID == runID {
+			target, reason := runNoteTarget(state, workItemID)
+			return target, reason, nil
+		}
+	}
+	return "", fmt.Sprintf("run %s is no longer on record, so nothing names the work item %s was for", runID, workItemID), nil
 }
 
 // itemsInFlight names the work items with a run going. A decision about an item
