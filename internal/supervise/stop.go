@@ -34,11 +34,12 @@ const StopGrace = shutdown.Grace + 30*time.Second
 // stopInterval is how often the lease is asked again while waiting.
 const stopInterval = 250 * time.Millisecond
 
-// lookProcess and collect are the operating system's answers, replaceable so a
+// lookProcess, collect and forceKill are the operating system's answers, replaceable so a
 // test drives a stop against a process table it controls.
 var (
 	lookProcess = runstate.LookProcess
 	collect     = reap
+	forceKill   = killTree
 )
 
 // StopHolder asks the process holding a lease to stop, waits for the lease to
@@ -47,6 +48,41 @@ var (
 // the process is stopping on its own schedule; what the caller cannot say is
 // that it has stopped.
 func StopHolder(ctx context.Context, pid int, held func() (bool, error)) (Stopped, error) {
+	return stopHolder(ctx, pid, held, StopGrace, nil)
+}
+
+// ForceWait bounds how long a forced stop waits for the killed process to let
+// go of its lease and leave. A killed process cannot delay its end, so this is
+// the operating system's time to release what it held and nothing more.
+const ForceWait = 30 * time.Second
+
+// Settle is what a forced stop does once the killed process is gone and before
+// the stop returns: what the process could not do for itself because it was
+// killed, such as recording a stop on the runs it was working. forced is the
+// process as it was read before it was asked to stop, and at is when it was
+// killed. What it returns is said on the stop, after what the stop did.
+type Settle func(ctx context.Context, pid int, forced runstate.ProcessLook, at time.Time) (string, error)
+
+// StopHolderForcing is StopHolder for a child that must not be left stopping on
+// its own schedule: the scheduler, whose lease is what every build move waits
+// on, so a scheduler that hangs while stopping would hold the product on the
+// old build with nothing anybody could do about it. Where the process is still
+// there when the wait runs out, it is killed with everything it started, and
+// settle is run once it is gone. A wait cut short by ctx forces nothing.
+func StopHolderForcing(ctx context.Context, pid int, held func() (bool, error), settle Settle) (Stopped, error) {
+	return stopHolder(ctx, pid, held, StopGrace, &forcing{kill: forceKill, wait: ForceWait, settle: settle})
+}
+
+// forcing is how a stop whose wait ran out ends the process: kill ends it and
+// what it started, wait bounds the time it is then given to be gone, and settle
+// is run once it is.
+type forcing struct {
+	kill   func(pid int) error
+	wait   time.Duration
+	settle Settle
+}
+
+func stopHolder(ctx context.Context, pid int, held func() (bool, error), grace time.Duration, force *forcing) (Stopped, error) {
 	if pid <= 0 {
 		return Stopped{}, fmt.Errorf("the record names no process to stop")
 	}
@@ -57,7 +93,7 @@ func StopHolder(ctx context.Context, pid int, held func() (bool, error)) (Stoppe
 		return Stopped{}, fmt.Errorf("ask pid %d to stop: %w", pid, err)
 	}
 	stopped := Stopped{WasRunning: true, PID: pid}
-	deadline := time.Now().Add(StopGrace)
+	deadline := time.Now().Add(grace)
 	for {
 		holding, err := held()
 		if err != nil {
@@ -67,7 +103,10 @@ func StopHolder(ctx context.Context, pid int, held func() (bool, error)) (Stoppe
 			break
 		}
 		if time.Now().After(deadline) {
-			stopped.Detail = fmt.Sprintf("it was still holding its lease %s after being asked to stop, so it is stopping on its own schedule", StopGrace)
+			if force != nil {
+				return force.end(ctx, stopped, before, held, fmt.Sprintf("it was still holding its lease %s after being asked to stop", grace))
+			}
+			stopped.Detail = fmt.Sprintf("it was still holding its lease %s after being asked to stop, so it is stopping on its own schedule", grace)
 			return stopped, nil
 		}
 		if !pause(ctx) {
@@ -80,7 +119,10 @@ func StopHolder(ctx context.Context, pid int, held func() (bool, error)) (Stoppe
 			return stopped, nil
 		}
 		if time.Now().After(deadline) {
-			stopped.Detail = fmt.Sprintf("it let go of its lease and was still running %s after being asked to stop, so it is stopping on its own schedule", StopGrace)
+			if force != nil {
+				return force.end(ctx, stopped, before, held, fmt.Sprintf("it let go of its lease and was still running %s after being asked to stop", grace))
+			}
+			stopped.Detail = fmt.Sprintf("it let go of its lease and was still running %s after being asked to stop, so it is stopping on its own schedule", grace)
 			return stopped, nil
 		}
 		if !pause(ctx) {
@@ -88,6 +130,50 @@ func StopHolder(ctx context.Context, pid int, held func() (bool, error)) (Stoppe
 			return stopped, nil
 		}
 	}
+}
+
+// end kills a process that did not stop when asked, waits within the force's
+// bound for it to let go of its lease and leave, and settles what it left. The
+// stop is reported as forced, with when and why, whatever settle then says; a
+// process still there after the kill's own wait is said in the detail, and the
+// caller starts nothing in its place.
+func (f *forcing) end(ctx context.Context, stopped Stopped, before runstate.ProcessLook, held func() (bool, error), why string) (Stopped, error) {
+	pid := stopped.PID
+	at := time.Now()
+	if err := f.kill(pid); err != nil {
+		stopped.Detail = fmt.Sprintf("%s, and it could not be forced to stop: %v; it is asked again at the next look", why, err)
+		return stopped, nil
+	}
+	stopped.ForcedAt = at
+	stopped.Forced = fmt.Sprintf("%s, so the supervisor forced it and everything it had started to stop at %s", why, at.Local().Format("2006-01-02 15:04:05 MST"))
+	deadline := at.Add(f.wait)
+	for {
+		holding, err := held()
+		if err != nil {
+			return stopped, fmt.Errorf("ask whether pid %d has let go of its lease after it was forced to stop: %w", pid, err)
+		}
+		if !holding && gone(pid, before) {
+			break
+		}
+		if time.Now().After(deadline) {
+			stopped.Detail = fmt.Sprintf("it was forced to stop and was still there %s later, so nothing is started in its place until it is gone", f.wait)
+			return stopped, nil
+		}
+		// A context already cancelled must not cut this short: the process has
+		// been killed, and what it left has to be settled before anything takes
+		// its place. The wait is bounded by the force's own deadline instead.
+		time.Sleep(stopInterval)
+	}
+	if f.settle != nil {
+		said, err := f.settle(context.WithoutCancel(ctx), pid, before, at)
+		if said != "" {
+			stopped.Forced += "; " + said
+		}
+		if err != nil {
+			return stopped, fmt.Errorf("settle what pid %d left when it was forced to stop: %w", pid, err)
+		}
+	}
+	return stopped, nil
 }
 
 // gone reports whether the process asked to stop has left: nothing has its
