@@ -1306,13 +1306,39 @@ type PathRefusal struct {
 	// a grant that named the path differently, and a reader with only one half of
 	// that cannot see it.
 	Grants []string `json:"grants,omitempty"`
+	// Intake names what the change did to the intake section of a configuration
+	// file it was granted: one entry for each setting that differs from the run's
+	// base, or one saying why the section could not be compared. A file refused
+	// only for this is among Paths too, because it is a file the change has to
+	// put back; this says which part of it, since no grant would have admitted
+	// that part (protectedpath.IntakeChanges).
+	Intake []string `json:"intake,omitempty"`
 }
+
+// MaxIntakeSettings bounds how many intake settings a refusal carries, and
+// MaxIntakeSettingBytes how long one entry may be, for the reason the refused
+// paths are bounded.
+const (
+	MaxIntakeSettings     = 20
+	MaxIntakeSettingBytes = 1 << 10
+)
 
 // Validate reports every contract violation in the recorded refusal at once.
 func (p PathRefusal) Validate() error {
 	var problems []error
 	if len(p.Paths) == 0 {
 		problems = append(problems, errors.New("at least one refused path is required"))
+	}
+	if len(p.Intake) > MaxIntakeSettings {
+		problems = append(problems, fmt.Errorf("%d intake settings are recorded, which exceeds the bound of %d", len(p.Intake), MaxIntakeSettings))
+	}
+	for index, setting := range p.Intake {
+		if strings.TrimSpace(setting) == "" {
+			problems = append(problems, fmt.Errorf("intake[%d] is empty", index))
+		}
+		if len(setting) > MaxIntakeSettingBytes {
+			problems = append(problems, fmt.Errorf("intake[%d] is %d bytes, which exceeds the bound of %d", index, len(setting), MaxIntakeSettingBytes))
+		}
 	}
 	if len(p.Paths) > MaxRefusedPaths {
 		problems = append(problems, fmt.Errorf("%d refused paths are recorded, which exceeds the bound of %d", len(p.Paths), MaxRefusedPaths))
@@ -2328,6 +2354,11 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	if s.Readopted != nil {
 		nested("readopted.cut_off", "readopted.cut_off", &s.Readopted.CutOff, MaxRedeployCutOffBytes)
+	}
+	if s.PathRefusal != nil {
+		for index := range s.PathRefusal.Intake {
+			nested("path_refusal.intake[]", fmt.Sprintf("path_refusal.intake[%d]", index), &s.PathRefusal.Intake[index], MaxIntakeSettingBytes)
+		}
 	}
 	if s.Subagents != nil {
 		unstated("subagents.unavailable", "subagents.unavailable", &s.Subagents.Unavailable, MaxRecordedTextBytes)

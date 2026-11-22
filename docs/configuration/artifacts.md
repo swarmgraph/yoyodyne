@@ -743,6 +743,24 @@ case-insensitive filesystem `.yoyodyne/Roles/` is the same directory. A person
 changes a role definition by hand, and the operator's activation is what makes
 it effective.
 
+**The `intake` section of the configuration is beyond a grant too, though the
+file around it is not.** It says where the harness reads messages from, which
+rules decide what they start, and who is asked about them, and it is the
+operator's alone ([scheduled message intake](../designs/scheduled-message-intake.md),
+section 1). A grant of `.yoyodyne/config.yaml` or of `.yoyodyne` still lets a run
+change the file's other settings. Wherever the change touches that file (or the
+older `.yoyodyne.yaml`), the harness reads the `intake` section from the copy at
+the run's base commit and from the copy in the change, as configuration rather
+than as lines of text, and refuses the change where the two differ, before any
+check runs and before a reviewer sees it. So reformatting or reordering the file
+is not refused, and an `intake: {}` is the same as no section. The refusal names
+the file and what changed in the section, down to the query, such as
+`intake.queries.slack-bugs`, and says no grant settles it. It goes back to the
+developer in the same repair loop as any other refused path. A copy that cannot
+be read as configuration, or that is a link rather than an ordinary file, is
+refused too, because its section cannot be shown to be unchanged. The operator
+changes `intake` by editing the file himself.
+
 **And once more, where all four fields are read.** Those three doors carry an
 item's title and description; a grant is honoured from its design guidance and
 acceptance criteria too, and nothing in the harness writes either of those — they
