@@ -389,6 +389,11 @@ approvals:
   # broken --message proposal decision (ifd.120), had wedged admission
   # entirely on 2026-08-20.
   work_items: automatic
+  # Opted in at the operator's direction of 2026-11-22 ("Yes, cut
+  # automatically"): the supervisor's maintenance pass cuts a release the Lead
+  # Product Manager has decided, and pushes its tag, once the release item's
+  # reviewed run has landed the notes and their readiness stamp.
+  releases: automatic
 
 # Checks are this project's own. Each entry is run through "/bin/sh -c" in the
 # run's worktree, so shell syntax works. A check must be non-interactive and
