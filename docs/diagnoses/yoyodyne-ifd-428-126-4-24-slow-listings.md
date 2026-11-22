@@ -323,3 +323,95 @@ harness's tracker calls in the hours measured.
 Whether every listing of open or ready work then stays within 10 seconds for
 a full hour of ordinary work, with developer runs loading the machine, needs a
 build carrying this running on the live factory, and is recorded after that.
+
+## After the fifth fix: listings waited twice, and every call paid for the store's journal
+
+The fifth fix landed at 07:55 on November 21 (pull request #2457). With
+developer runs working again after 09:08, the limits step still found 32 of
+180 listings over 10 seconds in the hour to 10:33, and 43 of 144 in the hour to
+10:48. The call records from 09:00 to 13:30, with the store at 250 to 280 MB,
+show where a listing's time went:
+
+| Listing | Listings | Over 10s | Mean wait for its turn | Mean run | Over-bound: wait, run |
+| --- | --- | --- | --- | --- | --- |
+| items not closed | 320 | 96 | 9.2s | 3.3s | 27.0s, 7.4s |
+| items ready to start | 202 | 71 | 11.9s | 3.6s | 29.8s, 7.8s |
+
+Four fifths of an over-bound listing's time was spent waiting before bd
+started. The harness's calls kept the line busy for 2,500 to 3,000 seconds of
+every hour, three quarters of it or more, at 700 to 1,200 calls an hour.
+
+Two things made that wait long.
+
+**Listings waited twice.** A listing took a lock shared by every listing
+(`listings.lock`, from before the line) and held it while it waited for its
+turn in the line. A second listing could not join the line until the first had
+waited and run, and then waited its own turn from the back. Listings waited
+about three times as long as other calls: a mean of 8 to 9 seconds against 3
+to 4, and a 90th percentile of 21 to 26 seconds against 5 to 8.
+
+**Every call paid for the store's journal.** Dolt writes each change to a
+journal file beside the store, and the cleanup (`bd gc`) folds it into the
+store's tables. While a journal exists, every bd process, a read included,
+rewrites the journal, its index and the store's manifest when it opens the
+store, and the time goes waiting on the disk rather than computing: a read
+used 0.12 seconds of processor time in 1.9 seconds. Timed on a copy of the live
+store taken at 13:32 (266 MB, a 103 MB journal from nine hours of writes since
+the 04:13 cleanup), on the machine while developer runs used it, each figure the
+range over several runs taken in turn:
+
+| The copy | One-item read | Listing not closed | Ready listing |
+| --- | --- | --- | --- |
+| as taken, 103 MB journal | 1.4 to 3.6s | 1.8 to 2.9s | 1.2 to 1.5s |
+| cleaned up, then 60 writes (2.8 MB journal) | 0.8 to 3.1s | 0.8 to 2.3s | 0.9 to 1.4s |
+| cleaned up, then one write | 0.6 to 1.2s | | |
+| cleaned up, no journal | 0.12 to 0.29s | 0.20 to 0.33s | 0.19s |
+
+So a store with any journal costs every call several times what one without
+costs, and the harness writes to the store every few minutes, so it nearly
+always has one. In the hours from 02:00 to 05:00, with no developers working,
+the median call took 0.4 to 0.5 seconds; with developers loading the disk it
+took 1 to 2 seconds, and the line filled.
+
+The calls still run to the two-minute limit sometimes, and those stop the line
+behind them: each of the 12 slow-call records from 09:00 to 13:30 names a
+`bd --sandbox` process from outside the harness holding the store.
+
+Separately, the landing sweep was still writing yoyodyne-ifd.437.82 three times
+a pull. It waits on yoyodyne-ifd.436.15, which a run had claimed, and the pull
+reads items with listings, which name a blocker without its status, while the
+queue counts only admitted work as unfinished, so the fifth fix's check missed a
+blocker already in progress.
+
+## The sixth fix
+
+A client whose calls wait in the line takes no listing lock
+(`Client.runLocked`, `internal/beads/listingshare.go`): a listing joins the
+line as soon as it is asked, in the order it asked, like every other call. The
+line already lets one of the harness's bd processes into the store at a time.
+A client whose calls do not wait in the line still takes the lock.
+
+The landing sweep counts every item the pull read that is not closed, the
+claimed ones included, as unfinished work when it reads what an item waits on
+(`landingWaitsOn`, `internal/orchestrator/conversationlanding.go`).
+
+The line was checked on two copies of the store taken at 13:32, each with its
+103 MB journal: the client before the change on one and after it on the other,
+run side by side for eight minutes so both saw the same load on the machine,
+each with four processes reading one item every 12 seconds and three listing
+every 30 seconds, about the live mix:
+
+| Eight minutes | Listings over 10s | 90th percentile | Slowest |
+| --- | --- | --- | --- |
+| before, items not closed | 5 of 24 | 24.3s | 45.5s |
+| after, items not closed | 5 of 24 | 20.4s | 33.2s |
+| before, ready | 5 of 21 | 35.0s | 77.8s |
+| after, ready | 5 of 24 | 21.6s | 35.5s |
+
+The change shortens the longest waits but does not bring listings within 10
+seconds while every call pays for the journal: the line stays nearly full. That
+needs the store opened once rather than by every call, as bd's server mode does,
+or a bd that does not rewrite the journal on every read. Moving the live store
+to server mode is the open question in the design on keeping the store small
+(docs/designs/tracker-store-size.md), and it needs a `dolt` binary this machine
+does not have, so it was not measured here.
