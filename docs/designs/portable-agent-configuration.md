@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-21T23:50:39.067914Z
       reason: Section 8 of the factory cost design says these seven settings join the values the development manager decides, in a revision of this section. This adds them to the table with their bounds, and says removing the reading helper from one agent stays the operator's. The rest of the subsection is unchanged. Written from a read at main fe2db3d373d6.
+    - action: amended
+      by: architect
+      at: 2026-11-22T02:55:59.582843Z
+      reason: 'Brings the table into line with the key list held in internal/config/roleapply.go (read at a8810f34): adds main_checks, the check intervals and an agent''s time_limits, rules those and the program manager trigger keys as the only keys under a named agent a role may apply, holds full_pass_every to 1 to 12 hours as the factory cost design''s section 8 now says, and states what is built: the list and refusal exist, called only by tests; the typed write is not built.'
 approvals:
     - policy: approvals.designs
       revision: 3
@@ -55,6 +59,11 @@ approvals:
       by: harness
       at: 2026-11-21T23:50:39.067914Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3355, for document-3355.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-22T02:55:59.582843Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3372, for document-3372.1 under the automatic approval policy
 ---
 # Portable agent configuration
 
@@ -331,24 +340,32 @@ may do it. These are those values, and the role that decides each:
 
 | Values | Who decides |
 | --- | --- |
-| `checks` and `landing_checks`, including how a check's scope is narrowed | the development manager |
+| `checks`, `landing_checks` and `main_checks`, including how a check's scope is narrowed | the development manager |
 | `developer_models` and `developer_slots` | the development manager |
 | the schedule and model of a recurring task, where the model may name a kind of model | the development manager |
-| numeric limits, such as retries before reconciliation and check time limits | the development manager |
+| numeric limits, such as retries before reconciliation, check time limits, and how often the harness checks GitHub and main | the development manager |
+| `time_limits` on an agent: how long its turns and calls may take | the development manager, with each value held to its range |
 | `model_kinds`: which of each provider's models is the stronger, the cheaper and the lightest | the development manager |
 | `reviewer_models`: the kind of model that reviews documents and the kind that reviews code | the development manager |
 | `developer_cheaper_first`: whether developers start on the cheaper model, and which items are eligible | the development manager |
 | `high_risk_labels`: which labels mark work that never runs on the cheaper model | the development manager, who may add labels and kinds and never remove the four fixed kinds |
-| `skip_when_unchanged` and `full_pass_every` on each recurring task | the development manager, with `full_pass_every` held between 1 hour and 24 hours |
+| `skip_when_unchanged` and `full_pass_every` on each recurring task and on each program manager instance's scheduled trigger | the development manager, with `full_pass_every` held between 1 hour and 12 hours |
 | `repository_ask`: the reading helper's model kind, answer limit and time limit | the development manager, with the answer limit held between 1 KiB and 16 KiB |
 
-The seven cost settings in the last six rows come from section 8 of
+The seven cost settings come from section 8 of
 [reducing what the factory costs](reducing-what-the-factory-costs.md), which
 gives each its default and the reason it is shaped as it is. Their bounds, and
 the four high risk kinds that cannot be removed, are held in Go, so a write
 outside them is refused before anything is prepared, naming the key and the
 bound. Taking the reading helper away from one agent is `tools: deny` in that
-agent's block, which names an agent and so stays the operator's, as below.
+agent's block, which stays the operator's, as below.
+
+Two rows name a key under a named agent or instance: an agent's `time_limits`,
+and the two pass settings on a program manager instance's scheduled trigger.
+These are the only such keys a role may apply. Each changes how long or how
+often work runs and never what the agent or instance may do, so the rule below
+refusing values that name an agent does not reach them, and it reaches every
+other key under an agent or instance.
 
 A program manager may propose a value for its own lane, in its lane report or as
 a proposal to the development manager, and never applies one. The Lead Product
@@ -366,6 +383,19 @@ role's behalf and which tools each agent may ask for, as
 [scheduled message intake](scheduled-message-intake.md) says. The refusal names
 the key and says the value stays the operator's. The list of applicable keys is
 held in Go beside the role contracts, so configuration can never widen it.
+
+**What is built.** The list of keys a role may apply, and the refusal of every
+other key with its reason, are built: `RoleMayApply` and its list in
+`internal/config/roleapply.go`. Only tests call it. The list does not yet hold
+the seven cost settings or the program manager trigger keys; each is added with
+the build piece that adds the setting. The typed write a role makes, the
+reviewed path below that carries a value to the committed file, and what drift
+and doctor say about a value a role applied are not built. Until they are, the
+development manager applies a value by a reviewed change to
+`.yoyodyne/config.yaml`, made by a developer run admitted for it whose work
+item grants that one file, and the change goes through the configured checks
+and the independent reviewer like any other. A grant of that file never reaches
+the `intake` section, as scheduled message intake says.
 
 ### The write a role makes
 
