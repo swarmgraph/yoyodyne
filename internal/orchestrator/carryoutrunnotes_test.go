@@ -295,3 +295,56 @@ func TestTheRunItemsTrackerStillListsClosedItemsInOneRead(t *testing.T) {
 		t.Fatalf("listed %d times, asked %v; want one listing and no single reads", base.lists, base.runNoteTracker.asked)
 	}
 }
+
+type capableTracker struct {
+	noteWorkTracker
+	prefetched, statused []string
+	waits                []string
+}
+
+func (c *capableTracker) PrefetchItems(_ context.Context, ids []string) func() {
+	c.prefetched = append(c.prefetched, ids...)
+	return func() {}
+}
+
+func (c *capableTracker) Statuses(_ context.Context, ids []string) (map[string]string, error) {
+	c.statused = append(c.statused, ids...)
+	out := map[string]string{}
+	for _, id := range ids {
+		out[id] = "open"
+	}
+	return out, nil
+}
+
+func (c *capableTracker) RecordSchedulingWait(_ context.Context, id, _, _ string, _ time.Time) (beads.WorkItem, error) {
+	c.waits = append(c.waits, id)
+	return beads.WorkItem{ID: id}, nil
+}
+
+// The tracker the reconciler is given keeps every optional ability of the
+// tracker it wraps, so the sweep's batched reads and scheduling-reason clears
+// still reach it, and a run identifier never does.
+func TestTheRunItemsTrackerKeepsTheWrappedTrackersAbilities(t *testing.T) {
+	t.Parallel()
+	base := &capableTracker{noteWorkTracker: noteWorkTracker{runNoteTracker: &runNoteTracker{}}}
+	state := documentNoteRun("yoyodyne-ifd.905")
+	reconciler := Reconciler{Tracker: HarnessRunItems{WorkTracker: base, Runs: loadedRuns{state}}}
+	other := runstate.State{RunID: "run-aaaa0000111122223333444455556666", WorkItemID: "yoyodyne-ifd.906"}
+	reconciler.prefetchItems(context.Background(), []runstate.State{other})()
+	if len(base.prefetched) != 1 || base.prefetched[0] != "yoyodyne-ifd.906" {
+		t.Fatalf("prefetched %v, want the one work item", base.prefetched)
+	}
+	got, err := itemStatuses(context.Background(), reconciler.Tracker, []string{"yoyodyne-ifd.906", "yoyodyne-ifd.907", documentNoteRunID})
+	if err != nil || got["yoyodyne-ifd.906"] != "open" || got[documentNoteRunID] == "" {
+		t.Fatalf("itemStatuses() = %v, %v", got, err)
+	}
+	if len(base.statused) != 2 {
+		t.Fatalf("batched read asked for %v, want the two work items in one call", base.statused)
+	}
+	if err := recordSchedulingWait(context.Background(), reconciler.Tracker, "yoyodyne-ifd.906", "", "waiting", time.Now()); err != nil || len(base.waits) != 1 {
+		t.Fatalf("scheduling wait recorded %v, %v; want one record on the work item", base.waits, err)
+	}
+	if err := recordSchedulingWait(context.Background(), reconciler.Tracker, documentNoteRunID, "", "waiting", time.Now()); err != nil || len(base.waits) != 1 {
+		t.Fatalf("a run identifier reached the tracker: %v, %v", base.waits, err)
+	}
+}
