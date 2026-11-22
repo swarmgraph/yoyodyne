@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-11-22T02:55:59.582843Z
       reason: 'Brings the table into line with the key list held in internal/config/roleapply.go (read at a8810f34): adds main_checks, the check intervals and an agent''s time_limits, rules those and the program manager trigger keys as the only keys under a named agent a role may apply, holds full_pass_every to 1 to 12 hours as the factory cost design''s section 8 now says, and states what is built: the list and refusal exist, called only by tests; the typed write is not built.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T03:43:45.260074Z
+      reason: 'Section 3 described yoyo config materialize and extract without saying they are not built. Read at main 3220fd777: internal/cli/drift_test.go exercises yoyo init and yoyo config baseline as the only writers of config.lock, and no test exercises materialize or extract. The section now says so, names the manual steps as the way until they are built, and keeps their design unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 3
@@ -64,6 +68,11 @@ approvals:
       by: harness
       at: 2026-11-22T02:55:59.582843Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3372, for document-3372.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-22T03:43:45.260074Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3391, for document-3391.1 under the automatic approval policy
 ---
 # Portable agent configuration
 
@@ -226,6 +235,17 @@ identity. Until it is committed, runs refuse to start over the uncommitted
 change, the same rule the [artifact contract](artifact-contract.md) keeps for a
 project that cannot land a document through a reviewed run. A value a role
 applies never takes this path: it lands through the reviewed run of section 6.
+
+**What is built.** Neither command is built. Until they are, the manual steps
+in the configuration guide linked above are how a project moves from an
+inheriting configuration to an explicit one, and nothing moves one the other
+way. `yoyo init` still writes a complete explicit file, and it writes the
+baseline of section 4 beside it. The only other command that writes that
+baseline is `yoyo config baseline`, described in section 4, which writes the
+baseline file and nothing else. The tests in `internal/cli/drift_test.go` hold
+those two writers; no test exercises `materialize` or `extract`, because
+neither exists. Each is built as a piece of its own, and its tests assert the
+criterion above.
 
 ## 4. How a bundle improvement reaches a project that materialized
 
