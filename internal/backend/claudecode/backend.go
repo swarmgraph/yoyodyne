@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -417,7 +418,8 @@ const stableSystemPromptFlag = "--exclude-dynamic-system-prompt-sections"
 // operator's messages, and every recurring turn starts a new session whose
 // instructions block, which ends with the unchanging part of the product
 // briefing (internal/chat/passcontext.go), is read from the cache the role's
-// previous turn wrote. Those turns come about 45 minutes apart, so a lifetime of
+// previous turn wrote, as is the opening of its message where it is unchanged
+// (promptInput). Those turns come about 45 minutes apart, so a lifetime of
 // five minutes would expire before the next could read it. It is set rather
 // than left to the provider because the provider's choice is an hour only on a
 // subscription.
@@ -438,6 +440,77 @@ func conversationRole(role domain.AgentRole) bool {
 // with no session to resume, by the contract in internal/review.
 func singleTurnRole(role domain.AgentRole) bool {
 	return role == domain.RoleReviewer
+}
+
+// promptCacheLifetimeFor is the lifetime an invocation for role is given, and
+// empty where the provider keeps its own choice.
+func promptCacheLifetimeFor(role domain.AgentRole) string {
+	switch {
+	case singleTurnRole(role):
+		return singleTurnCacheLifetime
+	case conversationRole(role):
+		return conversationCacheLifetime
+	}
+	return ""
+}
+
+// promptInput is what an invocation writes to the provider's standard input,
+// and the arguments that say how to read it.
+//
+// Claude Code reads a plain prompt as one block of one message, and marks the
+// end of the last message for its provider to cache. A recurring turn's message
+// opens with the part of its briefing that is the same from one turn to the
+// next and ends with what is not (internal/chat/passcontext.go), so with one
+// block the opening was written into the cache afresh every turn and never read
+// back. Where the request names an opening (CachedPromptBytes), the message is
+// sent as Claude Code's stream-json input instead: one user message of two text
+// blocks, the first being that opening and carrying its own cache marker. Claude
+// Code passes a marker on a block it is given through unchanged, keeps it on the
+// message when the session is resumed, and marks the end of the last message as
+// before, which is four markers with the two it puts on the instructions — the
+// provider's limit — and the run's output is the same stream either way. That was
+// established against Claude Code 2.1.322 by recording the requests it sent to a
+// stand-in for the provider.
+//
+// The marker carries the lifetime the invocation's other markers are given,
+// because the provider refuses a request whose markers of an hour follow one of
+// five minutes, and a marker with no lifetime is five minutes. An invocation
+// whose lifetime this adapter does not set — the developer's — is sent the plain
+// prompt, since its markers' lifetime is the provider's choice and not known
+// here.
+func promptInput(request backend.RunRequest) (stdin string, args []string, err error) {
+	opening := request.CachedPromptBytes
+	lifetime := promptCacheLifetimeFor(request.Role)
+	// An opening that does not end on a whole character would be sent changed,
+	// so it is sent plain.
+	if opening <= 0 || opening >= len(request.Prompt) || lifetime == "" || !utf8.RuneStart(request.Prompt[opening]) {
+		return request.Prompt, nil, nil
+	}
+	type cacheControl struct {
+		Type string `json:"type"`
+		TTL  string `json:"ttl"`
+	}
+	type textBlock struct {
+		Type         string        `json:"type"`
+		Text         string        `json:"text"`
+		CacheControl *cacheControl `json:"cache_control,omitempty"`
+	}
+	type message struct {
+		Role    string      `json:"role"`
+		Content []textBlock `json:"content"`
+	}
+	type userLine struct {
+		Type    string  `json:"type"`
+		Message message `json:"message"`
+	}
+	line, err := json.Marshal(userLine{Type: "user", Message: message{Role: "user", Content: []textBlock{
+		{Type: "text", Text: request.Prompt[:opening], CacheControl: &cacheControl{Type: "ephemeral", TTL: lifetime}},
+		{Type: "text", Text: request.Prompt[opening:]},
+	}}})
+	if err != nil {
+		return "", nil, fmt.Errorf("compose the message Claude Code reads from its standard input: %w", err)
+	}
+	return string(line) + "\n", []string{"--input-format", "stream-json"}, nil
 }
 
 // withPromptCacheLifetime sets the lifetime on an invocation's environment,
@@ -776,6 +849,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		"--name", "yoyodyne-" + shortRunID(request.RunID),
 		"--settings", settings,
 	}
+	stdin, inputArgs, err := promptInput(request)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	args = append(args, inputArgs...)
 	args = append(args, contextArgs(!readOnly)...)
 	if readOnly {
 		// Repository instruction files are evidence, not harness policy. Safe
@@ -856,11 +934,8 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// shell this agent opens. It is under the harness's own family, which the
 	// allowlist carries through to everything the agent goes on to start.
 	environment := execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role)
-	switch {
-	case singleTurnRole(request.Role):
-		environment = withPromptCacheLifetime(environment, singleTurnCacheLifetime)
-	case conversationRole(request.Role):
-		environment = withPromptCacheLifetime(environment, conversationCacheLifetime)
+	if lifetime := promptCacheLifetimeFor(request.Role); lifetime != "" {
+		environment = withPromptCacheLifetime(environment, lifetime)
 	}
 	if subagent != "" {
 		environment = withSubagentEnvironment(environment)
@@ -880,7 +955,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		// which the sandbox this run is confined to does not grant: without the
 		// redirect the probe dies at setup and reads as a broken toolchain.
 		Env:   execution.WithGoBuildCache(environment, request.WorkingDirectory),
-		Stdin: strings.NewReader(request.Prompt),
+		Stdin: strings.NewReader(stdin),
 		// The stream this invocation is asked for is the liveness signal: every
 		// line the process writes is an event, so the gap between lines is
 		// exactly the gap between events.

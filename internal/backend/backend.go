@@ -82,8 +82,16 @@ type RunRequest struct {
 	ScratchDirectory string
 	Prompt           string
 	SystemPrompt     string
-	SessionID        string
-	Model            string
+	// CachedPromptBytes is how much of the opening of Prompt the caller expects
+	// the next invocation to send byte for byte the same, so the adapter may end
+	// a block of the message there for its provider to cache. A provider reuses
+	// what it cached only up to the end of a whole block, so without it the
+	// message is one block and nothing in it is read back once its end differs.
+	// Zero, or a value not strictly inside Prompt, asks for nothing; an adapter
+	// with no way to mark a block ignores it and sends Prompt as it always did.
+	CachedPromptBytes int
+	SessionID         string
+	Model             string
 	// Effort is the effort level this invocation asks the provider for, and
 	// resolved to the model default for Codex when the agent configured none.
 	// Claude retains its resolution of an omitted level. A failover or a version fallback keeps it: the level is the

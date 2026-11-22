@@ -17,7 +17,10 @@ package chat
 // out and listed, for the role to read on demand with a repository read. Its
 // opening, which stays the same while the product intent does, is sent after
 // the role's instructions rather than in the message, so the next turn's new
-// session reads it from the provider's cache; see passBriefingFraming. What a
+// session reads it from the provider's cache; see passBriefingFraming. The rest
+// of the briefing opens the message and is marked to be cached as a block of
+// its own, so the next turn reads it back too while the work items and the
+// docket stay the same; see withPassMessageCache. What a
 // turn starts from is bounded by a third of the context window of the provider
 // serving it, so the provider is left two thirds of its window to work in
 // before it would compact anything. Nothing in the start gives way to the
@@ -75,6 +78,9 @@ type PassStart struct {
 	// UnchangingBytes is how much of the briefing went after the role's
 	// instructions rather than into the message; see passBriefingFraming.
 	UnchangingBytes int `json:"unchanging_bytes,omitempty"`
+	// MessageCachedBytes is how much of the message's opening — the briefing's
+	// second part — was marked for the provider to cache; see withPassMessageCache.
+	MessageCachedBytes int `json:"message_cached_bytes,omitempty"`
 	// FirstChangedPart names the first part of this start that differs from the
 	// role's previous recurring turn, and is empty where there was no previous
 	// turn to compare with or nothing differed. SameAsPrevious says nothing did.
@@ -120,7 +126,7 @@ func (s *Session) startFreshPass() {
 		s.state.SessionAsideForPass = &held
 	}
 	s.freshPass = true
-	s.passBriefing = ""
+	s.passBriefing, s.passMessageOpening = "", ""
 }
 
 // EndPass puts back the session the conversation's other turns resume, where a
@@ -128,7 +134,7 @@ func (s *Session) startFreshPass() {
 // task calls once its turn, and any request for its missing report, is over.
 func (s *Session) EndPass() error {
 	s.freshPass, s.passFresh = false, false
-	s.passBriefing = ""
+	s.passBriefing, s.passMessageOpening = "", ""
 	// What the pass was handed is the pass's: a later turn in the conversation
 	// counts no stop.
 	s.handedStops = nil
@@ -287,6 +293,33 @@ func (s *Session) passInstructionsFor(adapter Backend, request backend.RunReques
 	return request
 }
 
+// withPassMessageCache marks, on a request starting a recurring turn's own
+// provider session, the opening of its message that the next recurring turn
+// will most likely send byte for byte the same: the briefing's second part —
+// the documents left out, what the product ships, the work items and the
+// docket — which opens the message ahead of the memories, the previous turn's
+// account and the turn's message. A provider reuses what it cached only up to
+// the end of a whole block, so while the message was one block the work items
+// were written into the cache afresh every turn because what follows them
+// changes every turn; ended as a block of its own, it is read back by the next
+// turn whenever the work items and the docket have not moved. How the block is
+// marked is the adapter's (backend.RunRequest.CachedPromptBytes).
+//
+// It applies after the request is fitted to its endpoint, and only where the
+// message still opens with that text: a round resuming the session is sent its
+// own message, and a briefing shortened to fit is a different text, so neither
+// is marked.
+func (s *Session) withPassMessageCache(request backend.RunRequest) backend.RunRequest {
+	request.CachedPromptBytes = 0
+	if s.pass == "" || s.passMessageOpening == "" || request.SessionID != "" {
+		return request
+	}
+	if strings.HasPrefix(request.Prompt, s.passMessageOpening) {
+		request.CachedPromptBytes = len(s.passMessageOpening)
+	}
+	return request
+}
+
 // boundPassStart makes the briefing a recurring turn starts from the one
 // contextbundle.PassContext leaves: the product intent whole and every other
 // document left out, to be read on demand. The unchanging opening of that
@@ -298,7 +331,7 @@ func (s *Session) passInstructionsFor(adapter Backend, request backend.RunReques
 func (s *Session) boundPassStart(instructions, prompt string, reply *Reply) (string, error) {
 	start := PassStart{}
 	briefingBytes, keptBytes := 0, 0
-	s.passBriefing = ""
+	s.passBriefing, s.passMessageOpening = "", ""
 	rest := ""
 	if full := s.briefingIn(prompt); full != "" {
 		kept := contextbundle.PassContext(full)
@@ -308,6 +341,10 @@ func (s *Session) boundPassStart(instructions, prompt string, reply *Reply) (str
 		briefingBytes, keptBytes, start.GaveWay = len(full), len(kept.Text), kept.Sections
 		s.passBriefing, rest = unchanging, remainder
 		start.UnchangingBytes = len(unchanging)
+		if at == 0 {
+			s.passMessageOpening = remainder
+			start.MessageCachedBytes = len(remainder)
+		}
 	}
 	systemPrompt := s.withPassBriefing(instructions)
 	// Only measured, never sent: the turn's own request is built in takeTurn.
@@ -331,6 +368,9 @@ func (s *Session) boundPassStart(instructions, prompt string, reply *Reply) (str
 		"pass": s.pass, "start_bytes": start.Bytes, "bound_bytes": start.BoundBytes, "window_tokens": start.WindowTokens,
 		"briefing_bytes": briefingBytes, "briefing_kept_bytes": keptBytes,
 		"unchanging_bytes": start.UnchangingBytes, "parts": parts,
+	}
+	if start.MessageCachedBytes > 0 {
+		payload["message_cached_bytes"] = start.MessageCachedBytes
 	}
 	if len(start.GaveWay) > 0 {
 		payload["briefing_sections_left_out"] = start.GaveWay

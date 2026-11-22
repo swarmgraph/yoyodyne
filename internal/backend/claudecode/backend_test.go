@@ -2783,6 +2783,82 @@ func TestAManagementRoleIsCachedForAnHour(t *testing.T) {
 	}
 }
 
+// A request naming an opening of its message that the next invocation will send
+// the same is sent as stream-json input: one user message whose first text block
+// is that opening and carries a cache marker with the invocation's own lifetime,
+// and whose second is the rest. A request naming none, one outside the message,
+// one that splits a character, or one for a role whose lifetime the adapter
+// does not set is sent the plain prompt exactly as before.
+func TestAMessageOpeningIsSentAsACachedBlockOfItsOwn(t *testing.T) {
+	t.Parallel()
+	invoke := func(role domain.AgentRole, prompt string, opening int) ([]string, string) {
+		t.Helper()
+		stream := `{"type":"result","subtype":"success","session_id":"s","is_error":false,"result":"done","total_cost_usd":0.01}` + "\n"
+		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
+		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+			RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: prompt, SystemPrompt: "the contract",
+			CachedPromptBytes: opening,
+		}); err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		return runner.commands[0].Args, runner.prompts[0]
+	}
+	const opening, rest = "the work items, the same as last pass\n", "memories and this pass's message"
+	for role, lifetime := range map[domain.AgentRole]string{domain.RoleArchitect: conversationCacheLifetime, domain.RoleReviewer: singleTurnCacheLifetime} {
+		args, stdin := invoke(role, opening+rest, len(opening))
+		if !slices.Contains(args, "--input-format") || !slices.Contains(args, "stream-json") {
+			t.Fatalf("a %s invocation naming an opening was not given stream-json input: %v", role, args)
+		}
+		var line struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role    string `json:"role"`
+				Content []struct {
+					Type         string `json:"type"`
+					Text         string `json:"text"`
+					CacheControl *struct {
+						Type string `json:"type"`
+						TTL  string `json:"ttl"`
+					} `json:"cache_control"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if !strings.HasSuffix(stdin, "\n") || strings.Count(stdin, "\n") != 1 {
+			t.Fatalf("stream-json input is not one line: %q", stdin)
+		}
+		if err := json.Unmarshal([]byte(stdin), &line); err != nil {
+			t.Fatalf("stream-json input does not parse: %v: %q", err, stdin)
+		}
+		content := line.Message.Content
+		if line.Type != "user" || line.Message.Role != "user" || len(content) != 2 {
+			t.Fatalf("stream-json input is not one user message of two blocks: %q", stdin)
+		}
+		if content[0].Text != opening || content[1].Text != rest || content[1].CacheControl != nil {
+			t.Fatalf("the blocks do not split the message at its opening: %q", stdin)
+		}
+		if marker := content[0].CacheControl; marker == nil || marker.Type != "ephemeral" || marker.TTL != lifetime {
+			t.Fatalf("a %s invocation's opening is not marked for the cache with the %s lifetime its other markers carry: %q", role, lifetime, stdin)
+		}
+	}
+	for _, plain := range []struct {
+		name    string
+		role    domain.AgentRole
+		prompt  string
+		opening int
+	}{
+		{"no opening", domain.RoleArchitect, opening + rest, 0},
+		{"the whole message", domain.RoleArchitect, opening + rest, len(opening + rest)},
+		{"past the message", domain.RoleArchitect, opening + rest, len(opening+rest) + 1},
+		{"inside a character", domain.RoleArchitect, "café" + rest, len("caf") + 1},
+		{"a developer", domain.RoleDeveloper, opening + rest, len(opening)},
+	} {
+		args, stdin := invoke(plain.role, plain.prompt, plain.opening)
+		if slices.Contains(args, "--input-format") || stdin != plain.prompt {
+			t.Fatalf("%s: the prompt was not sent plain: %v %q", plain.name, args, stdin)
+		}
+	}
+}
+
 func hasEnvironmentName(environment []string, name string) bool {
 	for _, entry := range environment {
 		if strings.HasPrefix(entry, name+"=") {
