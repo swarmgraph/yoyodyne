@@ -408,13 +408,7 @@ func (g GitHub) CheckOutput(ctx context.Context, check RequiredCheck) (CheckOutp
 	if check.ID <= 0 {
 		return CheckOutput{}, fmt.Errorf("check %q has no check run to read the output of", check.Name)
 	}
-	endpoint := fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", check.ID)
-	result, err := g.apiQuery(ctx, "GET", endpoint, allowEscapes)
-	if err == nil && result.Status != execution.ProcessSucceeded && unknownFlag(result.Stderr, allowEscapes) {
-		// A gh older than the flag never refuses escape sequences, so it is asked
-		// again without it.
-		result, err = g.apiQuery(ctx, "GET", endpoint)
-	}
+	result, err := g.jobLog(ctx, check.ID)
 	if err != nil {
 		return CheckOutput{}, fmt.Errorf("read the forge's log of check %q: %w", check.Name, err)
 	}
@@ -425,11 +419,28 @@ func (g GitHub) CheckOutput(ctx context.Context, check RequiredCheck) (CheckOutp
 		return CheckOutput{}, fmt.Errorf("the forge's log of check %q is longer than the harness keeps of a command's output, so its end was not read: %s", check.Name, result.OutputTruncation)
 	}
 	scrub := execution.NewRedactor(g.RedactValues...).WithSecretShapes()
-	log := scrub.Redact(PlainLog(result.Stdout))
+	log := scrub.Redact(result.Stdout)
 	output := CheckOutput{FailingTests: failingTests(log)}
 	tail := logTail(log, MaxCIOutputLines)
 	output.Tail, output.Cut = cutFront(tail, MaxCIOutputBytes)
 	return output, nil
+}
+
+// jobLog reads the log of the Actions job behind a check run. It asks with
+// allowEscapes, and asks again without it where an older gh does not know the
+// flag, because such a gh never refuses escape sequences. A log read is
+// returned as PlainLog, so every reader of a job's log — CheckOutput,
+// JobLogTail and FailedStep — gets it without terminal escape sequences.
+func (g GitHub) jobLog(ctx context.Context, checkRun int64) (execution.ProcessResult, error) {
+	endpoint := fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", checkRun)
+	result, err := g.apiQuery(ctx, "GET", endpoint, allowEscapes)
+	if err == nil && result.Status != execution.ProcessSucceeded && unknownFlag(result.Stderr, allowEscapes) {
+		result, err = g.apiQuery(ctx, "GET", endpoint)
+	}
+	if err == nil && result.Status == execution.ProcessSucceeded {
+		result.Stdout = PlainLog(result.Stdout)
+	}
+	return result, err
 }
 
 // unknownFlag reports whether gh refused a command because it does not know

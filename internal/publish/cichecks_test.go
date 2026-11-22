@@ -422,6 +422,22 @@ func TestCheckOutputReadsTheLogWithAGhThatLacksTheFlag(t *testing.T) {
 	}
 }
 
+// The other readers of a job's log — the failing step the merge queue and a red
+// target branch record, and the end of a job's log — read a coloured log the
+// same way and get it without terminal sequences.
+func TestEveryJobLogReaderReadsALogCarryingColourCodes(t *testing.T) {
+	t.Parallel()
+
+	tail, err := (GitHub{Runner: &ghLogRunner{log: colouredLog, knowFlag: true}}).JobLogTail(context.Background(), 42, 50)
+	if err != nil || strings.Contains(tail, "\x1b") || !strings.Contains(tail, "--- FAIL: TestWidget") {
+		t.Errorf("JobLogTail() = %q, %v, want the log read without terminal sequences", tail, err)
+	}
+	failure, err := (GitHub{Runner: &ghLogRunner{log: colouredLog, knowFlag: true}}).FailedStep(context.Background(), 42, 4096)
+	if err != nil || strings.Contains(failure.Output, "\x1b") || !strings.Contains(failure.Output, "--- FAIL: TestWidget") {
+		t.Errorf("FailedStep() = %#v, %v, want the log read without terminal sequences", failure, err)
+	}
+}
+
 func TestPlainLogRemovesWhatATerminalWouldActOn(t *testing.T) {
 	t.Parallel()
 
