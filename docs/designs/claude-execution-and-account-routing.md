@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-21T13:18:51.172875Z
       reason: 'amendment-b3e82c78 follow-up: acceptance criterion 2 now matches this section (revision 8), so the temporary paragraph saying it still disagreed and that this section governs until then is removed. Nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T14:19:21.741013Z
+      reason: 'Brings the routing design in line with main at 9ce85d1e, from the second reading of it against the code: the routing machinery is built; a slot pair''s enabled setting turns only fallback on or off; a run moved to a slot with no pair is pinned to that slot''s own endpoint; the merge queue''s review switches too; the four-slot table is the authorized adoption, not the shipped configuration, and a later configuration decision stands. Resends the returned document-3439.1, whose GitHub test log could not be read.'
 approvals:
     - revision: 3
       by: operator
@@ -81,6 +85,11 @@ approvals:
       by: harness
       at: 2026-11-21T13:18:51.172875Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3321, for document-3321.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-22T14:19:21.741013Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3452, for document-3452.1 under the automatic approval policy
 ---
 # Execution routing: pinned invocations, developer slots, and safe provider fallback
 
@@ -92,17 +101,17 @@ This design serves v1-goals: keep roles, policies, and provider selection config
 
 Both configured providers may serve eligible roles. Earlier statements in this document that every role must use Claude Code, that the Codex adapter is deferred, or that automatic fallback is unavailable are withdrawn. This revision does not authorize additional providers, account enrollment, weakened permissions, or a new account-pooling implementation. Conversation routing retains its separately configured policy; developer fallback does not modify management-role configuration.
 
-The design is delivered through Design per-developer-slot endpoint selection and cross-provider run failover (yoyodyne-ifd.435.13). Implementation and live adoption belong to Implement and adopt per-slot developer routing with cross-provider run failover (yoyodyne-ifd.435.14). These responsibilities do not imply that either implementation or adoption has occurred.
+The design was delivered through the design item for endpoint selection by developer slot and failover across providers (yoyodyne-ifd.435.13). Implementation and live adoption belong to Implement and adopt per-slot developer routing with cross-provider run failover (yoyodyne-ifd.435.14). The routing machinery is built on main as of November 21, 2026: slot pairs and their validation (`internal/config/slotrouting.go`), the switch decision (`internal/orchestrator/developerrouting.go`), the versioned routing and launch records with crash recovery (`internal/runstate/routing.go`, `internal/runstate/launch.go`), and tests for crashes, races and newer record versions beside them. Live adoption of the mapping below has not been carried out as written; it is tracked as coordinating and verifying live adoption of the developer slot pairs and reviewer fallback (yoyodyne-ifd.435.14.7).
 
 ## Decisions and rejected alternatives
 
 Use stable developer slot numbers with an explicit ordered pair of endpoints. Resolve and record the pair before execution; pin each actual invocation to one endpoint. When a classified usage limit prevents execution, automatically choose the eligible alternate at a safe invocation boundary, preserving the logical operation and all existing work.
 
-A shared developer model, label-only model overrides, or differently named developer agents cannot express the required one-versus-three mapping reliably. They are therefore not substitutes for slots. A running invocation cannot be moved to another provider: terminate or reconcile its execution first, then start a separately recorded invocation. Provider-native sessions cannot be the only recovery record, and cannot cross provider or account boundaries.
+A shared developer model, model overrides by label alone, or differently named developer agents cannot reliably express one model on one slot and another on three. They are therefore not substitutes for slots. A running invocation cannot be moved to another provider: terminate or reconcile its execution first, then start a separately recorded invocation. Provider-native sessions cannot be the only recovery record, and cannot cross provider or account boundaries.
 
 Allow one automatic endpoint switch per logical operation. This prevents quota failures and restarts from creating an unbounded alternation of billable requests. Ordinary transient recovery keeps its existing limits; fallback is not a way to reset them. Prefer existing configuration loading, account selection, run persistence, and launch boundaries over a second routing service.
 
-These are enforceable requirements of this design. This revision does not create a new repository-wide invariant; it applies the existing provider-independent state and safety constraints to routing.
+These are enforceable requirements of this design. This revision does not create a new invariant for the whole repository; it applies the existing provider-independent state and safety constraints to routing.
 
 ## Slot identity and endpoint precedence
 
@@ -112,10 +121,11 @@ A run that is taken up again, whether a repair, a continuation, or a resumed run
 
 What a move does depends on the run's routing snapshot:
 
-- A run with no explicit pair records the move on the run: the earlier slot, the new slot, the time, and the reason. It then settles every slot-specific setting, such as whether developer sub-agents are on, from the new slot, and records the settings it now uses.
-- A run whose snapshot records an explicit endpoint pair is pinned again to the new slot's own pair. This is the supported reconfiguration described under Pinning and configuration changes, made at the one boundary where it is always safe: no invocation of the run can still execute while it waits to be taken up again. The harness records on the run the earlier slot and its pair, the new slot and its pair, the configuration revision of each, the time, and the reason, which is that its own slot was busy and this one was free. Every slot-specific setting comes from the new slot.
+- A run with no explicit pair records the move on the run: the earlier slot, the new slot, the time, and the reason. It then settles every setting particular to a slot, such as whether developer sub-agents are on, from the new slot, and records the settings it now uses.
+- A run whose snapshot records an explicit endpoint pair is pinned again to the new slot's own pair. This is the supported reconfiguration described under Pinning and configuration changes, made at the one boundary where it is always safe: no invocation of the run can still execute while it waits to be taken up again. The harness records on the run the earlier slot and its pair, the new slot and its pair, the configuration revision of each, the time, and the reason, which is that its own slot was busy and this one was free. Every setting particular to a slot comes from the new slot.
+- When the new slot has no pair of its own, a run that held an explicit pair is pinned to the endpoint the new slot settles for the developer under existing model selection, and its snapshot records that it no longer holds an explicit pair. Carrying the old pair into the new slot was rejected, because it would break the rule that each slot runs only its own configuration.
 
-In both cases the unfinished logical operation keeps its identity, attempt count, recovery deadline, spent budgets, and switch count. A switch already committed stays spent: the operation starts on the new pair's primary unless that endpoint is known to be limited, and it cannot switch again within that operation. Because the new pair may name another provider or model, the next attempt is rebuilt from durable state as Native resume and durable reconstruction requires, and no native session crosses to it. Checks and findings stay evidence for the candidate they checked; a move alone erases none. Status and the run's history show every move, so it is never silent.
+In every case the unfinished logical operation keeps its identity, attempt count, recovery deadline, spent budgets, and switch count. A switch already committed stays spent: the operation starts on the new pair's primary unless that endpoint is known to be limited, and it cannot switch again within that operation. Because the new pair may name another provider or model, the next attempt is rebuilt from durable state as Native resume and durable reconstruction requires, and no native session crosses to it. Checks and findings stay evidence for the candidate they checked; a move alone erases none. Status and the run's history show every move, so it is never silent.
 
 When no developer slot is free, the run waits for the first slot to come free, whichever it is, and takes it ahead of fresh work. While it waits, what the harness records on the run and on its work item says that it waits for a free slot and why, never a count of active runs that implies a slot is free. A run waiting for a slot holds no slot, and a decision to take it up again that cannot start because no slot is free is not counted as carried out until the run starts.
 
@@ -125,15 +135,17 @@ Run ownership and slot capacity are separate: both must be valid before executio
 
 Each slot may specify a primary and one alternate, using the existing endpoint vocabulary: provider or backend, model, and an account alias or an approved account-selection reference. Resolve the adapter version and account alias through existing endpoint and account policy. Missing credentials are not supplied by this design. Persist the resolved endpoint, including its account alias, before every launch.
 
+A slot's pair carries one setting that turns fallback on or off; it does not turn the pair on or off. A slot whose pair has fallback off still pins its runs to its primary, recorded as an explicit pair, and never switches to its alternate. That is how a slot runs a trial model without fallback. In code the setting is recorded as fallback enabled (`internal/config/slotrouting.go`, `internal/runstate/routing.go`), and the switch decision refuses a switch while it is off (`internal/orchestrator/developerrouting.go`). A slot with no pair uses existing model selection.
+
 An explicit slot pair takes precedence over shared developer endpoint defaults and label-based model overrides. The slot's label preference continues to choose suitable work; it does not replace the explicit endpoint pair. Slots without an explicit pair retain existing model-selection precedence. Reviewer selection uses reviewer configuration, never the developer's slot pair.
 
-Configuration validation rejects duplicate or invalid slot identities, malformed endpoint pairs, duplicate resolved primary and alternate endpoints, unapproved providers or accounts, unsupported model settings, and endpoints lacking the role's required capabilities. A same-provider alternate with a different supported model is valid. Temporary capacity exhaustion is an availability condition, not an invalid configuration. If an explicitly configured endpoint fails validation, do not silently revert to the shared developer model.
+Configuration validation rejects duplicate or invalid slot identities, malformed endpoint pairs, duplicate resolved primary and alternate endpoints, unapproved providers or accounts, unsupported model settings, and endpoints lacking the role's required capabilities. An alternate on the same provider with a different supported model is valid. Temporary capacity exhaustion is an availability condition, not an invalid configuration. If an explicitly configured endpoint fails validation, do not silently revert to the shared developer model.
 
-After resolving model-dependent options such as effort, validate them for each endpoint. Do not forward options supported only by the primary to an alternate that cannot interpret them. All effective options and their configuration origins belong in the recorded selection.
+After resolving options that depend on the model, such as effort, validate them for each endpoint. Do not forward options supported only by the primary to an alternate that cannot interpret them. All effective options and their configuration origins belong in the recorded selection.
 
 ## The authorized four-slot mapping
 
-Adoption uses exactly these four developer slots:
+The operator authorized adoption of exactly these four developer slots:
 
 | Slot | Primary | Alternate | Work preference |
 | --- | --- | --- | --- |
@@ -144,7 +156,9 @@ Adoption uses exactly these four developer slots:
 
 These are configured model identifiers, not assertions about provider-side availability. Use the operator's existing authorized account aliases for the respective providers. A missing or ineligible account is reported explicitly; no substitute account or credential is invented.
 
-Implement the pair in the existing slot configuration and make actual dispatch consume it. The exact serialized field names must follow the repository's configuration conventions and be covered by validation and effective-configuration output. The table is the required behavior, not a claim that those fields are already shipped.
+The table states what adoption may change; it is not a description of what runs. The project configuration file is the authority for what runs. On November 21, 2026 this repository's configuration (`.yoyodyne/config.yaml`) ran three developers at once rather than four, and slot 2 ran a Sonnet trial as a pinned pair with fallback off, dedicated to work on teams sharing one repository. Those are later configuration decisions, and adoption does not undo them; see Narrow adoption after implementation.
+
+The pair is implemented in the existing slot configuration, and actual dispatch consumes it. The serialized field names follow the repository's configuration conventions and are covered by validation and effective configuration output.
 
 ## Pinning and configuration changes
 
@@ -160,11 +174,11 @@ A logical operation is one developer work request, one repair responding to reco
 
 Every provider launch has a distinct invocation attempt identifier beneath that operation. Native session identity is separate from both. Persist the operation's attempt count, endpoint-switch count, recovery deadline, spent budgets, and outstanding wait before spending or waiting. A restart continues these values.
 
-For each operation, start with the recorded primary unless it is already known to be usage-limited. A classified usage limit on the primary permits one automatic switch to its alternate. If the primary is known to be limited before launch, the initial launch may use the alternate; record this as the operation's switch without inventing a primary invocation that never happened. The switch is automatic when all eligibility, budget, capacity, and execution-termination conditions hold.
+For each operation, start with the recorded primary unless it is already known to be usage-limited. A classified usage limit on the primary permits one automatic switch to its alternate, when the slot's pair has fallback on. If the primary is known to be limited before launch, the initial launch may use the alternate; record this as the operation's switch without inventing a primary invocation that never happened. The switch is automatic when all eligibility, budget, capacity, and execution-termination conditions hold.
 
 An endpoint switch is committed only once for the operation. Once committed, the alternate remains selected for that operation through reissue and resume. Do not bounce back to the primary when the alternate also reaches a limit. A later genuine logical operation starts selection from the primary again, using current availability evidence and its own bounded switch allowance. Restarting an unfinished operation cannot manufacture that fresh allowance.
 
-Same-provider model fallback uses the same mechanism and accounting as cross-provider fallback. Changing only a model still creates a new invocation attempt and records a transition. Session reuse is permitted only under the compatibility rules below.
+Model fallback on the same provider uses the same mechanism and accounting as fallback across providers. Changing only a model still creates a new invocation attempt and records a transition. Session reuse is permitted only under the compatibility rules below.
 
 Explicit provider usage-limit classification is the automatic fallback trigger in this revision. Existing transient connection recovery, overload pauses, and named provider-unavailable waits retain their own machinery. A failing check, repair verdict, authentication refusal, permission denial, sandbox refusal, unreadable stream, unknown error, or harness-issued stop is not converted into a quota switch. In particular, changing provider cannot bypass an authentication or permission decision. A future expansion of triggers requires an explicit design revision.
 
@@ -184,13 +198,13 @@ A capacity wait holds no promotion lease and no reservation for an invocation th
 
 Extend the existing run persistence and launch records rather than introducing a parallel queue of runs. The representation may be a versioned journal with a derived snapshot or the existing atomic state mechanism, but the following records and ordering are mandatory.
 
-The run routing record contains the slot, configuration snapshot and digest, endpoint pair, role, creation reason, and legacy-migration marker where applicable. An operation record contains its stable identity, phase and candidate or findings reference, counters and deadlines, current endpoint selection, switch allowance, and durable waiting or completion state.
+The run routing record contains the slot, configuration snapshot and digest, endpoint pair, whether fallback is on, role, creation reason, and legacy-migration marker where applicable. An operation record contains its stable identity, phase and candidate or findings reference, counters and deadlines, current endpoint selection, switch allowance, and durable waiting or completion state.
 
 Each invocation attempt records its operation and predecessor, full selected endpoint, launch configuration digest, normalized event schema version, session identifier when known, native-resume or reconstruction mode, input evidence references, and actual execution identity. Each completed or interrupted attempt records its refusal or stop classification, result references, usage, cost, and whether execution termination is confirmed or uncertain.
 
 A transition record contains a stable transition identifier, source attempt when one exists, old and proposed endpoint, classification and evidence that triggered the switch, eligibility decision, applicable configuration revision, consumed switch allowance, context-reconstruction references, and destination attempt identifier. It records progress through planned, source execution reconciled, destination launch prepared, destination launched, and outcome recorded. A refusal before launch records its reason without claiming that a provider ran.
 
-Use one serialized run writer or an equivalent compare-and-swap protocol with expected state generation. Every writer, including recovery, obeys it. A retry of the same transition or launch-preparation request returns its existing result; a request with the same identity and different contents is refused. Counters and the transition that consumes them become durable atomically. No second controller may independently choose or launch a destination.
+Use one serialized run writer or an equivalent compare and swap protocol with expected state generation. Every writer, including recovery, obeys it. A retry of the same transition or launch-preparation request returns its existing result; a request with the same identity and different contents is refused. Counters and the transition that consumes them become durable atomically. No second controller may independently choose or launch a destination.
 
 Persist the intent and reserved destination attempt before launching. The launcher must use that attempt identity as an idempotency and recovery key. It must durably register the execution before allowing provider work to begin, or provide an equivalent mechanism that can discover an already-started execution after controller failure. Persisting a PID only after an unrestricted spawn leaves an unacceptable crash gap.
 
@@ -206,11 +220,11 @@ If the destination may have launched but its launch acknowledgment was lost, que
 
 A late event from an older attempt remains attached to that attempt. It cannot overwrite the current selection, complete the wrong operation, or count as a passed check or an approved review. Validate generation, operation, attempt, and candidate references when consuming events. Preserve valid late usage reports even when their execution result is no longer current.
 
-Recovery also checks externally visible effects before asking a reconstructed developer to repeat them. A provider switch must not duplicate a commit, push, publication, or other action already performed. Existing compare-and-swap, pinned-candidate, and reconciliation rules still apply. This design promises one active execution for an operation, not magical exactly-once semantics for arbitrary provider actions.
+Recovery also checks externally visible effects before asking a reconstructed developer to repeat them. A provider switch must not duplicate a commit, push, publication, or other action already performed. Existing compare and swap, pinned candidate, and reconciliation rules still apply. This design promises one active execution for an operation, not a guarantee that an arbitrary provider action happens exactly once.
 
 ## Native resume and durable reconstruction
 
-Native resume is an optimization. It is allowed only when provider, account, session, model compatibility, and launch permissions are verified by the adapter. Being on the same provider does not establish compatibility. For a same-provider model change, default to reconstruction unless the adapter explicitly supports and validates that session transition. Crossing providers or accounts always starts a new native session.
+Native resume is an optimization. It is allowed only when provider, account, session, model compatibility, and launch permissions are verified by the adapter. Being on the same provider does not establish compatibility. For a model change on the same provider, default to reconstruction unless the adapter explicitly supports and validates that session transition. Crossing providers or accounts always starts a new native session.
 
 Build reconstruction inputs from trusted durable state: work item and approved requirements, relevant design references, run and operation identity, phase, branch and worktree location, current base and candidate, preserved committed and uncommitted changes, verified check results and their candidate references, reviewer findings, remaining budgets, previous actions and uncertain outcomes, and the reason for continuation. Record the input references or digest used for the new attempt.
 
@@ -220,7 +234,7 @@ Switching does not reset or discard work. Checks remain evidence only for the ca
 
 ## Reviewer fallback and independence
 
-Reviewer invocations use the same automatic quota fallback, durable operation identity, transition protocol, and recovery bounds. This includes initial review and a later review of repaired work. Reviewer policy selects its own primary and alternate; it does not inherit the developer slot's preference, writable session, or permissions.
+Reviewer invocations use the same automatic quota fallback, durable operation identity, transition protocol, and recovery bounds. This includes initial review, a later review of repaired work, and the merge queue's review of a candidate, which switches on a classified usage limit by the same rule (`internal/orchestrator/mergequeueworker.go`). Reviewer policy selects its own primary and alternate; it does not inherit the developer slot's preference, writable session, or permissions.
 
 For the requested adoption, a reviewer using codex / gpt-6.1-sol receives claude-code / opus as its alternate, and a reviewer using claude-code / opus receives codex / gpt-6.1-sol. Preserve its current primary, reviewer count, review requirements, and account policy. An unrelated reviewer primary must be named explicitly rather than guessed into this pair.
 
@@ -236,7 +250,7 @@ A currently executing legacy invocation keeps its original endpoint and permissi
 
 At that safe boundary, record the current validated routing snapshot and establish the unfinished logical operation's identity. Preserve known counters and deadlines. If history is insufficient to establish an unspent switch or retry allowance, do not grant a fresh allowance for that unfinished operation: retain its known endpoint and use existing safe continuation or visible reconciliation. Subsequent genuine operations can use the new bounded policy. This conservative case must not destroy preserved work or require restarting the work item from scratch.
 
-An active legacy run that cannot yet acquire a slot waits visibly. Migration cannot evict a current worker or create a fifth developer execution. No live migration proceeds while an old invocation could still be running.
+An active legacy run that cannot yet acquire a slot waits visibly. Migration cannot evict a current worker or create a developer execution beyond the configured count. No live migration proceeds while an old invocation could still be running.
 
 Introduce versioned record changes with compatibility checks. An older binary that cannot understand a live transition must refuse to resume it rather than treating missing knowledge as an idle run. Rollback of configuration cannot make new execution records disappear; software rollback requires a compatible reader or a quiescent reconciliation plan.
 
@@ -250,29 +264,33 @@ Project policy remains portable and versioned: roles, allowed providers, profile
 
 Existing approved account pooling remains additive: endpoint selection may resolve through an approved pool, and account affinity is maintained as its policy requires. This work does not add accounts, create new pools, or change pool membership. Existing alias attribution remains useful, but the earlier no-schema-change claim for account pooling does not prohibit the versioned operation and transition records required here.
 
-Conversation account failover remains turn-boundary behavior under its own enabled policy. A turn that changes accounts reconstructs from its durable conversation record, records the serving alias and reason, and retains named-account affinity with return after the named account's capacity window reopens. Cross-provider conversation behavior is governed by the provider-general design and configured policy. The four-slot adoption changes none of the operator's completed manager configuration.
+Conversation account failover remains turn-boundary behavior under its own enabled policy. A turn that changes accounts reconstructs from its durable conversation record, records the serving alias and reason, and retains named-account affinity with return after the named account's capacity window reopens. Behavior across providers for conversations is governed by the provider-general design and configured policy. The four-slot adoption changes none of the operator's completed manager configuration.
 
 ## Narrow adoption after implementation
 
-Use the existing governed configuration-file application path. A generic role-applied configuration service, another account-pooling project, or replacement provider adapters are not prerequisites. The implementation must first support validation, selection, persistence, recovery, and actual invocation consumption of the new routing fields.
+The implementation this section waits on is built: validation, selection, persistence, recovery, and actual invocation consumption of the routing fields. The adoption step itself is not yet carried out; it is tracked as coordinating and verifying live adoption of the developer slot pairs and reviewer fallback (yoyodyne-ifd.435.14.7).
 
-The development manager coordinates a bounded application step for the existing effective configuration source. That step records the baseline revision or digest, previews the exact change, validates it with the deployed compatible binary, and applies it atomically only if the baseline still matches. Its authorized scope is the four developer pairs in the table, preservation of slot 1's reliability preference, and the reviewer alternate rules above. Preserve the four-slot count, other preferences, completed manager configuration, credentials, unrelated role settings, and all existing checks and approvals.
+Use the existing governed configuration-file application path. A generic role-applied configuration service, another account-pooling project, or replacement provider adapters are not prerequisites.
+
+The development manager coordinates a bounded application step for the existing effective configuration source. That step records the baseline revision or digest, previews the exact change, validates it with the deployed compatible binary, and applies it atomically only if the baseline still matches. Its authorized scope is the four developer pairs in the table, preservation of slot 1's reliability preference, and the reviewer alternate rules above. Preserve other preferences, completed manager configuration, credentials, unrelated role settings, and all existing checks and approvals.
+
+Where the configuration has since recorded a different decision for a slot or for the number of developers, as with slot 2's Sonnet trial and the count of three developers on November 21, 2026, that later decision stands. Adoption applies only what the table authorizes and the configuration has not since decided otherwise, and the development manager records each difference with its source rather than overwriting it. Rejected: applying the table whole over later decisions, because an older authorization would silently undo a newer recorded choice about how the factory runs.
 
 If the effective source is protected from an ordinary developer run, the development manager routes this exact patch and verification through the supported protected-path application mechanism. A missing writer capability is an execution obstacle with an owner and release condition, not a request for the operator to decide the routing again. If only a person can write that source, provide the concrete patch and the exact action required. Keep live adoption outstanding until evidence returns.
 
-After application, record validation success, the effective revision, the source and precedence of every pair, and the running binary that consumes it. Observe actual developer invocation records for each of the four slots and reviewer invocation records under the new policy. Verify the actual endpoint against the recorded selected configuration; printed configuration alone is insufficient.
+After application, record validation success, the effective revision, the source and precedence of every pair, whether each pair has fallback on, and the running binary that consumes it. Observe actual developer invocation records for each configured slot and reviewer invocation records under the new policy. Verify the actual endpoint against the recorded selected configuration; printed configuration alone is insufficient.
 
-Exercise both fallback directions and same-provider model switching through bounded test fixtures at the real dispatch and launch boundaries. Live checks use existing allowed accounts and spend policy; they must not deliberately exhaust a plan. If live fallback has not occurred, distinguish fixture-proven transition behavior from observed primary routing and leave that limitation visible. Do not claim a live provider switch from a simulated refusal.
+Exercise both fallback directions and model switching on the same provider through bounded test fixtures at the real dispatch and launch boundaries. Live checks use existing allowed accounts and spend policy; they must not deliberately exhaust a plan. If live fallback has not occurred, distinguish behavior proven by fixtures from observed primary routing and leave that limitation visible. Do not claim a live provider switch from a simulated refusal.
 
-Existing live invocations remain pinned. Rollback restores the prior configuration for future selections, preserves all transition history, and drains or reconciles affected execution before any necessary per-run change. Record rollback evidence with the same baseline protection. Code landing, configuration application, and observed adoption are separate facts.
+Existing live invocations remain pinned. Rollback restores the prior configuration for future selections, preserves all transition history, and drains or reconciles affected execution before any necessary change to a run. Record rollback evidence with the same baseline protection. Code landing, configuration application, and observed adoption are separate facts.
 
 ## Acceptance criteria
 
-1. Validation accepts the exact four-slot table and same-provider model alternates, rejects malformed or ineligible pairs, and exposes effective origins. Slot 1 still prefers reliability work. Explicit pairs win over conflicting label-model rules; legacy slots retain prior precedence.
+1. Validation accepts the exact four-slot table and alternates on the same provider with a different model, rejects malformed or ineligible pairs, and exposes effective origins. Slot 1 still prefers reliability work. Explicit pairs win over conflicting label-model rules; legacy slots retain prior precedence. A pair with fallback off pins its runs to the primary, is recorded as an explicit pair, and never switches.
 
-2. Actual initial dispatch, repair, and resume consume the recorded slot pair. Slots 1 through 4 launch their specified primaries when available. A scheduler restart rebuilds slot ownership from durable records rather than numbering live processes again, and neither a restart nor released capacity ever lets two workers run in one run's worktree. A run taken up again whose own slot is busy takes a free developer slot ahead of fresh work of any priority, including a slot kept for one kind of work: a test holds such a run behind its busy slot while another slot is free, and shows it starts in the free slot before any fresh run does. A run with no explicit pair records the earlier slot, the new slot, the time, and the reason, and takes its slot-specific settings from the new slot. A run whose snapshot records an explicit endpoint pair is pinned again to the new slot's own pair, recording the earlier slot and its pair, the new slot and its pair, the configuration revision of each, the time, and the reason; its operation identity, attempt count, recovery deadline, spent budgets, and switch count are unchanged, a committed switch stays spent, and its next attempt is rebuilt from durable state with no native session crossing to it. Status and the run's history show every move. When no developer slot is free, the run takes the first slot to come free, holds no slot while it waits, and the run and its work item say it waits for a free slot; a decision to take it up again is not counted as carried out until the run starts.
+2. Actual initial dispatch, repair, and resume consume the recorded slot pair. Each configured slot launches its specified primary when available. A scheduler restart rebuilds slot ownership from durable records rather than numbering live processes again, and neither a restart nor released capacity ever lets two workers run in one run's worktree. A run taken up again whose own slot is busy takes a free developer slot ahead of fresh work of any priority, including a slot kept for one kind of work: a test holds such a run behind its busy slot while another slot is free, and shows it starts in the free slot before any fresh run does. A run with no explicit pair records the earlier slot, the new slot, the time, and the reason, and takes its slot settings from the new slot. A run whose snapshot records an explicit endpoint pair is pinned again to the new slot's own pair, recording the earlier slot and its pair, the new slot and its pair, the configuration revision of each, the time, and the reason; where the new slot has no pair, the run is pinned to the endpoint that slot settles for the developer and its snapshot records that it holds no explicit pair. Its operation identity, attempt count, recovery deadline, spent budgets, and switch count are unchanged, a committed switch stays spent, and its next attempt is rebuilt from durable state with no native session crossing to it. Status and the run's history show every move. When no developer slot is free, the run takes the first slot to come free, holds no slot while it waits, and the run and its work item say it waits for a free slot; a decision to take it up again is not counted as carried out until the run starts.
 
-3. A classified primary quota refusal causes the eligible alternate to serve a new attempt automatically in both provider directions. A known pre-launch quota block skips the primary without inventing a primary attempt. Same-provider model fallback follows the same bounded transition path.
+3. A classified primary quota refusal causes the eligible alternate to serve a new attempt automatically in both provider directions. A known quota block before launch skips the primary without inventing a primary attempt. Model fallback on the same provider follows the same bounded transition path.
 
 4. Missing credentials, ineligible capabilities, exhausted alternate capacity, spend refusal, and revoked permissions produce accurate preserved waits or refusals. Authentication, sandbox, check, and review answers are not bypassed through fallback. No unknown refusal is silently treated as quota exhaustion.
 
@@ -286,16 +304,16 @@ Existing live invocations remain pinned. Rollback restores the prior configurati
 
 9. Change configuration during active execution. The invocation and existing run snapshot remain pinned; new runs use the new valid revision. Invalid reload changes nothing. Revocation prevents a new launch without rewriting history. Routing rollback preserves new-format records and older incompatible binaries refuse unsafe resume.
 
-10. Resume legacy records with a known slot, no slot, missing usage, and uncertain prior launch. Migration records only newly established facts, never creates a fifth worker, never resets unknown budgets into a new allowance, and preserves work while awaiting reconciliation.
+10. Resume legacy records with a known slot, no slot, missing usage, and uncertain prior launch. Migration records only newly established facts, never creates a worker beyond the configured count, never resets unknown budgets into a new allowance, and preserves work while awaiting reconciliation.
 
-11. Reviewer fallback produces an independent read-only invocation against the exact candidate, with separate session lineage and unchanged review requirements. Interrupted partial output is not a verdict, while an already durable valid verdict is adopted. Provider failure consumes no repair attempt or review round.
+11. Reviewer fallback, including the merge queue's review of a candidate, produces an independent read-only invocation against the exact candidate, with separate session lineage and unchanged review requirements. Interrupted partial output is not a verdict, while an already durable valid verdict is adopted. Provider failure consumes no repair attempt or review round.
 
 12. Attribute actual usage across primary and alternate attempts, repeated cumulative reports, late events, and unknown totals. Configured and actual endpoint evidence remain distinguishable, and no credential or private account identifier appears in status or reconstruction.
 
-13. Adoption evidence includes the exact bounded configuration change, baseline protection, compatible binary, validated effective origins, actual primary invocations for all four slots, reviewer routing, and transition fixture results. State separately whether live fallback has been observed. Preserve all manager settings and unrelated configuration. A protected-source application remains an explicit outstanding adoption condition until completed.
+13. Adoption evidence includes the exact bounded configuration change, baseline protection, compatible binary, validated effective origins, actual primary invocations for every configured slot, reviewer routing, transition fixture results, and each recorded difference between the table and a later configuration decision. State separately whether live fallback has been observed. Preserve all manager settings and unrelated configuration. A protected-source application remains an explicit outstanding adoption condition until completed.
 
 ## Delivery boundary
 
-This revision contains the architectural guidance needed for bounded implementation. It does not require another architectural decision about slot identity, fallback scope, reviewer inclusion, recovery storage semantics, legacy treatment, or the four-slot mapping. The development manager owns implementation decomposition and the narrow application step; existing product sequencing remains with the Lead Product Manager.
+This revision contains the architectural guidance needed for bounded implementation and adoption. It does not require another architectural decision about slot identity, fallback scope, reviewer inclusion, recovery storage semantics, legacy treatment, or the four-slot mapping. The development manager owns implementation decomposition and the narrow application step; existing product sequencing remains with the Lead Product Manager.
 
 Other documents that still state a universal Claude-only or no-fallback rule require reconciliation by their owners through the existing provider-policy work. Such wording is not permission to weaken this design's execution protections or to broaden the authorized configuration change. Record the conflicting location and owning role rather than silently editing product intent.
