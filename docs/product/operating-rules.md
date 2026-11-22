@@ -55,6 +55,11 @@ revisions:
       at: 2026-11-22T01:14:39.65361Z
       reason: 'yoyodyne-ifd.428.189: records the operator''s direction of 16:55 PST Nov 21 2026: no time-based exception for priority 0 work no seat''s labels cover; a labelled seat takes its labelled work first; and the Lead Product Manager tells him when a priority 0 item is not moving that she thinks should. This replaces the exception my previous revision added. It is a rule he gave; no goal changes, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-22T17:33:30.655186Z
+      reason: 'yoyodyne-ifd.437.86: records the operator''s direction of about 09:35 PST on November 22, 2026, that work items target about 300 to 600 changed lines of code and tests together, combining pieces under about 150 lines and splitting anything over about 1,200, so every role sizes its work to it now; the shipped per-project default is the architect''s ruling under that item. It is a rule he gave; no goal is added, removed or changed, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -92,6 +97,10 @@ approvals:
       by: product-manager
       at: 2026-11-22T01:14:39.65361Z
       reason: yoyodyne-ifd.428.189 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 10
+      by: product-manager
+      at: 2026-11-22T17:33:30.655186Z
+      reason: yoyodyne-ifd.437.86 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # Operating rules
@@ -110,6 +119,7 @@ Lead Product Manager.
 - A bug is priority 0 only if it materially degrades usability, or raises the factory's total cost by 25% or more once weighted by how often it happens. A stalled factory counts as degraded usability when the stall is frequent or likely to become so; a stall hit once, as an edge case, does not. Any other defect that blocks reliable execution is priority 1. (the operator, 2026-11-15, recorded on yoyodyne-q2l)
 - Work that is not a bug is priority 0 only when the operator says so. (the operator, 2026-11-15, recorded on yoyodyne-q2l)
 - When the operator asks for another priority 0 feature while one he asked for is still unfinished, the Lead Product Manager asks him whether to lower the first before admitting the second at priority 0. (the operator, 2026-11-15, recorded on yoyodyne-q2l)
+- A work item targets about 300 to 600 changed lines, counting code and its tests together, lines added plus lines deleted. A piece expected under about 150 lines is combined with a neighbour that touches the same code, and anything expected over about 1,200 lines is split. The Lead Product Manager sizes the work she admits to this range, the development manager sizes the pieces she splits, and the architect sizes the build pieces she names; work already in flight is not split again. (the operator, 2026-11-22, recorded on yoyodyne-ifd.437.86)
 - A run is never killed for a flaky network or a sleeping laptop: a transport that drops or a machine that sleeps is waited out, and only a person or a bound on the work itself ends a run. (fb5a74a9)
 - Slack, the dashboard, the scheduler, and maintenance are parts of one product: started, stopped, restarted, and moved onto a new build together, by the product and not by a person. (6de828a8)
 - Developer seats are tagged, and one seat is dedicated to reliability work. (a43f7677, d83b6391)
