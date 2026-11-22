@@ -482,6 +482,7 @@ func (o Observer) readServices(r *reading, standing readmodel.Standing) {
 		for _, child := range record.Children {
 			found := service(string(child.Service))
 			found.State = string(child.State)
+			found.ForcedStop, found.ForcedStopAt, found.ForcedStops = child.ForcedStop, child.ForcedStopAt, child.ForcedStops
 			if child.State == runstate.ChildRunning {
 				supervised[string(child.Service)] = child.PID
 			}

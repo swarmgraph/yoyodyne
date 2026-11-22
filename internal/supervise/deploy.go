@@ -417,6 +417,7 @@ func (s *Supervisor) restart(ctx context.Context, child Child, state *runstate.S
 	// Let go once the part is stopped, so the part started in its place can take
 	// its passes up; it is held no longer than the stop.
 	release()
+	s.recordForced(child, state, stopped)
 	if err != nil {
 		state.RestartingInto = ""
 		state.Redeploy = fmt.Sprintf("on build %s, behind the deployed %s; it could not be stopped to move it, and is tried again at the next look: %v", short(from), short(s.deployed), err)
@@ -517,4 +518,17 @@ func (s *Supervisor) sayOnce(said string) {
 	}
 	s.lastSaid = said
 	s.log("%s", said)
+}
+
+// recordForced records on the child's record a stop the supervisor had to
+// force, with when and why, where status and the health check read it, and
+// says it in the supervisor's log. A stop that was not forced records nothing.
+func (s *Supervisor) recordForced(child Child, state *runstate.SupervisedChild, stopped Stopped) {
+	if stopped.Forced == "" {
+		return
+	}
+	state.ForcedStops++
+	state.ForcedStopAt = stopped.ForcedAt
+	state.ForcedStop = stopped.Forced
+	s.log("the %s service, pid %d, did not stop when asked: %s", child.Name(), stopped.PID, stopped.Forced)
 }
