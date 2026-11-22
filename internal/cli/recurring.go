@@ -163,6 +163,13 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	trigger.ClosedWork = closedWork{
 		items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
 	}
+	// The documents written and not yet published, and the tracker, so the
+	// architect's and the Lead Product Manager's passes are handed the ones that
+	// overlap open work (orchestrator/documentoverlap.go).
+	if store, err := runstate.NewConversationStore(parts.stateRoot, parts.config.Product.ID); err == nil {
+		trigger.Unpublished = unpublishedDocuments{store: store}
+		trigger.OpenWork = withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls)
+	}
 	// Why no new work is starting, where pull requests waiting for a person to
 	// merge are at their limit, so her sweep says what the status line says.
 	trigger.WaitingPullRequests = func() string {
@@ -1624,4 +1631,23 @@ func roleEndpoint(cfg config.Config) func(domain.AgentRole, string) (readmodel.A
 		}
 		return readmodel.AgentEndpoint{}, false
 	}
+}
+
+// unpublishedDocuments lists the documents every role's conversation keeps
+// waiting to be published, held for sending or not. It reads the records and
+// changes nothing.
+type unpublishedDocuments struct {
+	store *runstate.ConversationStore
+}
+
+func (d unpublishedDocuments) Unpublished() ([]runstate.PendingWrite, error) {
+	conversations, err := d.store.Recorded()
+	if err != nil {
+		return nil, err
+	}
+	var writes []runstate.PendingWrite
+	for _, conversation := range conversations {
+		writes = append(writes, conversation.PendingWrites...)
+	}
+	return writes, nil
 }
