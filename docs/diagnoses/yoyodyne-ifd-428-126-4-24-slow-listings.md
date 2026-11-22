@@ -415,3 +415,110 @@ or a bd that does not rewrite the journal on every read. Moving the live store
 to server mode is the open question in the design on keeping the store small
 (docs/designs/tracker-store-size.md), and it needs a `dolt` binary this machine
 does not have, so it was not measured here.
+
+## Server mode measured on a copy: not adopted, because a developer run can reach the server
+
+The design on keeping the store small adopts bd's server mode only if every
+one of four conditions holds (docs/designs/tracker-store-size.md, "The
+decision: server mode, on four conditions"), and build piece 7 checks the first
+three on a copy (yoyodyne-ifd.428.126.4.28). It was measured on November 22,
+2026, from 10:54 to 11:15, on two copies of the live store taken at 10:54
+(364 MB, a 130 MB journal), with nothing on the live factory changed. The
+machine's load average was 11 to 14 throughout, with developer runs working.
+
+**Which dolt.** bd 1.1.2's documentation names no version of `dolt` for server
+mode: it says to install it with `brew install dolt` or from dolt's latest
+release, and bd's own embedded engine is a dolt build from June 5, 2026. The
+`dolt` 2.7.6 the operator had installed on this machine at 19:00 on November 21
+was used rather than a second install in a scratch folder. It opened the copy
+and served it, and after it had served the copy, bd opened the same copy
+directly and exported exactly what an untouched copy exports.
+
+**How it was run.** One copy was served by `dolt sql-server` listening on
+127.0.0.1 only, behind a password made for the measurement, and read by bd in
+server mode. The other was opened directly, through the harness's own client,
+so every call waited its turn in the harness's line as on the live factory.
+Both ran side by side for eight minutes, each with four callers reading one
+item every 12 seconds and three listing every 30 seconds, alternating the
+listing of items not closed (`bd list --json --limit=0`) with the ready
+listing (`bd ready --json --limit=0`). The reads through the server were bd
+processes run directly, which is what the harness's client does for a server,
+since a call to a server does not wait in the line.
+
+| Eight minutes, side by side | Calls | Median | 90th percentile | Slowest | Over 10s |
+| --- | --- | --- | --- | --- | --- |
+| through the server, one-item read | 160 | 0.10s | 0.13s | 0.15s | 0 |
+| through the server, items not closed | 24 | 0.17s | 0.19s | 0.25s | 0 |
+| through the server, ready | 24 | 0.15s | 0.17s | 0.21s | 0 |
+| opened directly, one-item read | 160 | 1.56s | 2.33s | 4.18s | 0 |
+| opened directly, items not closed | 24 | 1.37s | 2.57s | 3.11s | 0 |
+| opened directly, ready | 24 | 0.91s | 2.68s | 3.00s | 0 |
+
+**Condition 1, fast enough: met.** No listing through the server took over 10
+seconds (the slowest took 0.25 seconds) and the median one-item read took 0.10
+seconds, against a bound of half a second. A read through the server costs
+about a fifteenth of a direct one. Opened directly, nothing ran past 10
+seconds either in these eight minutes, unlike the run behind the sixth fix,
+because only these seven callers shared the copy's line, not the factory's
+700 to 1,200 calls an hour.
+
+**Condition 2, no developer run can reach the server: not met.** This
+measurement was itself made from a developer run, in the confinement the
+harness gives every developer run on Claude Code, and from there it connected
+to the server's port on 127.0.0.1 and read and listed through it. The same run
+also opened a connection to a port held by a program outside the run that had
+nothing to do with the measurement, so the connection is not allowed only
+because the run started the server itself. The connection is allowed by
+design: the harness gives every Claude Code developer run
+`sandbox.network.allowLocalBinding`, so that tests can start a server on
+127.0.0.1 (`developerSettings`, `internal/backend/claudecode/backend.go`;
+docs/configuration/runs.md), and that grant also lets the run connect to any
+port on the machine's own address. The password stopped every connection made
+without it, as user `beads` and as `root`, but the design asks that the run's
+confinement refuse the connection, and it does not. The run can also read
+files under the harness's state directory, where the design would keep the
+password. A Codex developer run's network is switched off, so this
+concerns Claude Code runs only.
+
+**Condition 3, bd's own setting: found.** bd reads which way to open the store
+from `.beads/metadata.json`, which bd keeps out of Git in every clone, and from
+`.beads/config.yaml`, which is committed, and environment variables override
+both. In `metadata.json`, `"dolt_mode": "server"` turns server mode on and
+`dolt_server_host`, `dolt_server_port` and `dolt_server_user` say where the
+server is; bd warns that `dolt_server_port` there is deprecated but obeys it,
+and without it bd uses the port in a `dolt-server.port` file it keeps in
+`.beads`, or 3307. The password is read from `BEADS_DOLT_PASSWORD` or from a
+credentials file (`BEADS_CREDENTIALS_FILE`, by default
+`~/.config/beads/credentials`), one section per host and port. With only
+those local settings and a credentials file, a bd given no environment of its
+own read through the server. Without the password it was refused, and with no
+server listening it failed at once ("Dolt server unreachable … connection
+refused"); in neither case did it open the store's files directly. Not tried:
+a bd left to start a server of its own (`BEADS_DOLT_AUTO_START` not set to
+0), which would serve bd's default data directory, `.beads/dolt`, rather than
+the store, unless `bd dolt set data-dir` points it there.
+
+A bd opening the store directly while the server ran was not a second writer
+on it: the server holds the store's lock file, and the direct bd waited for
+374 seconds without opening anything, then opened the store and answered the
+moment the server stopped. So a direct opening beside the server waits rather
+than writing beside it, but it waits as long as the server runs, and whatever
+is waiting gets in as soon as the server stops, before anything restarts it.
+
+**The exports, taken each way: the same items with the same fields.** Of
+2,202 items, none differed in any field. The only difference
+was the order bd lists an item's dependencies in, which differed in 144 items;
+sorted, the two exports are identical. The served copy, exported directly
+after the server stopped, was byte for byte the export of the copy that was
+never served. A move to server mode would therefore change the committed
+export once, by reordering those dependency lists. The server also adds a
+`stats` database inside the store's `.dolt` directory, which direct opening
+ignored.
+
+**Outcome: not adopted.** Condition 2 failed: a developer run under its
+confinement is not refused when it connects to the server's port. Conditions
+1 and 3 hold and the exports agree, so if the developer sandbox stops letting a
+run connect to local ports it did not open, or the server is reached some way
+the sandbox refuses, these figures still stand and only condition 2 needs
+checking again. Until then the shared listing (build piece 10) is the route
+that carries the limit, as the design says, and pieces 8 and 9 are not built.
