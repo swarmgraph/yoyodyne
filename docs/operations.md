@@ -1695,6 +1695,34 @@ is yours. A finding recorded with no such reason is not yours: the registry
 gives it back to the role that raised it, the role that handled the report for
 a handling and the development manager for an escalation.
 
+**A reason is not enough on its own: the step it asks of you is checked too.**
+When the Lead Product Manager records a handling naming you, or the development
+manager an escalation to you, the harness refuses it with the reason, and
+records nothing, where:
+
+- it is given as `protected-file` and names no file, names a file or folder the
+  repository does not have, or names one a developer run may change (only
+  Claude Code's two settings files and the role definitions under
+  `.yoyodyne/roles` count as beyond every grant);
+- it is given as `own-hold` and no hold or pause you placed yourself stands — a
+  hold the harness's own brake placed is not yours, and a hold that cannot be
+  read counts as standing;
+- it asks you, under any reason, to restart part of the product, which the
+  product does itself under the rule that Slack, the dashboard, the scheduler,
+  and maintenance are started, stopped, restarted, and moved onto a new build by
+  the product and not by a person.
+
+One already on your list is checked again while it waits: the hold and the
+restart on every reading, and the files once it has waited three days. One that
+fails leaves your list and goes back to the role that recorded it, with the
+reason — a handling to the role that handled the report, listed under it on
+`yoyo status` as `report to handle again` and in its own turns as its own to
+finish, and an escalation to the development manager, as described for
+escalations below. `yoyo status`, the dashboard, and the reconcile sweep apply
+every check; the channel reads no repository, so it applies only the hold and
+the restart checks, and a request whose files fail is dropped from it when the
+next `yoyo reconcile` or status reading records that.
+
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
   `"needs": "operator"` for a report whose answer is yours for a reason on your
   closed list, named in `"operator_reason"` or by a `person_only` remedy, with
@@ -1728,7 +1756,10 @@ a handling and the development manager for an escalation.
   left for a person to decide. So does an escalation that gives no reason from
   your closed list, which every one recorded before the list was enforced does:
   it was never yours, and it goes back to the development manager, whose
-  decision about the stopped run it is. `yoyo status` and the dashboard drop it as
+  decision about the stopped run it is. So does an escalation whose step fails
+  its check while it waits ([above](#where-a-finding-that-needs-your-hand-goes)):
+  it goes back to her the same way, and what ended it says which check failed.
+  `yoyo status` and the dashboard drop it as
   soon as they read that. The branch and worktree are looked for in the
   repository, never read off the run's removal flags. The next
   [`yoyo reconcile`](#recovering-interrupted-runs) writes what ended it
@@ -1739,7 +1770,8 @@ a handling and the development manager for an escalation.
   what it ended under `escalations_ended` in `--json`. The development
   manager's docket already counts her escalation as settled and lists no
   escalated stoppage, so nothing about the ending returns one to her — except
-  the one that went back to her for giving no closed-list reason: the sweep
+  the one that went back to her for giving no closed-list reason, or for a step
+  that failed its check: the sweep
   puts that stoppage back on her docket as one nobody has decided about, and
   the note on the item says it is her decision now. Her held work on `yoyo
   status` counts it under her. Until

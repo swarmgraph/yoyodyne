@@ -175,7 +175,7 @@ func (r Reconciler) returnEscalation(runID, why string, now time.Time) error {
 			WorkItemID:    entry.WorkItemID,
 			Decision:      triage.EscalationReturnedDecision,
 			Reason:        singleLine(fmt.Sprintf("%s escalated this to the operator at %s: %s; it goes back to her because %s", strings.TrimSpace(entry.Closed.DecidedBy), entry.Closed.ClosedAt.UTC().Format(time.RFC3339), strings.TrimSpace(entry.Closed.Reason), why), triage.MaxMessageBytes),
-			DecidedBy:     "the harness, finding the escalation gave the operator no reason from his closed list",
+			DecidedBy:     "the harness, finding the escalation was not the operator's to act on",
 			ClosedAt:      returnedAt,
 		}); err != nil {
 			return fmt.Errorf("put the %s entry of run %s back in front of the development manager: %w", entry.Class, runID, err)
