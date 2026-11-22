@@ -148,7 +148,13 @@ func TestABriefingsListingThatRanOutOfTimeIsKept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ground := conversationGround{runner: timedOutRunner{}, repository: project, gitBinary: "git", timeout: 200 * time.Millisecond, slowCalls: slowCalls}
+	// The limit bounds the whole briefing as well as each call, and the client
+	// takes the store's locks and its turn before it reaches the runner; a call
+	// whose limit runs out on that way is never made, so nothing is kept. The
+	// limit is long enough for a loaded machine to get there, and shorter than
+	// the client's first wait before asking again (listingWaits), so the
+	// briefing gives up at it rather than waiting through a second attempt.
+	ground := conversationGround{runner: timedOutRunner{}, repository: project, gitBinary: "git", timeout: 1500 * time.Millisecond, slowCalls: slowCalls}
 
 	// The rest of the picture is not this test's: a project with no
 	// specifications may fail to assemble one after the listing has been made.
