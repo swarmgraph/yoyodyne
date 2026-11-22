@@ -174,6 +174,8 @@ func TestTriggersOutsideTheClosedSetOrUnderTheFloorAreRefused(t *testing.T) {
 			want: `agent "pm" triggers.on names "landings" twice`},
 		{name: "under the floor", triggers: "      every: 1m\n",
 			want: `agent "pm" triggers.every is 1m0s, and the shortest interval allowed is 5m0s`},
+		{name: "a full-pass floor past the bound", triggers: "      every: 1h\n      full_pass_every: 13h\n",
+			want: `agent "pm" triggers.full_pass_every is 13h0m0s, and it must be between 1h0m0s and 12h0m0s`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

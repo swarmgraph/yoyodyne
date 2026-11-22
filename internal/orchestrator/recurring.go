@@ -389,6 +389,9 @@ type Fired struct {
 	Problem string `json:"problem,omitempty"`
 	// NotStarted is why the firing failed before its first turn, where it did.
 	NotStarted runstate.PreTurnCause `json:"not_started,omitempty"`
+	// Skipped is why a scheduled firing was not started, where nothing it would
+	// have been handed had changed since its last completed pass (passskip.go).
+	Skipped string `json:"skipped,omitempty"`
 }
 
 // RecurringSweep is what one pass did about the schedule. A pass that found
@@ -586,6 +589,12 @@ type Trigger struct {
 	// (runstate.Sweep.KeepReferences). Nil, or a tracker that cannot be read,
 	// records the account with none, and it is then read for full ids only.
 	WorkItemTitles func(ctx context.Context) *readmodel.WorkItemTitles
+	// Changes reads, with no provider call, what a scheduled pass would be
+	// handed, so a scheduled firing whose role has nothing new since its last
+	// completed pass is skipped rather than started (passskip.go). Optional: a
+	// trigger wired without it starts every firing, which is what every trigger
+	// did before passes could be skipped.
+	Changes PassChangeSources
 }
 
 // RecurringBreakage is the report pile as a missed cadence files into it. It is
@@ -827,7 +836,7 @@ func (t Trigger) Missed(ctx context.Context, missed RecurringMiss) error {
 		}
 		// A miss recorded before misses were marked is read by its shape, and only
 		// ever was a schedule's.
-		if earlier.Missed == nil && missed.trigger() == runstate.PassTriggerSchedule && earlier.Turns == 0 && earlier.Result == nil && earlier.NotStarted == "" {
+		if earlier.Missed == nil && earlier.Skipped == nil && missed.trigger() == runstate.PassTriggerSchedule && earlier.Turns == 0 && earlier.Result == nil && earlier.NotStarted == "" {
 			return nil
 		}
 	}
@@ -1233,6 +1242,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	if !f.due.IsZero() && !f.due.After(recorded.StartedAt) {
 		recorded.DueAt = f.due
 	}
+	// What the role is handed, as digests taken before its first turn, which
+	// the next scheduled firing is compared against (passskip.go). Taken on
+	// every pass, whatever woke it, because any pass that completes is the one
+	// the next is compared with.
+	recorded.Fingerprints = recordedFingerprints(t.passFingerprints(ctx, t.passScope(task.Role, f.agent), task))
 	// shown is every critical report the pass has been put in front of: the ones
 	// its firing was made for, and the ones its conversation carried into a turn.
 	// The pass is not accepted as complete while any of them stands unhandled.
@@ -2539,6 +2553,9 @@ func (s RecurringSweep) Render() string {
 	}
 	for _, fired := range s.Fired {
 		switch {
+		case fired.Skipped != "":
+			fmt.Fprintf(&rendered, "the recurring task %s was skipped: %s\n", fired.Task, fired.Skipped)
+			continue
 		case fired.NotStarted != "":
 			fmt.Fprintf(&rendered, "the recurring task %s failed before its first turn: %s\n", fired.Task, fired.NotStarted.Describe())
 		case fired.Turns == 0:

@@ -394,6 +394,11 @@ func (t Trigger) claimTask(ctx context.Context, name string, task config.Recurri
 		return claimedFiring{settled: &fired}, true, nil
 	}
 	return claimedFiring{take: func(ctx context.Context) Fired {
+		// A scheduled firing whose role has nothing new since its last completed
+		// pass is recorded as skipped rather than started (passskip.go).
+		if decided := t.unchanged(ctx, name, task, t.passScope(task.Role, ""), task.Skipping(), 0); decided.skip {
+			return t.recordSkip(ctx, name, task, "", due, decided)
+		}
 		batch := t.amendmentBatch(task)
 		// Filed before the message is composed, so the pass is put the reports
 		// with the rest of the pile it is shown.

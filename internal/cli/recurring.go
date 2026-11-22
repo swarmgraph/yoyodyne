@@ -116,6 +116,10 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		// manager's and of the factory-flow program manager's, over the records
 		// `yoyo status` reads, whatever the pass's events say.
 		Health: productHealth{parts: parts}.Deliver,
+		// What a scheduled pass would be handed, read with no provider call, so a
+		// scheduled firing with nothing new since its role's last completed pass
+		// is skipped rather than started (orchestrator/passskip.go).
+		Changes: passChangesFrom(parts),
 		// The proposed changes, so a task that wakes a role owning documents puts
 		// the undecided ones against them in the wake and records what the role
 		// argued. The same log every run proposes into and `yoyo amendment`
@@ -1263,6 +1267,11 @@ func renderSweep(recorded runstate.Sweep) string {
 	if recorded.NotStarted != "" {
 		fmt.Fprintf(&rendered, "  FAILED FIRING: it failed before its first turn — %s\n", recorded.NotStarted.Describe())
 	}
+	// A skipped firing is said as one, with the sentence its record keeps, so it
+	// reads as a decision not to spend rather than as a pass that reached nobody.
+	if recorded.Skipped != nil {
+		fmt.Fprintf(&rendered, "  SKIPPED: %s\n", recorded.Skipped.Reason)
+	}
 	if recorded.Failed && recorded.NotStarted == "" {
 		rendered.WriteString("  FAILED PASS: it did not complete\n")
 	}
@@ -1308,6 +1317,9 @@ func renderSweep(recorded runstate.Sweep) string {
 	// detail it dropped is only in the conversation's record from then on.
 	for _, compaction := range recorded.Compactions {
 		fmt.Fprintf(&rendered, "  %s\n", describeCompaction(compaction))
+	}
+	if recorded.Result == nil && recorded.Skipped != nil {
+		return rendered.String()
 	}
 	if recorded.Result == nil {
 		fmt.Fprintf(&rendered, "  no account of this pass was recorded: %s\n", nonEmptySweepProblem(recorded.Problem))

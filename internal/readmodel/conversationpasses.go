@@ -129,6 +129,8 @@ func unanswered(pass runstate.Sweep) string {
 		return "was missed"
 	case pass.NotStarted != "":
 		return "failed before its first turn"
+	case pass.IsSkip():
+		return "was skipped, with nothing new since its last completed pass"
 	case pass.Turns == 0:
 		return "took no turn"
 	default:

@@ -9410,10 +9410,14 @@ These are all errors, reported before any work is claimed:
 - a program manager's `remit` path that fails any of the persona rules below, in
   the same words; a `lane`, `remit`, or `triggers` on an agent of any other role;
   a `lane` the tracker would not carry, or one two agents name; a
-  `triggers.every` under `5m`; and a `triggers.on` entry outside `landings`,
+  `triggers.every` under `5m`; a `triggers.full_pass_every` under `1h` or over
+  `12h`; and a `triggers.on` entry outside `landings`,
   `admissions`, and `stoppages`, or named twice; and a `recurring_tasks` entry
   named for a program manager instance, since an instance's passes are recorded
   and paced under its own name;
+- a `recurring_tasks` entry whose `full_pass_every` is under `1h` or over
+  `12h`, since it is the longest a role goes without a full pass while passes
+  with nothing new are skipped;
 - a `recurring_tasks` entry named `maintenance`, which is the name the
   supervisor's maintenance pass records its passes and paces its cadence under;
 - a persona path that is absolute, traverses upward, is not Markdown, is missing,
@@ -10314,6 +10318,58 @@ and an `architect-pass` is not needed to catch labelled work.
 | `prompt` | what the role is told. It is the task, not a personality. |
 | `max_turns` | how many work turns one firing may take, defaulting to 3 and capped at 10. Three turns are outside this bound: one request for a missing closing report, one request to correct a closing report the harness refused, and one turn sending the pass back to decide or ask about an item its passes keep leaving ([operations](operations.md#where-the-harness-stands-the-four-lines)). |
 | `model` | the model this task's turns ask for. Optional: leave it out and the turns ask for the role's own configured `model`, which is what every task did before the key existed. See [a task's own model](#a-tasks-own-model). |
+| `skip_when_unchanged` | whether a scheduled firing is skipped when nothing its role would be handed has changed since the task's last completed pass. Optional, and on when left out. See [skipping a pass with nothing new](#skipping-a-pass-with-nothing-new). |
+| `full_pass_every` | the longest the role goes without a full pass while passes with nothing new are skipped. Optional, defaulting to `4h`; anything under `1h` or over `12h` is refused when the configuration loads. |
+
+### Skipping a pass with nothing new
+
+Before the harness starts a scheduled firing, it checks, without asking any
+AI provider, whether anything the pass would be handed has changed since the
+task's last completed pass. It looks at:
+
+- the target branch, for a change landed on it;
+- the work items the role's conversation carries, is assigned, or, for a
+  program manager, that carry its lane's label;
+- the unhandled reports addressed to the role (for the Lead Product Manager,
+  every unhandled report) and the undecided changes proposed to its documents;
+- what is waiting in the role's conversation to be told, which is where a
+  question from another role, a message from you, or a document handed back
+  arrives;
+- the role's documents sent to land, and how each run carrying one stands;
+- the follow-ups the role owns whose deadline has passed;
+- for the development manager, her list of stopped runs; and for her and the
+  program manager whose lane is `factory-flow`, the factory's health problems;
+- for a program manager, the events in its lane since its last pass.
+
+Where none of these has changed, the pass is not started. `yoyo sweeps` shows
+it as `SKIPPED`, with the completed pass nothing changed since and when the next
+full pass is owed; it costs nothing and counts as that window's firing, so the
+schedule runs on from it. Anything the check cannot read counts as a change, and
+so does a task with no completed pass yet. Every role still has a full pass at
+least every `full_pass_every`, whatever the check finds, so a change it does not
+look at waits no longer than that. For the development manager and the
+`factory-flow` program manager, a health problem still present an hour or more
+after the last completed pass counts as a change too, so an idle slot with ready
+work or a run left waiting is looked at within the hour even though the problem
+has not changed.
+
+What the check reads is fixed in the harness for each role and is not
+configurable: a list a project could edit could hide a change from the role that
+has to act on it. Passes started by anything other than the schedule (a program
+manager's events, the intake brake's summons, a request for a pass, a critical
+report) are never skipped. A program manager instance takes the same two keys
+under its `triggers` block, applied to its scheduled pass:
+
+```yaml
+agents:
+  flow-pm:
+    role: program-manager
+    lane: factory-flow
+    triggers:
+      every: 1h
+      on: [stoppages]
+      full_pass_every: 2h
+```
 
 ### A task's own model
 

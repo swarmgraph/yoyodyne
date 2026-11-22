@@ -545,12 +545,47 @@ type Sweep struct {
 	// compacted nothing in, and on every record written before passes carried
 	// it.
 	Compactions []backend.ProviderCompaction `json:"compactions,omitempty"`
+	// Fingerprints are digests of what the role would be handed, one for each
+	// thing the check before a scheduled pass reads, taken before this pass's
+	// first turn (internal/orchestrator/passskip.go). The next scheduled firing
+	// compares its own against the last completed pass's, and is skipped where
+	// none differs. Absent on a pass of a trigger wired without the check, and on
+	// every record written before passes carried them.
+	Fingerprints map[string]string `json:"fingerprints,omitempty"`
+	// Skipped marks a scheduled firing that was not started because nothing it
+	// would be handed had changed since the task's last completed pass. It took
+	// no turn and asked nothing, and it is the one firing of its window. Absent
+	// on every pass that was started.
+	Skipped *SkippedPass `json:"skipped,omitempty"`
 	// Steps is what the harness's own maintenance pass did, one entry per step in
 	// the order it took them, each saying whether it ran, was skipped, or failed,
 	// and why. A step that was skipped says so rather than being left out,
 	// because a pass that quietly did less than it was meant to is the failure
 	// this record exists to make visible. It is empty on a role's pass.
 	Steps []SweepStep `json:"steps,omitempty"`
+}
+
+// SkippedPass is why a scheduled firing was not started: the completed pass
+// nothing had changed since, named and timed, and the sentence the record says.
+type SkippedPass struct {
+	// LastCompleted names the task's last completed pass, as the pass that
+	// wrote on its behalf names it where that is known, and by its start time
+	// otherwise; LastCompletedAt is when it started.
+	LastCompleted   string    `json:"last_completed"`
+	LastCompletedAt time.Time `json:"last_completed_at"`
+	// FullPassBy is when the role's next full pass is owed however little
+	// changes: the last completed pass's start plus the task's floor.
+	FullPassBy time.Time `json:"full_pass_by"`
+	Reason     string    `json:"reason"`
+}
+
+// MaxSweepFingerprints bounds how many digests one pass records. The check
+// reads a handful of things; this is well above them.
+const MaxSweepFingerprints = 16
+
+// IsSkip reports a firing the check before a scheduled pass skipped.
+func (s Sweep) IsSkip() bool {
+	return s.Skipped != nil
 }
 
 // MaxSweepHealthDelivered bounds how many condition identities one pass
@@ -823,7 +858,9 @@ func (s Sweep) HarnessPass() bool {
 // one whose turn failed, a firing that took no turn at all — refused before
 // it, waited out on the provider, missed, or cancelled — or one stopped
 // part-way for a restart into a new build. The next pass is still owed what
-// this one was, so what it saved is what that pass is told of.
+// this one was, so what it saved is what that pass is told of. A skipped
+// firing took no turn and counts here too, so a reader looking for the last
+// pass that ended passes over it to the completed pass it was skipped against.
 func (s Sweep) Unfinished() bool {
 	return s.Failed || s.Turns == 0 || s.StoppedForRestart
 }
@@ -1107,8 +1144,30 @@ func (s Sweep) Validate() error {
 	// record can say nothing at all about, which is the one thing this must not be
 	// able to hold: a reader would see a sweep that happened and no way to tell
 	// whether it found nothing or failed.
-	if s.Result == nil && strings.TrimSpace(s.Problem) == "" {
+	if s.Result == nil && strings.TrimSpace(s.Problem) == "" && s.Skipped == nil {
 		problems = append(problems, errors.New("a sweep with no result must say what stopped it"))
+	}
+	if len(s.Fingerprints) > MaxSweepFingerprints {
+		problems = append(problems, fmt.Errorf("%d fingerprints in one pass, limit is %d", len(s.Fingerprints), MaxSweepFingerprints))
+	}
+	for kind, digest := range s.Fingerprints {
+		if err := domain.ValidateIdentifier("fingerprint kind", kind); err != nil {
+			problems = append(problems, err)
+		}
+		if strings.TrimSpace(digest) == "" || len(digest) > MaxSweepModelBytes {
+			problems = append(problems, fmt.Errorf("fingerprint %q must be a bounded digest", kind))
+		}
+	}
+	// A skipped firing said why and asked nothing: it carries no turn, no
+	// account, and none of the marks of a firing that was started.
+	if skipped := s.Skipped; skipped != nil {
+		if strings.TrimSpace(skipped.Reason) == "" || len(skipped.Reason) > MaxSweepTextBytes ||
+			strings.TrimSpace(skipped.LastCompleted) == "" || len(skipped.LastCompleted) > MaxSweepTextBytes || skipped.LastCompletedAt.IsZero() {
+			problems = append(problems, errors.New("a skipped firing names the completed pass nothing changed since, and says why, within the record's bounds"))
+		}
+		if s.Turns != 0 || s.Result != nil || s.Missed != nil || s.NotStarted != "" || s.Failed || s.CostUSD != 0 {
+			problems = append(problems, errors.New("a skipped firing took no turn, gave no account, and is neither missed, failed, nor refused"))
+		}
 	}
 	if s.Result != nil {
 		if err := s.Result.Validate(); err != nil {

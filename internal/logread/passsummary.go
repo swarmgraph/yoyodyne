@@ -46,7 +46,10 @@ type passFields struct {
 	StoppedForRestart bool       `json:"stopped_for_restart"`
 	NotStarted        string     `json:"not_started"`
 	Problem           string     `json:"problem"`
-	Missed            *struct {
+	Skipped           *struct {
+		LastCompleted string `json:"last_completed"`
+	} `json:"skipped"`
+	Missed *struct {
 		Trigger string `json:"trigger"`
 		How     string `json:"how"`
 	} `json:"missed"`
@@ -79,7 +82,7 @@ func summarizePass(entry []byte, redactor execution.Redactor) *PassSummary {
 				break
 			}
 			switch key {
-			case "task", "role", "agent", "started_at", "ended_at", "turns", "failed", "missing_report", "stopped_for_restart", "not_started", "problem", "missed":
+			case "task", "role", "agent", "started_at", "ended_at", "turns", "failed", "missing_report", "stopped_for_restart", "not_started", "problem", "missed", "skipped":
 				fields[key] = value
 			}
 		}
@@ -110,6 +113,8 @@ func howPassEnded(read passFields, complete bool) string {
 		said = "stopped part-way after " + turns + " for a restart onto a new build"
 	case read.Failed:
 		said = "failed after " + turns
+	case read.Skipped != nil:
+		said = "skipped: nothing new since the last completed pass, " + read.Skipped.LastCompleted
 	case read.Turns != nil && *read.Turns == 0:
 		said = "took no turn"
 	case read.Turns != nil:
