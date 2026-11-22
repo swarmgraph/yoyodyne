@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-22T07:10:53.165106Z
       reason: Brought into line with the code at main 94f2620cb45e, from the second comparison reading for the checks group. The opening is no longer written as today; the queue stage names the narrowed local race check where no required check is a race check, and the capacity bullet counts its permit; the verification rule sentence is recorded as added on November 5; builds 6, 7 and 9 are marked partly or not built; CI is never narrowed by the harness, and the repository's own race skip is named.
+    - action: amended
+      by: architect
+      at: 2026-11-22T13:40:14.166821Z
+      reason: 'Answers the reviewer on run-26ba99a6: the section on a failed check whose output cannot be read said the handling was built. On main the harness still runs the full local checks when such output cannot be read. The colour code fix (yoyodyne-ifd.429.239) is only on its branch, so it is marked not yet built. A log still unreadable after it lands keeps the local rerun and is reported once. Read at main 4fb999d4, including cichecks.go.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-22T07:10:53.165106Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3425, for document-3425.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-22T13:40:14.166821Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3450, for document-3450.1 under the automatic approval policy
 ---
 # Checks on CI: a short local check, the full suite on the forge before review, and a switch back to local checks
 
@@ -101,6 +110,14 @@ When a required check fails, the harness fetches through the forge adapter, beca
 - the end of each failing check's output, at most its last 200 lines, with the output of all the failing checks together held to 8 KiB, the limit a run record keeps for a failed check's output. Where they are over it, the 8 KiB is shared equally between the failing checks, each keeping its last lines.
 
 The output is scrubbed of secrets before it is written anywhere. It is recorded on the run as a failed check, in the same shape as a local failed check with its failing tests, and spends one repair round as a local failure does. The developer receives it the same way. After the repair, the cycle starts again at the short local check, and the new commit needs its own CI result: a result for an earlier commit is never carried forward.
+
+### A failed check whose output cannot be read
+
+Today, when a required check has failed but the harness cannot read its output, the run treats the forge as unreadable: it records why and runs the full declared checks on this machine over the same commit, spending no repair round, as described under When CI is down or slow. This is what the code at main 4fb999d4 does (`internal/orchestrator/cichecks.go`, `handBackCIFailure`). The commonest cause is a log that contains terminal colour codes, which the forge's reading tool refuses to return.
+
+The work on unreadable failed check output (yoyodyne-ifd.429.239) changes this, and is not yet built. Once it lands, the harness reads such a log and removes the colour codes before the output is shown, recorded, or passed to any role, and the failure goes back to the developer with its failing tests as above. A log the harness still cannot read after that keeps the local rerun of the full checks, spends no repair round, and is reported once, in plain words, naming the check and why its output could not be read.
+
+Handing back a failure with no output, so that the developer sees only the check's name and a link, was rejected. A developer cannot reach the forge, so such a repair is a guess. On November 21 and 22 one run spent four repair attempts that way while its tests passed on this machine every time, and the local rerun was what named the failing test.
 
 ## When CI is down or slow
 
