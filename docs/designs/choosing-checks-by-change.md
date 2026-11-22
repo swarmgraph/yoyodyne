@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-21T06:51:10.917077Z
       reason: 'Part of rewording the designs that still call the README walk the adoption check, now that the rename to getting-started has landed (yoyodyne-ifd.437.67): the Repeated checks bullet now says the getting started check. Nothing else changes. Written against main at 96c90b9b. The v1 harness design''s mention follows last.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T06:57:28.418764Z
+      reason: 'Brings the design in line with the code at main 3b1057ae4bdf, from the second comparison reading for the checks group: says what runs today (three separate filters: Go package narrowing, path checks, the race skip script) and that the one policy, analyser, runstate rule, shadow period, switch and case 3 declarations are not built; the filters move into the policy rather than being removed first; case 3 keeps the declaration; and the queue''s local run with checks on CI can add the narrowed race check.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -61,12 +65,31 @@ approvals:
       by: harness
       at: 2026-11-21T06:51:10.917077Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3303, for document-3303.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-22T06:57:28.418764Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3421, for document-3421.1 under the automatic approval policy
 ---
 # Choosing checks by what a change touches, through one shared policy
 
 This design says how a developer run's checks may be narrowed to what a change can affect, without ever letting a change land on less verification than it needs. It serves the v1 goal of a traceable chain from the brief through work, code changes and verification: every check a run narrows or skips is recorded with the reason, so the record of what verified a change stays complete. It also serves the goal that the harness supports any language: the harness itself knows only path rules and an analyser command a project declares, and nothing about Go.
 
-It was ruled on October 12, 2026 for the design item on choosing checks by change (yoyodyne-ifd.429.44), and the ruling was recorded on that item. This document is that ruling, with the reasons and the rejected alternatives added. It was revised on October 25, 2026 to agree with [the design for one owner for each guarantee](one-owner-for-each-guarantee.md), whose guarantee 9 owns the checks and reads this policy. It was revised on November 8, 2026, when the harness's own merge queue was switched on in this repository. It was revised again on November 17, 2026, when the merge queue's pace design moved the full race check out of the queue's run on every candidate: the queue now runs a list of checks the project declares, and case 2 below says what that list must show. It was revised on November 20, 2026 to say that, with checks on CI switched on, GitHub's required checks on the exact candidate commit can show case 2's full check instead of that list, as the merge queue's quick local checks (yoyodyne-ifd.429.186) built on November 18.
+It was ruled on October 12, 2026 for the design item on choosing checks by change (yoyodyne-ifd.429.44), and the ruling was recorded on that item. This document is that ruling, with the reasons and the rejected alternatives added. It was revised on October 25, 2026 to agree with [the design for one owner for each guarantee](one-owner-for-each-guarantee.md), whose guarantee 9 owns the checks and reads this policy. It was revised on November 8, 2026, when the harness's own merge queue was switched on in this repository. It was revised again on November 17, 2026, when the merge queue's pace design moved the full race check out of the queue's run on every candidate: the queue now runs a list of checks the project declares, and case 2 below says what that list must show. It was revised on November 20, 2026 to say that, with checks on CI switched on, GitHub's required checks on the exact candidate commit can show case 2's full check instead of that list, as the merge queue's quick local checks (yoyodyne-ifd.429.186) built on November 18. It was revised on November 21, 2026, after a comparison with the code at main 3b1057ae4bdf, to say what of it is built and what runs today.
+
+## What runs today
+
+The merge candidate's cases 1, 2 and 4 below are built. The rest of this design is not built yet: the one policy, the analyser interface, the rule for the tests of `internal/runstate`, the list of when the whole suite runs as written below, the record for each check of whether it ran whole, narrowed or skipped, the shadow period and the switch. Case 3's two declarations are not built either.
+
+What narrows a developer run's checks today is three separate filters, each of its own:
+
+- **Narrowing to the Go packages a change touches.** The harness passes those packages to `make test` and `make race`, chosen in the checks package (`internal/checks/narrow.go`). It widens to the whole module for a change to `go.work` or `go.work.sum`, or where the root is not a Go module. The Makefile and `scripts/check-scope.sh` also widen to the whole module for a change that touches only files outside every Go package, other than Markdown and the tracker export. A change that touches Go packages and also the Makefile, a workflow or the check configuration is not widened.
+- **The path checks.** `path_checks` in the project's configuration runs a check only when a changed path matches the list it names. In this repository that is the getting started walk and the Codex resume test.
+- **The race skip script.** `scripts/race-skip.sh`, used by the race target, is a further filter of its own.
+
+The Makefile's list of tests that read documents holds the guard tests of `internal/runstate`, including the check that refuses a whole save of a run's record. That list runs beside narrowed packages only when a change also touches a file outside every package, so a change to Go files alone skips those tests before review. They still run on the merge candidate, where the queue's declared checks run whole.
+
+These line references come from a reading of the code made for this revision; the selection code was not read again when it was written.
 
 ## One policy
 
@@ -77,13 +100,13 @@ One typed policy in the checks package decides every check for a run. Its inputs
 - the project's path rules;
 - an optional analyser command the project declares.
 
-No other surface filters checks on its own. The existing selection of directly touched packages is extended into this policy, not replaced and not run beside it. The one plan of guarantee 9 reads this policy to decide whether each check runs whole, narrowed or not at all.
+Once the policy is built, no other surface filters checks on its own. The three filters that exist today, described above, move into it: the Go package narrowing is extended into the policy rather than replaced or run beside it, the path checks become path rules, and the race skip script's decision becomes a rule or an analyser result the policy records. None of them is removed before the policy makes the same selections, because removing one early would widen every run and slow the factory with nothing more checked. The guarantees design already lists path checks as a check path still to be moved onto its runner. The one plan of guarantee 9 reads this policy to decide whether each check runs whole, narrowed or not at all.
 
 ## What the harness knows, and what the project declares
 
-The harness knows only two things: path rules, which say which checks a path concerns, and an analyser command, which given the changed paths returns the further paths or test groups they affect. A project with neither gets every check run whole, as today.
+The harness knows only two things: path rules, which say which checks a path concerns, and an analyser command, which given the changed paths returns the further paths or test groups they affect. A project with neither gets every check run whole.
 
-This repository declares a Go analyser. It returns:
+This repository will declare a Go analyser. It returns:
 
 - the packages that depend on each changed package, directly or through others;
 - the tests of those packages;
@@ -93,11 +116,11 @@ for both the macOS and the Linux build variants, so a file built on only one pla
 
 Tests that read documents, templates or scripts are declared in the path rules by the paths they read, so a change to such a file selects them.
 
-Some tests guard code outside their own package, so the analyser cannot find them from the changed paths. They are declared in the path rules by the paths they guard. In this repository, any changed Go file selects the tests of `internal/runstate`. The check that refuses a whole save of a run's record lives there, and it guards against such a save added in any package, such as `internal/orchestrator`. A test run narrowed to the packages a change touches would otherwise skip it. This rule applies wherever tests are narrowed, the merge queue's declared list included.
+Some tests guard code outside their own package, so the analyser cannot find them from the changed paths. They are declared in the path rules by the paths they guard. In this repository, any changed Go file selects the tests of `internal/runstate`. The check that refuses a whole save of a run's record lives there, and it guards against such a save added in any package, such as `internal/orchestrator`. A test run narrowed to the packages a change touches would otherwise skip it, as a change to Go files alone does today. This rule applies wherever tests are narrowed, the merge queue's declared list included.
 
 ## When the whole suite runs
 
-The whole suite runs, with nothing narrowed, whenever any of these holds:
+Once the policy is built, the whole suite runs, with nothing narrowed, whenever any of these holds:
 
 - a module, dependency or toolchain file changed;
 - the Makefile, a CI workflow or the check configuration changed;
@@ -105,7 +128,7 @@ The whole suite runs, with nothing narrowed, whenever any of these holds:
 - the analyser failed, timed out, or said it cannot tell;
 - the base commit is not an ancestor of the candidate.
 
-When in doubt, everything runs. A narrowed run is only ever the result of complete evidence.
+When in doubt, everything runs. A narrowed run is only ever the result of complete evidence. Today, a change that touches Go packages and also the Makefile, a workflow or the check configuration is not widened, as described above; the policy closes that difference.
 
 ## What is never narrowed
 
@@ -115,7 +138,7 @@ Selection applies to a developer run's checks before review. The checks before p
 
 ### What verifies the merge candidate
 
-The merge candidate is the change combined with the current target branch, as it is about to land. Which run verifies it for the full race check depends on the four cases below. Every other check before promotion runs whole on the candidate in every case: on this machine, in the queue, or on GitHub through its required checks. With checks on CI switched on, as [checks on CI](checks-on-ci.md) describes, the queue's own run on this machine keeps only the quick checks GitHub does not run, because GitHub's required checks run the rest whole on the same commit. That is not narrowing: the same checks still run whole on the same combined change, on GitHub rather than here.
+The merge candidate is the change combined with the current target branch, as it is about to land. Which run verifies it for the full race check depends on the four cases below. Every other check before promotion runs whole on the candidate in every case: on this machine, in the queue, or on GitHub through its required checks. With checks on CI switched on, as [checks on CI](checks-on-ci.md) describes, the queue's own run on this machine keeps the quick checks GitHub does not run, because GitHub's required checks run the rest whole on the same commit. It also adds the narrowed race check, `merge_queue_race_check`, where none of GitHub's required checks is a race check; in this repository `race` is a required check, so it is not added here. Running on GitHub is not narrowing: the same checks still run whole on the same combined change, on GitHub rather than here.
 
 1. **No merge queue verifies the candidate.** Integration through a merge queue is off. Every check before promotion runs whole on this machine, including the full race check.
 2. **The harness's own merge queue verifies the candidate.** This is how this repository runs from November 8, 2026, when the harness's own queue was switched on (yoyodyne-ifd.429.59.7). The local full race check on the merge candidate does not run when all of these hold at that landing:
@@ -131,14 +154,16 @@ The merge candidate is the change combined with the current target branch, as it
 
    The harness reads all of these from its own records, and, for GitHub's required checks, from the results it read itself for the exact candidate commit. The run's record names the run that verified the candidate for the race check, in `checks_passed.whole_by`, together with which of the three race results it relied on.
 
-   Where the race result is GitHub's own required race check, the full race check did run on the combined change, on GitHub, and nothing is accepted below a full race check. The merge queue design records that this repository's required GitHub jobs include the full race run, so once checks on CI are switched on for this repository (yoyodyne-ifd.429.76.8) that is the result case 2 relies on here.
+   Where the race result is GitHub's own required race check, the full race check did run on the combined change, on GitHub, and nothing is accepted below a full race check. This repository requires `race` on GitHub and has checks on CI switched on, so that is the result case 2 relies on here.
 
    Where the race result is the approved head's or the narrowed one, this case accepts less than a full race check on the combined change, and the cost is stated so it can be weighed. A race that appears only when the change meets what landed on main after its head was checked is not caught before landing. The scheduled full race check on main catches it after landing, within four hours of main moving. That is accepted because the queue could otherwise land only about one change an hour, as [the merge queue's pace design](merge-queue-pace.md) records.
 3. **The forge's merge queue verifies the candidate.** This applies to a project that integrates through the forge's merge queue rather than the harness's own. The local full race check on the merge candidate does not run when both conditions of guarantee 9's race check ruling hold:
    - the forge's required check runs the full suite under the race detector;
    - it runs on the change combined with current main, through the forge's merge queue.
 
-   The project declares both in its configuration, and the harness confirms both from the forge's settings at this landing and records that it did. A forge rule that a branch must be current before it merges does not by itself meet the second condition; only the forge's merge queue does.
+   The project declares both in its configuration, and the harness confirms both from the forge's settings at this landing and records that it did. The declaration stays because the forge's settings cannot say whether a check runs under the race detector. A forge rule that a branch must be current before it merges does not by itself meet the second condition; only the forge's merge queue does.
+
+   Neither declaration is built. Whether the forge's queue is used is decided today from what the forge adapter can establish, and none of those requirements concerns the full suite or the race detector. Until the declarations are built, case 3 cannot be shown and case 4 applies. Whether the forge route as built runs the local full race check was not checked against the code for this revision.
 4. **A merge queue is on, but its conditions are not shown to hold.** This covers any of these cases:
    - a condition of case 2 or case 3 is not met;
    - a condition the project had to declare was not declared;
@@ -163,20 +188,20 @@ Every run records, for each check, whether it ran whole, ran narrowed or was ski
 - which way the full check was shown: the declared list it ran and that list's digest, or GitHub's required checks with the candidate commit they were read for, each workflow file's digest, and the quick local checks run;
 - which race result it relied on: GitHub's required race check, the approved head's, or the narrowed race check's.
 
-For case 3 it records that both conditions were confirmed from the forge at that landing. For case 4 it records which condition was not shown and why. The record is kept with the run's other check results and is shown where those are shown.
+For case 3 it records that both conditions were confirmed from the forge at that landing. For case 4 it records which condition was not shown and why. The record is kept with the run's other check results and is shown where those are shown. The case record, `checks_passed.whole_by`, is built; the record for each check is not.
 
 ## Rollout
 
 1. **Shadow.** Selection is computed and the narrowed checks run, and the whole suite runs beside them. Any failure the whole suite found that the narrowed run did not is recorded as a miss, with the change that caused it. Shadow runs of the whole suite each take a permit for heavy checks, like any other heavy check.
 2. **Switch on.** Selection is used for real only after 50 shadow runs with no miss, spanning narrow, broad, non-Go and concurrent changes.
-3. **Switch off.** A setting turns selection off at any time and restores today's behaviour exactly. Any miss found after rollout switches it off and is reported to the development manager.
+3. **Switch off.** A setting turns selection off at any time and restores the behaviour before the policy exactly. Any miss found after rollout switches it off and is reported to the development manager.
 
 Coverage, CPU time and wall time are measured separately, before and after, and the cost of selection itself is counted in them. No claim of benefit is made before those measurements.
 
 ## How this fits the other designs
 
-- **[One owner for each guarantee](one-owner-for-each-guarantee.md)** owns checks as guarantee 9. Its one plan reads this policy, its one runner launches what the plan names, and its race check ruling is this repository's application of both. Where a result is kept across commits rather than the check run again, that is guarantee 9's and repeated checks', not narrowing.
-- **[Repeated checks](repeated-checks.md)** removes true duplicate runs of the same commit; narrowing release packaging or the getting started check later uses this policy rather than a filter of its own.
+- **[One owner for each guarantee](one-owner-for-each-guarantee.md)** owns checks as guarantee 9. Its one plan reads this policy, its one runner launches what the plan names, and its race check ruling is this repository's application of both. It lists path checks as a separate check path still to be moved, which agrees with this design's account of the filters that exist today. Where a result is kept across commits rather than the check run again, that is guarantee 9's and repeated checks', not narrowing.
+- **[Repeated checks](repeated-checks.md)** removes true duplicate runs of the same commit. The getting started check is already narrowed locally by its own path check today; it moves into this policy with the other filters.
 - **[Checks on CI](checks-on-ci.md)** keeps a short local check; tests that only behave correctly on macOS stay in it unless CI gains a macOS job. With it switched on, GitHub's required checks on the candidate commit can show case 2's full check.
 - **[Capacity for heavy checks](heavy-check-capacity.md)** bounds how many heavy checks run at once; shadow runs count against it.
 - **[Integration through a merge queue](integration-through-a-merge-queue.md)** is the switch that decides whether case 1 or one of cases 2 to 4 above applies. Its queue runs the declared list and the narrowed race check that case 2 names, and its section on GitHub's required checks sets the conditions under which those checks stand as the queue's full check.
@@ -185,8 +210,10 @@ Coverage, CPU time and wall time are measured separately, before and after, and 
 
 ## Alternatives rejected
 
-- **A filter for each surface** (the developer run, release packaging, CI). Rejected because each would drift from the others and none would be explainable as a whole; one policy gives one record of why.
+- **A filter for each surface** (the developer run, release packaging, CI). Rejected because each would drift from the others and none would be explainable as a whole; one policy gives one record of why. The three filters that exist today are that drift, and they move into the policy.
+- **Removing the existing filters before the policy is built.** Rejected because every run would then check the whole module, slowing the factory, with nothing more being checked than the filters already allow.
 - **Building Go analysis into the harness.** Rejected because projects Yoyodyne manages are not assumed to be Go; the analyser is a command the project declares.
+- **Reading case 3's race condition from the forge's settings alone.** Rejected because the forge's settings name required checks, not what they run; only the project can say its required check runs the full suite under the race detector.
 - **Narrowing the checks before promotion or in CI.** Still rejected, with the one exception of the race check in case 2. Letting the forge's required check be the whole run for the race check, in case 3, or GitHub's required checks be the queue's full check, in case 2, is not narrowing: the same checks still run whole on the same combined change, on the forge rather than in the run's own landing step.
 - **Counting GitHub's required checks read for the pull request's head.** Rejected because that head is not the candidate; only results read for the exact candidate commit count, as the merge queue design says.
 - **Running the full race check on every candidate in the harness's queue.** Rejected on November 17. At about an hour each, it held the queue to about one landing an hour. The approved head's full race result, or a narrowed race check on the candidate, together with the scheduled run on main, is the cost accepted instead, where GitHub does not run the full race check on the candidate.
@@ -199,24 +226,26 @@ Coverage, CPU time and wall time are measured separately, before and after, and 
 
 ## Builds
 
-1. The policy and its records.
-2. Path rules, with this repository's rule that any changed Go file selects the tests of `internal/runstate`.
+None of these five is built yet.
+
+1. The policy and its records, taking in the Go package narrowing, the path checks and the race skip script without changing what they select.
+2. Path rules, with this repository's rule that any changed Go file selects the tests of `internal/runstate`. Today those tests run before review only when a change also touches a file outside every package.
 3. The analyser interface and this repository's Go analyser.
 4. Shadow selection before review, with miss recording.
 5. The switch and the miss report.
 
-The cases for the merge candidate are built with guarantee 9's plan, in migration item 17 of the guarantees design, not as a separate piece here. Case 2, for this repository, is the work on dropping the local full race check on landing (yoyodyne-ifd.428.126.6.5), and the queue's declared checks (yoyodyne-ifd.429.142). Its second way of showing the full check, through GitHub's required checks, was built with the merge queue's quick local checks (yoyodyne-ifd.429.186), which landed on November 18, 2026, and is used here once checks on CI are switched on for this repository (yoyodyne-ifd.429.76.8).
+The cases for the merge candidate are built with guarantee 9's plan, in migration item 17 of the guarantees design, not as a separate piece here. Case 2, for this repository, is the work on dropping the local full race check on landing (yoyodyne-ifd.428.126.6.5), and the queue's declared checks (yoyodyne-ifd.429.142). Its second way of showing the full check, through GitHub's required checks, was built with the merge queue's quick local checks (yoyodyne-ifd.429.186), which landed on November 18, 2026. Case 3's two declarations are not built and have no work item yet; until they are, a project on the forge's queue falls to case 4.
 
 ## How a reviewer checks an implementation
 
-- No code outside the policy decides which checks run.
-- Each case in the list of when the whole suite runs, given as a test, produces a whole run.
+- No code outside the policy decides which checks run; the Go package narrowing, the path checks and the race skip script are read by the policy, not beside it.
+- Each case in the list of when the whole suite runs, given as a test, produces a whole run, including a change that touches Go packages and also the Makefile.
 - Formatting and vet run on every change, and the checks before promotion and in CI are never narrowed, apart from the race check of case 2.
 - A change to a Go file outside `internal/runstate`, with tests narrowed, still runs the tests of `internal/runstate`.
 - With integration through a merge queue off, the full race check runs locally on every merge candidate.
 - With the harness's own queue on, the local full race check on the merge candidate is skipped only when the queue ran its declared list whole and all passed, the approved head has a passing full race result or the narrowed race check passed on the candidate, and the queue checked exactly the commit that lands. The record names the queue's run in `checks_passed.whole_by`, the declared list and its digest, and the race result relied on. A test shows that a queue run missing a check from its list, with none of the race results, or on another commit, runs the full race check locally.
-- With the harness's own queue and checks on CI on, GitHub's required checks count as case 2's full check only when read for the exact candidate commit, every required check passed, each workflow file's digest is recorded, the target stayed at the recorded base, and the quick local checks passed. A test shows that a result read for the pull request's head, or a required check missing, pending, failed or neutral, does not count and the full race check runs locally. A required race check that passed on the candidate is recorded as the race result relied on.
+- With the harness's own queue and checks on CI on, GitHub's required checks count as case 2's full check only when read for the exact candidate commit, every required check passed, each workflow file's digest is recorded, the target stayed at the recorded base, and the quick local checks passed. A test shows that a result read for the pull request's head, or a required check missing, pending, failed or neutral, does not count and the full race check runs locally. A required race check that passed on the candidate is recorded as the race result relied on. Where no required check is a race check, the queue's local run adds the narrowed race check.
 - With the forge's merge queue on, it is skipped only when both forge conditions are declared and confirmed from the forge at that landing. A condition undeclared, shown false or unreadable runs it locally.
 - Every check in a run's record says whole, narrowed or skipped, with its reason, and the merge candidate's record names its case.
-- With the switch off, the checks a run performs are exactly today's.
+- With the switch off, the checks a run performs are exactly those before the policy.
 - Shadow runs record misses and each take a permit for heavy checks.
