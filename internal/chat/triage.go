@@ -1492,7 +1492,7 @@ func (s *Session) recordTriageDecision(ctx context.Context, workItemID string, d
 		if err != nil {
 			return triageSpend{}, err
 		}
-		return triageSpend{clause: keptStanding(decided, counters)}, nil
+		return triageSpend{clause: keptStanding(decided, counters) + replacedStanding(counters)}, nil
 	}
 	if s.options.Triage == nil {
 		return triageSpend{}, errors.New("no triage budget is wired to this conversation, so a repair, a re-run, or a re-arm cannot be bounded and was not recorded")
@@ -1558,6 +1558,30 @@ func keptStanding(decided runstate.TriageDecision, counters runstate.TriageCount
 	}
 	return fmt.Sprintf("; the %s you decided on this run at %s has not been carried out yet, and a wait that names no work item does not cancel it, so it still stands and the harness carries it out when a developer slot is free. If you meant this wait to cancel it, record the wait again naming the work item it waits on, or record a re-scope or an escalation instead",
 		what, standing.DecidedAt.Local().Format("15:04 MST on January 2"))
+}
+
+// replacedStanding says, as a clause of what the development manager is told
+// she recorded, that her decision put an end to a repair or re-run of the same
+// run that had not been carried out yet, so it will not now be carried out. It
+// says nothing where her decision replaced nothing still to happen.
+//
+// Decisions are kept one per run, so a decision about any of a run's docket
+// entries replaces what stood about the run: a wait about the publication of a
+// run whose stoppage she had decided to re-run cancels that re-run. Without this
+// clause she is told only that she is waiting, and reads the re-run as still
+// queued, waiting on a developer slot nothing is asking for. The store says what
+// it replaced (runstate.TriageCounters.Replaced).
+func replacedStanding(counters runstate.TriageCounters) string {
+	if counters.Replaced == nil {
+		return ""
+	}
+	replaced := *counters.Replaced
+	what := "re-run"
+	if replaced.Decision == decisionRepair {
+		what = "repair"
+	}
+	return fmt.Sprintf("; this replaces the %s you decided on run %s at %s, which had not been carried out yet, so the harness will not carry it out. If you meant that %s to stand, decide it again",
+		what, replaced.RunID, replaced.DecidedAt.Local().Format("15:04 MST on January 2"), what)
 }
 
 // releasedRaise is what an item's parking said about an unmeetable raise at the
