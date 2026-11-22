@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -406,7 +407,7 @@ func (s *Session) renderOperatorFindings() string {
 	// no hand is not his, and is listed apart as this role's to finish.
 	returned := map[string]bool{}
 	var yours []readmodel.OperatorAction
-	for _, action := range readmodel.ReturnedHandlings(reports, handlings) {
+	for _, action := range readmodel.ReturnedHandlings(reports, handlings, readmodel.StepRecheck{Now: s.options.clock().Now(), World: s.stepWorld()}) {
 		returned[action.ReportID] = true
 		if action.DecidedBy == s.state.Role {
 			yours = append(yours, action)
@@ -450,12 +451,16 @@ func (s *Session) renderOperatorFindings() string {
 func renderReturnedHandlings(returned []readmodel.OperatorAction) string {
 	var rendered strings.Builder
 	rendered.WriteString("# Reports you handled as the operator's that are yours to finish\n")
-	rendered.WriteString("Each of these was handled as needing the operator before a handling had to give a reason only he can act on, and gives none, so it is not his: it is listed under you on `yoyo status` and is not said to him. Handle each one again: record what became of it, or, where only a person can act on it, handle it with \"needs\": \"operator\" and an \"operator_reason\" from his closed list.\n\n")
+	rendered.WriteString("Each of these was handled as needing the operator and is not his: either it gives no reason only he can act on, having been handled before a handling had to, or the step it asks of him failed its check while it waited — a file it names is not there or is one a developer run may change, or the hold it names has been lifted — and the line says which. It is listed under you on `yoyo status` and is not said to him. Handle each one again: record what became of it, or, where only a person can act on it, handle it with \"needs\": \"operator\", an \"operator_reason\" from his closed list, and a step he can take.\n\n")
 	listed := returned
 	if len(listed) > maxRenderedFindings {
 		listed = listed[:maxRenderedFindings]
 	}
 	for _, action := range listed {
+		if action.ReturnedWhy != "" {
+			fmt.Fprintf(&rendered, "- %s: %s (the step this asks of the operator failed its check while it waited: %s)\n", action.ReportID, action.Needs, action.ReturnedWhy)
+			continue
+		}
 		fmt.Fprintf(&rendered, "- %s: %s\n", action.ReportID, action.Needs)
 	}
 	if len(returned) > len(listed) {
@@ -525,6 +530,10 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 	operatorReason, err := s.handlingOperatorReason(outcome.Action)
 	if err != nil {
 		outcome.refused(err)
+		return
+	}
+	if err := ownership.CheckOperatorStep(operatorReason, outcome.Action.Reason, outcome.Action.PersonOnly, s.stepWorld()); err != nil {
+		outcome.refused(fmt.Errorf("the handling of %s names the operator and was not recorded, because the step it asks of him does not hold: %w", strings.TrimSpace(outcome.Action.Report), err))
 		return
 	}
 	requests, err := s.resolveRequests(ctx, outcome)
@@ -606,6 +615,22 @@ func (s *Session) handlingOperatorReason(action TrackerAction) (ownership.Operat
 		return "", fmt.Errorf("the handling of %s names the operator and was not recorded: %w", strings.TrimSpace(action.Report), err)
 	}
 	return reason, nil
+}
+
+// stepWorld is what the step a handling asks of the operator is checked
+// against (ownership.CheckOperatorStep): the repository this conversation
+// reads, the person's home, and the operator's own pause and intake hold.
+func (s *Session) stepWorld() ownership.StepWorld {
+	home, _ := os.UserHomeDir()
+	var pause readmodel.OperatorHolds
+	if s.options.Holds != nil {
+		pause = s.options.Holds
+	}
+	var intake readmodel.IntakeHolds
+	if s.options.Intake != nil {
+		intake = s.options.Intake
+	}
+	return ownership.StepWorld{Repository: s.options.Repository, Home: home, OwnHold: readmodel.OwnHoldStands(pause, intake)}
 }
 
 // reportedOn names the work the report was about, where it was about any. A

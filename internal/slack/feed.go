@@ -27,6 +27,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -1452,7 +1453,18 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 	if err != nil {
 		return nil, fmt.Errorf("read what became of the collected reports: %w", err)
 	}
-	actions := readmodel.OperatorActions(filed, handlings)
+	// The feed holds no repository, so a finding's paths are checked where it is
+	// recorded and on the status line; a hold the operator has since lifted is
+	// checked here too, so a request about it is not said to him.
+	var pause readmodel.OperatorHolds
+	if f.Holds != nil {
+		pause = f.Holds
+	}
+	var intake readmodel.IntakeHolds
+	if f.Intake != nil {
+		intake = f.Intake
+	}
+	actions := readmodel.OperatorActions(filed, handlings, readmodel.StepRecheck{Now: f.now(), World: ownership.StepWorld{OwnHold: readmodel.OwnHoldStands(pause, intake)}})
 	passFailuresRead := true
 	if f.Runs != nil {
 		passActions, problem := readmodel.PassFailureOperatorActions(readmodel.Sources{Passes: f.Runs.Sweeps(), Reports: f.Reports})

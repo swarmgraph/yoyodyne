@@ -30,10 +30,10 @@ func TestAHandlingNamingTheOperatorWithNoReasonIsListedWithTheRoleThatHandledIt(
 
 	// Only the reasoned handling is a finding for him, which is what the channel
 	// says to him directly.
-	if actions := OperatorActions(reports, handlings); len(actions) != 1 || actions[0].ReportID != reasoned.ID || actions[0].Returned {
+	if actions := OperatorActions(reports, handlings, StepRecheck{}); len(actions) != 1 || actions[0].ReportID != reasoned.ID || actions[0].Returned {
 		t.Fatalf("OperatorActions() = %#v, want only the handling with a closed-list reason", actions)
 	}
-	returned := ReturnedHandlings(reports, handlings)
+	returned := ReturnedHandlings(reports, handlings, StepRecheck{})
 	if len(returned) != 1 || returned[0].ReportID != unreasoned.ID || !returned[0].Returned || returned[0].DecidedBy != domain.RoleArchitect {
 		t.Fatalf("ReturnedHandlings() = %#v, want the unreasoned handling, the architect's", returned)
 	}
@@ -108,7 +108,7 @@ func TestAReturnedHandlingRecordingNoRoleIsTheLeadProductManagers(t *testing.T) 
 	reported := filedReport("report-00000000000000000000000000000004", report.SeverityNote, moment.Add(-time.Hour))
 	returned := ReturnedHandlings([]report.Report{reported}, []report.Handling{
 		{ReportID: reported.ID, RunID: "chat-3", Reason: "needs him", RecordedAt: moment, NeedsOperator: true},
-	})
+	}, StepRecheck{})
 	if len(returned) != 1 || returned[0].DecidedBy != domain.RoleProductManager {
 		t.Fatalf("ReturnedHandlings() = %#v, want the Lead Product Manager's", returned)
 	}
