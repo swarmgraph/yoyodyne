@@ -70,6 +70,10 @@ revisions:
       by: architect
       at: 2026-11-21T12:21:20.8557Z
       reason: 'yoyodyne-ifd.437.21: the last governed-document place the vocabulary inventory names. Area 13 of the technical-health program manager''s rotation said seams; it now says divisions. Nothing else in the section changes. Earlier revisions under this item covered the other documents it names, so this revision completes the item.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T15:53:25.583277Z
+      reason: 'Review against the code, from the second reading of the execution, providers and cost designs: the Models paragraph said a pass already asks for a trigger''s model and that this adds no key, but in the code a trigger names only how often and on what. It now says every pass uses the agent''s model today, and that the optional trigger model comes from the cost design''s piece 8, set by the development manager. Section read whole at main 2998bae27; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 6
@@ -121,6 +125,11 @@ approvals:
       by: harness
       at: 2026-11-21T12:21:20.8557Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3319, for document-3319.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 16
+      by: harness
+      at: 2026-11-22T15:53:25.583277Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3460, for document-3460.1 under the automatic approval policy
 ---
 # The program manager: one role type, one lane per instance, requests batched to the Lead Product Manager
 
@@ -234,7 +243,7 @@ A pass is one firing of a recurring task, and every rule the design for recurrin
 
 Another role that wants a pass asks the Lead Product Manager for one. The scheduler takes an open request at its next pull as it takes a due recurring task, under every rule above: the intake hold does not stop it, the spending pause does, and it waits while a turn is in flight on the instance's conversation. At most one request per instance is open; a request made while one is open is appended as joined to it, and its focus is added to the open one's. A pass taken from a request records the request it answers, and that pass's record closes the request, completed or failed; whoever asked sees a failure on the request and may ask again. A request that cannot start yet waits, with the reason recorded on it, and is never dropped for age. A request is handed the events past the instance's cursors, if it has any, as a scheduled pass would be. An operator's turn in the instance's conversation is a conversation, not a pass, and asks for nothing.
 
-**Models.** A pass asks for the task's `model` where the trigger block names one and the agent's `model` otherwise; an operator's turn in the instance's conversation asks for the agent's. That is the mechanism yoyodyne-ifd.420 shipped and it adds no key.
+**Models.** Today every pass asks for the agent's `model`, and so does an operator's turn in the instance's conversation: a trigger block carries only how often and on what, and names no model. [Reducing what the factory costs](reducing-what-the-factory-costs.md) adds an optional `model` to each scheduled trigger of a program manager instance, naming a model or a kind, which the development manager sets and which applies only to the passes that trigger starts; the agent's own model and its conversation turns stay as they are, and remain the operator's. Until that build lands, a trigger names no model and every pass uses the agent's. A recurring task's `model` (yoyodyne-ifd.420) is a separate setting on a recurring task and is unchanged by this.
 
 **Restarts.** `service.request-restart` writes one durable request naming a part the `services` section declares. The supervisor's periodic pass is the only executor: it treats a requested restart as it treats a death, under its own backoff and its bound of five restarts in two minutes, refuses one while the record of a provider outage stands, and records what it did on the request. At most one open request per part per instance; a second is refused while the first is unanswered. Until yoyodyne-ifd.413 lands, a request is recorded, shown on the instance's report and in the standing, and acted on by nothing, and the pass is told so in the result. No program manager restarts anything itself, kills anything, or invokes anything: noticing surfaces do not restart processes, and the harness is the only invoker.
 
