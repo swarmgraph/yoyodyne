@@ -186,6 +186,9 @@ func TestTheReleaseWorkflowPublishesTheCuratedNotesAlone(t *testing.T) {
 	if !strings.Contains(workflow, `git rev-parse "$TAG^{commit}"`) {
 		t.Errorf("%s no longer confirms the checkout is the tagged commit before building, so the archives it publishes may name a commit the tag does not", releaseWorkflowPath)
 	}
+	if !strings.Contains(workflow, `RELEASE_NOTES_FROM="origin/$DEFAULT_BRANCH" bash scripts/release-body.sh`) {
+		t.Errorf("%s no longer hands scripts/release-body.sh the default branch to read the notes from, so a release tagged at the commit its notes name, which they landed after, publishes the install instructions alone", releaseWorkflowPath)
+	}
 	if !strings.Contains(workflow, `make dist-verify VERSION="$TAG"`) {
 		t.Errorf("%s no longer builds the archives with `make dist-verify VERSION=\"$TAG\"`, which is the target that asserts the binary names the tag", releaseWorkflowPath)
 	}

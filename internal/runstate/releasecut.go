@@ -101,14 +101,20 @@ type ReleaseCut struct {
 	Version       string           `json:"version"`
 	// WorkItemID is the release item the Lead Product Manager decided it in.
 	WorkItemID string `json:"work_item_id"`
-	// Commit is what origin's default branch held when the cut started, which
-	// is what the gates ran on and what the tag names.
+	// Commit is the commit the release's notes name, which is what the gates
+	// ran on and what the tag names. A refusal made before the notes named one
+	// carries MainCommit here as well.
 	Commit string          `json:"commit"`
 	State  ReleaseCutState `json:"state"`
+	// MainCommit is what origin's default branch held when the cut started: the
+	// commit the notes were read at, which holds Commit. A refusal is not tried
+	// again until it moves. A record written before the notes named the commit
+	// carries none, and its Commit is what the branch held.
+	MainCommit string `json:"main_commit,omitempty"`
 	// ReadinessVerdict and ReadinessDefinition are what the notes' readiness
 	// stamp records, which the cut's gate found matching a fresh reading of
-	// Commit; NotesDigest is the Git object name of the notes file at Commit,
-	// so a stamp that changed afterwards is seen to have.
+	// Commit; NotesDigest is the Git object name of the notes file at
+	// MainCommit, so a stamp that changed afterwards is seen to have.
 	ReadinessVerdict    string `json:"readiness_verdict,omitempty"`
 	ReadinessDefinition string `json:"readiness_definition,omitempty"`
 	NotesDigest         string `json:"notes_digest,omitempty"`
@@ -138,6 +144,14 @@ type ReleaseCut struct {
 // Key names the record: one version at one commit.
 func (c ReleaseCut) Key() string { return c.Version + "@" + c.Commit }
 
+// ReadAtMain is the commit origin's default branch held when the cut started.
+func (c ReleaseCut) ReadAtMain() string {
+	if c.MainCommit != "" {
+		return c.MainCommit
+	}
+	return c.Commit
+}
+
 func (c ReleaseCut) Validate() error {
 	var problems []error
 	if c.SchemaVersion != ReleaseCutSchemaVersion {
@@ -154,6 +168,9 @@ func (c ReleaseCut) Validate() error {
 	}
 	if !releaseCommitPattern.MatchString(c.Commit) {
 		problems = append(problems, fmt.Errorf("release cut commit %q is not a whole object name", c.Commit))
+	}
+	if c.MainCommit != "" && !releaseCommitPattern.MatchString(c.MainCommit) {
+		problems = append(problems, fmt.Errorf("release cut main commit %q is not a whole object name", c.MainCommit))
 	}
 	if !c.State.Valid() {
 		problems = append(problems, fmt.Errorf("release cut state %q is not one this harness names", c.State))

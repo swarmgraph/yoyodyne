@@ -129,7 +129,7 @@ anchor made from inside `docs/product/`, `docs/designs/`, `docs/decisions/`, or
     argument.
   - `README.md#getting-started` — `.github/release-notes-preamble.md:28`, as the
     repo-root URL `https://github.com/mason-bryant/yoyodyne#getting-started`.
-    `scripts/release-body.sh` appends that preamble to the tag's own
+    `scripts/release-body.sh` appends that preamble to the release's
     `docs/releases/<tag>.md`, and `.github/workflows/release.yml` passes the
     result to `gh release create --notes-file`. It is in the notes of every
     release already published, and published release notes cannot be corrected
