@@ -31,6 +31,10 @@ revisions:
       by: architect
       at: 2026-11-22T12:53:55.893638Z
       reason: 'Corrects the design against the second reading of the designs against the code at 848d86190: section 4 says the sub-agent trial ended and slot 2 runs Sonnet with sub-agents off; section 6 and piece 8 had no way to set a model for a program manager''s scheduled passes, so a scheduled trigger gains an optional model the development manager sets; the sizes stay in the listing of documents left out, settling a contradiction; pieces 1 and 2 say what is built. Written whole from main 60d981f81.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T18:54:50.932728Z
+      reason: 'amendment-f9345507f2d46b92cd94eb3d7d92e304, approved Nov 22: section 2 now says a role''s own acts in its last pass do not make the next pass new, while what then happened to its work does, and that a landing counts only where it touches a file kind the role owns, product intent, role instructions, or an item the role owns, carries or is named on. The four hour floor stays. Read at 697f81f621a0.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -62,6 +66,11 @@ approvals:
       by: harness
       at: 2026-11-22T12:53:55.893638Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3446, for document-3446.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-22T18:54:50.932728Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3520, for document-3520.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
@@ -143,18 +152,45 @@ That item's acceptance required that a session started within the cache's lifeti
 
 **What was found.** Passes that asked the harness for nothing but reads, memory notes and a lane report were 44% of the development manager's, 53% of the program manager's, 45% of the architect's and 18% of the Lead Product Manager's. Each still paid to start its session: about $900 in the window.
 
+Once skipping was turned on in this repository, no pass was skipped in ten hours, as the item finding what starts each role's pass (yoyodyne-ifd.430.99) found. Two things made every pass look new to the next one: what the role had itself done in its last pass, and every landing on a busy target branch, whatever it touched. This section now says which of those count.
+
 **The decision.** Before the harness starts a scheduled pass, it checks, with no provider call, whether anything the pass would be handed has changed since that role's last completed pass. The things checked are:
 
-- a change landed on the target branch;
-- a change to a work item the role owns, carries or is named on;
+- a change landed on the target branch that touches what the role works on, as below;
+- a change to a work item the role owns, carries or is named on, made by someone other than the role;
 - a report, proposed change, question from another role, or message from the operator addressed to the role;
-- a document of the role's that was confirmed, sent, landed or returned;
+- a document of the role's that was confirmed, landed or returned;
 - a deadline passed on a follow-up the role owns;
 - for the development manager, a change to her list of stopped runs or to the factory's health problems; for a program manager, a change in its lane or in the health problems its lane covers.
 
-Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has a full pass at least as often as the floor in section 8 says, four hours by default, whatever the check finds, so a change the check does not cover is never left longer than that. In this repository the management roles' scheduled passes run every 45 minutes, so with the default floor at most five in a row are skipped before a full pass. Passes woken by an event, rather than by the schedule, are not affected.
+**What the role did itself is not new.** The role already knows what its own last pass did, so none of these makes the next pass new:
 
-A check in the harness was chosen over a first look by a cheaper model, because the check costs nothing and the things it reads are already records. A cheaper first look can be weighed later for whatever the check cannot decide.
+- a note the role wrote on a work item;
+- a report it recorded as handled, or a proposed change it decided;
+- a document it sent;
+- a memory it wrote, or the report a program manager keeps on its lane.
+
+What then happened to that work is new, because the role has not seen it:
+
+- its document confirmed, landed on the target branch, or returned to it;
+- a note written by another role or by the harness on an item the role owns, carries or is named on.
+
+The harness tells the two apart by who wrote each record, which every one of these records already says. Nothing new is stored for it.
+
+**Which landings count.** A change landed on the target branch counts only where it does at least one of these:
+
+- changes a file of a kind the role owns;
+- changes a document of product intent in the product specification home;
+- changes a role's instructions;
+- changes or closes a work item the role owns, carries or is named on.
+
+A landing that does none of these is not new to that role. A code change on an item the architect has no part in, for example, does not start an architect pass. The development manager's list of stopped runs and the factory's health problems, and a program manager's lane, are checked as their own bullet above, so a landing that changes them still counts through it.
+
+**The floor stays.** Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has a full pass at least as often as the floor in section 8 says, four hours by default, whatever the check finds, so a change the check does not cover is never left longer than that. In this repository the management roles' scheduled passes run every 45 minutes, so with the default floor at most five in a row are skipped before a full pass. Passes woken by an event, rather than by the schedule, are not affected.
+
+A check in the harness was chosen over a first look by a cheaper model, because the check costs nothing and the things it reads are already records. A cheaper first look can be weighed later for whatever the check cannot decide. Counting every landing was rejected because on this repository's target branch something lands most hours, so no pass would ever be skipped. Counting a role's own acts was rejected for the same reason: every pass that wrote a note would make the next one look new.
+
+**What a reviewer can check for this section.** A pass whose only changes since the last completed pass are that pass's own notes, handled reports, decided proposals, sent documents, memories or lane report is skipped. A pass is started when one of its documents was confirmed, landed or returned, or another role or the harness wrote on one of its items. A landing that changes none of the four kinds of thing above does not start the pass; one that does starts it. Each has a test.
 
 **What it saves.** Most of the cost of the passes that changed nothing, which after section 1 is smaller than $900 because each start is cheaper. The two savings overlap and are counted together.
 
