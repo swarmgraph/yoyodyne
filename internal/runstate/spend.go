@@ -692,53 +692,6 @@ func (s *SpendStore) ReportedSessionTotal(sessionID string) (float64, bool, erro
 	return total, found, nil
 }
 
-// RunSpendTotal is what the spend log holds for one run so far: the amount of
-// every line charged to it whose cost is known, and whether any was. It is
-// what a developer run records as its cost when it moves to the stronger model
-// (cheaperfirst.go). Lines that could not be read fail rather than being
-// skipped, for the reason ReportedSessionTotal fails on one.
-func (s *SpendStore) RunSpendTotal(runID string) (float64, bool, error) {
-	run := strings.TrimSpace(runID)
-	if s == nil || run == "" {
-		return 0, false, nil
-	}
-	file, err := os.Open(s.Path())
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, fmt.Errorf("open spend log: %w", err)
-	}
-	defer file.Close()
-
-	var (
-		total float64
-		found bool
-	)
-	needle := []byte(run)
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 8*1024), maxEncodedSpendBytes)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if !bytes.Contains(line, needle) {
-			continue
-		}
-		var decoded Spend
-		if err := json.Unmarshal(line, &decoded); err != nil {
-			return 0, false, fmt.Errorf("decode spend log: %w", err)
-		}
-		if decoded.RunID != run || !decoded.Known() {
-			continue
-		}
-		total += decoded.AmountUSD
-		found = true
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, false, fmt.Errorf("read spend log: %w", err)
-	}
-	return total, found, nil
-}
-
 // LastDeveloperModel is the model a run's most recent developer invocation on
 // the named backend asked for, and empty where this log records none. It is
 // the record of last resort for a run whose own record lost the model it was

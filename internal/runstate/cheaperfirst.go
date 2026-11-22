@@ -63,9 +63,10 @@ type ModelMove struct {
 	Reason string `json:"reason"`
 	// RepairAttempt is the repair attempt the stronger model starts on.
 	RepairAttempt int `json:"repair_attempt"`
-	// SpentBeforeUSD is what the spend log held for this run when it moved, so
-	// what the stronger model added is the run's final cost less this.
-	// SpentKnown is false where no spend log could be read.
+	// SpentBeforeUSD is what the run had cost when it moved, priced from its
+	// own event log (Store.RunSpentSoFar), so what the stronger model added is
+	// the run's final cost less this. SpentKnown is false where the log could
+	// not price the run.
 	SpentBeforeUSD float64 `json:"spent_before_usd,omitempty"`
 	SpentKnown     bool    `json:"spent_known,omitempty"`
 }
@@ -265,4 +266,17 @@ func (s *Store) CheaperFirstTrialFigures(target int) (CheaperFirstTrialFigures, 
 		}
 	}
 	return SummarizeCheaperFirstTrial(runs, costs, target), nil
+}
+
+// RunSpentSoFar is what a run has cost up to now, priced from the run's own
+// event log exactly as `yoyo cost` prices it (priceRun). It is what a developer
+// run records when it moves to the stronger model. The read is the one run's
+// log, so it stays the same size however much history the product keeps.
+// False where the log cannot price the run, which leaves the figure unknown.
+func (s *Store) RunSpentSoFar(state State) (float64, bool) {
+	price := s.priceRun(state)
+	if !price.Known() {
+		return 0, false
+	}
+	return price.CostUSD, true
 }

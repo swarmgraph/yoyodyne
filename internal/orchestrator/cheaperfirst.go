@@ -32,10 +32,11 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// runSpendTotaler is the part of the spend log a run reads what it has spent
-// from. The harness's spend store has it; a test's log need not.
-type runSpendTotaler interface {
-	RunSpendTotal(runID string) (float64, bool, error)
+// runSpender is the part of the run store a run reads what it has spent so
+// far from: the run's own event log, priced as `yoyo cost` prices it. The
+// harness's store has it; a store without it leaves the figure unknown.
+type runSpender interface {
+	RunSpentSoFar(state runstate.State) (float64, bool)
 }
 
 // cheaperFirstRuns is the part of the run store the trial is read from. The
@@ -137,10 +138,10 @@ func (a *activeRun) moveToStronger(failure string) {
 		Reason:        failure,
 		RepairAttempt: a.state.RepairAttempts + 1,
 	}
-	if totaler, ok := a.pipeline.Spend.(runSpendTotaler); ok {
-		// A spend log that cannot be read leaves the cost unknown rather than
-		// stopping a repair over a figure.
-		if spent, found, err := totaler.RunSpendTotal(a.state.RunID); err == nil && found {
+	if spender, ok := a.pipeline.Store.(runSpender); ok {
+		// An event log that cannot price the run leaves the cost unknown rather
+		// than stopping a repair over a figure.
+		if spent, known := spender.RunSpentSoFar(a.state); known {
 			move.SpentBeforeUSD, move.SpentKnown = spent, true
 		}
 	}
