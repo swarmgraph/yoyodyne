@@ -309,6 +309,9 @@ func (s Standing) renderPaused() string {
 			if run.ContinuationWaiting != "" {
 				fmt.Fprintf(&rendered, "    %s\n", run.ContinuationWaiting)
 			}
+			if run.NotContinued != "" {
+				fmt.Fprintf(&rendered, "    %s\n", run.NotContinued)
+			}
 			continue
 		}
 		if run.WaitingForGitHub != "" {
@@ -318,6 +321,9 @@ func (s Standing) renderPaused() string {
 		}
 		fmt.Fprintf(&rendered, "  %s — waiting on unfinished work it depends on: %s, paused %s\n",
 			s.named(run.WorkItemID, ""), run.WaitingOn, pausedAgo(s.ObservedAt, run.PausedSince))
+		if run.NotContinued != "" {
+			fmt.Fprintf(&rendered, "    %s\n", run.NotContinued)
+		}
 	}
 	rendered.WriteString(remainder(further, "developer run"))
 	return rendered.String()

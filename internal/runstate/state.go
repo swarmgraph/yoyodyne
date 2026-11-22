@@ -2620,6 +2620,9 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("recovery_continuation.refused", "recovery_continuation.refused", &s.RecoveryContinuation.Refused, MaxRecordedTextBytes)
 		unstated("recovery_continuation.waiting", "recovery_continuation.waiting", &s.RecoveryContinuation.Waiting, MaxRecordedTextBytes)
 	}
+	if s.ContinuationWait != nil {
+		unstated("continuation_wait.why", "continuation_wait.why", &s.ContinuationWait.Why, MaxRecordedTextBytes)
+	}
 	for index := range s.CheckStageContinuations {
 		continuation := &s.CheckStageContinuations[index]
 		nested("check_stage_continuations[].reason", at("check_stage_continuations", index, "reason"), &continuation.Reason, MaxSelectionReasonBytes)
@@ -4556,6 +4559,10 @@ type State struct {
 	// and is lifted by the forge's answer, which a pull reads without the run.
 	// It is cleared as the run resumes.
 	CIWait *CIWait `json:"ci_wait,omitempty"`
+	// ContinuationWait is why the scheduler last passed over continuing the run
+	// while it was paused under DependencyPause or CIWait (continuationwait.go).
+	// It is cleared as the run takes its developer slot back.
+	ContinuationWait *ContinuationWait `json:"continuation_wait,omitempty"`
 	// CIWaitEnd is how the last wait ended.
 	CIWaitEnd *CIWaitEnd `json:"ci_wait_end,omitempty"`
 	// TrackerPause records that the tracker would not answer the read this run

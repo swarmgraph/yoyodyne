@@ -3304,7 +3304,9 @@ pulling:
 		// (keptChange says which those are) is outranked by nothing: it takes a
 		// freed slot ahead of fresh work of any priority, and ahead of a slot's
 		// label preference, since the slots' walk of the order comes after it.
-		// Among several, the Lead Product Manager's order decides (precedence).
+		// Among several, the Lead Product Manager's order decides (precedence), and
+		// between them and paused runs due to be continued, priority and then the
+		// longest wait (continuationsFirst, below).
 		// What keeps one change from holding slots for ever is the per-item bound
 		// on each kind of recovery, which every kind getting this precedence has
 		// (see keptChange). A re-run whose earlier change is gone starts over from
@@ -3363,6 +3365,45 @@ pulling:
 			}
 			return true, dedicated, priority
 		}
+		// The paused runs ready to be continued are read before any decision is
+		// fired, because both are written work and one order decides between them:
+		// the Lead Product Manager's priority first, then the longest wait
+		// (writtenWorkOrder). A decision on a kept change is passed over where the
+		// free slots go to paused runs ahead of it in that order, and those runs
+		// are continued below, once the decisions are fired; a decision that does
+		// not build on a kept change is fresh work, and every paused run goes ahead
+		// of it. Nothing is continued under the operator's pause, while intake is
+		// held, or by a declining drain (see the continuations below), so nothing
+		// is read here then either. The item a run is about is read off the pull's
+		// own reading of the queue, and only where a slot is free to be ordered.
+		var continuationCandidates []pausedContinuation
+		var continuationsRead error
+		var continuationsFirst func(CarryOutTask) []string
+		_, declining := drain.declinesDeveloperStarts(pull.Poll, s.now())
+		if !paused && !held && !declining {
+			var itemOf func(string) (beads.WorkItem, bool)
+			if free >= 1 {
+				itemOf = func(id string) (beads.WorkItem, bool) {
+					read := readEarly()
+					if read == nil {
+						return beads.WorkItem{}, false
+					}
+					item, known := read.items[id]
+					return item, known
+				}
+			}
+			continuationCandidates, continuationsRead = s.continuationCandidates(ctx, pull, occupied, mine, refusedContinuations, itemOf, passOver)
+			if len(continuationCandidates) > 0 {
+				continuationsFirst = func(task CarryOutTask) []string {
+					onKept, _, priority := precedence(task)
+					return continuationsAhead(continuationCandidates, onKept, priority, task.DecidedAt, task.RunID)
+				}
+			}
+		}
+		// firedAhead names, by run, the decisions fired into a free slot this pull,
+		// which a paused run left without one names as what took the slots.
+		firedAhead := map[string]string{}
+		var firedOrder []string
 		var tasks []CarryOutTask
 		var passedCarryOuts map[string]string
 		var pendingCarryOuts []outrankedCarryOut
@@ -3370,9 +3411,8 @@ pulling:
 		// the decisions this pull has fired, by run; see the rounds below.
 		slotBound := false
 		attempted := map[string]bool{}
-		_, declining := drain.declinesDeveloperStarts(pull.Poll, s.now())
 		if !declining {
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, continuationsFirst, attempted)
 		} else if pull.CarryOut != nil {
 			// Nothing is attempted, and nothing is written onto the items, but the
 			// log still names each decision this pass left standing and why.
@@ -3408,6 +3448,14 @@ pulling:
 				free--
 				filledByCarryOut++
 				tookSlot = true
+				named := task.WorkItemID
+				if early != nil {
+					if title := strings.TrimSpace(early.items[task.WorkItemID].Title); title != "" {
+						named = fmt.Sprintf("%s (%s)", title, task.WorkItemID)
+					}
+				}
+				firedAhead[task.RunID] = named
+				firedOrder = append(firedOrder, task.RunID)
 			}
 			// One fired with no slot free took none, and is left out of every count
 			// of the slots, in this pull and the next, until its run is on record.
@@ -3465,6 +3513,7 @@ pulling:
 				if signal.tookSlot {
 					free++
 					filledByCarryOut--
+					delete(firedAhead, signal.task.RunID)
 				}
 				// It holds no slot, so the queue's slot reading must not count one
 				// for it; it is kept only so its item is not started beside it.
@@ -3484,7 +3533,7 @@ pulling:
 					break
 				}
 			}
-			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, attempted)
+			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, continuationsFirst, attempted)
 			for _, task := range tasks {
 				schedule.unwaitCarryOut(task)
 			}
@@ -3523,9 +3572,15 @@ pulling:
 		// reason it carries no decision out: the run would be one the drain stops
 		// at its next look, and the returning session continues it instead.
 		if !paused && !held && !declining {
-			continuations, err := s.nextContinuations(ctx, pull, occupied, mine, refusedContinuations, free, len(schedule.Started), passOver)
-			if err != nil {
-				schedule.ContinuationProblem = err.Error()
+			var ahead []string
+			for _, run := range firedOrder {
+				if named, fired := firedAhead[run]; fired {
+					ahead = append(ahead, named)
+				}
+			}
+			continuations := s.takeContinuations(ctx, pull, continuationCandidates, mine, free, len(schedule.Started), ahead, passOver)
+			if continuationsRead != nil {
+				schedule.ContinuationProblem = continuationsRead.Error()
 			} else {
 				schedule.ContinuationProblem = ""
 			}
@@ -6085,7 +6140,7 @@ func (s Scheduler) corrected(schedule *Schedule, sweep CorrectionSweep, err erro
 // item's priority puts it. outranked says which decisions those are; nil says
 // none are, which is every decision before yoyodyne-ifd.428.58.
 func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
-	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, nil, waitingOn, closed, free, remaining, outranked, nil, nil)
+	chosen, passed, pending, _ := s.nextCarryOutsExcept(schedule, pull, occupied, mine, nil, waitingOn, closed, free, remaining, outranked, nil, nil, nil)
 	return chosen, passed, pending
 }
 
@@ -6095,8 +6150,12 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 // ran out, which is what a decision that came back without starting gives one
 // back to. precedence, where given, says which decisions build on a kept change,
 // whether a free dedicated slot is kept for its item's label, and at what
-// priority, and those are offered the slots first.
-func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, handedBack *startsHandedBack, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, bool, int), attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
+// priority, and those are offered the slots first. continuationsFirst, where
+// given, names the paused runs the written-work order puts ahead of a decision
+// (continuationsAhead): a slot is kept for each, so a decision is passed over
+// where the slots this pull has are spent on the decisions chosen before it and
+// those runs.
+func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, handedBack *startsHandedBack, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool), precedence func(CarryOutTask) (bool, bool, int), continuationsFirst func(CarryOutTask) []string, attempted map[string]bool) (chosen []CarryOutTask, passed map[string]string, pending []outrankedCarryOut, slotBound bool) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil, false
 	}
@@ -6234,6 +6293,19 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 			}
 			slotBound = true
 			continue
+		}
+		// Paused runs ahead of it in the written-work order take a slot before it
+		// does, and are continued once the decisions are fired (takeContinuations).
+		// With no slot free nothing is kept for them: the one attempt then is only
+		// what records the full harness.
+		if continuationsFirst != nil && !reusesSlot && free >= 1 {
+			if ahead := continuationsFirst(task); len(ahead) > 0 && len(newSlots)+len(ahead) >= slots {
+				pass(task, fmt.Sprintf("written work waiting for a developer slot is taken by priority and then by longest wait, and %s ahead of it: %s, so the slots this pull had went to %s",
+					plural(len(ahead), "paused run whose checks have cleared or whose dependencies have closed stands", "paused runs whose checks have cleared or whose dependencies have closed stand"),
+					listedNames(ahead), plural(len(newSlots)+len(ahead), "run of written work", "runs of written work")))
+				slotBound = true
+				continue
+			}
 		}
 		// An unserved continuation already holds its slot. Recovering it does
 		// not compete with ready work for another one.
