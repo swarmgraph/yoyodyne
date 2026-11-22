@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-22T21:24:30.446026Z
       reason: 'Design review against the code at main 7120a8560: the list of approved changes not yet written into their documents, and the unlanded field, are not built, so the section now says so and says how the architect covers the gap until they are; the closing of ruled items is built and is described as built. Build work reported to the Lead Product Manager.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T22:45:44.570844Z
+      reason: 'Part of checking every design against the code at main 7120a8560: the window over what landed is not built as this section said. What is built is the check that skips a scheduled pass when nothing it would be handed has moved, plus the bounded start with reads on demand. The section now says which parts are built, keeps the marker as the decided design, and says how a pass takes its window until the marker exists.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -56,6 +60,11 @@ approvals:
       by: harness
       at: 2026-11-22T21:24:30.446026Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3575, for document-3575.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-22T22:45:44.570844Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3577, for document-3577.1 under the automatic approval policy
 ---
 # The architect loop: a windowed pass over what landed, reconciling decisions against documents first
 
@@ -83,7 +92,10 @@ Each pass starts a fresh provider session from: the role contract, persona and r
 
 ## The four constraints, binding
 
-1. **Windowed.** A pass reads what landed since the previous pass — the runs integrated, the documents revised, the amendments decided — and never the corpus. The window is the pass record's own cursor over the run records and the artifact revision logs, the two the freshness measurement already reads.
+1. **Windowed.** A pass reads what landed since the previous pass — the runs integrated, the documents revised, the amendments decided — and never the whole body of documents. The window is decided as the pass record's own marker of where the previous pass stopped, over the run records and the artifact revision logs, the two the freshness measurement already reads. Not all of that is built yet:
+   - Built: before a scheduled pass starts, the harness compares what the pass would be handed — the head of the target branch, the role's work items, its reports, proposed changes, messages, documents and follow up items — with what the last completed pass recorded, and starts no pass where nothing moved. A full pass is still taken at least once in every interval the project configures.
+   - Built: a pass starts from a bounded briefing, as the section above says, and reads the architect's documents and the code on demand at a recorded commit, so it never starts from the whole body of documents.
+   - Not yet built: the marker itself, handed to the pass so it reads only what landed since. Until it is, a pass takes its window from the previous pass's account and the architect's memory, and says in its account which commit it read at.
 2. **Instances, not impressions.** Every finding names the concrete records it generalizes from: two files, two items, two revisions. A finding that names one instance is an observation and is left in the pass record; a finding that names none is not filed.
 3. **Through the usual routes.** A design revision is a typed document write; work is a report to the Lead Product Manager naming the goal it would serve; a product-document change is an amendment proposal; an invariant change is the architect's own act, sent as a typed document write in the same pass that decides it, never held in the pass record and never sent to the operator to approve. The pass admits nothing and directs nothing.
 4. **Silent when empty.** A pass that reconciled nothing and found nothing says so in its record and posts nothing.
