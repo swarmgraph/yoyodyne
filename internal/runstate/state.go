@@ -2774,6 +2774,7 @@ func (s *State) recordedTexts() []recordedText {
 	own("blocker", &s.Blocker, MaxBlockerBytes, blockerCutNote)
 	own("cleanup_failure", &s.CleanupFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("kept_checkout", &s.KeptCheckout, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	own("preserved_work_note_undeliverable", &s.PreservedWorkNoteUndeliverable, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	for index := range s.ReconcileFindings {
 		nested("reconcile_findings[].problem", at("reconcile_findings", index, "problem"), &s.ReconcileFindings[index].Problem, MaxBlockerBytes)
@@ -4018,6 +4019,12 @@ type State struct {
 	// note. Until it is set, convergence retries the note even though the
 	// checkout itself no longer needs retiring.
 	PreservedWorkNotedAt *time.Time `json:"preserved_work_noted_at,omitempty"`
+	// PreservedWorkNoteUndeliverable is why the retired checkout's recovery note
+	// went onto no work item: the run was recorded under a bookkeeping item the
+	// tracker does not hold, and its record names no item it was for. Written
+	// once, so convergence stops retrying the note and never asks the tracker
+	// about that id.
+	PreservedWorkNoteUndeliverable string `json:"preserved_work_note_undeliverable,omitempty"`
 	// TargetBranch is the integration target fixed when the worktree was
 	// created. It is durable so a resumed run promotes the work into the branch
 	// it was written against rather than whatever happens to be checked out
@@ -5616,6 +5623,9 @@ func (s State) Validate() error {
 	if s.PreservedWorkNotedAt != nil && strings.TrimSpace(s.PreservedWorkRef) == "" {
 		problems = append(problems, errors.New("preserved_work_noted_at requires the preserved work its note names"))
 	}
+	if s.PreservedWorkNoteUndeliverable != "" && strings.TrimSpace(s.PreservedWorkRef) == "" {
+		problems = append(problems, errors.New("preserved_work_note_undeliverable requires the preserved work its note names"))
+	}
 	if retiredBy != "" {
 		if !ValidRunID(retiredBy) {
 			problems = append(problems, fmt.Errorf("artifacts_retired_by %q is not a run identifier", s.ArtifactsRetiredBy))
@@ -5827,6 +5837,12 @@ func (s State) RepairBudget(configured int) int {
 // ledger's answer to why a run took as long as it did.
 func (s State) OperatorHeld() time.Duration {
 	return time.Duration(s.OperatorHeldSeconds) * time.Second
+}
+
+// PreservedWorkNotePending reports a retired checkout whose recovery note has
+// neither reached its work item nor been recorded as having none to go on.
+func (s State) PreservedWorkNotePending() bool {
+	return s.PreservedWorkRef != "" && s.PreservedWorkNotedAt == nil && s.PreservedWorkNoteUndeliverable == ""
 }
 
 // Outstanding reports that a run still owes a step somebody has to take. A run

@@ -106,8 +106,14 @@ func schedulingWaitReason(reason string, items map[string]beads.WorkItem) string
 }
 
 // recordSchedulingWait keeps one item's current reason on a tracker that can
-// hold it, and does nothing on one that cannot.
+// hold it, and does nothing on one that cannot. It does nothing for a
+// bookkeeping item of the harness's own, a document run's run identifier among
+// them: the tracker holds no such item, so asking it would only fail, and the
+// item the run is for is not this one.
 func recordSchedulingWait(ctx context.Context, tracker any, id string, class runstate.PassedOverClass, reason string, now time.Time) error {
+	if _, ours := runOfItem(id); ours {
+		return nil
+	}
 	if recorder, ok := tracker.(schedulingWaitRecorder); ok {
 		_, err := recorder.RecordSchedulingWait(ctx, id, string(class), reason, now)
 		return err

@@ -60,6 +60,29 @@ func runOfItem(id string) (string, bool) {
 	return "", false
 }
 
+// runNoteTarget is the work item the tracker holds that a note recorded under
+// a run's bookkeeping item id is written onto, read from the run's own record:
+// the item a pinned file's record names in `for`, or the item a document's
+// latest revision names or the harness filed for it. It is empty where the run
+// is for no such item, with the reason, so the caller records that once rather
+// than asking the tracker about the bookkeeping item, which it does not hold.
+func runNoteTarget(state runstate.State, id string) (string, string) {
+	switch {
+	case state.OutsideFile != nil:
+		if state.OutsideFile.For != "" {
+			return state.OutsideFile.For, ""
+		}
+		return "", fmt.Sprintf("run %s brings in %s for no work item", state.RunID, outsidefile.PinnedPath(state.OutsideFile.Record))
+	case state.Document != nil && state.WorkItemID == id:
+		if target := recordedDocumentItem(nil, state).item(); target != "" {
+			return target, ""
+		}
+		return "", fmt.Sprintf("run %s publishes document %s, whose revision names no work item and for which the harness filed none", state.RunID, state.Document.WriteID)
+	default:
+		return "", fmt.Sprintf("%s is a run identifier, and run %s is not a run of the harness's own recorded under it", id, state.RunID)
+	}
+}
+
 // landing is the run behind a bookkeeping item, and false for a work item the
 // tracker holds.
 func (t HarnessRunItems) landing(id string) (runstate.State, bool, error) {

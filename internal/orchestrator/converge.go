@@ -409,7 +409,7 @@ func sweepableWorktrees(recorded []runstate.State) []runstate.State {
 			continue
 		}
 		if state.WorktreeRemoved {
-			if hasReconcileFinding(state, runstate.ReconcileWorktree) || (state.PreservedWorkRef != "" && state.PreservedWorkNotedAt == nil) {
+			if hasReconcileFinding(state, runstate.ReconcileWorktree) || state.PreservedWorkNotePending() {
 				retired = append(retired, state)
 			}
 			continue
@@ -532,7 +532,7 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 		return WorktreeSweep{}, false
 	}
 	if state.WorktreeRemoved {
-		pendingNote := state.PreservedWorkRef != "" && state.PreservedWorkNotedAt == nil
+		pendingNote := state.PreservedWorkNotePending()
 		if pendingNote {
 			sweep.PreservedWork = state.PreservedWorkRef
 			sweep.ItemProblem = r.recordPreservedWork(ctx, &state, state.PreservedWorkRef)
@@ -604,6 +604,7 @@ func (r Reconciler) recordSweptWorktree(state *runstate.State, preservedWork str
 	if preservedWork != "" {
 		state.PreservedWorkRef = preservedWork
 		state.PreservedWorkNotedAt = nil
+		state.PreservedWorkNoteUndeliverable = ""
 	}
 	// When the run ended is what dates it; this dates the last thing the harness
 	// did to what it left behind, which is what UpdatedAt has always meant.
@@ -635,17 +636,33 @@ func (r Reconciler) recordPreservedWork(ctx context.Context, state *runstate.Sta
 	recordCtx, cancel := trackerCallContext(ctx)
 	defer cancel()
 	note := renderPreservedWorkNotes(*state, preservedWork)
+	// A run of the harness's own is recorded under a bookkeeping item the
+	// tracker does not hold, so the note goes onto the item the run's record
+	// names, and the tracker is never asked about the bookkeeping id. A run for
+	// no item has nowhere to put it, which is recorded once.
+	target := state.WorkItemID
+	if _, ours := runOfItem(state.WorkItemID); ours {
+		var reason string
+		if target, reason = runNoteTarget(*state, state.WorkItemID); target == "" {
+			state.PreservedWorkNoteUndeliverable = reason + ", so the note saying where its retired checkout's work went has no work item to go on"
+			state.UpdatedAt = r.clock().Now()
+			if err := r.Store.Save(*state); err != nil {
+				return fmt.Sprintf("record that the preserved work note for run %s has no work item to go on: %v", state.RunID, err)
+			}
+			return ""
+		}
+	}
 	// Delivery can succeed just before its marker save fails. The item is the
 	// other durable copy, so verify it before appending the recovery note again.
-	item, err := r.Tracker.Show(recordCtx, state.WorkItemID)
+	item, err := r.Tracker.Show(recordCtx, target)
 	if err != nil {
-		return fmt.Sprintf("read prior preservation notes of %s: %v", state.WorkItemID, err)
+		return fmt.Sprintf("read prior preservation notes of %s: %v", target, err)
 	}
 	if !strings.Contains(item.Notes, note) {
-		if _, err := r.Tracker.RecordOutcome(recordCtx, state.WorkItemID, note); err != nil {
+		if _, err := r.Tracker.RecordOutcome(recordCtx, target, note); err != nil {
 			return fmt.Sprintf(
 				"the checkout of run %s was retired and what it held was recorded on %s, and %s could not be told, so anything read from that item still names a directory that is gone: %v",
-				state.RunID, preservedWork, state.WorkItemID, err)
+				state.RunID, preservedWork, target, err)
 		}
 	}
 	noted := r.clock().Now()
