@@ -580,6 +580,9 @@ func TestALandedItemWaitingOnUnfinishedWorkIsNotWrittenUntilItCanClose(t *testin
 		name  string
 		entry func(backlog.Entry) backlog.Entry
 		item  func(beads.WorkItem) beads.WorkItem
+		// read is another item the pull read beside the queue, where the shape
+		// needs one.
+		read *beads.WorkItem
 	}{
 		{
 			name:  "the queue names the blocker",
@@ -594,6 +597,18 @@ func TestALandedItemWaitingOnUnfinishedWorkIsNotWrittenUntilItCanClose(t *testin
 				return i
 			},
 		},
+		{
+			// The pull reads items with listings, which name a blocker without its
+			// status, and the queue counts only admitted work, so a blocker a run had
+			// already claimed was missed and the item written three times a pull.
+			name:  "a listing names the blocker without its status, and the pull read the blocker as claimed",
+			entry: func(e backlog.Entry) backlog.Entry { return e },
+			item: func(i beads.WorkItem) beads.WorkItem {
+				i.Dependencies = []beads.Dependency{{ID: "yoyodyne-ifd.430.57", Type: beads.BlocksDependency}}
+				return i
+			},
+			read: &beads.WorkItem{ID: "yoyodyne-ifd.430.57", Status: "in_progress"},
+		},
 	} {
 		t.Run(shape.name, func(t *testing.T) {
 			t.Parallel()
@@ -602,6 +617,9 @@ func TestALandedItemWaitingOnUnfinishedWorkIsNotWrittenUntilItCanClose(t *testin
 			entry := shape.entry(architectEntry("yoyodyne-ifd.330"))
 			items := itemsFor([]backlog.Entry{entry})
 			items[entry.ID] = shape.item(items[entry.ID])
+			if shape.read != nil {
+				items[shape.read.ID] = *shape.read
+			}
 
 			for pull := 0; pull < 3; pull++ {
 				sweep, err := lander.Settle(context.Background(), []backlog.Entry{entry}, items)
