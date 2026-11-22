@@ -1867,7 +1867,7 @@ func (c CarryOut) itemsWithRuns(history func() ([]runstate.State, error)) ([]str
 // aside once with the reason, so no later pull tries them again.
 func (c CarryOut) deliverItemNotes(ctx context.Context, workItemID string, history func() ([]runstate.State, error)) error {
 	target := workItemID
-	if runID, ours := runOfItem(workItemID); ours && false {
+	if runID, ours := runOfItem(workItemID); ours {
 		var reason string
 		var err error
 		target, reason, err = recordedRunNoteTarget(workItemID, runID, history)

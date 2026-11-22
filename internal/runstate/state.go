@@ -2766,6 +2766,7 @@ func (s *State) recordedTexts() []recordedText {
 	own("blocker", &s.Blocker, MaxBlockerBytes, blockerCutNote)
 	own("cleanup_failure", &s.CleanupFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("kept_checkout", &s.KeptCheckout, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	own("preserved_work_note_undeliverable", &s.PreservedWorkNoteUndeliverable, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	for index := range s.ReconcileFindings {
 		nested("reconcile_findings[].problem", at("reconcile_findings", index, "problem"), &s.ReconcileFindings[index].Problem, MaxBlockerBytes)
