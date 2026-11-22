@@ -91,8 +91,8 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 	if source.revision != nil && !source.companion {
 		var current []string
 		var err error
-		if source.revision.CandidateFiles != nil {
-			current, err = specificationPaths(root, &Revision{Name: "reviewed candidate", ListFiles: source.revision.CandidateFiles}, clean)
+		if source.revision.CandidateDirectory != nil || source.revision.CandidateFiles != nil {
+			current, err = specificationPaths(root, &Revision{Name: "reviewed candidate", ListFiles: source.revision.CandidateFiles, ListDirectory: source.revision.CandidateDirectory}, clean)
 		} else {
 			current, err = discoverSpecifications("specifications", root, clean)
 		}
@@ -170,12 +170,21 @@ func specificationPaths(root repowrite.Root, revision *Revision, directory strin
 	if revision == nil {
 		return discoverSpecifications("specifications", root, directory)
 	}
-	if revision.ListFiles == nil {
+	var files []string
+	var err error
+	switch {
+	case revision.ListDirectory != nil:
+		files, err = revision.ListDirectory(directory)
+		if err != nil {
+			return nil, fmt.Errorf("discover product documents at %s: the product folder %s could not be read: %w", revision.Name, directory, err)
+		}
+	case revision.ListFiles != nil:
+		files, err = revision.ListFiles()
+		if err != nil {
+			return nil, fmt.Errorf("discover product documents at %s: %w", revision.Name, err)
+		}
+	default:
 		return nil, fmt.Errorf("discover product documents at %s: revision file listing is required", revision.Name)
-	}
-	files, err := revision.ListFiles()
-	if err != nil {
-		return nil, fmt.Errorf("discover product documents at %s: %w", revision.Name, err)
 	}
 	var documents []string
 	for _, file := range files {

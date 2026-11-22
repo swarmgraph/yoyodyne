@@ -32,6 +32,35 @@ func TestFilesAtCommitListsUnchangedBinaryFilesAndBoundsTheListing(t *testing.T)
 	}
 }
 
+func TestFilesUnderAtCommitListsOneFolderWholeWhateverTheRepositorySize(t *testing.T) {
+	t.Parallel()
+	repository := newRepository(t)
+	writeFile(t, repository, "docs/product/b.md", "b\n")
+	writeFile(t, repository, "docs/product/goals/a.md", "a\n")
+	writeFile(t, repository, "docs/product-other/c.md", "c\n")
+	writeFile(t, repository, "docs/other.md", "o\n")
+	runGit(t, repository, "add", ".")
+	runGit(t, repository, "commit", "-m", "docs")
+	commit := gitLine(t, repository, "rev-parse", "HEAD")
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	files, err := manager.FilesUnderAtCommit(context.Background(), commit, "docs/product")
+	if err != nil || !slices.Equal(files, []string{"docs/product/b.md", "docs/product/goals/a.md"}) {
+		t.Fatalf("FilesUnderAtCommit() = %#v, %v", files, err)
+	}
+	if none, err := manager.FilesUnderAtCommit(context.Background(), commit, "nowhere"); err != nil || len(none) != 0 {
+		t.Fatalf("absent folder = %#v, %v", none, err)
+	}
+	for _, folder := range []string{"", "..", "../x"} {
+		if _, err := manager.FilesUnderAtCommit(context.Background(), commit, folder); err == nil {
+			t.Errorf("folder %q was accepted", folder)
+		}
+	}
+	manager.runner = shortenedListingRunner{ProcessRunner: execution.OSProcessRunner{}, result: execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "docs/product/b.md\n", OutputTruncation: "output was cut"}}
+	if files, err := manager.FilesUnderAtCommit(context.Background(), commit, "docs/product"); err == nil || files != nil || !strings.Contains(err.Error(), "docs/product") {
+		t.Fatalf("shortened output was a complete listing: %#v, %v", files, err)
+	}
+}
+
 type shortenedListingRunner struct {
 	execution.ProcessRunner
 	result execution.ProcessResult

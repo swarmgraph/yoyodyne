@@ -17,6 +17,7 @@ import (
 
 type repositoryReader interface {
 	FilesAtCommit(context.Context, string, int, int) (gitworktree.CommitListing, error)
+	FilesUnderAtCommit(ctx context.Context, commit, folder string) ([]string, error)
 	FileAtCommit(context.Context, string, string, int64) (gitworktree.FileAt, error)
 }
 
@@ -31,15 +32,11 @@ const (
 func reviewedRevision(ctx context.Context, reader repositoryReader, commit string) *contextbundle.Revision {
 	return &contextbundle.Revision{
 		Name: "base commit " + commit,
-		ListFiles: func() ([]string, error) {
-			listing, err := reader.FilesAtCommit(ctx, commit, 20000, maxRepositoryListingBytes)
-			if err != nil {
-				return nil, err
-			}
-			if listing.Omitted != 0 {
-				return nil, fmt.Errorf("base repository listing omitted %d path(s) (limits: 20000 paths, %d bytes); standing goals cannot be discovered completely", listing.Omitted, maxRepositoryListingBytes)
-			}
-			return listing.Files, nil
+		// Product documents are found by reading the specification folder alone,
+		// so a repository too large to list whole is reviewed as a small one is.
+		// The listing bound below applies only to what is shown to a reviewer.
+		ListDirectory: func(directory string) ([]string, error) {
+			return reader.FilesUnderAtCommit(ctx, commit, directory)
 		},
 		Read: func(path string, maxBytes int64) (int64, []byte, error) {
 			file, err := reader.FileAtCommit(ctx, commit, path, maxBytes)

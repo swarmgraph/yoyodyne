@@ -297,7 +297,7 @@ func (b BranchReviewer) conduct(ctx context.Context, in conducted) (BranchReview
 	}
 	outcome.Invariants = invariants.IDs()
 	revision := reviewedRevision(ctx, b.Worktrees, change.BaseCommit)
-	revision.CandidateFiles = reviewedRevision(ctx, b.Worktrees, change.HeadCommit).ListFiles
+	revision.CandidateDirectory = reviewedRevision(ctx, b.Worktrees, change.HeadCommit).ListDirectory
 	intentRevision, _, err := intentRevisionOf(ctx, b.Config.Product, b.IntentWorktrees, "")
 	if err != nil {
 		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
