@@ -155,19 +155,25 @@ has the details.
 **The review bound is measured before the checks.** Straight after that gate,
 a run the harness will integrate itself renders its committed change the way
 the reviewer's copy is rendered and measures it against the review bound
-the patch is held to further down this page — 256 KiB for the whole patch, 64 KiB for one uncommitted new file, 200 new files. A change
-whose source or test files that bound would keep out of the reviewer's copy
-could never be approved, since a source or test file the patch does not show
-refuses an approval, and no repair changes a bound that is the harness's. So it
-is not checked and not reviewed: the run ends at developing with the stop cause
-`review-bound`, the item is blocked with each such file's path, kind, size, the
-size of its diff where it has one, and the bound it was measured against, and
-the development manager's docket entry carries the same words. The branch and
-worktree are kept for her decision, which is usually to split the item. A
-change whose only files over the bound are test data goes on to its checks and
-review exactly as before, because an approval may be given over omitted test
-data. Before this, the bound was found only after the checks had passed and a
-review round had been spent on a change that could not land.
+the patch is held to further down this page — 256 KiB for the whole patch, 64 KiB for one uncommitted new file, 200 new files. The developer is
+told these limits when its run starts, beside what it must verify before
+handing the change over. A change whose source or test files that bound would
+keep out of the reviewer's copy could never be approved, since a source or test
+file the patch does not show refuses an approval. So it is not checked and not
+reviewed. The first time this happens on a run, the change goes back to its
+developer with each such file's path, kind, size, the size of its diff where it
+has one, and the bound it was measured against, and that spends one repair
+attempt: a change can often be made to fit, by leaving out a generated or
+vendored file, recording a large fixture as test data, or making a smaller edit.
+A second refusal on the same run, or a first one that finds the repair attempts
+already spent, ends the run at developing with the stop cause `review-bound`:
+the item is blocked with the same lines, saying the change was already handed
+back once where it was, and the development manager's docket entry carries the
+same words. The branch and worktree are kept for her decision, which is usually
+to split the item. A change whose only files over the bound are test data goes
+on to its checks and review exactly as before, because an approval may be given
+over omitted test data. [Operations](operations.md#a-change-too-large-for-the-reviewer-to-be-shown)
+has the details.
 
 The change is then gated on whether anybody ran it. A developer's reply records
 what it executed — the probe it ran in the worktree before it changed anything,
