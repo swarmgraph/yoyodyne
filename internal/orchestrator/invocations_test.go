@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,9 +23,10 @@ import (
 func recordsLikeAnAdapter(provider *orchestratortest.Backend) {
 	inner := provider.Respond
 	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		fallback := backend.SentPart{Name: "first message", Origin: backend.OriginHarnessBuild()}
 		sent := backend.SentInvocation{Backend: "claude-code", Messages: []backend.SentMessage{
-			{Role: backend.SentSystem, Parts: []backend.SentPart{{Name: "system instructions", Text: request.SystemPrompt}}},
-			{Role: backend.SentUser, Parts: []backend.SentPart{{Name: "first message", Text: request.Prompt}}},
+			{Role: backend.SentSystem, Parts: backend.PartsOr(request.SystemParts, request.SystemPrompt, fallback)},
+			{Role: backend.SentUser, Parts: backend.PartsOr(request.PromptParts, request.Prompt, fallback)},
 		}}
 		if err := backend.RecordInvocation(request, sent); err != nil {
 			return backend.RunResult{}, err
@@ -92,6 +94,29 @@ func TestEveryDeveloperAndReviewerInvocationOfARunIsKept(t *testing.T) {
 			t.Fatalf("developer invocation %d kept %q, was sent %q", index+1, byRole["developer"][index], request.Prompt)
 		}
 	}
+	// The developer's invocations share their contract, and it is kept once;
+	// each part says where it came from.
+	digests := map[string][]string{}
+	origins := map[string]string{}
+	for _, entry := range kept {
+		if entry.Role != "developer" {
+			continue
+		}
+		for _, part := range entry.Parts() {
+			digests[part.Name] = append(digests[part.Name], part.Digest)
+			origins[part.Name] = part.Origin
+		}
+	}
+	contract := digests["developer contract"]
+	if len(contract) < 2 || contract[0] != contract[1] {
+		t.Fatalf("the developer contract was kept as %v, want one digest for every developer invocation", contract)
+	}
+	if !strings.HasPrefix(origins["developer contract"], "the harness build") {
+		t.Fatalf("contract origin = %q", origins["developer contract"])
+	}
+	if !strings.HasPrefix(origins["work item and its notes"], "tracker item yoyodyne-task, read at ") {
+		t.Fatalf("work item origin = %q", origins["work item and its notes"])
+	}
 	for index, request := range provider.RequestsForRole(domain.RoleReviewer) {
 		if byRole["reviewer"][index] != request.Prompt {
 			t.Fatalf("reviewer invocation %d kept a different message than it was sent", index+1)
@@ -127,5 +152,34 @@ func TestADeveloperInvocationThatCannotBeRecordedIsNeverStarted(t *testing.T) {
 	}
 	if state.RecordedStopClass() != runstate.StopRecording || state.RepairAttempts != 0 {
 		t.Fatalf("stop class %q, repair attempts %d; want a stop on the record and no repair spent", state.RecordedStopClass(), state.RepairAttempts)
+	}
+}
+
+// The pieces of a prompt the harness can point to are named where they are
+// found, and the parts always join to exactly the prompt.
+func TestSplitByKnownPartsNamesWhatItFindsAndJoinsToTheText(t *testing.T) {
+	t.Parallel()
+	known := []backend.SentPart{
+		{Name: "contract", Text: "CONTRACT\n\n"},
+		{Name: "persona", Text: ""},
+		{Name: "invariants", Text: "INVARIANTS\n"},
+		{Name: "absent", Text: "NOT HERE"},
+		{Name: "work item", Text: "WORK ITEM"},
+	}
+	rest := backend.SentPart{Name: "rest"}
+	text := "A refusal first.\n" + "CONTRACT\n\n" + "INVARIANTS\n" + "WORK ITEM" + "\nand findings"
+	parts := splitByKnownParts(text, known, rest)
+	var names []string
+	for _, part := range parts {
+		names = append(names, part.Name)
+	}
+	if got := strings.Join(names, ","); got != "rest,contract,invariants,work item,rest" {
+		t.Fatalf("parts = %s", got)
+	}
+	if backend.JoinedText(parts) != text {
+		t.Fatalf("parts joined to %q, want the text", backend.JoinedText(parts))
+	}
+	if only := splitByKnownParts("nothing known", known, rest); len(only) != 1 || only[0].Name != "rest" || only[0].Text != "nothing known" {
+		t.Fatalf("a text with nothing known = %+v", only)
 	}
 }

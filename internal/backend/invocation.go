@@ -2,9 +2,11 @@ package backend
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
@@ -30,6 +32,50 @@ type SentPart struct {
 	// Text is the piece exactly as sent. A piece that is followed by another in
 	// the same message carries the separator between them at its end.
 	Text string
+}
+
+// Where a part came from is one of three things, and is written the same way
+// wherever it is made, so a person reading a record can find the source:
+// a file in a repository with the commit it was read at, a tracker item with
+// the time it was read, or the harness's own build.
+
+// OriginHarnessBuild is the origin of text the harness wrote into its program.
+func OriginHarnessBuild() string {
+	return "the harness build " + buildinfo.Commit()
+}
+
+// OriginRepositoryFile is the origin of text read from a file in a repository.
+// Where the commit is not known, what pins the file instead is said in detail.
+func OriginRepositoryFile(path, commit string) string {
+	if strings.TrimSpace(commit) == "" {
+		return "repository file " + path
+	}
+	return fmt.Sprintf("repository file %s at commit %s", path, commit)
+}
+
+// OriginTrackerItem is the origin of text read from a tracker item.
+func OriginTrackerItem(item string, readAt time.Time) string {
+	return fmt.Sprintf("tracker item %s, read at %s", item, readAt.UTC().Format(time.RFC3339))
+}
+
+// JoinedText is the text of parts joined.
+func JoinedText(parts []SentPart) string {
+	return SentMessage{Parts: parts}.Text()
+}
+
+// PartsOr returns parts when they are the named pieces of exactly whole, and
+// otherwise a single part holding whole, so what is recorded is always the text
+// that is sent whatever a caller said about how it was made. whole may be empty,
+// which has no parts.
+func PartsOr(parts []SentPart, whole string, fallback SentPart) []SentPart {
+	if whole == "" {
+		return nil
+	}
+	if len(parts) > 0 && JoinedText(parts) == whole {
+		return append([]SentPart(nil), parts...)
+	}
+	fallback.Text = whole
+	return []SentPart{fallback}
 }
 
 // Roles a sent message is spoken in.

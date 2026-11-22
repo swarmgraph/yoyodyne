@@ -924,16 +924,18 @@ func composePrompt(request backend.RunRequest, named string) string {
 // same parts joined. Each part that is followed by another carries the blank
 // line between them at its end.
 func composeMessage(request backend.RunRequest, named string) backend.SentMessage {
-	parts := []backend.SentPart{{Name: "first message", Origin: "built by the harness for this invocation", Text: request.Prompt}}
+	parts := backend.PartsOr(request.PromptParts, request.Prompt, backend.SentPart{Name: "first message", Origin: backend.OriginHarnessBuild()})
 	if strings.TrimSpace(named) != "" {
-		parts = append([]backend.SentPart{{Name: "skills and instructions the project names", Origin: "the project's configured skill and instruction files", Text: named + "\n\n"}}, parts...)
+		parts = append([]backend.SentPart{{Name: "skills and instructions the project names", Origin: "the skill and instruction files the project configuration names", Text: named + "\n\n"}}, parts...)
 	}
 	if strings.TrimSpace(request.SystemPrompt) != "" {
-		parts = append([]backend.SentPart{{Name: "system instructions", Origin: "built by the harness for this role from its contract and persona", Text: request.SystemPrompt + "\n\n"}}, parts...)
+		system := backend.PartsOr(request.SystemParts, request.SystemPrompt, backend.SentPart{Name: "system instructions", Origin: backend.OriginHarnessBuild()})
+		system[len(system)-1].Text += "\n\n"
+		parts = append(system, parts...)
 	}
 	if posture, _ := backend.RequestPosture(request); posture == backend.PostureReadOnly {
 		directory, _ := json.Marshal(request.WorkingDirectory)
-		parts = append([]backend.SentPart{{Name: "read-only inspection note", Origin: "the harness build", Text: "Repository available for read-only inspection: " + string(directory) + ".\nThe current directory is an empty launch directory, not the repository. Inspect and plan only; do not implement changes or request escalation.\n\n"}}, parts...)
+		parts = append([]backend.SentPart{{Name: "read-only inspection note", Origin: backend.OriginHarnessBuild(), Text: "Repository available for read-only inspection: " + string(directory) + ".\nThe current directory is an empty launch directory, not the repository. Inspect and plan only; do not implement changes or request escalation.\n\n"}}, parts...)
 	}
 	return backend.SentMessage{Role: backend.SentUser, Parts: parts}
 }

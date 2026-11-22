@@ -13,8 +13,10 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/backend/claudecode"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -155,5 +157,37 @@ func TestTheCommandSaysWhatItCannotShow(t *testing.T) {
 	var out, problems bytes.Buffer
 	if code := writeInvocations(runs.Invocations(), "run-0123456789abcdef0123456789abcdef", 2, &out, &problems); code != 1 || out.Len() != 0 || !strings.Contains(problems.String(), "no such invocation") {
 		t.Fatalf("exit %d, out %q, problems %q", code, out.String(), problems.String())
+	}
+}
+
+// Every provider call the harness makes for a developer or a reviewer of a run
+// is wired to keep what it is sent: a pipeline or a reviewer built without that
+// would start invocations nothing recorded.
+func TestTheProductionWiringKeepsWhatEveryDeveloperAndReviewerInvocationIsSent(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load(filepath.Join("..", "..", config.DirectoryName, config.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := runstate.NewStore(t.TempDir(), cfg.Product.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := components{config: cfg, store: store}
+	pipeline := pipelineFrom(parts)
+	if pipeline.Invocations == nil {
+		t.Fatal("the pipeline keeps nothing of what its developers are sent")
+	}
+	if reviewer, ok := pipeline.Reviewer.(review.Reviewer); !ok || reviewer.Invocations == nil {
+		t.Fatalf("the pipeline's reviewer keeps nothing of what it is sent: %#v", pipeline.Reviewer)
+	}
+	for _, provider := range []domain.Backend{domain.BackendClaudeCode, domain.BackendCodex} {
+		made, ok := reviewerForEndpoint(parts)(runstate.RoutedEndpoint{Provider: provider, Model: "m"})
+		if !ok {
+			continue
+		}
+		if reviewer, isReviewer := made.(review.Reviewer); !isReviewer || reviewer.Invocations == nil {
+			t.Fatalf("the reviewer made for %s keeps nothing of what it is sent", provider)
+		}
 	}
 }

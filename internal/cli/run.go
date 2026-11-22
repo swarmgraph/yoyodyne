@@ -800,10 +800,11 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// the reviewer agent's own required model selector and effective
 		// persona.
 		Reviewer: review.Reviewer{
-			Backend: reviewerProvider,
-			Model:   agentModel(cfg, domain.RoleReviewer),
-			Effort:  cfg.InvocationEffort(agentForRole(cfg, domain.RoleReviewer), agentModel(cfg, domain.RoleReviewer)),
-			Persona: agentForRole(cfg, domain.RoleReviewer).Persona.Text,
+			Backend:       reviewerProvider,
+			Model:         agentModel(cfg, domain.RoleReviewer),
+			Effort:        cfg.InvocationEffort(agentForRole(cfg, domain.RoleReviewer), agentModel(cfg, domain.RoleReviewer)),
+			Persona:       agentForRole(cfg, domain.RoleReviewer).Persona.Text,
+			PersonaOrigin: personaOrigin(agentForRole(cfg, domain.RoleReviewer).Persona),
 			// The reviewer's own time_limits.review, or the harness's figure.
 			Timeout: agentForRole(cfg, domain.RoleReviewer).TimeLimits.ReviewLimit(),
 			// The reviewer's invocation is its own spend and lands in the same log
@@ -1768,14 +1769,15 @@ func reviewerForEndpoint(parts components) orchestrator.ReviewerForEndpoint {
 		}
 		reviewer := agentForRole(cfg, domain.RoleReviewer)
 		return review.Reviewer{
-			Backend:     providerBackend(cfg, parts.stateRoot, endpoint.Provider, parts.runner),
-			Model:       model,
-			Effort:      endpoint.Effort,
-			Persona:     reviewer.Persona.Text,
-			Timeout:     reviewer.TimeLimits.ReviewLimit(),
-			Spend:       parts.spend,
-			ToolUse:     parts.toolUse(),
-			Invocations: invocationLog(parts),
+			Backend:       providerBackend(cfg, parts.stateRoot, endpoint.Provider, parts.runner),
+			Model:         model,
+			Effort:        endpoint.Effort,
+			Persona:       reviewer.Persona.Text,
+			PersonaOrigin: personaOrigin(reviewer.Persona),
+			Timeout:       reviewer.TimeLimits.ReviewLimit(),
+			Spend:         parts.spend,
+			ToolUse:       parts.toolUse(),
+			Invocations:   invocationLog(parts),
 		}, true
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -17,6 +18,16 @@ func invocationLog(parts components) backend.InvocationLog {
 		return nil
 	}
 	return parts.store.Invocations()
+}
+
+// personaOrigin says where a configured persona was read from, for the record of
+// what an invocation was sent: its file, and the version that pins its content.
+func personaOrigin(persona config.Persona) string {
+	origin := backend.OriginRepositoryFile(persona.Path, "")
+	if persona.Version != "" {
+		origin += ", persona version " + persona.Version
+	}
+	return origin
 }
 
 // readInvocations is `yoyo invocations`: what each developer and reviewer

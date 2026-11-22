@@ -350,14 +350,11 @@ func systemPromptFor(request backend.RunRequest, named string) string {
 // same parts joined. Nothing is sent that this does not return: an empty
 // message means there is no system prompt to append.
 func systemMessage(request backend.RunRequest, named string) backend.SentMessage {
-	var parts []backend.SentPart
-	if request.SystemPrompt != "" {
-		parts = []backend.SentPart{{Name: "system instructions", Origin: "built by the harness for this role from its contract and persona", Text: request.SystemPrompt}}
-	}
+	parts := backend.PartsOr(request.SystemParts, request.SystemPrompt, backend.SentPart{Name: "system instructions", Origin: backend.OriginHarnessBuild()})
 	if request.Role == domain.RoleReviewer {
-		parts = appendNamedPart(parts, backend.SentPart{Name: "reviewer tools note", Origin: "the harness build", Text: reviewerToolsNote})
+		parts = appendNamedPart(parts, backend.SentPart{Name: "reviewer tools note", Origin: backend.OriginHarnessBuild(), Text: reviewerToolsNote})
 	}
-	parts = appendNamedPart(parts, backend.SentPart{Name: "skills and instructions the project names", Origin: "the project's configured skill and instruction files", Text: named})
+	parts = appendNamedPart(parts, backend.SentPart{Name: "skills and instructions the project names", Origin: "the skill and instruction files the project configuration names", Text: named})
 	return backend.SentMessage{Role: backend.SentSystem, Parts: parts}
 }
 
@@ -976,7 +973,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		if system := systemMessage(request, named); len(system.Parts) > 0 {
 			messages = append(messages, system)
 		}
-		messages = append(messages, backend.SentMessage{Role: backend.SentUser, Parts: []backend.SentPart{{Name: "first message", Origin: "built by the harness for this invocation", Text: request.Prompt}}})
+		messages = append(messages, backend.SentMessage{Role: backend.SentUser, Parts: backend.PartsOr(request.PromptParts, request.Prompt, backend.SentPart{Name: "first message", Origin: backend.OriginHarnessBuild()})})
 		if err := backend.RecordInvocation(request, backend.SentInvocation{
 			Backend:          string(b.provider()),
 			ProviderVersion:  b.installedVersion(ctx, configDir),

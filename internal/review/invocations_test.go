@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -83,5 +84,23 @@ func TestABranchReviewIsNeverRecordedAsARunsInvocation(t *testing.T) {
 	}
 	if len(log.roles) != 0 || !provider.called {
 		t.Fatalf("recorders asked for = %v, provider called = %v", log.roles, provider.called)
+	}
+}
+
+// The reviewer's system prompt is named as its contract and its persona, which
+// join to exactly the system prompt that is sent.
+func TestTheReviewersSystemPromptIsNamedAsContractAndPersona(t *testing.T) {
+	t.Parallel()
+	for _, scope := range []Scope{ScopeBranch, ""} {
+		parts := reviewSystemParts(scope, "Look hard at tests.", "repository file .yoyodyne/personas/reviewer.md, persona version v1")
+		if len(parts) != 2 || parts[0].Name != "reviewer contract" || parts[1].Name != "persona" {
+			t.Fatalf("parts = %+v", parts)
+		}
+		if parts[1].Origin != "repository file .yoyodyne/personas/reviewer.md, persona version v1" || backend.JoinedText(parts) != reviewSystemPrompt(scope, "Look hard at tests.") {
+			t.Fatalf("origin %q, or the parts do not join to the system prompt", parts[1].Origin)
+		}
+	}
+	if parts := reviewSystemParts("", "  ", ""); len(parts) != 1 {
+		t.Fatalf("a reviewer with no persona has parts %+v", parts)
 	}
 }

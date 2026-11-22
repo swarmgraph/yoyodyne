@@ -7491,6 +7491,17 @@ whose verdict could not be read are each their own, numbered in the order they
 started. The text is printed message by message, each between lines that say its
 size in bytes, so it can be taken out whatever it contains.
 
+A developer's text is kept as named parts: the harness's contract, the persona,
+the architectural invariants, the work item and its notes, and what that
+invocation adds, such as findings a repair is handed. A reviewer's is kept as its
+contract, its persona, the tools note, any skills and instruction files the
+project names, and the message it was sent. Each part says where it came from:
+the harness build, a repository file (with the commit where the harness knows it,
+and the persona's version, which pins its content), or a tracker item and the
+time it was read. The parts the invocations of a run share are stored once. When
+the run inspector shows a run (`run.inspect` in a conversation), it lists each
+invocation with its parts, sizes and origins, and never the text.
+
 What it holds, and does not:
 
 - It holds every message the harness gave the provider, in order, and the

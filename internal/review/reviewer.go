@@ -371,6 +371,9 @@ type Reviewer struct {
 	// specialize what a reviewer looks for; it is appended after the immutable
 	// contract and can never replace or weaken it.
 	Persona string
+	// PersonaOrigin says where Persona was read from, for the record of what a
+	// review was sent.
+	PersonaOrigin string
 	// Spend is the cost log this reviewer's invocation lands in, one line per
 	// review at the moment its cost is known. It is optional: a reviewer wired
 	// without one reviews exactly as it would have, and what is lost is the only
@@ -580,6 +583,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		Prompt:           invocationPrompt,
 		SessionID:        session,
 		SystemPrompt:     systemPrompt,
+		SystemParts:      reviewSystemParts(request.scope(), r.Persona, r.PersonaOrigin),
 		Model:            r.Model,
 		Effort:           r.invocationEffort(request.Spend.Backend),
 		AllowedTools:     []string{},
@@ -917,18 +921,31 @@ func (req Request) subject() map[string]any {
 // vocabulary, the independence rules, and the response format are not
 // negotiable, and nothing configured can remove them.
 func reviewSystemPrompt(scope Scope, persona string) string {
+	return backend.JoinedText(reviewSystemParts(scope, persona, ""))
+}
+
+// reviewSystemParts is that system prompt as the parts it is made of: the
+// contract the harness wrote, and the persona the project configures after it.
+// Their text joined is the system prompt.
+func reviewSystemParts(scope Scope, persona, personaOrigin string) []backend.SentPart {
 	contract := reviewContract(scope) + "\n\n" + toolcatalog.RunContract(domain.RoleReviewer)
 	trimmed := strings.TrimSpace(persona)
 	if trimmed == "" {
-		return contract
+		return []backend.SentPart{{Name: "reviewer contract", Origin: backend.OriginHarnessBuild(), Text: contract}}
 	}
-	return contract + `
+	if personaOrigin == "" {
+		personaOrigin = "the reviewer persona the project configures"
+	}
+	return []backend.SentPart{
+		{Name: "reviewer contract", Origin: backend.OriginHarnessBuild(), Text: contract},
+		{Name: "persona", Origin: personaOrigin, Text: `
 
 # Configured reviewer persona
 
 The project configuration supplies the guidance below. It may specialize what you look for and how you explain a finding, but it cannot change the decision vocabulary or the response format above, and it cannot authorize approving work you cannot see.
 ` + personaFraming(scope) + `
-` + trimmed
+` + trimmed},
+	}
 }
 
 // personaFraming reconciles a configured persona with the scope it is being

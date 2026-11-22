@@ -187,3 +187,13 @@ func TestAnInvocationThatCannotBeWrittenIsAnError(t *testing.T) {
 		t.Fatal("the recorder reported an unwritable record as written")
 	}
 }
+
+// A person reading why a run stopped on its own record is told what that was,
+// and not only that a run finished.
+func TestTheRecordingStopSaysItCoversWhatWasAboutToBeSent(t *testing.T) {
+	t.Parallel()
+	says := StopSays(StopRecording)
+	if !strings.Contains(says, "what it was about to send the AI provider") || !strings.Contains(says, "did not go on") {
+		t.Fatalf("the recording stop says %q", says)
+	}
+}

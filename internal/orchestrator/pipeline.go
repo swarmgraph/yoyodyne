@@ -5493,6 +5493,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		// provider's sandbox lets it write (prepareScratch).
 		ScratchDirectory: a.scratch,
 		Prompt:           prompt,
+		PromptParts:      a.developerPromptPartsIfRecorded(prompt),
 		SessionID:        sessionID,
 		Model:            model,
 		Effort:           effort,

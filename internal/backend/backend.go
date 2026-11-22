@@ -82,6 +82,13 @@ type RunRequest struct {
 	ScratchDirectory string
 	Prompt           string
 	SystemPrompt     string
+	// PromptParts and SystemParts say what Prompt and SystemPrompt are made of,
+	// as named parts with where each came from, so that what many invocations
+	// share is kept once. They only name text: an adapter uses them only where
+	// they join to exactly the text, and records the whole as one part where
+	// they do not. Empty names nothing.
+	PromptParts []SentPart
+	SystemParts []SentPart
 	// CachedPromptBytes is how much of the opening of Prompt the caller expects
 	// the next invocation to send byte for byte the same, so the adapter may end
 	// a block of the message there for its provider to cache. A provider reuses
