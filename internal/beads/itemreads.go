@@ -329,8 +329,19 @@ func describeShow(args []string) string {
 
 // live is the client with nothing held: what a write reads an item through
 // before or after changing it, so what it writes is decided on, and confirmed
-// against, the item as it stands now rather than as it was read ahead.
+// against, the item as it stands now rather than as it was read ahead. It lists
+// the open and ready work afresh too, rather than from the listings this
+// process shares (sharedlistings.go).
 func (c Client) live() Client {
 	c.Reads = nil
+	c.unshared = true
 	return c
+}
+
+// ShowAfresh reads one item as it stands now, never from an item read ahead
+// of need. A caller that is about to change an item it found in a listing reads
+// it through this first, so a shared listing (sharedlistings.go), which may be
+// up to sharedListingFresh old, never decides what is changed.
+func (c Client) ShowAfresh(ctx context.Context, id string) (WorkItem, error) {
+	return c.live().Show(ctx, id)
 }

@@ -100,8 +100,9 @@ func (c Client) takeTurn(ctx context.Context) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("take a turn at the tracker's store: %w", err)
 	}
-	name := turnName(time.Now(), os.Getpid(), turnSequence.Add(1))
-	ticket, err := root.OpenAppend(turnDirectory+"/"+name, 0o600, 0o700)
+	waiting, cancel := context.WithTimeout(ctx, c.timeout())
+	defer cancel()
+	name, ticket, err := takeTicket(waiting, root)
 	if err != nil {
 		return nil, fmt.Errorf("take a turn at the tracker's store: %w", err)
 	}
@@ -109,15 +110,6 @@ func (c Client) takeTurn(ctx context.Context) (func(), error) {
 		_, _ = root.RemoveFile(turnDirectory + "/" + name)
 		_ = unlockWriteFile(ticket)
 		_ = ticket.Close()
-	}
-	waiting, cancel := context.WithTimeout(ctx, c.timeout())
-	defer cancel()
-	// A process looking whether this ticket is held takes it shared for a
-	// moment, so taking it here may have to wait that moment out.
-	if err := lockWriteFile(waiting, ticket); err != nil {
-		_, _ = root.RemoveFile(turnDirectory + "/" + name)
-		_ = ticket.Close()
-		return nil, fmt.Errorf("take a turn at the tracker's store: %w", err)
 	}
 	directory := filepath.Join(store, turnDirectory)
 	for {
@@ -136,6 +128,45 @@ func (c Client) takeTurn(ctx context.Context) (func(), error) {
 		case <-time.After(turnPoll):
 		}
 	}
+}
+
+// turnTakingLock is the lock, beside the tickets' directory, that one ticket
+// is named, made and held under at a time.
+const turnTakingLock = writeLockDirectory + "/turns-taking.lock"
+
+// takeTicket names, makes and holds one ticket, under the lock every ticket is
+// taken under, and returns its name and the held file.
+//
+// The lock is what keeps the line in the order the tickets appear in. A ticket
+// is named for the moment it was taken, and a call that was paused between
+// reading the clock and making its file would otherwise make a ticket named
+// earlier than one already made, held and let through: the earlier-named call
+// finds nothing ahead of it, because the other is named after it, and the two
+// run at once. Taking the clock, making the file and holding it under one lock
+// means a ticket that exists is never named after one made later.
+func takeTicket(ctx context.Context, root repowrite.Root) (string, *os.File, error) {
+	taking, err := root.OpenAppend(turnTakingLock, 0o600, 0o700)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = taking.Close() }()
+	if err := lockWriteFile(ctx, taking); err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = unlockWriteFile(taking) }()
+	name := turnName(time.Now(), os.Getpid(), turnSequence.Add(1))
+	ticket, err := root.OpenAppend(turnDirectory+"/"+name, 0o600, 0o700)
+	if err != nil {
+		return "", nil, err
+	}
+	// A process looking whether this ticket is held takes it shared for a
+	// moment, so taking it here may have to wait that moment out.
+	if err := lockWriteFile(ctx, ticket); err != nil {
+		_, _ = root.RemoveFile(turnDirectory + "/" + name)
+		_ = ticket.Close()
+		return "", nil, err
+	}
+	return name, ticket, nil
 }
 
 // turnName is the name of a ticket taken at taken by process pid: the time
