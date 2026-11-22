@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -279,6 +280,22 @@ type MergeQueuePass struct {
 	// restarting onto a new build: cut off part-way, or left a check stage or a
 	// review for the session that comes back to start.
 	ForRestart bool `json:"for_restart,omitempty"`
+	// Order is the order the queue's rules took the waiting entries in at the
+	// pass's last choice, where it made one. Only the latest pass keeps it; the
+	// history leaves it out.
+	Order *MergeQueueOrder `json:"order,omitempty"`
+}
+
+// MergeQueueOrder is the waiting entries in the order the queue's rules take
+// them, and the rule that put the first one first, as yoyo status and the
+// dashboard show them.
+type MergeQueueOrder struct {
+	// Entries are the waiting entries' ids, the one chosen first.
+	Entries []string `json:"entries"`
+	// Rule names the rule that chose the first entry, and Why says why in
+	// ordinary words.
+	Rule string `json:"rule"`
+	Why  string `json:"why"`
 }
 
 // mergeQueuePassHistory is how many of a queue's passes its history keeps,
@@ -305,6 +322,12 @@ func (s *MergeQueueStore) RecordPass(ctx context.Context, key MergeQueueKey, pas
 	if pass.Moved != nil {
 		moved := pass.Moved.UTC()
 		pass.Moved = &moved
+	}
+	if pass.Order != nil {
+		order := *pass.Order
+		order.Entries = slices.Clone(order.Entries)
+		order.Rule, order.Why = BoundedMergeQueueText(order.Rule), BoundedMergeQueueText(order.Why)
+		pass.Order = &order
 	}
 	if err := s.writeSide(ctx, key, mergeQueuePassName, pass); err != nil {
 		return err
@@ -335,6 +358,7 @@ func (s *MergeQueueStore) recordPassHistory(ctx context.Context, key MergeQueueK
 		_ = json.Unmarshal(encoded, &history)
 	}
 	pass.Says = oneline.Bound(pass.Says, historySaysBytes)
+	pass.Order = nil
 	history = append(history, pass)
 	keep := s.passHistory
 	if keep <= 0 {

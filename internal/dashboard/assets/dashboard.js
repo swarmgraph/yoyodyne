@@ -1519,6 +1519,9 @@ var standingWarningAgeSeconds = 5 * 60;
       if (queue.last_pass && queue.last_pass.says) {
         row.appendChild(el("p", "held-reason", "Last pass: " + queue.last_pass_label + " \u2014 " + queue.last_pass.says));
       }
+      if (queue.first_rule) {
+        row.appendChild(el("p", "held-reason", "First in the queue's order (" + queue.first_rule + "): " + queue.first_why));
+      }
       var entries = el("ul", "held-list");
       (queue.entries || []).forEach(function (entry) {
         entries.appendChild(el("li", "held-reason", entry.place + ". " + namedOr(entry.work_item_id, entry.work_item_id + " " + entry.title) + " \u2014 " + entry.label + ", in " + entry.mode_label + " \u2014 " + entry.why));

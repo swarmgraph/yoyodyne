@@ -329,3 +329,46 @@ func TestAMergeGitHubHoldsIsShownWithWhatGitHubLastSaidItWasWaitingOn(t *testing
 		t.Fatalf("a reading of another pull request was shown:\n%s", rendered)
 	}
 }
+
+// The waiting entries are shown in the order the queue's rules last chose, as
+// its last pass recorded it, with the rule that put the first one first; an
+// entry the choice did not rank follows in the order it is worked, and a pass
+// that recorded no choice leaves admission order.
+func TestTheQueueIsShownInTheOrderItsRulesChoseWithTheFirstEntrysRule(t *testing.T) {
+	t.Parallel()
+
+	key := runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"}
+	doc := fixtureEntry(1, "yoyodyne-ifd.1", "A design", runstate.MergeQueueHarness)
+	code := fixtureEntry(2, "yoyodyne-ifd.2", "Ordinary code", runstate.MergeQueueHarness)
+	late := fixtureEntry(3, "yoyodyne-ifd.3", "Joined since", runstate.MergeQueueHarness)
+	pass := &runstate.MergeQueuePass{
+		At: time.Date(2026, 11, 22, 9, 0, 0, 0, time.UTC), Outcome: runstate.MergeQueuePassWaiting, Says: "waiting",
+		Order: &runstate.MergeQueueOrder{Entries: []string{code.EntryID, doc.EntryID}, Rule: "code, by priority", Why: "the last change the queue landed was a document"},
+	}
+	queues := fixtureQueues{
+		keys:    []runstate.MergeQueueKey{key},
+		entries: map[string][]runstate.MergeQueueEntry{"main": {doc, code, late}},
+		pass:    pass,
+	}
+	standing := ReadStanding(context.Background(), Sources{MergeQueues: queues})
+	var order []string
+	for _, entry := range standing.MergeQueues[0].Entries {
+		order = append(order, entry.WorkItemID)
+	}
+	if got := strings.Join(order, ","); got != "yoyodyne-ifd.2,yoyodyne-ifd.1,yoyodyne-ifd.3" {
+		t.Fatalf("entries shown in %s, want the chosen order and then the entry that joined since", got)
+	}
+	if queue := standing.MergeQueues[0]; queue.FirstEntry != code.EntryID || queue.FirstRule != "code, by priority" {
+		t.Fatalf("first = %q by %q, want the code entry by its rule", queue.FirstEntry, queue.FirstRule)
+	}
+	rendered := standing.RenderMergeQueues()
+	if !strings.Contains(rendered, "first in the queue's order (code, by priority): the last change the queue landed was a document") {
+		t.Fatalf("rendered queues do not say the first entry's rule:\n%s", rendered)
+	}
+
+	queues.pass = &runstate.MergeQueuePass{At: pass.At, Outcome: runstate.MergeQueuePassWaiting, Says: "waiting"}
+	standing = ReadStanding(context.Background(), Sources{MergeQueues: queues})
+	if first := standing.MergeQueues[0].Entries[0].WorkItemID; first != "yoyodyne-ifd.1" || standing.MergeQueues[0].FirstRule != "" {
+		t.Fatalf("with no choice recorded, first shown is %s by %q, want admission order and no rule", first, standing.MergeQueues[0].FirstRule)
+	}
+}

@@ -312,16 +312,21 @@ func (w MergeQueueWorker) aheadGeneration(ctx context.Context, lease *runstate.L
 			}
 		}
 	}
-	generation, err := w.build(ctx, lease, key, next, author, configured, uint64(len(generations)+1), ahead, aheadSelection(base), retried)
+	// Whether next is a document is recorded with it, as an order rule's choice
+	// records it, so a choice made after it lands knows what landed.
+	document := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths}.documentKind(ctx, next)
+	generation, err := w.build(ctx, lease, key, next, author, configured, uint64(len(generations)+1), ahead, aheadSelection(base, document), retried)
 	return generation, err == nil, "", err
 }
 
 // aheadSelection is the record of why an entry's candidate was built while the
 // entry ahead of it was still being verified: no order rule chose it, the
-// entry's place behind the one ahead did.
-func aheadSelection(base runstate.MergeQueueGeneration) *runstate.MergeQueueSelection {
+// entry's place behind the one ahead did. document says the entry is a
+// document entry.
+func aheadSelection(base runstate.MergeQueueGeneration, document bool) *runstate.MergeQueueSelection {
 	return &runstate.MergeQueueSelection{
-		Rule: "checked ahead",
-		Why:  fmt.Sprintf("it is the next entry waiting behind entry %s, so its candidate was built on that entry's candidate and checked while that entry is still verified; no order rule chose it over another entry", base.EntryID),
+		Rule:     "checked ahead",
+		Document: document,
+		Why:      fmt.Sprintf("it is the next entry waiting behind entry %s, so its candidate was built on that entry's candidate and checked while that entry is still verified; no order rule chose it over another entry", base.EntryID),
 	}
 }
