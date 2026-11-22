@@ -957,6 +957,13 @@ func TestARestartKeepsARunWorkingWhileItWaitsForAMergeQueueCheck(t *testing.T) {
 			deployment.deploy()
 			stage.Store(1)
 		case 1:
+			// The clock goes past the bound only once the run is in its seat.
+			// Past the bound an empty seat is declined and counted as work held
+			// back, so a run that started a pull late would date the move's
+			// cost from the bound rather than from the stop this test is about.
+			if len(hostedRun) == 0 {
+				return
+			}
 			h.mu.Lock()
 			h.now = latest(h.now, began.Add(h.drainLimit+time.Minute))
 			h.mu.Unlock()
