@@ -23,6 +23,10 @@ revisions:
       by: architect
       at: 2026-11-21T19:37:43.475827Z
       reason: 'amendment-d26f1591: section 1 now states what landed with yoyodyne-ifd.430.89 (unchanging opening sent after the instructions by SplitUnchanging and withPassBriefing, per part fingerprints and first changed part recorded), drops the old account of briefingFirst, and says plainly the architect has not read the provider figures since. Read at 697f01f0. The decision is unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T01:25:26.368096Z
+      reason: 'amendment-8afa9323, approved Nov 21: section 8 holds full_pass_every between 1 and 12 hours and puts both pass settings on program manager scheduled triggers too, with why. Resent after document-3361.1 was handed back: this text no longer claims the portable configuration design already holds these bounds, says that design still says 24 hours until its own revision, and cites the admitted build item 430.92 rather than unbuilt code. Read at 09e7a6138757.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -44,6 +48,11 @@ approvals:
       by: harness
       at: 2026-11-21T19:37:43.475827Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3340, for document-3340.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-22T01:25:26.368096Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3366, for document-3366.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
@@ -192,14 +201,19 @@ Every change above has a setting, a default and an owner, unless this section sa
 | --- | --- | --- | --- |
 | Models by kind | `model_kinds`, for each provider: `stronger`, `cheaper`, `lightest` | for Claude Code: Opus, Sonnet, Haiku; for any other provider, `stronger` is the model its agents name and the others are not named | the development manager |
 | Reusing the opening of each pass (section 1) | none | always on | nobody |
-| Skipping a scheduled pass with nothing new (section 2) | `skip_when_unchanged` on each recurring task | on for every scheduled pass of a management role | the development manager |
-| The floor on full passes (section 2) | `full_pass_every` on each recurring task | 4 hours; allowed between 1 hour and 24 hours | the development manager |
+| Skipping a scheduled pass with nothing new (section 2) | `skip_when_unchanged` on each recurring task, and on each scheduled trigger of a program manager instance | on for every scheduled pass of a management role | the development manager |
+| The floor on full passes (section 2) | `full_pass_every` on each recurring task, and on each scheduled trigger of a program manager instance | 4 hours; allowed between 1 hour and 12 hours | the development manager |
 | Developers starting on the cheaper model (section 4) | `developer_cheaper_first`: on or off, and which items are eligible by label and priority | off; when on, priority 0 is not eligible | the development manager |
 | High risk kinds never on the cheaper model (section 4) | `high_risk_labels`: which labels mean security, migrations, concurrency and public interfaces, and any further kinds | the labels `security`, `migration`, `concurrency` and `public-interface` | the development manager may add labels and kinds, never remove the four kinds |
 | Reviewer's model by kind of change (section 5) | `reviewer_models`: `documents` and `code`, each a kind | both `stronger` | the development manager |
 | A recurring task's model (section 6) | the task's existing `model`, which may now name a kind | unchanged | the development manager, as today |
 | The reading helper (section 7) | `repository_ask`: its model kind, answer limit and time limit | on once built; `lightest`; 4 KiB, allowed between 1 KiB and 16 KiB; 60 seconds | the development manager; a project may take the tool from an agent with `tools: deny` |
 | Weekly cost figures | none | always kept | nobody |
+
+Why the floor stops at 12 hours, and why the two pass settings reach a program manager's triggers:
+
+- **12 hours, not 24.** The floor is what catches a change the skip check does not cover. A role left a whole day without one full pass could miss such a change for a working day, and the milestone's internal week allows no hour with ready work waiting and nobody moving it. Twelve hours still lets a project with little to do skip most of its passes.
+- **Program manager triggers.** A program manager instance is scheduled by its triggers, not by a recurring task, and it had the largest share of passes with nothing new, 53%. Section 2 says every role keeps its floor, so leaving the triggers out would leave the program manager out by accident. The development manager decides only these two keys on a trigger; the rest of an instance's settings stay the operator's.
 
 Why some things have no setting:
 
@@ -213,7 +227,7 @@ A change that needs a model of a kind its provider has not named cannot be turne
 
 The trials in sections 4 to 6 decide what this repository turns on. They do not change the shipped defaults. If a trial shows a change helps without costing quality, changing the shipped default is a later decision recorded in its own revision of this design.
 
-Section 6 of portable agent configuration gains `model_kinds`, `reviewer_models`, `developer_cheaper_first`, `high_risk_labels`, `skip_when_unchanged`, `full_pass_every` and `repository_ask` among the values the development manager decides, in its own revision.
+Section 6 of portable agent configuration is where the development manager's path for these values is recorded. Its row for the two pass settings still allows `full_pass_every` up to 24 hours and names recurring tasks only. Its next revision brings that row into line with this section, and until it lands, this section decides. The admitted build of skipping passes with nothing new (yoyodyne-ifd.430.92) carries the 12 hour bound and the program manager triggers.
 
 ## What is measured
 
