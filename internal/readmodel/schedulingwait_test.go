@@ -118,3 +118,46 @@ func TestAWaitOnOtherWorkIsSaidOnceAndNeverAProblemByStanding(t *testing.T) {
 		t.Fatalf("terminal says a cleared wait: %s", rendered)
 	}
 }
+
+// A ready priority 0 item no slot's labels cover, left for another developer
+// slot, is shown on status with how long it has waited, counted from when it was
+// first passed over, and that is said whether or not the wait has yet stood long
+// enough to be called a problem.
+func TestStatusSaysHowLongAnItemLeftForAnotherSlotHasWaited(t *testing.T) {
+	reason := "left for another developer slot: Main's build is red (yoyodyne-urgent) is at priority 0, and no developer slot's labels cover it, so it is waiting for a developer slot with none of its own labelled work ready; developer slot 1 prefers the team-development label and took Team work (yoyodyne-team)"
+	for _, test := range []struct {
+		name    string
+		since   time.Duration
+		waited  string
+		problem bool
+	}{
+		{name: "recent", since: 20 * time.Minute, waited: "it has waited 20 minutes"},
+		{name: "standing", since: 5 * time.Hour, waited: "it has waited 5 hours", problem: true},
+		{name: "days", since: 72 * time.Hour, waited: "it has waited 3 days", problem: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wait := &beads.SchedulingWait{Class: string(runstate.PassedOverLeftForAnotherSlot), Reason: reason, FirstPassedOver: moment.Add(-test.since), ReasonSince: moment.Add(-test.since)}
+			item := beads.WorkItem{ID: "yoyodyne-urgent", Title: "Main's build is red", Status: "open", Priority: 0, SchedulingWait: wait}
+			tracker := statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{"open": {item}}, ready: []beads.WorkItem{item}}}
+			standing := ReadStanding(context.Background(), Sources{Tracker: tracker, Runs: fakeRuns{}, Now: func() time.Time { return moment }})
+			if len(standing.SchedulingWaits) != 1 {
+				t.Fatalf("waits = %+v", standing.SchedulingWaits)
+			}
+			said := standing.SchedulingWaits[0].WaitReason
+			if !strings.Contains(said, reason) || !strings.Contains(said, test.waited) {
+				t.Fatalf("wait reason = %q, want the reason and %q", said, test.waited)
+			}
+			if got := standing.SchedulingWaits[0].SchedulingWaitProlonged; got != test.problem {
+				t.Fatalf("prolonged = %t, want %t", got, test.problem)
+			}
+			if rendered := standing.Render(); !strings.Contains(rendered, test.waited) {
+				t.Fatalf("terminal omitted how long it waited: %s", rendered)
+			}
+		})
+	}
+	// A wait of any other class says nothing more.
+	other := beads.SchedulingWait{Class: string(runstate.PassedOverSequencedBehindWork), Reason: "behind run-1", FirstPassedOver: moment.Add(-time.Hour), ReasonSince: moment.Add(-time.Hour)}
+	if said := waitedFor(&other, moment); said != "" {
+		t.Fatalf("waitedFor(other class) = %q, want nothing", said)
+	}
+}
