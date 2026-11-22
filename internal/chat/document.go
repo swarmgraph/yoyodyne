@@ -93,7 +93,11 @@ type PendingWrite struct {
 	ConversationID string `json:"conversation_id"`
 	Turn           int    `json:"turn"`
 	// WrittenAt is when the role wrote it; see runstate.PendingWrite.
-	WrittenAt   time.Time                     `json:"written_at,omitzero"`
+	WrittenAt time.Time `json:"written_at,omitzero"`
+	// RevisedPath is the file the document a revision replaces is read from,
+	// recorded with the write so its record names the document by path as well as
+	// by identifier.
+	RevisedPath string                        `json:"revised_path,omitempty"`
 	Write       artifact.Write                `json:"write"`
 	Publication *runstate.DocumentPublication `json:"publication,omitempty"`
 }
@@ -438,6 +442,13 @@ func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]Pendi
 			WrittenAt:      now,
 			Write:          write,
 		}}
+		if write.Action == artifact.WriteRevise && s.options.Documents != nil {
+			// A path the store cannot name is left out: the record still names the
+			// document by identifier, and the confirmed copy gives the path later.
+			if path, err := s.options.Documents.WritePath(write); err == nil {
+				record.pending.RevisedPath = path
+			}
+		}
 		// What the new revision frees is settled first, so the revision it
 		// replaces is never sent beside it.
 		place := s.placeRevision(write)
@@ -985,7 +996,7 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		// the one written.
 		EstablishedBy: p.Write.EstablishedBy,
 		Scope:         p.Write.Scope,
-	}
+	}.RecordRevisedPath(p.RevisedPath)
 }
 
 // restoredWrite is one recorded document put back on the table, in the
@@ -999,6 +1010,7 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 		ConversationID: conversationID,
 		Turn:           recorded.Turn,
 		WrittenAt:      recorded.WrittenAt,
+		RevisedPath:    revisedPath(recorded),
 		Write: artifact.Write{
 			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),
@@ -1065,4 +1077,13 @@ func (s *Session) undecidedWrites() []runstate.PendingWrite {
 		pending = append(pending, recorded)
 	}
 	return pending
+}
+
+// revisedPath is the file a recorded revision's document is read from, where the
+// record keeps one.
+func revisedPath(recorded runstate.PendingWrite) string {
+	if revises := recorded.WithRelations().Revises; len(revises) == 1 {
+		return revises[0].Path
+	}
+	return ""
 }
