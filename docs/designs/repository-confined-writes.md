@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-19T17:41:30.561837Z
       reason: Replaces the retired word 'gate' under the operator's November 8 rule, as part of replacing the retired words in the governed documents (yoyodyne-ifd.437.21). The section 'The gate' is renamed 'When other v1 code may be built', and its five other uses become 'hold' and 'lifted'. Its meaning is unchanged, and nothing else in the document changes. Written from main 1879aa6c6.
+    - action: amended
+      by: architect
+      at: 2026-11-22T06:04:54.212799Z
+      reason: 'Brings the design into line with the code at main 62d9a16a5, from the second comparison reading of the checks designs. Adds what is built and what is not: most state stores write with plain file calls, the Slack log descriptor goes to its child, the writer cuts files in place, and none of the descriptor walk or link checks exist. The standing rule stays. Adds an eight step build order (pipe, replacement, a shrinking list of direct writers in make test, the stores, locks, then strengthening) and how review holds the rule meanwhile.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -38,6 +42,11 @@ approvals:
       by: harness
       at: 2026-11-19T17:41:30.561837Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3120, for document-3120.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-22T06:04:54.212799Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3410, for document-3410.1 under the automatic approval policy
 ---
 # Repository-confined writes: physical containment for every owned writer
 
@@ -50,9 +59,28 @@ A later review of the preserved implementation found two more ways out that a ch
 - a directory the writer holds open can be moved outside the root after it was checked, so the write lands outside;
 - a file can gain a second link from outside the root after it was checked, so writing to it changes a file outside.
 
-This design is the one boundary that closes the whole class. It serves the goal that safety invariants hold whatever the configuration says: keeping writes inside the repository is not something a project's content should be able to switch off.
+This design is the one boundary that closes the whole class. It serves the goal that safety invariants hold whatever the configuration says: keeping writes inside the repository is not something a project's content should be able to switch off. The standing rule it carries is [repository-writes-are-physically-confined](../decisions/invariants/repository-writes-are-physically-confined.md).
 
 It is the design the recovery of the shared confined writers (yoyodyne-xdj) is built against. Its revision for containment against directory moves and late links is yoyodyne-ifd.437.31. The state directory's part of it comes from the artifact kinds and state root ruling (yoyodyne-ifd.437.26).
+
+## Where this stands
+
+Read against the code at main 62d9a16a5 (November 21, 2026), from the second comparison reading of the checks designs against the code under docs/diagnoses. Most of this design is a plan, not yet built, and the standing rule is not yet met. This section says exactly what is built; the sections after it say what must be true when the work is finished, and [Build order](#build-order) says how the gap is closed.
+
+Built:
+
+- A confined writer package, internal/repowrite, with two strengths. Root checks a path by resolving it, then writes by path; the package's own header says this does not hold if the path is swapped between the check and the write. PinnedRoot uses Go's os.Root handles, which keep lookups beneath the root.
+- The artifact, invariant and initialization writers, document publication, the install cache, outside file landing, pinned files, the heavy check permits, the merge queue records, launch records, the dashboard, follow ups, tracker exports and locks, the MCP call record and the intake record write through one of the two.
+- A shared table of seven fixed filesystem shapes, run against the artifact, invariant, initialization, worktree, Slack and two run state writers.
+- Logs of MCP servers come through pipes the harness reads.
+
+Not built:
+
+- The descriptor walk with openat2 or openat, the checks of the held directory before and after each change, the exchange and no replace renames, link counts, batched appends with checks, the removal holding directory, the platform and filesystem list, and the test hooks.
+- Refusing a symbolic link given as an absolute path: Root follows any link whose target resolves inside the root, absolute ones included. PinnedRoot refuses every symbolically linked directory, which is stricter than this design asks and is allowed.
+- The state directory as a root written only through the confined writer. In internal/runstate, 56 files that are not tests write with plain file calls, and 51 of them never use the confined writer. Among them are the run record store, the conversation records, the intake hold and the reservation lock. Slack's state and several worktree and setup files do the same, and the memory store takes its lock and renames its archive directly.
+- A child's log through a pipe: the Slack service opens its log through the confined writer and then hands the descriptor to the program it starts.
+- Never shortening a file in place: Root.Truncate cuts a file in place, and the memory store uses it.
 
 ## The contract
 
@@ -83,7 +111,7 @@ Every lookup starts from the root's descriptor. Each platform uses its own metho
 
 On both platforms, a symbolic link inside the root whose relative target stays inside the root is followed as before, so contained paths keep working.
 
-A symbolic link written as an absolute path is refused even when it points inside the root. This narrows what the August text allowed, and it is deliberate: an absolute path names a place by string, and a string proves nothing about where it lands.
+A symbolic link written as an absolute path is refused even when it points inside the root. This narrows what the August text allowed, and it is deliberate: an absolute path names a place by string, and a string proves nothing about where it lands. The built Root does not yet refuse it; see [Where this stands](#where-this-stands).
 
 The primitive records, for each directory it holds:
 
@@ -98,7 +126,7 @@ The check runs before every change and again after it. A directory moved out and
 
 ## Each kind of change
 
-New files are written under a name that begins `.yoyodyne-tmp-` and is unique for each write, in the target's own directory. They are created with `O_CREAT`, `O_EXCL` and `O_NOFOLLOW`, written, synced, and checked to have exactly one link before they are published.
+New files are written under a name that begins `.yoyodyne-tmp-` and is unique for each write, in the target's own directory. They are created with `O_CREAT`, `O_EXCL` and `O_NOFOLLOW`, written, synced, and checked to have exactly one link before they are published. The built package names them `.yoyo-write-` followed by a unique part; the name is not part of the guarantee, and the build that strengthens the primitive may keep either.
 
 Creating a file:
 
@@ -140,7 +168,7 @@ The batch already written when a link appeared is not undone, because undoing it
 
 ### Output of a child process
 
-A child process the harness starts, such as a long-running sink, may have its output kept in a log. The child is never given a descriptor for that log, because a child writing to it directly would skip the checks above. Instead:
+A child process the harness starts, such as the Slack service, may have its output kept in a log. The child is never given a descriptor for that log, because a child writing to it directly would skip the checks above. Instead:
 
 1. The child's output goes to a pipe. The child holds the pipe's writing end and nothing that names the log file.
 2. The harness process that started the child reads the pipe and appends what it reads to the log through the primitive, in batches of at most 64 KiB, with the checks before and after each batch.
@@ -174,7 +202,7 @@ Writes are supported on two platforms:
 - Linux 5.6 or later, on ext4, XFS, Btrfs or tmpfs;
 - macOS 11 or later, on APFS.
 
-These are the filesystems that provide both the exchange and the rename that refuses to replace. On any other platform or filesystem the primitive refuses every write and names what it found. There is no fallback to an ordinary rename or an ordinary write, because neither keeps the guarantee.
+These are the filesystems that provide both the exchange and the rename that refuses to replace. On any other platform or filesystem the primitive refuses every write and names what it found. There is no fallback to an ordinary rename or an ordinary write, because neither keeps the guarantee. Today PinnedRoot refuses only two platforms Go names js and plan9, Root checks no platform, and nothing checks the kernel version or the filesystem.
 
 Every refusal gives one reason from this list:
 
@@ -190,7 +218,27 @@ Every refusal gives one reason from this list:
 
 ## The state directory
 
-The harness's state directory is a root like the others. Every store in `internal/runstate`, the memory store, the conversation records and the lock files write through the primitive with the state directory declared as their root. Nothing written there is excused because the harness, rather than the project, owns the directory.
+The harness's state directory is a root like the others. Every store in `internal/runstate`, the memory store, the conversation records, Slack's state and the lock files write through the primitive with the state directory declared as their root. Nothing written there is excused because the harness, rather than the project, owns the directory.
+
+Most of those stores do not yet do so; [Build order](#build-order) moves them. Until the last of them has moved, the standing rule is held this way:
+
+- A change that adds a direct write under any of the three roots, outside the confined writer's package, is refused by review and by the check in step 3 below.
+- A change that touches a store still on that check's list, without adding a direct write, is not refused for the writes already there. Moving that store is its own step.
+
+## Build order
+
+Each step is one bounded piece of work, verified on its own, in this order:
+
+1. **The Slack service's log goes through a pipe.** The program the Slack service starts is given a pipe; the harness process that started it copies the pipe to the log through the confined writer, as [Output of a child process](#output-of-a-child-process) says. The writer table's row for a child's log runs against it.
+2. **Shortening a file becomes a replacement.** Root.Truncate is replaced by a write of the kept part as a new file published over the old one, and the memory store uses it. No call that cuts a file in place is left in the package.
+3. **A check in make test lists every direct writer.** It lists each file that is not a test and calls a direct file write (create, rename, open for writing, make directories, remove, truncate) under internal/runstate, internal/slack, internal/gitworktree, internal/cli and internal/home, outside internal/repowrite. The list is kept in the repository and may only shrink: a file added to it fails the check, and a file that no longer writes directly must be taken off it. This is the same kind of check the design for one owner for each guarantee uses.
+4. **The run record store writes through the confined writer,** including its reservation lock and its appends, and leaves the list.
+5. **The conversation records write through the confined writer,** and leave the list.
+6. **The rest of the state directory moves,** in reviewable groups: the intake hold and Slack's state first, then the remaining run state stores a few files at a time, each group leaving the list.
+7. **Lock files open through the confined writer's lock call,** including those in the run state stores that already use it for everything else and the worktree lease and registry.
+8. **The confined writer is strengthened to the whole contract:** the descriptor walk on both platforms, the checks of the held directory before and after each change, the exchange and no replace renames, link counts, batched appends with checks, the removal holding directory, refusing an absolute symbolic link, the platform and filesystem list, the conformance rows for moved directories and added links, and the test hooks. This step may be split by kind of change. When it lands, every writer on the moved list is covered at once.
+
+The order puts the strengthening last on purpose. Once every writer uses one package, making that package meet the contract is one change in one place. Strengthening it first would leave half the writers outside it while the rest moved onto a package that was itself still changing.
 
 ## The conformance suite
 
@@ -215,6 +263,8 @@ One shared table of filesystem shapes, run against each writer rather than once 
 - a lock file with a second link;
 - an unsupported filesystem.
 
+The built table, in internal/repowrite/writertest, has the first seven of these as fixed shapes. For a link to elsewhere in the root it accepts either following or refusing; once step 8 lands it requires refusal for an absolute link.
+
 The moves and links happen at exact points through test hooks, so each row runs the same way every time. The hooks are compiled into the primitive's package rather than only into its tests, because the tests of other writers, such as the conversation store's, drive the same hooks and Go cannot reach a hook in another package unless a production file exports it. Three things keep that safe:
 
 - The function that sets a hook calls `testing.Testing()` and panics when it reports that the program is not a test binary, so no production code path can install a hook.
@@ -227,6 +277,7 @@ The writers each row runs against are:
 - document publication;
 - the stores in `internal/runstate` and the memory store;
 - conversation records;
+- Slack's state;
 - lock files;
 - logs of child processes the harness starts;
 - cleanup.
@@ -234,6 +285,8 @@ The writers each row runs against are:
 Each writer produces the same safe result, or the same kind of error, for each row. The minimal reproductions of the confirmed escapes are kept as regression tests, separate from the table, so the specific defects that forced this design cannot silently return.
 
 ## What is enforced in code
+
+When the build order is finished:
 
 - Every lookup is relative to an open descriptor beneath the root, by the platform's method above, and every other platform is refused.
 - The held directory is checked against the root before and after every change, and a failed check after a change undoes it as that change's rule says.
@@ -243,6 +296,7 @@ Each writer produces the same safe result, or the same kind of error, for each r
 - No descriptor the primitive opened is handed to another process; a child's log is written by the harness from a pipe.
 - A removal removes only the checked file.
 - The state directory is a root like the others, and its stores write through the primitive.
+- A check in make test refuses any new direct write outside the primitive's package.
 - A test hook cannot be set outside a test binary.
 
 Nothing here is left to a writer's own care or to configuration.
@@ -256,6 +310,8 @@ Nothing here is left to a writer's own care or to configuration.
 - **A fallback to ordinary writes on other filesystems.** It would silently give up the guarantee wherever the swap is missing. Refusing with the filesystem named is honest, and the supported list can grow by revising this design.
 - **Handing a child its log's descriptor, checked only when opened.** A link added after the opening would carry every later write by the child outside the root, which is exactly the case the append checks exist for.
 - **Test hooks compiled only into tests by a build tag.** A test run without the tag would skip the rows for moved directories and added links without saying so, and a skipped row reads as a pass.
+- **Narrowing the standing rule to the writers that already comply.** It would make the rule true by giving up the boundary the brief asks for. The rule stays, and the build order closes the gap.
+- **Strengthening the primitive before moving the writers.** Rejected for the reason given under [Build order](#build-order).
 
 ## When other v1 code may be built
 
@@ -268,10 +324,10 @@ Implementing other V1 code was held until, and only until, all of these hold:
 
 The hold is deliberately narrow. It restores delivery while closing the confirmed defects completely, and it does not extend: broader migration proceeds after it is lifted, not inside it. Lifting the hold releases implementing code; it is not a claim that filesystem security work is complete. An independent reviewer verifies physical containment and the table before the hold is lifted.
 
+The hold was lifted with the artifact, invariant and initialization writers on Root and the seven fixed shapes passing. The rows for moved directories and added links did not exist then and do not exist now, so the last condition was not met as written; step 8 of the build order is what meets it.
+
 ## Deferred, deliberately
 
-- Inventory and migration to the primitive of every remaining writer the harness owns, beyond the state stores named above.
-- Output a service manager such as launchd writes for a service the harness defines: that is the service manager's write, and checking the path the harness gives it belongs with the inventory above.
-- A structural check that refuses new direct writes outside the approved package, so the boundary is enforced against future code rather than against the writers someone remembered.
+- Output a service manager such as launchd writes for a service the harness defines: that is the service manager's write, and checking the path the harness gives it is a later revision of this design.
 - Git worktree, ref, branch publication, and remote boundary behavior, covered directly: changes to a remote are not assumed safe because ordinary file writers migrated.
 - A security review stage after v1, triggered by risk and connected to management readiness rather than to a new security coordinator role.
