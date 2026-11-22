@@ -289,7 +289,7 @@ var triageVerbs = map[string]string{
 	decisionRetireDocument: "Triaged: its document publication retired, its pull request closed",
 	// A decision about a spent re-run claim is recorded on the claim, and these
 	// are the sentences its note on the item opens with.
-	decisionRepairFromFeedback: "Triaged: repaired from feedback on the pull request into the team's branch that carries it",
+	decisionRepairFromFeedback: "Triaged: repaired from feedback on the pull request that carries it",
 	decisionGiveBackClaim:      "Triaged: a spent re-run claim to be given back, so the re-run decided before is carried out again",
 	decisionLeaveClaimSpent:    "Triaged: a spent re-run claim left spent, so a further re-run needs a further decision",
 }

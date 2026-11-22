@@ -12,6 +12,7 @@ import (
 type fakeFeedbackRepairs struct {
 	requests []FeedbackRepairRequest
 	refuses  error
+	persons  bool
 }
 
 func (f *fakeFeedbackRepairs) Decide(_ context.Context, request FeedbackRepairRequest) (FeedbackRepairDecided, error) {
@@ -19,7 +20,7 @@ func (f *fakeFeedbackRepairs) Decide(_ context.Context, request FeedbackRepairRe
 		return FeedbackRepairDecided{}, f.refuses
 	}
 	f.requests = append(f.requests, request)
-	return FeedbackRepairDecided{RunID: "run-fedcba9876543210fedcba9876543210"}, nil
+	return FeedbackRepairDecided{RunID: "run-fedcba9876543210fedcba9876543210", OnPersonsPullRequest: f.persons}, nil
 }
 
 const feedbackRepairAction = `{"action":"triage","id":"yoyodyne-ifd.435.1","decision":"repair-from-feedback","pull_request":7,"feedback":"line-comment-21","reason":"the loop is a real defect"}`
@@ -47,6 +48,35 @@ func TestTheDevelopmentManagerDecidesARepairFromFeedback(t *testing.T) {
 	}
 	if len(tracker.updates) != 1 || !strings.Contains(tracker.updates[0].change.AppendNotes, "repaired from feedback") {
 		t.Fatalf("updates = %#v, want the decision noted on the item", tracker.updates)
+	}
+}
+
+// The note on the item says which kind of pull request the feedback is on: one
+// into the team's branch, or one the harness opened for a person to merge, and
+// never the team's branch for the second.
+func TestTheRepairNoteNamesWhichPullRequestTheFeedbackIsOn(t *testing.T) {
+	t.Parallel()
+
+	for _, persons := range []bool{false, true} {
+		tracker := spentClaimItem()
+		options := triageOptions(t, tracker, nil, trackerReply("Deciding the feedback.", feedbackRepairAction))
+		options.FeedbackRepairs = &fakeFeedbackRepairs{persons: persons}
+		reply := triageSend(t, options)
+		if len(reply.Actions) != 1 || !reply.Actions[0].Applied || len(tracker.updates) != 1 {
+			t.Fatalf("person's pull request %v: actions = %#v, updates = %#v", persons, reply.Actions, tracker.updates)
+		}
+		note := tracker.updates[0].change.AppendNotes
+		if !strings.Contains(note, "answering line-comment-21 on pull request #7") {
+			t.Errorf("person's pull request %v: note = %q, want the feedback and the pull request", persons, note)
+		}
+		teams := strings.Contains(note, "team's branch")
+		opened := strings.Contains(note, "which the harness opened for a person to merge")
+		if persons && (teams || !opened) {
+			t.Errorf("note = %q, want it to say the harness opened the pull request for a person to merge, and not name the team's branch", note)
+		}
+		if !persons && (!teams || opened) {
+			t.Errorf("note = %q, want it to name the pull request into the team's branch", note)
+		}
 	}
 }
 

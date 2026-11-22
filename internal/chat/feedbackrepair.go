@@ -10,8 +10,8 @@ package chat
 // entry it answers instead, the pull request and the piece of feedback the report
 // on her list quotes, and the one item to repair. The harness refuses it, in
 // plain words, once the item has closed, when the entry already has a decision,
-// when the item is not waiting for the team's merge on that pull request, and
-// when the item has no attempts left; it records the decision on the run that
+// when the item is waiting on no merge of that pull request, by the team or by a
+// person, and when the item has no attempts left; it records the decision on the run that
 // landed the item and spends one of the item's attempts. A later pass of the
 // harness starts the new run. Nothing here starts a run.
 
@@ -97,7 +97,7 @@ func (s *Session) carryOutFeedbackRepair(ctx context.Context, outcome *TrackerOu
 		outcome.refused(err)
 		return
 	}
-	note := s.trackerProvenance(fmt.Sprintf("%s, answering %s on pull request #%d into the team's branch", triageVerbs[decisionRepairFromFeedback], strings.TrimSpace(action.Feedback), action.PullRequest), action.Reason)
+	note := s.trackerProvenance(feedbackRepairNote(strings.TrimSpace(action.Feedback), action.PullRequest, decided.OnPersonsPullRequest), action.Reason)
 	if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note}); err != nil {
 		outcome.fail(err)
 		s.settleTrackerNote(ctx, outcome, id, note, "the decision recorded on the item")
@@ -110,4 +110,14 @@ func (s *Session) carryOutFeedbackRepair(ctx context.Context, outcome *TrackerOu
 	}
 	outcome.applied("decided to repair %s from %s on pull request #%d, recorded on run %s and one of the item's attempts spent; a new run of it starts from the target branch at the harness's next pass, and it stays waiting for the team's merge",
 		id, strings.TrimSpace(action.Feedback), action.PullRequest, decided.RunID)
+}
+
+// feedbackRepairNote is the sentence the decision's note on the item opens
+// with, saying which kind of pull request the feedback is on, since the two
+// are merged by different hands.
+func feedbackRepairNote(feedback string, pullRequest int, onPersonsPullRequest bool) string {
+	if onPersonsPullRequest {
+		return fmt.Sprintf("%s, answering %s on pull request #%d, which the harness opened for a person to merge", triageVerbs[decisionRepairFromFeedback], feedback, pullRequest)
+	}
+	return fmt.Sprintf("%s, answering %s on pull request #%d into the team's branch", triageVerbs[decisionRepairFromFeedback], feedback, pullRequest)
 }

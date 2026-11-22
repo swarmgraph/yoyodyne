@@ -165,10 +165,12 @@ func (r TeamFeedbackRepairer) Decide(ctx context.Context, request TeamFeedbackRe
 			}
 		}
 	}
+	// A closed item is refused whether or not a run still waits on the pull
+	// request: a person can close an item while its request is still open.
+	if shown, err := r.Items.Show(ctx, item); err == nil && shown.Status == "closed" {
+		return TeamFeedbackRepairDecided{}, fmt.Errorf("%s has closed, so there is nothing left to repair from feedback on pull request #%d", item, request.PullRequest)
+	}
 	if len(carried) == 0 {
-		if shown, err := r.Items.Show(ctx, item); err == nil && shown.Status == "closed" {
-			return TeamFeedbackRepairDecided{}, fmt.Errorf("%s has closed, so there is nothing left to repair from feedback on pull request #%d", item, request.PullRequest)
-		}
 		return TeamFeedbackRepairDecided{}, fmt.Errorf("%s is not waiting for a merge as carried by pull request #%d, whether the team's or a person's, so feedback on that pull request is not a reason to repair it", item, request.PullRequest)
 	}
 	sort.Slice(carried, func(i, j int) bool { return waitSince(carried[i]).After(waitSince(carried[j])) })

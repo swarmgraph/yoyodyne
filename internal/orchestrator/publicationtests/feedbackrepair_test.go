@@ -173,6 +173,59 @@ func TestARepairOfAHarnessPullRequestIsRefusedInPlainWords(t *testing.T) {
 	}
 }
 
+// An item that has closed, and a request whose branch was removed, are each
+// refused in plain words while the run still waits on the request, and the
+// refusal spends no attempt and records nothing.
+func TestARepairOfAHarnessPullRequestIsRefusedForAClosedItemOrARemovedBranch(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		change func(t *testing.T, fixture *feedbackFixture)
+		want   string
+	}{
+		"the item has closed": {
+			change: func(_ *testing.T, fixture *feedbackFixture) { fixture.tracker.Item.Status = "closed" },
+			want:   "yoyodyne-task has closed, so there is nothing left to repair",
+		},
+		"the branch was removed": {
+			change: func(t *testing.T, fixture *feedbackFixture) {
+				run := testharness.LoadRun(t, fixture.store, fixture.run.RunID)
+				// The sweep that deletes a branch the target carries is one of the
+				// ways a branch is recorded as removed.
+				swept := time.Now().UTC()
+				run.BranchRemoved, run.BranchSweptAt = true, &swept
+				if err := fixture.store.Save(run); err != nil {
+					t.Fatalf("Save() error = %v", err)
+				}
+			},
+			want: "was removed, so there is no change to start from",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newFeedbackFixture(t)
+			reader := &feedbackReader{reading: publish.FeedbackReading{
+				Comments: []publish.FeedbackComment{{ID: 31, Author: "linus", Body: "Why?", At: fixture.after(2)}},
+			}}
+			if !testharness.LoadRun(t, fixture.store, fixture.run.RunID).WaitingForPersonMerge() {
+				t.Fatal("the fixture's run is not waiting for a person's merge")
+			}
+			test.change(t, fixture)
+			spend := &attemptSpend{}
+			var started []runstate.Selection
+			repairer := fixture.repairer(reader, spend, &started)
+			if _, err := repairer.Decide(context.Background(), repairRequest("yoyodyne-task", "comment-31")); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Decide() error = %v, want it to say %q", err, test.want)
+			}
+			if len(spend.spent) != 0 || len(started) != 0 {
+				t.Errorf("spent = %v, started = %d, want a refusal to spend and start nothing", spend.spent, len(started))
+			}
+			if run := testharness.LoadRun(t, fixture.store, fixture.run.RunID); len(run.PersonMerge.Repairs) != 0 {
+				t.Errorf("repairs = %#v, want none recorded", run.PersonMerge.Repairs)
+			}
+		})
+	}
+}
+
 // A kept branch holding a commit the harness did not write is not overwritten:
 // the repaired change is kept, the branch is left as it is, and the development
 // manager's list gets one entry naming the branch and the commit found there.
