@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -478,7 +479,11 @@ func (s *TriageStore) SetAsideCarryOutNotes(ctx context.Context, workItemID, rea
 		return errors.New("a reason is required to set aside a carry-out note as undeliverable")
 	}
 	if len(why) > MaxTriageCarryOutClearsBytes {
-		why = strings.ToValidUTF8(why[:MaxTriageCarryOutClearsBytes], "")
+		cut := MaxTriageCarryOutClearsBytes
+		for cut > 0 && !utf8.RuneStart(why[cut]) {
+			cut--
+		}
+		why = why[:cut]
 	}
 	_, err := s.update(ctx, workItemID, when, func(counters *TriageCounters) error {
 		if len(counters.PendingCarryOutNotes) == 0 {
