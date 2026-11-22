@@ -973,10 +973,22 @@ actually covered what it was said to.
 One handling is not a closing. A report whose answer is a change only you can
 make by hand — a file the harness may not write, a credential, a workspace
 setting — is handled with `"needs": "operator"`, `"operator_reason"` naming
-which reason on your closed list it is (`fundamental-intent`, `credential`,
-`repository-setting`, or `protected-file`), and a reason saying what you have to
-do. A handling that names you for anything else is refused, records nothing,
-and names the rung to use instead: a report whose remedy is a role's stays that
+which reason on your closed list it is, and a reason saying what you have to
+do. The closed list has seven reasons, and the harness accepts no other:
+
+- `fundamental-intent`: a change to what the goals admit or refuse;
+- `credential`: a credential or account only a person holds;
+- `repository-setting`: a forge or repository setting the harness's token
+  cannot change;
+- `protected-file`: a file beyond every grant, such as Claude Code's settings
+  files or a role definition under `.yoyodyne/roles`;
+- `human-gate`: a step the work item reserves for a person;
+- `own-hold`: lifting a hold or pause you placed yourself;
+- `diverged-history`: saying which history is right when a target branch has
+  diverged from the forge.
+
+A handling that names you for anything else is refused, records nothing, and
+names the rung to use instead: a report whose remedy is a role's stays that
 role's, whatever its severity, and an acknowledgement is not a reason. That record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
 said to you once, directly, and named on `yoyo status` until a later handling of
 the same report records the change made. A report whose answer is the Lead
@@ -1001,8 +1013,8 @@ target, and the exact physical step. For example:
 {"action":"handle","report":"report-id","needs":"operator","reason":"a provider-refused settings file needs changing","person_only":{"reason":"protected-file","target":".claude/settings.json","step":"add the notes-writer hook to .claude/settings.json by hand"}}
 ```
 
-The permitted reasons are `credential`, `repository-setting`, and
-`protected-file`. Name the credential or login, the setting only a person can
+The reasons `person_only` permits are `credential`, `repository-setting`,
+and `protected-file`. Name the credential or login, the setting only a person can
 change, or the file; a protected file must be a provider-refused settings file
 or under `.yoyodyne/roles/`. An ordinary repair or delegated decision has no
 person-only reason. The ownership resolver validates this account before
