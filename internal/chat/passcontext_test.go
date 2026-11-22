@@ -402,6 +402,74 @@ func TestTwoRecurringTurnsWithTheSameIntentSendTheSameInstructionsBlock(t *testi
 	}
 }
 
+// Two consecutive recurring turns whose briefings are the same, the second
+// differing only in what follows the briefing — the previous turn's account and
+// the turn's own message — mark the same opening of their message for the
+// provider to cache, and that opening carries the work-item list and the rest
+// of the briefing's second part. So the second turn's new session reads the
+// work items back from the cache the first wrote, and only the memories,
+// account and message are written fresh. The turn still records the first part
+// that changed, and a later round resuming the session marks nothing.
+func TestTheWorkItemListIsInTheCachedPartWhenOnlyTheMessageChanges(t *testing.T) {
+	t.Parallel()
+	briefing := assembledBriefing(t, 200<<10, 100<<10, 50<<10)
+	provider := &sizedConversationBackend{speakingBackend: &speakingBackend{results: []backendapi.RunResult{
+		{SessionID: "pass-1", FinalText: "I read the work items and will take yoyodyne-ifd.7 next."},
+		{SessionID: "pass-2", FinalText: "Nothing new this pass."},
+		{SessionID: "pass-2", FinalText: "The closing report."},
+	}}}
+	options := passOptions(t, provider)
+	options.Briefing.Text = briefing
+	session := openTestSession(t, options)
+	var starts []*PassStart
+	for pass, message := range []string{"The first pass's message.", "A different message for the second pass."} {
+		session.ForPass(fmt.Sprintf("architect-pass#%d", pass+1))
+		reply, err := session.Send(context.Background(), message)
+		if err != nil {
+			t.Fatalf("pass %d: %v", pass, err)
+		}
+		starts = append(starts, reply.PassStart)
+		if pass == 1 {
+			if _, err := session.Send(context.Background(), "Give the closing report."); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := session.EndPass(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, second, later := provider.requests[0], provider.requests[1], provider.requests[2]
+	_, secondPart := contextbundle.SplitUnchanging(contextbundle.PassContext(briefing).Text)
+	if first.CachedPromptBytes != len(secondPart) || second.CachedPromptBytes != len(secondPart) {
+		t.Fatalf("the passes marked %d and %d bytes of their message for the cache, not the briefing's %d-byte second part",
+			first.CachedPromptBytes, second.CachedPromptBytes, len(secondPart))
+	}
+	cachedFirst, cachedSecond := first.Prompt[:first.CachedPromptBytes], second.Prompt[:second.CachedPromptBytes]
+	if cachedFirst != cachedSecond {
+		t.Fatal("the two passes' cached openings differ, so the second cannot read the first's from the cache")
+	}
+	for _, workItem := range []string{"yoyodyne-ifd.7", "Current work stays in the briefing"} {
+		if !strings.Contains(cachedSecond, workItem) {
+			t.Fatalf("the work-item list (%q) is not inside the part of the message marked for the cache", workItem)
+		}
+	}
+	freshSecond := second.Prompt[second.CachedPromptBytes:]
+	for _, changed := range []string{"A different message for the second pass.", "will take yoyodyne-ifd.7 next"} {
+		if strings.Contains(cachedSecond, changed) || !strings.Contains(freshSecond, changed) {
+			t.Fatalf("%q is not in the part of the second pass's message written fresh", changed)
+		}
+	}
+	if first.Prompt[first.CachedPromptBytes:] == freshSecond {
+		t.Fatal("the test's two passes sent the same message, so it shows nothing about what changed")
+	}
+	if starts[1].FirstChangedPart != "memories, previous account and message" || starts[1].MessageCachedBytes != len(secondPart) {
+		t.Fatalf("the second pass recorded %+v", starts[1])
+	}
+	if later.SessionID != "pass-2" || later.CachedPromptBytes != 0 {
+		t.Fatalf("a later round resuming %q marked %d bytes of its own message for the cache", later.SessionID, later.CachedPromptBytes)
+	}
+}
+
 // instructionsKeepingBackend is an adapter like Codex's, which puts the
 // instructions inside the message, so its session keeps them.
 type instructionsKeepingBackend struct{ *speakingBackend }

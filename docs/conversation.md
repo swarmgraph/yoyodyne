@@ -4200,6 +4200,23 @@ because a role's passes come about 45 minutes apart and a five-minute cache
 would expire first. A change to the product intent or to a role's instructions
 makes the next pass write the block again, once.
 
+**The rest of the briefing is cached as a block of its own.** The work items,
+the docket and the other sections of the briefing's second part are the same
+from one pass to the next far more often than the memories, the previous
+turn's account and the turn's message that follow them, which change every
+pass. While the message was one block, the provider wrote all of it into the
+cache afresh every pass, the unchanged work items with it. So on Claude Code
+the first round of a pass sends its message as two blocks of one message: the
+briefing's second part, marked for the provider to cache with the same
+lifetime as the instructions, and then everything after it. The next pass's
+new session reads the second part from the cache whenever it is byte for byte
+the same, and only what follows is written fresh. Claude Code passes that
+marker through, keeps it when the pass's session is resumed, and stays within
+the provider's limit of four markers. A later round of the pass, which resumes
+the session, sends only its own message, and a briefing shortened to fit a
+request is not marked. Codex has no way to mark a block, so it is sent the
+message as before.
+
 **What a recurring turn starts from is bounded.** The bound is a third of the
 serving provider's context window, at about four bytes a token, measured the
 way the adapter measures a request. That is 1,333,333 bytes on Claude Code's
@@ -4214,15 +4231,19 @@ is asked. The error names the size of each part, and the pass is recorded as a
 firing that failed before its first turn. Each recurring turn writes a
 `session.pass_started` event with its size, the bound, the window it came from,
 the documents left out, how much of the briefing went with the instructions
-(`unchanging_bytes`), and each part of what it started from in the order it was
+(`unchanging_bytes`), how much of the message's opening was marked for the
+cache (`message_cached_bytes`), and each part of what it started from in the order it was
 sent, with its size and a digest (`parts`): the instructions, each section of
 the briefing's two parts, and then the memories, previous account and message
 together. The conversation record keeps the last pass's parts
 (`pass_start_parts`), and the next pass names the first part that differs from
 them (`first_changed_part`), or says nothing did (`same_as_previous`). Where
 that part is the instructions or the briefing's first part, the pass wrote the
-instructions block into the cache again rather than reading it, so this is
-where to look when a pass's cache reads are lower than expected.
+instructions block into the cache again rather than reading it; where it is in
+the briefing's second part, the pass read the instructions block and wrote the
+message from that section on; and where it is the memories, previous account
+and message, the pass read the whole briefing from the cache. So this is where
+to look when a pass's cache reads are lower than expected.
 
 **What one recurring turn said reaches the next.** The role's memory holds its
 judgment, and the previous turn's account holds what it did and what it said it
