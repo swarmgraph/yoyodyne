@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -37,68 +38,17 @@ func runModelTrial(ctx context.Context, args []string, stdout, stderr io.Writer)
 		printModelTrialUsage(stderr)
 		return 2
 	}
-	parts, err := buildComponents(*configPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "model-trial failed: %v\n", err)
-		return 1
-	}
-	setting := parts.config.Execution.DeveloperCheaperFirst
-	figures, err := parts.store.CheaperFirstTrialFigures(setting.TrialTarget())
-	if err != nil {
-		fmt.Fprintf(stderr, "model-trial failed: %v\n", err)
-		return 1
-	}
+	// The figures are the read model's, the same reading the development
+	// manager's passes open with and the "model-trial" query answers.
+	trial := readmodel.ReadModelTrial(standingSources(*configPath))
 	if *jsonOutput {
-		return writeJSON(stdout, stderr, figures)
+		return writeJSON(stdout, stderr, trial)
 	}
-	printTrialFigures(stdout, figures, setting.Enabled)
+	fmt.Fprintln(stdout, trial.Render())
+	if trial.Problem != "" {
+		return 1
+	}
 	return 0
-}
-
-func printTrialFigures(writer io.Writer, figures runstate.CheaperFirstTrialFigures, enabled bool) {
-	state := "off"
-	if enabled {
-		state = "on"
-	}
-	fmt.Fprintf(writer, "Developers starting on the cheaper model: %s. %d of at least %d trial runs so far.\n", state, figures.Runs, figures.Target)
-	if figures.StoppedBy != "" {
-		fmt.Fprintf(writer, "The trial is stopped: run %s started on the cheaper model and its change had a defect after landing (%s). Every eligible run since starts on the developer's configured model.\n", figures.StoppedBy, figures.StopNote)
-	} else if figures.Runs >= figures.Target {
-		fmt.Fprintln(writer, "The trial has reached its run count; the comparison below is due for a decision.")
-	}
-	fmt.Fprintln(writer)
-	fmt.Fprintf(writer, "%-26s %12s %12s\n", "", "cheaper", "stronger")
-	row := func(label string, cheaper, stronger string) {
-		fmt.Fprintf(writer, "%-26s %12s %12s\n", label, cheaper, stronger)
-	}
-	c, s := figures.Cheaper, figures.Stronger
-	row("runs", fmt.Sprint(c.Runs), fmt.Sprint(s.Runs))
-	row("changes merged", fmt.Sprint(c.Merged), fmt.Sprint(s.Merged))
-	row("cost per merged change", trialDollars(c), trialDollars(s))
-	row("first review approved", trialShare(c.FirstReviewApproved, c.Reviewed), trialShare(s.FirstReviewApproved, s.Reviewed))
-	row("repair rounds", fmt.Sprint(c.RepairRounds), fmt.Sprint(s.RepairRounds))
-	row("moved to stronger", fmt.Sprint(c.Moves), "-")
-	row("defects after landing", fmt.Sprint(c.DefectsAfterLanding), fmt.Sprint(s.DefectsAfterLanding))
-	if c.Unpriced+s.Unpriced > 0 {
-		fmt.Fprintf(writer, "\n%d run(s) could not be priced and are left out of the cost.\n", c.Unpriced+s.Unpriced)
-	}
-	for _, defect := range figures.Defects {
-		fmt.Fprintf(writer, "Defect after landing: run %s (%s, started %s): %s\n", defect.RunID, defect.WorkItemID, defect.Arm, defect.Note)
-	}
-}
-
-func trialDollars(arm runstate.CheaperFirstArmFigures) string {
-	if arm.Merged == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("$%.2f", arm.CostPerMergedUSD)
-}
-
-func trialShare(part, whole int) string {
-	if whole == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%d of %d", part, whole)
 }
 
 func recordTrialDefect(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -153,4 +103,17 @@ Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --json            emit machine-readable JSON (show only)
   --note <text>     what the defect is and where it was found (defect only)`)
+}
+
+// landedDefectRecorder records a defect after landing on a run through the run
+// store's narrow update, for the development manager's block that records one.
+// The command above and the block write the same update and are refused the
+// same way.
+type landedDefectRecorder struct{ store *runstate.Store }
+
+func (r landedDefectRecorder) RecordDefectAfterLanding(ctx context.Context, runID, note string, at time.Time) (runstate.State, error) {
+	if r.store == nil {
+		return runstate.State{}, fmt.Errorf("no run store is wired to record a defect on run %s", runID)
+	}
+	return r.store.Update(ctx, runID, runstate.RecordDefectAfterLanding{Note: note, At: at.UTC()})
 }

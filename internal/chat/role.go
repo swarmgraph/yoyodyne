@@ -148,6 +148,9 @@ type Authority struct {
 	// part of the product: the program manager's service.request-restart, which
 	// writes a durable request and restarts nothing itself.
 	RestartRequests bool
+	// LandedDefects is whether this role may record a defect after landing on a
+	// run: the development manager's run.record-landed-defect.
+	LandedDefects bool
 	// StopCauses is whether this role post-mortems stopped runs: the program
 	// manager's stop-cause.record, which appends to its own account of why runs
 	// stopped and files each cause's one report.
@@ -271,6 +274,7 @@ func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capabi
 		Memory:           has(capability.AgentContextMutate),
 		LaneReport:       has(capability.LaneReportWrite),
 		RestartRequests:  has(capability.ServiceRequestRestart),
+		LandedDefects:    has(capability.RunRecordLandedDefect),
 		StopCauses:       has(capability.StopCauseRecord),
 		PassRequests:     has(capability.PassRequest),
 		// A hand step is a report about the line, written by the role that
@@ -461,6 +465,9 @@ func (s *Session) authorize(parsed parsedReply) error {
 	}
 	if parsed.Restart != nil && !authority.RestartRequests {
 		return blockRefusal(authority, blockRestart)
+	}
+	if parsed.LandedDefect != nil && !authority.LandedDefects {
+		return blockRefusal(authority, blockLandedDefect)
 	}
 	if parsed.ReadModel != nil && !authority.ReadModel {
 		return &AuthorityError{
@@ -933,6 +940,8 @@ A cap that refuses you is one you may cross yourself, ` + maxDelegatedCapCrossin
 ` + memoryContract + `
 
 ` + exchange.AskingContract + `
+
+` + landedDefectContract + `
 
 ` + reportClause
 

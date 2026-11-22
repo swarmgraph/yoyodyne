@@ -474,6 +474,12 @@ type Trigger struct {
 	// existing passes. Neither invokes a role or creates another monitor.
 	RecordFailures func(context.Context) error
 	PassFailures   func(domain.AgentRole, string) string
+	// ModelTrial is the section a development manager pass opens with while
+	// the trial of starting developers on the cheaper model has anything to
+	// say (readmodel.ModelTrial.PassSection), and empty otherwise. She decides
+	// on its comparison and records defects after landing against it.
+	// Optional: a trigger wired without it hands her no figures.
+	ModelTrial func() string
 	// Health takes a fresh observation of the factory's health for one pass,
 	// and returns the section the pass's message carries and what its record
 	// keeps of it. It is called before the first turn of every pass of the
@@ -1303,6 +1309,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	failed := false
 	if t.PassFailures != nil {
 		message += "\n\n" + t.PassFailures(task.Role, f.agent)
+	}
+	if t.ModelTrial != nil && task.Role == domain.RoleDevelopmentManager {
+		if section := t.ModelTrial(); section != "" {
+			message += "\n\n" + section
+		}
 	}
 	if t.Health != nil && t.observesHealth(task.Role, f.agent) {
 		section, observed := t.Health(ctx, task.Role, f.agent)

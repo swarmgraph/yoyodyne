@@ -4907,16 +4907,26 @@ model. Whether an item was eligible and why is written on the run.
 
 **The trial.** Eligible runs alternate: the first starts cheaper, the second
 stronger, and so on, so the two halves can be compared on the same kind of
-work. `yoyo model-trial` shows, for each half, the runs, the changes merged,
-the cost per merged change, how often the first review approved, the repair
-rounds, how many runs moved up, and the defects found after landing. A defect
-traced to a run's change after it landed is recorded with
-`yoyo model-trial defect <run-id> --note "<what it is>"`; on a run that started
-cheaper it stops the trial at once, and every eligible run after it starts on
-the developer's configured model for as long as the setting stays on. The
-trial counts at least `trial_runs` runs before its comparison is due; keeping
-the setting on afterwards, or turning it off, is the development manager's
-decision on that comparison.
+work. The comparison gives, for each half, the runs, the changes merged, the
+cost per merged change, how often the first review approved, the repair
+rounds, how many runs moved up, and the defects found after landing. It is one
+reading of the run records, and it reaches three places: every pass of the
+development manager opens with it while the setting is on or any run took
+part, a pass may ask the read model for it by the query `model-trial`, and a
+person reads it with `yoyo model-trial`.
+
+A defect traced to a run's change after it landed is recorded on that run. The
+development manager records it from her own conversation, with a block naming
+the run and what the defect is (`run.record-landed-defect`, held by her role
+alone); a person records it with
+`yoyo model-trial defect <run-id> --note "<what it is>"`. Both write the same
+record and are refused the same way: a run outside the trial, a run whose
+change never landed, and a note that says nothing. On a run that started
+cheaper, the record stops the trial at once, and every eligible run after it
+starts on the developer's configured model for as long as the setting stays
+on. The trial counts at least `trial_runs` runs before its comparison is due;
+keeping the setting on afterwards, or turning it off, is the development
+manager's decision on that comparison.
 
 **What the file refuses at load.** A provider in `model_kinds` that is neither
 `claude-code`, `codex`, nor one the project declares; a model name that cannot

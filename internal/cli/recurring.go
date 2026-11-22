@@ -112,6 +112,12 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			return readmodel.RenderPassFailures(readmodel.Sources{Passes: parts.store.Sweeps(), Reports: parts.reports,
 				ProgramManagers: programManagerInstances(parts.config)}, role, agent)
 		},
+		// The trial of starting developers on the cheaper model, read from the
+		// one read model the command and the query read, for the development
+		// manager who decides on it.
+		ModelTrial: func() string {
+			return readmodel.ReadModelTrial(readmodel.Sources{Runs: parts.store, CheaperFirst: parts.config.Execution.DeveloperCheaperFirst}).PassSection()
+		},
 		// A fresh health observation before every pass of the development
 		// manager's and of the factory-flow program manager's, over the records
 		// `yoyo status` reads, whatever the pass's events say.

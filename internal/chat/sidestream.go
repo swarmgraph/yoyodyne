@@ -74,6 +74,7 @@ func (a Authority) OnSideStream() Authority {
 	// agent's memory once, as the merge the harness writes when it concludes.
 	narrowed.Memory = a.Memory && sidestream.Permits(capability.AgentContextMutate)
 	narrowed.RestartRequests = a.RestartRequests && sidestream.Permits(capability.ServiceRequestRestart)
+	narrowed.LandedDefects = a.LandedDefects && sidestream.Permits(capability.RunRecordLandedDefect)
 	narrowed.PassRequests = a.PassRequests && sidestream.Permits(capability.PassRequest)
 	narrowed.StopCauses = a.StopCauses && sidestream.Permits(capability.StopCauseRecord)
 	narrowed.Interventions = a.Interventions && sidestream.Permits(capability.ReportFile)

@@ -484,6 +484,11 @@ type Options struct {
 	// conversation without one refuses a request as having nowhere to go rather
 	// than appearing to have recorded it.
 	RestartRequests RestartRequests
+	// LandedDefects is where the development manager's record of a defect
+	// traced to a landed run's change is written (landeddefect.go). Optional
+	// like the rest: a conversation without one refuses the block as having
+	// nowhere to go.
+	LandedDefects LandedDefects
 	// StopCauses is where a program manager's account of stopped runs is kept.
 	// It is optional like the rest, and a conversation without one refuses a
 	// stop causes block as having nowhere to go.
@@ -1263,6 +1268,9 @@ type Reply struct {
 	// refused. It is recorded and nothing more, so it is reported rather than put
 	// to anybody.
 	Restart *RestartOutcome `json:"restart,omitempty"`
+	// LandedDefect is the defect after landing this reply recorded on a run, or
+	// why it was not recorded.
+	LandedDefect *LandedDefectOutcome `json:"landed_defect,omitempty"`
 	// StopCauses is what became of this reply's post-mortems of stopped runs:
 	// the stops counted and the reports filed, or why not.
 	StopCauses *StopCauseOutcome `json:"stop_causes,omitempty"`
@@ -2203,6 +2211,17 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			if undelivered != "" || handBack {
 				undelivered += renderRestartResult(outcome)
 			} else if err := s.carryResults(renderRestartResult(outcome)); err != nil {
+				return reply, err
+			}
+		}
+		// A defect after landing recorded on a run, carried back the way a
+		// restart request is: it never starts another round of its own.
+		if parsed.LandedDefect != nil {
+			outcome := s.performLandedDefect(ctx, *parsed.LandedDefect)
+			reply.LandedDefect = &outcome
+			if undelivered != "" || handBack {
+				undelivered += renderLandedDefectResult(outcome)
+			} else if err := s.carryResults(renderLandedDefectResult(outcome)); err != nil {
 				return reply, err
 			}
 		}
@@ -3261,6 +3280,9 @@ type parsedReply struct {
 	// Restart is the one part this reply asked the supervisor to restart, where
 	// it asked. Only a role holding service.request-restart may.
 	Restart *RestartAsk
+	// LandedDefect is the defect after landing this reply named on a run. Only
+	// a role holding run.record-landed-defect may.
+	LandedDefect *LandedDefectAsk
 	// StopCauses is this reply's post-mortems of stopped runs, where it carried
 	// them. Only a role holding stop-cause.record may.
 	StopCauses *StopCauseAsk
@@ -3406,6 +3428,12 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	} else {
 		prose = next
 	}
+	next, landedDefect, err := extractLandedDefect(prose)
+	if err != nil {
+		refuse(blockLandedDefect, landedDefectFence, &LandedDefectError{Err: err})
+	} else {
+		prose = next
+	}
 	next, stopCauses, err := extractStopCauses(prose)
 	if err != nil {
 		refuse(blockPostMortem, stopCauseFence, &StopCauseError{Err: err})
@@ -3452,6 +3480,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
+	parsed.LandedDefect = landedDefect
 	parsed.StopCauses = stopCauses
 	parsed.PassRequest = passRequest
 	parsed.Observed = observed
@@ -4165,6 +4194,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// and shown on the standing, and the operator should hear it from here
 		// first rather than find it there.
 		s.harnessBlock(screen, func(w io.Writer) { s.reportRestart(w, reply) })
+		// What it recorded as a defect after landing, because one on a run that
+		// started cheaper stops the trial.
+		s.harnessBlock(screen, func(w io.Writer) { s.reportLandedDefect(w, reply) })
 		// What its post-mortems counted and filed, because a report filed for it
 		// is on the pile like any other.
 		s.harnessBlock(screen, func(w io.Writer) { s.reportStopCauses(w, reply) })
@@ -4280,6 +4312,11 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		var unreadableRestart *RestartError
 		if errors.As(err, &unreadableRestart) {
 			fmt.Fprintf(out, "%v\nNothing was requested and nothing was restarted; ask it what it meant to request.\n\n", unreadableRestart)
+			continue
+		}
+		var unreadableLandedDefect *LandedDefectError
+		if errors.As(err, &unreadableLandedDefect) {
+			fmt.Fprintf(out, "%v\nNothing was recorded on any run; ask it what it meant to record.\n\n", unreadableLandedDefect)
 			continue
 		}
 		var unreadableStopCauses *StopCauseError

@@ -1156,6 +1156,11 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// is decided in the chat package's table, and the only thing that acts on
 		// a request is the supervisor's maintenance pass.
 		RestartRequests: parts.restartRequests,
+		// Where the development manager records a defect after landing on a
+		// run of the trial of starting developers on the cheaper model, through
+		// the run store's narrow update. Wired for every role; the authority is
+		// the chat package's table.
+		LandedDefects: landedDefectRecorder{store: parts.store},
 		// The read model a program manager asks one named query of, read over the
 		// stores `yoyo status` reads. It is wired for every role because the
 		// authority to ask is decided in the chat package's table.
