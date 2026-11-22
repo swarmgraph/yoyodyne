@@ -66,6 +66,10 @@ revisions:
       by: architect
       at: 2026-11-21T00:00:32.750528Z
       reason: 'yoyodyne-ob8d: the project groups design landed at 8d03f3a2c and asks this design to list groups/<group id>/intent/ at the top of the home. This adds that entry and one ruling: yoyo group init and a member configuration naming a group are refused while the state is still in the old platform home, so the move needs no step for groups. Read whole at main 8d03f3a2c; no other section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T16:03:28.031713Z
+      reason: 'Design review against the code: the accounts line under One home now names where each Codex account keeps its own Codex home, accounts/<account>/codex-home/, which the line did not say. Read at main 828db957; no other sentence in the section changes and no requirement changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -137,6 +141,11 @@ approvals:
       by: harness
       at: 2026-11-21T00:00:32.750528Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3271, for document-3271.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 15
+      by: harness
+      at: 2026-11-22T16:03:28.031713Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3464, for document-3464.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -168,7 +177,10 @@ project owns:
   the one clone. A project that is in no group has nothing here, and a project
   that keeps its own companion intent repository outside any group keeps it
   under its project directory, as The project directory says.
-- `accounts/` — provider accounts, which serve every project.
+- `accounts/` — provider accounts, which serve every project. Each Codex
+  account keeps its own Codex home at `accounts/<account>/codex-home/`, with
+  the account rather than under any project, because one account serves every
+  project on the machine.
 - `operator-hold.json` — the operator's pause, set by `yoyo pause`, which is
   machine-wide by decision: one pause stops every project on the machine, as it
   does today.
