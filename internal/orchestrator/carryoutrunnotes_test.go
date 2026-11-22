@@ -241,3 +241,33 @@ func TestReconcileWritesAPreservedWorkNoteThroughTheRunsRecord(t *testing.T) {
 		})
 	}
 }
+
+type loadedRuns struct{ state runstate.State }
+
+func (l loadedRuns) Load(string) (runstate.State, error) { return l.state, nil }
+
+// A document run's pending settlement finding is delivered through the tracker
+// the reconciler is given in the product, which answers for the run's
+// identifier from its record, so the plain tracker is never asked about it.
+func TestAPendingReconcileFindingOfADocumentRunIsDeliveredWithoutAskingForTheRunIdentifier(t *testing.T) {
+	t.Parallel()
+	const answers = "yoyodyne-ifd.902"
+	base := &runNoteTracker{holds: map[string]*beads.WorkItem{answers: {ID: answers}}}
+	state := documentNoteRun(answers)
+	state.ReconcileFindings = []runstate.ReconcileFinding{{Step: runstate.ReconcileWorktree, Problem: "observe leftover worktree: unreadable", Pending: true}}
+	store := &savedRuns{}
+	reconciler := Reconciler{Tracker: HarnessRunItems{WorkTracker: noteWorkTracker{runNoteTracker: base}, Runs: loadedRuns{state}}, Store: store}
+	for pass := 0; pass < 2; pass++ {
+		if _, problem := reconciler.deliverReconcileFinding(context.Background(), &state, 0); problem != "" {
+			t.Fatalf("pass %d: deliverReconcileFinding() = %q, want none", pass, problem)
+		}
+	}
+	for _, id := range base.asked {
+		if id != answers {
+			t.Fatalf("tracker asked about %q; want only the item the run's record names (asked %v)", id, base.asked)
+		}
+	}
+	if !strings.Contains(base.holds[answers].Notes, "Settlement finding") || state.ReconcileFindings[0].Pending {
+		t.Fatalf("notes = %q, finding = %+v; want it delivered to the named item and settled", base.holds[answers].Notes, state.ReconcileFindings[0])
+	}
+}
