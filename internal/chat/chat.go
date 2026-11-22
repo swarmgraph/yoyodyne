@@ -750,6 +750,9 @@ type Session struct {
 	// from, sent after the role's instructions on every round of that turn's own
 	// provider session until EndPass. See withPassBriefing in passcontext.go.
 	passBriefing string
+	// passMessageOpening is the second part of that briefing, which opens the
+	// message of the turn's first round. See withPassMessageCache.
+	passMessageOpening string
 	// ancestors holds the parents read for the inherited-block line of an item
 	// read, for a minute. See ancestorreads.go.
 	ancestors ancestorReads

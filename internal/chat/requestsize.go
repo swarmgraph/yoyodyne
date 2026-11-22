@@ -32,7 +32,7 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (re
 	if err != nil {
 		return backend.RunResult{LastEvent: s.state.LastSequence}, err
 	}
-	request = prepared
+	request = s.withPassMessageCache(prepared)
 	s.sentRequest = &request
 	result, err = b.provider.Run(ctx, request)
 	if !requestRejectedForSize(result, err) || s.requestSizeRetried {
@@ -74,6 +74,7 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (re
 	if fitErr != nil {
 		return backend.RunResult{LastEvent: s.state.LastSequence}, fitErr
 	}
+	request = s.withPassMessageCache(request)
 	if hold, held, holdErr := s.heldByOperator(); holdErr != nil || held {
 		if holdErr != nil {
 			return backend.RunResult{LastEvent: s.state.LastSequence}, holdErr

@@ -178,7 +178,10 @@ end of the instructions block, where every round of the pass sends it
 (`withPassBriefing`), except a round resuming a session that keeps its
 instructions, as Codex's does (`passInstructionsFor`, called from
 `requestBounded`), and the next pass's new session reads it from the
-provider's cache, records each part's digest and the first part that differs
+provider's cache, marks the briefing's second part, which then opens the
+message, for the provider to cache as a block of its own on the round that
+starts the session (`withPassMessageCache`, also called from `requestBounded`,
+which sets `backend.RunRequest.CachedPromptBytes`), records each part's digest and the first part that differs
 from the previous pass (`PassStartParts` on the record), holds the start to
 its bound with `boundPassStart` before anything is recorded, and
 records the provider's compactions with `recordProviderCompactions`. `Send`
@@ -274,7 +277,7 @@ removes them from the record once a turn has delivered them.
 | `waitingdocuments.go` | one waiting revision per document, eight waiting documents per role, replacing, withdrawing and listing a role's own, and answering every write |
 | `sendinghold.go` | a hold on sending one document, lifted when its named work item closes; the notes a document leaves on the items it answers |
 | `compact.go`, `memory.go` | session compaction and the role's own memory |
-| `passcontext.go` | what a recurring turn starts from: a provider session of its own, the product intent with other documents left out, the briefing's unchanging opening sent after the instructions so the provider's cache serves it, bounded to a third of the window, the previous turn's account carried forward, the conversation's session set aside and put back (`EndPass`), and compactions the provider reports |
+| `passcontext.go` | what a recurring turn starts from: a provider session of its own, the product intent with other documents left out, the briefing's unchanging opening sent after the instructions so the provider's cache serves it, and its second part marked as a cached block of the message, bounded to a third of the window, the previous turn's account carried forward, the conversation's session set aside and put back (`EndPass`), and compactions the provider reports |
 | `usagelimit.go`, `providerwait.go`, `provideroutage.go`, `hold.go` | provider refusals, waits that put the conversation down, the operator hold |
 | `rebuild.go` | continuing on a provider that never held the session |
 | `requestsize.go` | measuring the selected endpoint's input, shortening history and then the briefing before sending, and retrying a size refusal once |
