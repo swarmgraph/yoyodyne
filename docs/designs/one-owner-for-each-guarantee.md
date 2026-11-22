@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-22T19:39:43.863862Z
       reason: 'From the architect''s review of every design against the code, read at main 697f81f62: each migration item now says what is built. Items 1, 5, 11 and 21 are built; 2, 7, 9 and 19 partly; 3, 6, 13 and 15 to 18 not built; the rest were not checked and say so. Item 13 names the guards found and why none of them is its check. Every item''s wording is otherwise unchanged. Read whole at main 1c494e218.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T20:27:30.770181Z
+      reason: 'Brings the section on the invariant up to date: the invariant each-guarantee-has-one-owner was recorded on November 22, 2026, so the section points to it, says what it adds, and says the design and the invariant are revised together. The wait on recording invariants from the architect''s conversation and the ''until then'' line are removed. Every other section is unchanged. Read whole at main caed7e958.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -97,6 +101,11 @@ approvals:
       by: harness
       at: 2026-11-22T19:39:43.863862Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3530, for document-3530.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-22T20:27:30.770181Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3539, for document-3539.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -456,11 +465,13 @@ Each of the first five is ruled by this design, and its label saying it waits on
 
 ## The invariant this warrants
 
-A change that is correct for its own path can still add a copy of a guarantee beside its component, so the rule has to bind work that never mentions it. This is the wording, to be recorded once the architect can submit invariant changes from her conversation (yoyodyne-0bj):
+A change that is correct for its own path can still add a copy of a guarantee beside its component, so the rule has to bind work that never mentions it. It is recorded as the invariant [each guarantee is kept by its one owning component](../decisions/invariants/each-guarantee-has-one-owner.md), recorded on November 22, 2026, with this design's wording:
 
 > Each guarantee named in the design for one owner for each guarantee is kept by its one owning component, and code outside that component reaches it only through its way in. A change that needs a guarantee to behave differently changes the component, never a copy beside it.
 
-Until then, this design, the checks above and the reviewer hold it.
+The invariant also names, as things no code outside the owner adds, the same ways in that a reviewer checks below, and says that the list of places still going around a component only ever shrinks. The harness hands it to developers and reviewers with the other invariants that apply to their work, so it binds a change that never cites this design.
+
+The design and the invariant say the same thing and are kept that way. A change to a guarantee's owner, its way in, or the list of what no code outside it adds is a revision of this design and of the invariant together, made by the architect. Where the two are found to differ before that, the invariant's wording holds.
 
 ## Designs this changes
 
