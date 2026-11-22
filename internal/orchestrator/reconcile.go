@@ -286,6 +286,12 @@ type Reconciler struct {
 	// of zero has no room.
 	Intake   IntakeHolds
 	Capacity int
+	// SlotPairs resolves each developer slot's endpoint pair from the
+	// configuration, handed to the store with the run this makes live, so a run
+	// keeping its slot's pair whose slot another run holds takes a free slot,
+	// pinned to that slot's own pair, ahead of fresh work (SlotPairsFor).
+	// Without it such a run waits for its own slot.
+	SlotPairs runstate.SlotPairs
 	// HostsRuns says this sweep's last steps host the runs it makes live —
 	// ContinueWaits and ContinueUpdates with a Continue wired — which only the
 	// sweep verb does. A queued head is put back at its promotion only by a sweep

@@ -62,6 +62,12 @@ type GitHubIdentityStops struct {
 	Worktrees RepairWorktrees
 	// Capacity is execution.max_concurrent_developers.
 	Capacity int
+	// SlotPairs resolves each developer slot's endpoint pair from the
+	// configuration, handed to the store with the run this makes live, so a run
+	// keeping its slot's pair whose slot another run holds takes a free slot,
+	// pinned to that slot's own pair, ahead of fresh work (SlotPairsFor).
+	// Without it such a run waits for its own slot.
+	SlotPairs runstate.SlotPairs
 	// Checkout is the main checkout, asked before anything is written and again
 	// immediately before the run takes its developer slot
 	// (checkoutReadyToTakeUp). Optional: without it nothing is asked here.
@@ -284,7 +290,7 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 	if err := checkoutReadyToTakeUp(ctx, g.Checkout, prior.RunID); err != nil {
 		return false, fmt.Sprintf("run %s of %s waits at publishing: %s", prior.RunID, named, singleLine(err.Error(), 300)), true
 	}
-	if err := g.Runs.ReserveLive(ctx, prior.TakenUpAtChecks(reason, now), g.Capacity); err != nil {
+	if err := g.Runs.ReserveLive(withPairs(ctx, g.SlotPairs), prior.TakenUpAtChecks(reason, now), g.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			noteSlotTaken(ctx, g.Items, entry.WorkItemID, prior.RunID, capacity)
 			return false, fmt.Sprintf("run %s of %s waits at publishing: the last developer slot went to another run (%d of %d); it is asked again next look", prior.RunID, named, capacity.Active, capacity.Limit), true

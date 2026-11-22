@@ -256,7 +256,7 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 			return result
 		}
 		if err == nil {
-			err = r.Store.ReserveLive(ctx, live, r.Capacity)
+			err = r.Store.ReserveLive(withPairs(ctx, r.SlotPairs), live, r.Capacity)
 		}
 		if err != nil {
 			if capacity, taken := slotTakenMeanwhile(err); taken {

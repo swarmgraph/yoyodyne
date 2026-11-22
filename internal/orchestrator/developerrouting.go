@@ -226,6 +226,25 @@ func (p Pipeline) withSlotPairs(ctx context.Context) context.Context {
 	return runstate.WithSlotPairs(ctx, p.slotSnapshot)
 }
 
+// SlotPairsFor is the same resolver for whatever takes a run up again outside
+// a pipeline — a decided repair, a continuation after a silent stream or at the
+// checks, an integration resumption, the merge queue's catch-up, and the
+// reconcile sweep's put-backs — each of which hands it to the store with the
+// run it makes live (Store.ReserveLive), so a run keeping its slot's pair takes
+// any free slot ahead of fresh work rather than wait for its own.
+func SlotPairsFor(cfg config.Config) runstate.SlotPairs {
+	return Pipeline{Config: cfg}.slotSnapshot
+}
+
+// withPairs is ctx carrying pairs where there are any, for the take-ups that
+// hold a SlotPairs field rather than a pipeline.
+func withPairs(ctx context.Context, pairs runstate.SlotPairs) context.Context {
+	if pairs == nil {
+		return ctx
+	}
+	return runstate.WithSlotPairs(ctx, pairs)
+}
+
 // slotSnapshot is the pair a run is pinned to in a developer slot it is moved
 // to, resolved now for the run's labels: the slot's explicit pair, or the
 // developer's own endpoint where the slot configures none.

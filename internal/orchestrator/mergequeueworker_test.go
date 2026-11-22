@@ -1065,13 +1065,23 @@ func TestARelaunchedQueueCheckIsHeldToItsConfiguredLimit(t *testing.T) {
 	says := "and was stopped at its own 1s execution.check_timeout limit, and judged nothing"
 
 	for attempt := 1; attempt <= 2; attempt++ {
-		began := time.Now()
 		verification, err := f.restart()
 		if err != nil || verification.Verified {
 			t.Fatalf("attempt %d: Work() = %#v, %v; want a check stopped at its limit, which earns nothing", attempt, verification, err)
 		}
-		if took := time.Since(began); took > 30*time.Second {
-			t.Fatalf("attempt %d took %s; a check held to its %s limit ends long before that", attempt, took, limit)
+		// The slow check's own process is what is timed, from its launch to its
+		// end, rather than the whole attempt: the worktree and worker around it
+		// can take tens of seconds on a loaded machine without saying anything
+		// about the check's limit.
+		mu.Lock()
+		launched := slices.Clone(launches)
+		mu.Unlock()
+		if len(launched) != attempt {
+			t.Fatalf("attempt %d: %q launched %d time(s), want %d", attempt, slow, len(launched), attempt)
+		}
+		process := launched[attempt-1].Process
+		if took := process.FinishedAt.Sub(process.StartedAt); process.StartedAt.IsZero() || took > 30*time.Second {
+			t.Fatalf("attempt %d: %q ran %s; a check held to its %s limit ends long before that", attempt, slow, took, limit)
 		}
 		recorded := f.generations()[0]
 		if recorded.CheckRun == nil || !strings.Contains(recorded.CheckRun.Problem, slow) || !strings.Contains(recorded.CheckRun.Problem, says) {

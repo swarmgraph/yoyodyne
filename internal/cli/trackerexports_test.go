@@ -148,7 +148,12 @@ func TestABriefingsListingThatRanOutOfTimeIsKept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ground := conversationGround{runner: timedOutRunner{}, repository: project, gitBinary: "git", timeout: 200 * time.Millisecond, slowCalls: slowCalls}
+	// The runner answers every call as stopped at its limit at once, so the
+	// bound is never what stops it. It is long because a call that starts after
+	// its deadline is one that never ran and is not kept (beads' slow-call
+	// record), and a loaded machine running the whole package under the race
+	// detector can take longer than a short bound to reach the listing.
+	ground := conversationGround{runner: timedOutRunner{}, repository: project, gitBinary: "git", timeout: time.Minute, slowCalls: slowCalls}
 
 	// The rest of the picture is not this test's: a project with no
 	// specifications may fail to assemble one after the listing has been made.
