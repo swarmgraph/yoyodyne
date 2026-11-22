@@ -74,6 +74,10 @@ revisions:
       by: architect
       at: 2026-11-22T16:00:03.532142Z
       reason: Sent again after review found question 8 contradicted the new Models paragraph. Both now say every pass uses the agent's model today, and that the optional model on a scheduled trigger is the cost design's piece 8, set by the development manager; a recurring task's model is separate. Because the document is sent whole, hyphenated compounds a reader would stop on are put in plain words (for example re-run, round-capped, out-of-band, per-instance cursor) and mover names set as code. No rule changes beyond the model one. Whole read at main 828db957.
+    - action: amended
+      by: architect
+      at: 2026-11-22T21:58:37.302874Z
+      reason: 'Approved proposal from the developer on the item letting a role record what became of a report addressed to it: the program manager holds report.handle-addressed, scoped to reports addressed to the program manager role rather than to a lane; any instance may record one, the handling names it and is never changed, and the excluded list says a handling changes no report. Written from a read of the section at main f50f9e66; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 6
@@ -130,6 +134,11 @@ approvals:
       by: harness
       at: 2026-11-22T16:00:03.532142Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3462, for document-3462.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 17
+      by: harness
+      at: 2026-11-22T21:58:37.302874Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3579, for document-3579.1 under the automatic approval policy
 ---
 # The program manager: one role type, one lane per instance, requests batched to the Lead Product Manager
 
@@ -161,9 +170,11 @@ Stated in the registry's vocabulary, and held as tools under [tool-interface](to
 
 **Its own records.** `agent-context.mutate` over its own memory store, budgeted and audited as every memory is; `lane-report.write` over its own lane report and nothing else; `stop-cause.record` over its own account of stop causes and nothing else, specified under *Repeated stop causes*; and, for a standing goal lane only, the audit record its turns append to, specified under *A lane that is a standing goal*.
 
+**Reports addressed to the role.** `report.handle-addressed`, as the architect and the development manager hold it (yoyodyne-ifd.430.72). An instance records what became of a report addressed to the program manager, mapping each request in it to the item that covers it, an admission the instance made in its lane, or the reason it declines the request, exactly as the Lead Product Manager's handling records one. It reaches only reports addressed to the program manager, never one addressed to another role or to no role, and it is not confined to the lane, because a report is addressed to the role rather than to a label. Any instance may record the handling of such a report; the handling names the instance that recorded it, and once it is recorded the report is offered neither to the program manager nor to the Lead Product Manager again. A recorded handling is never changed or reopened by a later one. An item named as covering a request may be any item, because naming it changes nothing; an admission named in a handling is one the instance made under the lane's own rules, never one the handling makes.
+
 **Speech.** `report.file` — reports at the three severities, and the digest, which is a report; `amendment.propose` against any governed document, exactly as the developer holds it, because a lane about writing quality finds stale designs and the Lead Product Manager cannot amend one either; `exchange.ask` and `exchange.answer` on the ask channel, which gains the role as a member; and `service.request-restart`, the one request to the supervisor, specified below.
 
-**Excluded, whatever a persona or a remit says:** every tracker action on an item outside the lane; close and retire anywhere; every triage decision and cap crossing; `run.cause`, `run.repair-continue`, `publication.merge-repeat`, `run.recover`; directives, resolutions, and withdrawals; artifact writes; evidence for any check a change must pass; any step only a person can take; any repository write; any command; any change to a report already filed; asking for a pass, its own or another instance's. It writes no code, and it may use no tools, as the other management roles may not: what it reads, the harness reads for it.
+**Excluded, whatever a persona or a remit says:** every tracker action on an item outside the lane; close and retire anywhere; every triage decision and cap crossing; `run.cause`, `run.repair-continue`, `publication.merge-repeat`, `run.recover`; directives, resolutions, and withdrawals; artifact writes; evidence for any check a change must pass; any step only a person can take; any repository write; any command; any change to a report already filed, where recording what became of a report addressed to the role, above, is a handling and changes no report; the handling of a report addressed to any other role; asking for a pass, its own or another instance's. It writes no code, and it may use no tools, as the other management roles may not: what it reads, the harness reads for it.
 
 ## The lane, and how it is enforced
 
