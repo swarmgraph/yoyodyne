@@ -4217,6 +4217,21 @@ the session, sends only its own message, and a briefing shortened to fit a
 request is not marked. Codex has no way to mark a block, so it is sent the
 message as before.
 
+Nothing may change ahead of that block either. Claude Code takes a snapshot of
+the working directory's git status — its branch, its changed files and its
+latest commits — and, for a role whose per-machine sections are kept out of the
+cached instructions, sends it as the first user message, in front of the
+briefing. The management roles run in the project's own checkout, whose main
+branch moves every time a change lands, so the snapshot differed between almost
+every two passes and the next pass read only the instructions from the cache:
+over the morning the block went live, every pass with an unchanged briefing read
+it back when the checkout had not moved since the role's previous pass and wrote
+it again when it had. So a management role's invocations are made with that
+snapshot turned off (`CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS`). The role has no
+tools and reads the repository only through the harness, so it loses nothing it
+acts on. What Claude Code still sends there, such as the working directory and
+the platform, stays the same from one pass to the next.
+
 **What a recurring turn starts from is bounded.** The bound is a third of the
 serving provider's context window, at about four bytes a token, measured the
 way the adapter measures a request. That is 1,333,333 bytes on Claude Code's
