@@ -23,6 +23,10 @@ revisions:
       by: architect
       at: 2026-11-21T19:37:43.475827Z
       reason: 'amendment-d26f1591: section 1 now states what landed with yoyodyne-ifd.430.89 (unchanging opening sent after the instructions by SplitUnchanging and withPassBriefing, per part fingerprints and first changed part recorded), drops the old account of briefingFirst, and says plainly the architect has not read the provider figures since. Read at 697f01f0. The decision is unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T00:39:35.516471Z
+      reason: 'amendment-8afa9323, approved this pass: the floor on full passes is held between 1 and 12 hours, as the admitted item and its code hold it, and the two pass settings also sit on a program manager instance''s scheduled trigger, decided by the development manager. Written from a read at main dd1bbc6ee252; the rest of section 8 is unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -44,6 +48,11 @@ approvals:
       by: harness
       at: 2026-11-21T19:37:43.475827Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3340, for document-3340.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-22T00:39:35.516471Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3361, for document-3361.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
@@ -192,14 +201,18 @@ Every change above has a setting, a default and an owner, unless this section sa
 | --- | --- | --- | --- |
 | Models by kind | `model_kinds`, for each provider: `stronger`, `cheaper`, `lightest` | for Claude Code: Opus, Sonnet, Haiku; for any other provider, `stronger` is the model its agents name and the others are not named | the development manager |
 | Reusing the opening of each pass (section 1) | none | always on | nobody |
-| Skipping a scheduled pass with nothing new (section 2) | `skip_when_unchanged` on each recurring task | on for every scheduled pass of a management role | the development manager |
-| The floor on full passes (section 2) | `full_pass_every` on each recurring task | 4 hours; allowed between 1 hour and 24 hours | the development manager |
+| Skipping a scheduled pass with nothing new (section 2) | `skip_when_unchanged` on each recurring task and on each scheduled trigger of a program manager instance | on for every scheduled pass of a management role, a program manager's included | the development manager |
+| The floor on full passes (section 2) | `full_pass_every` on each recurring task and on each scheduled trigger of a program manager instance | 4 hours; allowed between 1 hour and 12 hours | the development manager |
 | Developers starting on the cheaper model (section 4) | `developer_cheaper_first`: on or off, and which items are eligible by label and priority | off; when on, priority 0 is not eligible | the development manager |
 | High risk kinds never on the cheaper model (section 4) | `high_risk_labels`: which labels mean security, migrations, concurrency and public interfaces, and any further kinds | the labels `security`, `migration`, `concurrency` and `public-interface` | the development manager may add labels and kinds, never remove the four kinds |
 | Reviewer's model by kind of change (section 5) | `reviewer_models`: `documents` and `code`, each a kind | both `stronger` | the development manager |
 | A recurring task's model (section 6) | the task's existing `model`, which may now name a kind | unchanged | the development manager, as today |
 | The reading helper (section 7) | `repository_ask`: its model kind, answer limit and time limit | on once built; `lightest`; 4 KiB, allowed between 1 KiB and 16 KiB; 60 seconds | the development manager; a project may take the tool from an agent with `tools: deny` |
 | Weekly cost figures | none | always kept | nobody |
+
+The floor on full passes stops at 12 hours. A role left a whole day without a full pass could miss for a working day whatever the skip check does not cover, and the milestone's internal week allows no such quiet stall. The bounds are held in code, and a value outside them is refused when the configuration loads, naming the key and the bound.
+
+A program manager instance is scheduled by its triggers rather than by a recurring task, and its passes had the largest share with nothing new, so the two pass settings sit on its scheduled trigger too. On that trigger the development manager decides only these two keys; the rest of the instance's settings stay the operator's.
 
 Why some things have no setting:
 
@@ -213,7 +226,7 @@ A change that needs a model of a kind its provider has not named cannot be turne
 
 The trials in sections 4 to 6 decide what this repository turns on. They do not change the shipped defaults. If a trial shows a change helps without costing quality, changing the shipped default is a later decision recorded in its own revision of this design.
 
-Section 6 of portable agent configuration gains `model_kinds`, `reviewer_models`, `developer_cheaper_first`, `high_risk_labels`, `skip_when_unchanged`, `full_pass_every` and `repository_ask` among the values the development manager decides, in its own revision.
+Section 6 of portable agent configuration names `model_kinds`, `reviewer_models`, `developer_cheaper_first`, `high_risk_labels`, `skip_when_unchanged`, `full_pass_every` and `repository_ask` among the values the development manager decides, with the bounds this section gives.
 
 ## What is measured
 
