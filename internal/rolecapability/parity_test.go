@@ -257,13 +257,19 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // until this action existed the operator typed each such raise. It is held under
 // backlog.admit, which only she holds, with no lane-scoped name.
 //
+// The development manager's `team_conflict` decides that a run of one item
+// resolves a conflict met while the target branch is brought up to date with the
+// team's branch (docs/designs/integrating-to-a-local-branch.md, section 3), so it
+// is deciding what becomes of work that stopped moving and is held under
+// work.triage, as `queue` is.
+//
 // The development manager's `keep_version` records which of two machines'
 // versions of a held item stands, the design's rule that such an item is hers
 // to decide (docs/designs/working-alongside-other-contributors.md, section 5).
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
 	domain.RoleArchitect:          {"amendment"},
-	domain.RoleDevelopmentManager: {"brake", "keep_version", "label", "queue"},
+	domain.RoleDevelopmentManager: {"brake", "keep_version", "label", "queue", "team_conflict"},
 }
 
 func TestConversationAuthorityDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {

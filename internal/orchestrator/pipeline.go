@@ -1776,6 +1776,13 @@ func (a *activeRun) claim(ctx context.Context) error {
 	return nil
 }
 
+// contextRequest is what the context a developer is given for an item is
+// assembled from, with the files the intake section holds back withheld. A run
+// that does not claim its item (teambranchresolve.go) assembles it the same way.
+func (p Pipeline) contextRequest(item beads.WorkItem) contextbundle.Request {
+	return contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository), Withheld: p.Config.Intake.RulesPaths()}
+}
+
 // recordedContextTruncation carries what an item's notes lost to the context
 // budget onto the run record, and nothing where they lost nothing. The context
 // says so in its own marker, which is what the agent reading it sees; this is

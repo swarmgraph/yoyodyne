@@ -354,6 +354,12 @@ type Options struct {
 	// her conversation and no other, and a conversation without one refuses the
 	// release rather than appearing to have made it.
 	QueueHeads QueueHeads
+	// TeamConflicts is how the development manager's decision that a run of one
+	// item resolves a conflict in bringing the target branch up to date with the
+	// team's branch is recorded (teamconflict.go). It is wired into her
+	// conversation and no other, and a conversation without one refuses the
+	// decision rather than appearing to have made it.
+	TeamConflicts TeamConflicts
 	// Publications is how the development manager's retry or retirement of a
 	// stopped document publication is carried out: such a run has no work item,
 	// so the decision is recorded on the run rather than on an item. It is wired

@@ -339,6 +339,12 @@ type Worktree struct {
 	// harness" a fact about recorded hashes rather than about what a commit looks
 	// like. A caller carries it forward from the publication that produced it.
 	HarnessCommit string `json:"harness_commit,omitempty"`
+	// MergedCommit is the commit the harness merged into this worktree's branch
+	// when it started a merge for a run to settle (StartMerge). The branch's one
+	// commit is then a merge of the base and this commit, so the commits that
+	// came in with it are not the harness's own and are left out of the check on
+	// who made what is above the base.
+	MergedCommit string `json:"merged_commit,omitempty"`
 }
 
 type Inspection struct {
@@ -1932,7 +1938,7 @@ func (m *Manager) verifyOwnedHead(ctx context.Context, worktree Worktree) (strin
 	if commit == worktree.BaseCommit {
 		return path, commit, nil
 	}
-	if err := m.verifyHarnessHistory(ctx, path, worktree.BaseCommit, commit); err != nil {
+	if err := m.verifyHarnessHistory(ctx, path, worktree.BaseCommit, commit, worktree.MergedCommit); err != nil {
 		return "", "", err
 	}
 	return path, commit, nil
@@ -1944,7 +1950,12 @@ func (m *Manager) verifyOwnedHead(ctx context.Context, worktree Worktree) (strin
 // agent's commit out — the recorded hash does that — but a recorded commit that
 // fails either one means the repository is not what the harness recorded, which
 // is worth refusing rather than promoting.
-func (m *Manager) verifyHarnessHistory(ctx context.Context, path, baseCommit, headCommit string) error {
+//
+// A branch whose merge the harness started (Worktree.MergedCommit) is a merge of
+// the base and that commit. It must have exactly those two parents, and the
+// commits that came in with the merged commit are other people's, so they are
+// left out of the identity check; what is above them is the harness's.
+func (m *Manager) verifyHarnessHistory(ctx context.Context, path, baseCommit, headCommit, mergedCommit string) error {
 	ancestor, err := m.run(ctx, "-C", path, "merge-base", "--is-ancestor", baseCommit, headCommit)
 	if err != nil {
 		return err
@@ -1952,7 +1963,18 @@ func (m *Manager) verifyHarnessHistory(ctx context.Context, path, baseCommit, he
 	if ancestor.Status != execution.ProcessSucceeded {
 		return errors.New("recorded harness commit does not descend from the worktree base; Git commits are owned by the harness")
 	}
-	identities, err := m.run(ctx, "-C", path, "log", "--format=%ae %ce", baseCommit+".."+headCommit)
+	revisions := []string{baseCommit + ".." + headCommit}
+	if mergedCommit != "" {
+		parents, err := m.parentsOf(ctx, headCommit)
+		if err != nil {
+			return err
+		}
+		if len(parents) != 2 || parents[0] != baseCommit || parents[1] != mergedCommit {
+			return errors.New("recorded harness commit is not the merge of the worktree base and the commit the harness merged in; Git commits are owned by the harness")
+		}
+		revisions = append(revisions, "^"+mergedCommit)
+	}
+	identities, err := m.run(ctx, append([]string{"-C", path, "log", "--format=%ae %ce"}, revisions...)...)
 	if err != nil {
 		return err
 	}
@@ -2886,7 +2908,7 @@ func (m *Manager) RebaseOntoTarget(ctx context.Context, worktree Worktree, messa
 		return rebase, err
 	}
 	if replayed != targetCommit {
-		if err := m.verifyHarnessHistory(ctx, path, targetCommit, replayed); err != nil {
+		if err := m.verifyHarnessHistory(ctx, path, targetCommit, replayed, ""); err != nil {
 			return rebase, err
 		}
 	}
@@ -3127,7 +3149,7 @@ func (m *Manager) resumeInterruptedMove(ctx context.Context, worktree Worktree) 
 	if onTarget, err := m.contains(ctx, head, worktree.TargetBranch); err != nil || !onTarget {
 		return "", false
 	}
-	if err := m.verifyHarnessHistory(ctx, path, worktree.BaseCommit, worktree.HarnessCommit); err != nil {
+	if err := m.verifyHarnessHistory(ctx, path, worktree.BaseCommit, worktree.HarnessCommit, worktree.MergedCommit); err != nil {
 		return "", false
 	}
 	if err := m.restoreExports(ctx, path); err != nil {
