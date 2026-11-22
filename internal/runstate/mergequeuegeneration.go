@@ -307,6 +307,18 @@ type MergeQueueSelection struct {
 	// Why says in ordinary words why that rule chose this entry, which entries
 	// it went ahead of, and whether the tracker could not be read when it did.
 	Why string `json:"why"`
+	// Document says the entry chosen is a document entry. A choice made after
+	// this candidate lands reads it to learn whether the last candidate the
+	// queue landed was a document candidate, so a restart does not change that
+	// choice.
+	Document bool `json:"document,omitempty"`
+	// PlacedFirst says the Lead Product Manager's placement of the entry's work
+	// item first among its priority decided the choice.
+	PlacedFirst bool `json:"placed_first,omitempty"`
+	// DocumentPassedOver says documents were waiting and the document rule was
+	// passed over for this choice, because the last candidate the queue landed
+	// was a document candidate and ordinary code was waiting.
+	DocumentPassedOver bool `json:"document_passed_over,omitempty"`
 }
 
 func (s *MergeQueueSelection) validate() error {

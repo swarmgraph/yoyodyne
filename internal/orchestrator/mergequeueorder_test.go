@@ -69,6 +69,13 @@ type orderEntry struct {
 
 func chooseFrom(t *testing.T, tracker bool, entries ...orderEntry) MergeQueueChoice {
 	t.Helper()
+	return chooseAfter(t, tracker, false, entries...)
+}
+
+// chooseAfter is chooseFrom with the last candidate the queue landed a
+// document candidate where lastDocument says so.
+func chooseAfter(t *testing.T, tracker, lastDocument bool, entries ...orderEntry) MergeQueueChoice {
+	t.Helper()
 	items, paths := map[string]beads.WorkItem{}, map[string][]string{}
 	var waiting []runstate.MergeQueueEntry
 	started := map[string]bool{}
@@ -105,6 +112,8 @@ func chooseFrom(t *testing.T, tracker bool, entries ...orderEntry) MergeQueueCho
 		pipeline: &Pipeline{Config: cfg, Store: orderRuns{}, Tracker: orderTracker{items: items, down: !tracker}},
 		paths:    orderPaths{paths: paths}.CandidatePaths,
 		now:      orderNow,
+		// The last landing as the records say it.
+		lastLandedDocument: lastDocument,
 	}
 	return o.choose(context.Background(), waiting, started)
 }
@@ -129,23 +138,21 @@ func TestAPriorityZeroCodeEntryGoesAheadOfAnEarlierDocumentAndOtherPriorities(t 
 	}
 }
 
-func TestTheArchitectsOldestDocumentTravelsWithPriorityZeroCodeInAdmissionOrder(t *testing.T) {
+// No document has a place beside priority 0 code, the architect's included:
+// priority 0 code goes ahead of every waiting document, whenever it was
+// admitted.
+func TestPriorityZeroCodeGoesAheadOfWaitingDocumentsTheArchitectsIncluded(t *testing.T) {
 	got := chooseFrom(t, true,
-		orderEntry{id: "intent", paths: intent},
-		orderEntry{id: "p1", paths: code, priority: 1},
-		orderEntry{id: "design", paths: design},
-		orderEntry{id: "p0", paths: code, priority: 0},
+		orderEntry{id: "intent", paths: intent, age: 3 * time.Hour},
+		orderEntry{id: "p1", paths: code, priority: 1, age: 3 * time.Hour},
+		orderEntry{id: "design", paths: design, age: 2 * time.Hour},
+		orderEntry{id: "p0", paths: code, priority: 0, age: time.Hour},
 	)
-	if got.Entry.EntryID != "design" || got.Rule != MergeQueueRuleUrgent {
-		t.Fatalf("chose %s by %q, want the architect's design first, as admitted before p0", got.Entry.EntryID, got.Rule)
+	if got.Entry.EntryID != "p0" || got.Rule != MergeQueueRuleUrgent || got.Document {
+		t.Fatalf("chose %s by %q, want the priority 0 code ahead of the architect's design", got.Entry.EntryID, got.Rule)
 	}
-	// With the priority 0 code admitted first, it goes first and the design second.
-	got = chooseFrom(t, true,
-		orderEntry{id: "p0", paths: code, priority: 0},
-		orderEntry{id: "design", paths: design},
-	)
-	if got.Entry.EntryID != "p0" {
-		t.Fatalf("chose %s, want p0 admitted first", got.Entry.EntryID)
+	if strings.Join(got.Order, ",") != "p0,intent,p1,design" {
+		t.Fatalf("order %v, want p0, then the first document, then code after a document, then the last document", got.Order)
 	}
 }
 
@@ -194,14 +201,28 @@ func TestOtherCodeGoesByPriorityThenAdmissionAndUnreadableLast(t *testing.T) {
 	}
 }
 
-func TestAnEntryWaitingEightHoursGoesBeforePriorityZeroCode(t *testing.T) {
+func TestAnEntryWaitingFourHoursGoesBeforePriorityZeroCode(t *testing.T) {
 	got := chooseFrom(t, true,
 		orderEntry{id: "p0", paths: code, priority: 0, age: time.Hour},
-		orderEntry{id: "young-aged", paths: code, priority: 4, age: 9 * time.Hour},
-		orderEntry{id: "oldest", paths: intent, age: 20 * time.Hour},
+		orderEntry{id: "young-aged", paths: code, priority: 4, age: 4*time.Hour + time.Minute},
+		orderEntry{id: "oldest", paths: intent, age: 5 * time.Hour},
 	)
 	if got.Entry.EntryID != "oldest" || got.Rule != MergeQueueRuleAged {
-		t.Fatalf("chose %s by %q, want the oldest aged entry", got.Entry.EntryID, got.Rule)
+		t.Fatalf("chose %s by %q, want the oldest entry waiting four hours or more", got.Entry.EntryID, got.Rule)
+	}
+	got = chooseFrom(t, true,
+		orderEntry{id: "p4", paths: code, priority: 4, age: 4 * time.Hour},
+		orderEntry{id: "p0", paths: code, priority: 0, age: time.Hour},
+	)
+	if got.Entry.EntryID != "p4" || got.Rule != MergeQueueRuleAged {
+		t.Fatalf("chose %s by %q, want the entry that has waited exactly four hours", got.Entry.EntryID, got.Rule)
+	}
+	got = chooseFrom(t, true,
+		orderEntry{id: "p4", paths: code, priority: 4, age: 4*time.Hour - time.Minute},
+		orderEntry{id: "p0", paths: code, priority: 0, age: time.Hour},
+	)
+	if got.Entry.EntryID != "p0" {
+		t.Fatalf("chose %s, want the priority 0 code ahead of an entry short of four hours", got.Entry.EntryID)
 	}
 }
 
@@ -306,7 +327,7 @@ func TestTwoPlacedEntriesGoInTheOrderTheyWerePlaced(t *testing.T) {
 		orderEntry{id: "p2", paths: code, priority: 2, age: 3 * time.Hour},
 		orderEntry{id: "p2-placed-later", paths: code, priority: 2, age: 2 * time.Hour, placedAgo: time.Hour},
 		orderEntry{id: "p2-placed-earlier", paths: code, priority: 2, age: time.Hour, placedAgo: 2 * time.Hour},
-		orderEntry{id: "p3-placed", paths: code, priority: 3, age: 4 * time.Hour, placedAgo: 4 * time.Hour},
+		orderEntry{id: "p3-placed", paths: code, priority: 3, age: 3*time.Hour + 30*time.Minute, placedAgo: 3 * time.Hour},
 	)
 	if got.Entry.EntryID != "p2-placed-earlier" || got.Rule != MergeQueueRulePriority || !got.PlacedFirst {
 		t.Fatalf("chose %s by %q (placement decided: %v), want the earliest placed priority 2 entry", got.Entry.EntryID, got.Rule, got.PlacedFirst)
@@ -324,13 +345,13 @@ func TestAPlacementMadeAfterAdmissionChangesTheNextChoice(t *testing.T) {
 	}
 }
 
-func TestAPlacedEntryNeverGoesAheadOfOneWaitingEightHours(t *testing.T) {
+func TestAPlacedEntryNeverGoesAheadOfOneWaitingFourHours(t *testing.T) {
 	got := chooseFrom(t, true,
 		orderEntry{id: "placed", paths: code, priority: 0, age: time.Hour, placedAgo: 30 * time.Minute},
-		orderEntry{id: "aged", paths: code, priority: 4, age: 9 * time.Hour},
+		orderEntry{id: "aged", paths: code, priority: 4, age: 5 * time.Hour},
 	)
 	if got.Entry.EntryID != "aged" || got.Rule != MergeQueueRuleAged || got.PlacedFirst {
-		t.Fatalf("chose %s by %q (placement decided: %v), want the entry waiting eight hours", got.Entry.EntryID, got.Rule, got.PlacedFirst)
+		t.Fatalf("chose %s by %q (placement decided: %v), want the entry waiting four hours", got.Entry.EntryID, got.Rule, got.PlacedFirst)
 	}
 }
 
@@ -509,7 +530,7 @@ func TestEveryRuleThatChoosesAnEntryHasAReasonInPlainWords(t *testing.T) {
 	for rule, want := range map[string]string{
 		MergeQueueRuleOnlyWaiting: "only entry waiting",
 		MergeQueueRuleInProgress:  "already begun",
-		MergeQueueRuleAged:        "waited eight hours or more",
+		MergeQueueRuleAged:        "waited four hours or more",
 		MergeQueueRuleUrgent:      "priority 0 code",
 		MergeQueueRuleDocument:    "it is a document",
 		MergeQueueRulePriority:    "most urgent priority",
@@ -539,10 +560,10 @@ func TestAnUnreadableTrackerWithNothingRememberedStillAppliesTheOtherRules(t *te
 	}
 	got = chooseFrom(t, false,
 		orderEntry{id: "new", paths: code, age: time.Hour},
-		orderEntry{id: "aged", paths: code, age: 9 * time.Hour},
+		orderEntry{id: "aged", paths: code, age: 5 * time.Hour},
 	)
 	if got.Entry.EntryID != "aged" || got.Rule != MergeQueueRuleAged {
-		t.Fatalf("chose %s by %q, want the entry that waited eight hours", got.Entry.EntryID, got.Rule)
+		t.Fatalf("chose %s by %q, want the entry that waited four hours", got.Entry.EntryID, got.Rule)
 	}
 	got = chooseFrom(t, false,
 		orderEntry{id: "new", paths: code, age: time.Hour},

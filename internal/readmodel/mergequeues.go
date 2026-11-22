@@ -3,6 +3,9 @@ package readmodel
 // The merge queues, as every surface shows them: each queue by its target
 // branch, each entry in the order it is worked, named by its work item's title
 // and identifier, with the mode it was admitted in, where it stands, and why.
+// The order is the one the queue's rules last chose in, as its worker's last
+// pass recorded it, with the rule that put the first entry first; a queue whose
+// last pass recorded no choice shows its entries in admission order.
 //
 // Where an entry stands is read off the queue's own records and nothing else:
 // its generations, its landing record, and its handback. A change is never
@@ -13,6 +16,7 @@ package readmodel
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -237,6 +241,12 @@ type MergeQueueStanding struct {
 	// LastPassLabel is the last pass's outcome in the words every surface
 	// prints for it.
 	LastPassLabel string `json:"last_pass_label,omitempty"`
+	// FirstRule and FirstWhy are the rule that put the first waiting entry
+	// first, and why in ordinary words, as the queue's last choice recorded
+	// them; FirstEntry is that entry. All are empty where no choice is recorded.
+	FirstEntry string `json:"first_entry,omitempty"`
+	FirstRule  string `json:"first_rule,omitempty"`
+	FirstWhy   string `json:"first_why,omitempty"`
 }
 
 // recentlyFinishedShown bounds the finished entries a queue shows.
@@ -296,12 +306,42 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey) (MergeQueueS
 		}
 		open = append(open, read)
 	}
+	if pass := standing.LastPass; pass != nil && pass.Order != nil {
+		open = inChosenOrder(open, pass.Order.Entries)
+		if len(open) > 0 && len(pass.Order.Entries) > 0 && open[0].EntryID == pass.Order.Entries[0] {
+			standing.FirstEntry, standing.FirstRule, standing.FirstWhy = open[0].EntryID, pass.Order.Rule, pass.Order.Why
+		}
+	}
 	standing.Open, standing.Finished = len(open), len(finished)
 	if len(finished) > recentlyFinishedShown {
 		finished = finished[len(finished)-recentlyFinishedShown:]
 	}
 	standing.Entries = append(open, finished...)
 	return standing, strings.Join(problems, "; ")
+}
+
+// inChosenOrder is the open entries in the order the queue's rules last chose,
+// and after them, in the order they are worked, any the choice did not rank,
+// such as one that joined since.
+func inChosenOrder(open []QueueEntryStanding, order []string) []QueueEntryStanding {
+	place := make(map[string]int, len(order))
+	for index, id := range order {
+		if _, seen := place[id]; !seen {
+			place[id] = index
+		}
+	}
+	ordered := append([]QueueEntryStanding(nil), open...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		pi, iRanked := place[ordered[i].EntryID]
+		pj, jRanked := place[ordered[j].EntryID]
+		switch {
+		case iRanked && jRanked:
+			return pi < pj
+		default:
+			return iRanked && !jRanked
+		}
+	})
+	return ordered
 }
 
 func readQueueEntry(queues MergeQueues, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry) (QueueEntryStanding, string) {
@@ -473,6 +513,9 @@ func (s Standing) RenderMergeQueues() string {
 		}
 		if pass := queue.LastPass; pass != nil && pass.Says != "" {
 			fmt.Fprintf(&rendered, "  last pass: %s — %s\n", queue.LastPassLabel, pass.Says)
+		}
+		if queue.FirstRule != "" {
+			fmt.Fprintf(&rendered, "  first in the queue's order (%s): %s\n", queue.FirstRule, queue.FirstWhy)
 		}
 		for _, entry := range queue.Entries {
 			fmt.Fprintf(&rendered, "  %d. %s %s — %s, in %s — %s\n", entry.Place, entry.WorkItemID, entry.Title, entry.Label, entry.ModeLabel, entry.Why)
