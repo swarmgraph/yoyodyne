@@ -39,13 +39,14 @@ import (
 const MaxHarnessStallContinuations = 1
 
 // HandedBack reports a run holding a failure that was returned to its
-// developer: a replay conflict, refused paths, owed execution evidence, a
-// failing check, the reviewer's findings, or what a person asked for on the
-// published pull request (forgefeedback.go). It is the repair input a
-// continuation hands back, and a run carrying one is inside its repair loop.
+// developer: a replay conflict, refused paths, a change too large for the
+// reviewer's copy, owed execution evidence, a failing check, the reviewer's
+// findings, or what a person asked for on the published pull request
+// (forgefeedback.go). It is the repair input a continuation hands back, and a
+// run carrying one is inside its repair loop.
 func (s State) HandedBack() bool {
 	owesVerification := s.Verification != nil && len(s.Verification.Owed) > 0
-	return s.ReplayConflict != nil || s.PathRefusal != nil || owesVerification || s.CheckFailure != nil || len(s.ReviewFindingDetails) > 0 ||
+	return s.ReplayConflict != nil || s.PathRefusal != nil || s.ReviewBoundRefusal != nil || owesVerification || s.CheckFailure != nil || len(s.ReviewFindingDetails) > 0 ||
 		s.ForgeFeedback != nil
 }
 

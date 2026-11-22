@@ -473,6 +473,8 @@ func evidenceOf(state runstate.State) (string, time.Time) {
 	switch {
 	case state.PathRefusal != nil:
 		return "the change touched a file it may not, and the developer is undoing that", time.Time{}
+	case state.ReviewBoundRefusal != nil:
+		return "the change was too large for the reviewer's copy, and the developer is making it fit", time.Time{}
 	case state.CheckFailure != nil:
 		return "a check failed, and the developer is repairing it", time.Time{}
 	case state.ChecksPassed != nil:

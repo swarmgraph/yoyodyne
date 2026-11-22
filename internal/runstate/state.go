@@ -4184,6 +4184,16 @@ type State struct {
 	// gate is decided before the checks, recording a refusal clears both of the
 	// others rather than competing with them for the next attempt.
 	PathRefusal *PathRefusal `json:"path_refusal,omitempty"`
+	// ReviewBoundRefusal carries the size check's refusal while it is handed back
+	// to the developer (reviewbound.go). It behaves as PathRefusal does, one gate
+	// later: a path refusal clears it, and the inputs of the gates behind it are
+	// cleared when it is recorded.
+	ReviewBoundRefusal *ReviewBoundRefusal `json:"review_bound_refusal,omitempty"`
+	// ReviewBoundReturned is set once the size check's refusal has been handed
+	// back to the developer, and is never cleared: the size check returns a
+	// run's change once, and a later refusal on the same run stops it for the
+	// development manager.
+	ReviewBoundReturned bool `json:"review_bound_returned,omitempty"`
 	// ForgeFeedback carries the feedback a person left on the published pull
 	// request — a review requesting changes, or comments on lines of the change
 	// — that started this run's current repair round (forgefeedback.go). It is
@@ -5198,6 +5208,11 @@ func (s State) Validate() error {
 			problems = append(problems, fmt.Errorf("path_refusal: %w", err))
 		}
 	}
+	if s.ReviewBoundRefusal != nil {
+		if err := s.ReviewBoundRefusal.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("review_bound_refusal: %w", err))
+		}
+	}
 	if s.Verification != nil {
 		if err := s.Verification.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("verification: %w", err))
@@ -5493,6 +5508,9 @@ func (s State) Validate() error {
 		// integration carrying an edit to the intent it was written against.
 		if s.PathRefusal != nil {
 			problems = append(problems, errors.New("integration requires no recorded protected-path refusal"))
+		}
+		if s.ReviewBoundRefusal != nil {
+			problems = append(problems, errors.New("integration requires no recorded review-bound refusal"))
 		}
 		// The target is fixed before the work starts, so an integration into a
 		// different branch describes a promotion this run was never set up to

@@ -2541,6 +2541,8 @@ func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, s
 		return replayConflictRepairPrompt(invariants, scratchDirectory, checks, *state.ReplayConflict, state.RepairAttempts, limit), nil
 	case state.PathRefusal != nil:
 		return pathRefusalRepairPrompt(invariants, scratchDirectory, checks, *state.PathRefusal, protected, state.RepairAttempts, limit), nil
+	case state.ReviewBoundRefusal != nil:
+		return reviewBoundRepairPrompt(invariants, scratchDirectory, checks, *state.ReviewBoundRefusal, state.RepairAttempts, limit), nil
 	case owesVerification(state):
 		return verificationRepairPrompt(invariants, scratchDirectory, *state.Verification, checks, state.RepairAttempts, limit), nil
 	case state.CheckFailure != nil:
@@ -3795,6 +3797,7 @@ func (a *activeRun) reconcilingPublishedBranch() bool {
 func (a *activeRun) recordReplayConflict(conflict runstate.ReplayConflict) {
 	a.state.CheckFailure = nil
 	a.state.PathRefusal = nil
+	a.state.ReviewBoundRefusal = nil
 	a.state.ChecksPassed = nil
 	recorded := conflict
 	a.state.ReplayConflict = &recorded
@@ -3955,13 +3958,27 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			return err
 		}
 		if err := a.checkRound(ctx); err != nil {
-			// A change too large for the reviewer's copy is not repair input: the
-			// bound is the harness's, so it ends the run where it was measured and
-			// goes to the development manager with the sizes.
+			// A change too large for the reviewer's copy is handed back to its
+			// developer once, for one repair attempt, because a change can often be
+			// made to fit. A second refusal on the same run, or one that finds the
+			// budget spent, ends the run where it was measured and goes to the
+			// development manager with the sizes (docs/decisions/review-size-limits.md).
 			var overBound reviewBoundRefusal
 			if errors.As(err, &overBound) {
-				a.observeCheckEnded(ctx, err, budgetSpent)
-				return a.blockOnReviewBound(overBound)
+				if a.state.ReviewBoundReturned || a.state.RepairAttempts >= limit {
+					a.observeCheckEnded(ctx, err, budgetSpent)
+					return a.blockOnReviewBound(overBound)
+				}
+				a.recordReviewBoundRefusal(overBound)
+				if spent, chargeErr := a.chargeReplayStop(); chargeErr != nil || spent {
+					a.observeCheckEnded(ctx, err, budgetSpent)
+					return a.replayStopEnds(chargeErr, err.Error())
+				}
+				a.observeCheckEnded(ctx, err, stillRepairable)
+				if err := a.repair(ctx, reviewBoundRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.ReviewBoundRefusal, a.state.RepairAttempts+1, limit)); err != nil {
+					return err
+				}
+				continue
 			}
 			// A replay stopped for what its gate found did not pass its checks, so the
 			// landing it answered stays counted as lost; the stops that end the run
@@ -4310,6 +4327,7 @@ func (a *activeRun) recordPathRefusal(refusal runstate.PathRefusal) {
 	a.state.CheckFailure = nil
 	a.state.ChecksPassed = nil
 	a.state.ReplayConflict = nil
+	a.state.ReviewBoundRefusal = nil
 	recorded := refusal
 	a.state.PathRefusal = &recorded
 }
@@ -7605,6 +7623,8 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 	switch {
 	case state.PathRefusal != nil:
 		return lasting(fmt.Errorf("%w: a protected-path refusal is still recorded against the change", ErrIntegrationUnearned))
+	case state.ReviewBoundRefusal != nil:
+		return lasting(fmt.Errorf("%w: a refusal for being too large for the reviewer's copy is still recorded against the change", ErrIntegrationUnearned))
 	case state.CheckFailure != nil:
 		return lasting(fmt.Errorf("%w: %s exited with %d and nothing has passed the checks over the change since",
 			ErrIntegrationUnearned, state.CheckFailure.Command, state.CheckFailure.ExitCode))
@@ -11000,7 +11020,9 @@ func developerContract(scratchDirectory string, checks []string) string {
 	// template above, because it names this project's own declared checks: a
 	// contract asking a developer to run commands the project does not declare
 	// would be asking for something nobody can run.
-	return strings.ReplaceAll(contract, selfCheckContractPlaceholder, selfcheck.Contract(checks)) + "\n\n" + toolcatalog.RunContract(domain.RoleDeveloper)
+	// The size limits follow it, because they are the other thing the developer
+	// verifies before submitting (reviewBoundContract).
+	return strings.ReplaceAll(contract, selfCheckContractPlaceholder, selfcheck.Contract(checks)+"\n\n"+reviewBoundContract()) + "\n\n" + toolcatalog.RunContract(domain.RoleDeveloper)
 }
 
 const developerContractTemplate = `You are the developer for one bounded Yoyodyne work item.
