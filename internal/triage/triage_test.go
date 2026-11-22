@@ -1522,7 +1522,7 @@ func TestAWaitGivesWayToTheHarnessTakingTheWorkOn(t *testing.T) {
 	timed := Closure{Decision: "wait", ClosedAt: at, RevisitAfter: at.Add(2 * time.Hour)}
 	named := Closure{Decision: "wait", ClosedAt: at, WaitsOn: "yoyodyne-blocker"}
 	settled := Closure{Decision: "repair", ClosedAt: at}
-	for _, word := range []string{ResumedDecision, ContinuedChecksDecision, ContinuedStallDecision, SettledDecision} {
+	for _, word := range []string{ResumedDecision, ContinuedChecksDecision, ContinuedStallDecision, SettledDecision, SupersededByLaterRunDecision} {
 		taken := Closure{Decision: word, ClosedAt: at.Add(time.Hour)}
 		if !taken.TakesTheWorkOn() || !taken.Supersedes(timed) || !taken.Supersedes(named) {
 			t.Errorf("a %q closure does not replace a standing wait", word)

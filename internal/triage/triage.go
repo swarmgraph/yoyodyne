@@ -1054,11 +1054,18 @@ const (
 	SettledDecision         = "settled"
 )
 
-// TakesTheWorkOn reports a closure the harness made because it took the
-// stopped work on itself, by continuing the run or confirming its merge.
+// SupersededByLaterRunDecision is the word on the closure the harness records
+// when a later run of the same item holds an approved change or has landed one,
+// so an earlier run of that item has nothing left to decide. It is the
+// harness's, not a triage decision.
+const SupersededByLaterRunDecision = "superseded by a later run"
+
+// TakesTheWorkOn reports a closure the harness made because the stopped work
+// was taken on: by the harness continuing the run or confirming its merge, or
+// by a later run of the same item holding or landing its approved change.
 func (c Closure) TakesTheWorkOn() bool {
 	switch strings.TrimSpace(c.Decision) {
-	case ResumedDecision, ContinuedChecksDecision, ContinuedStallDecision, SettledDecision:
+	case ResumedDecision, ContinuedChecksDecision, ContinuedStallDecision, SettledDecision, SupersededByLaterRunDecision:
 		return true
 	}
 	return false

@@ -2861,6 +2861,28 @@ items: stoppages settled by a re-run that landed, or by the item closing for
 any other reason, that stayed on the docket and crowded live ones out of the
 bounded listing the development manager is shown.
 
+**An earlier run's entry closes once a later run of the item holds or lands
+its approved change.** An item worked more than once leaves each earlier
+stopped run on the docket. Once a later run of the same item, started after the
+earlier one and aimed at the same target branch, holds a change the reviewer
+approved with its branch still there, or has had that change promoted (landed
+on the target, or put in a pull request for the forge to merge), every docket build
+closes the earlier run's entries: the one saying it stopped, or died before it
+started, its escalation, and its unfinished publication. The closure records the decision `superseded by a later
+run`, a reason naming both runs and what the later one did, and that the
+harness decided it from the run records. The reason says the later run landed
+its change only where that is confirmed, naming the commit on the target branch,
+or the merge commit of a pull request the forge has merged. A later run whose
+change went to a pull request the forge has not merged yet is described by that
+pull request, as waiting for the forge to merge it, and one that has not been
+promoted yet by the branch holding its approved change. A wait standing over the entry gives way to
+it; any other decision she made stands. An earlier run stays on the docket when
+no later run has been approved or landed, whatever change it kept; when it
+started after the landing; and when it landed its own change, unless that
+change was handed back for a fresh run. The closure is permanent: if the later
+run's approved change then fails to merge, that later run is docketed on its own
+account, and the earlier runs do not come back.
+
 **What closing does not do is silence the same work stopping again.** A repair
 continues the run that stopped, so a repaired run that dies again is a fresh
 stoppage under the identifier the settled entry carries — and it is docketed,
@@ -2882,7 +2904,8 @@ age it had when it first stopped. A wait that names the work it waits on has no
 such window, and comes back when that work is closed instead, as the next
 section says. Neither kind comes back once the harness has taken the stopped
 work on itself — resumed its integration, continued it at its checks or after a
-stall, or confirmed its merge: the harness's own closure replaces the wait, so
+stall, or confirmed its merge — or a later run of the item has held or landed
+its approved change: the harness's own closure replaces the wait, so
 a merge finished on her request does not return to her when the wait would have
 run out. **A repair or
 a re-run the harness tried to carry out and could not comes back the same way**:
