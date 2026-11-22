@@ -27,6 +27,10 @@ revisions:
       by: architect
       at: 2026-11-22T01:25:26.368096Z
       reason: 'amendment-8afa9323, approved Nov 21: section 8 holds full_pass_every between 1 and 12 hours and puts both pass settings on program manager scheduled triggers too, with why. Resent after document-3361.1 was handed back: this text no longer claims the portable configuration design already holds these bounds, says that design still says 24 hours until its own revision, and cites the admitted build item 430.92 rather than unbuilt code. Read at 09e7a6138757.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T12:53:55.893638Z
+      reason: 'Corrects the design against the second reading of the designs against the code at 848d86190: section 4 says the sub-agent trial ended and slot 2 runs Sonnet with sub-agents off; section 6 and piece 8 had no way to set a model for a program manager''s scheduled passes, so a scheduled trigger gains an optional model the development manager sets; the sizes stay in the listing of documents left out, settling a contradiction; pieces 1 and 2 say what is built. Written whole from main 60d981f81.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -53,6 +57,11 @@ approvals:
       by: harness
       at: 2026-11-22T01:25:26.368096Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3366, for document-3366.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-22T12:53:55.893638Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3446, for document-3446.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
@@ -69,6 +78,8 @@ The figures below are from the operator's assistant, measured on November 20 fro
 Read at commit ed9451a8: `internal/chat/passcontext.go`, which builds what a recurring pass starts from, and `internal/chat/freshness.go`, which builds and refreshes the picture of the product.
 
 Not read: the Claude Code adapter's launch arguments, the briefing builder in `internal/contextbundle`, and the code that starts a pass. Each build piece reads the code it changes first.
+
+The revision of November 22 corrects this design against the second reading of the designs against the code (`docs/diagnoses/yoyodyne-ifd-437-84-6b.md`), made at commit 848d86190 on November 21 and read by the architect at 60d981f81. The architect did not read the code again for it; each correction names the file and lines that reading cites.
 
 ## Models by kind, not by name
 
@@ -105,13 +116,13 @@ The provider reuses cached text only up to points it has marked, and a point is 
    - the listing of documents left out of the pass, or anything about them;
    - the work items;
    - the memories, or any line about them.
-2. **The changing part,** sent as the message: the listing of documents left out, by name, and the rest of the briefing, including the work items; then the memories, the previous pass's account and the pass's message.
+2. **The changing part,** sent as the message: the listing of documents left out, by name and size, and the rest of the briefing, including the work items; then the memories, the previous pass's account and the pass's message.
 
 The bound on what a pass starts from, a third of the provider's window, counts both parts exactly as before, and nothing in either gives way to it.
 
 The unchanging part is written again, once, whenever the product intent or a role's instructions change. A move onto a new build changes the instructions, and the two first turns in the measured day that read almost nothing from the cache both followed one. Moves come at most once every three hours, so this is accepted, and the measurement below shows it.
 
-**What was built.** The fix for a role's new session writing its briefing again every pass (yoyodyne-ifd.430.89) landed on November 20 and builds this decision and the measurement build piece 1 asks for. Read at commit 697f01f0:
+**What was built.** The fix for a role's new session writing its briefing again every pass (yoyodyne-ifd.430.89) landed on November 20 and builds this decision and most of the measurement build piece 1 asks for. Read at commit 697f01f0:
 
 - `contextbundle.SplitUnchanging` takes the opening of the briefing that stays the same while the product intent does: the recorded intent and every document of product intent whole.
 - `withPassBriefing` in `internal/chat/passcontext.go` sends that opening at the end of the instructions block, behind fixed framing text that says it is evidence and not instruction. Every round of the pass carries the same block. The rest of the briefing opens the message, as before.
@@ -120,7 +131,7 @@ The unchanging part is written again, once, whenever the product intent or a rol
 
 That item's acceptance required that a session started within the cache's lifetime reads the unchanged part from the cache, and it closed with its checks passing. The architect has not read the provider's cached and fresh token figures for passes since; the weekly figures in What is measured are where that is confirmed or refuted.
 
-The listing of documents left out still names each document's size. Because that listing is now in the changing part, the sizes cost no reuse, so dropping them is a tidying step and not a condition of this section.
+**The sizes in the listing of documents left out stay.** The listing is in the changing part, so the sizes cost no reuse, and a role uses a document's size to decide whether to read it in parts. An earlier version of build piece 2 dropped them; that is no longer wanted.
 
 **The cache's lifetime.** The unchanging part keeps the cache that lasts an hour. A role's passes come about 45 minutes apart, so the cache that lasts five minutes would have expired before the next pass could read it. Reuse across passes is the whole saving.
 
@@ -141,7 +152,7 @@ The listing of documents left out still names each document's size. Because that
 - a deadline passed on a follow-up the role owns;
 - for the development manager, a change to her list of stopped runs or to the factory's health problems; for a program manager, a change in its lane or in the health problems its lane covers.
 
-Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has a full pass at least as often as the floor in section 8 says, four hours by default, whatever the check finds, so a change the check does not cover is never left longer than that. Passes woken by an event, rather than by the schedule, are not affected.
+Where nothing has changed, the pass is not started. It is recorded as skipped with the reason nothing new since the last completed pass, naming that pass, and it counts as the one instance for its window. Every role still has a full pass at least as often as the floor in section 8 says, four hours by default, whatever the check finds, so a change the check does not cover is never left longer than that. In this repository the management roles' scheduled passes run every 45 minutes, so with the default floor at most five in a row are skipped before a full pass. Passes woken by an event, rather than by the schedule, are not affected.
 
 A check in the harness was chosen over a first look by a cheaper model, because the check costs nothing and the things it reads are already records. A cheaper first look can be weighed later for whatever the check cannot decide.
 
@@ -166,7 +177,7 @@ This is a diagnosis for the development manager to admit and a developer to carr
 
 In this repository it goes in by trial. For at least 40 eligible runs, the development manager alternates eligible items between starting on the cheaper model and starting on the stronger, and compares cost per merged change, how often the first review approves, repair rounds and defects found after landing. It is kept only where cost per merged change falls and the first review approves no less often. It stops at once on a defect after landing traced to a run on the cheaper model that one on the stronger would have caught.
 
-[Developer sub-agents](developer-sub-agents.md) is a separate trial already decided, for runs that keep the stronger model to plan and hand writing to a cheaper one; it is unchanged.
+[Developer sub-agents](developer-sub-agents.md) describes runs that keep the stronger model to plan and hand writing to sub-agents on a cheaper one. Its trial in this repository, Opus planning with Sonnet sub-agents, cost more without a gain in quality, as this repository's configuration records (`.yoyodyne/config.yaml`, lines 136 to 140, at 848d86190), and sub-agents are now off on every developer slot. Slot 2 instead runs Sonnet as its main model with sub-agents off. That is an early look at the question this section's trial answers, not a replacement for it, because slot 2 takes only one label of work and is not compared with the stronger model on the same kind of items.
 
 ## 5. Reviews of documents on the cheaper model
 
@@ -178,7 +189,11 @@ Why some items took five or more reviews is a question for the development manag
 
 ## 6. Passes on the cheaper model where the work allows it
 
-The model of each recurring task is already a setting. As a trial in this repository, the factory-flow program manager's scheduled passes run on the cheaper model for one week, compared with the week before on how many findings it filed that a role then acted on, and on what it missed that the development manager later found. They return to the stronger model if fewer of its findings are acted on. The management roles' own conversation turns, and the models their agents name, are unchanged by this design.
+A recurring task's model is already a setting. A program manager's scheduled passes are not recurring tasks: they come from the triggers on its agent, and in the code a trigger has only how often and on what (`internal/config/lane.go`, lines 62 to 69, at 848d86190). Short of the agent's own model, which stays the operator's, there is nowhere to name a model for those passes.
+
+So a scheduled trigger of a program manager instance gains an optional `model`, naming a kind, that applies only to the passes that trigger starts, exactly as a recurring task's model applies only to its own passes. Where a trigger names none, its passes use the agent's model, as today. [The program manager design](program-manager.md) already says a pass asks for the trigger's model where the trigger names one; this makes that true in the code. Letting the development manager change the agent's model instead was rejected: it would also change the instance's conversation turns, and it would take a decision that is the operator's.
+
+As a trial in this repository, the factory-flow program manager's scheduled passes run on the cheaper model for one week, set by the development manager on its scheduled trigger, compared with the week before on how many findings it filed that a role then acted on, and on what it missed that the development manager later found. They return to the stronger model if fewer of its findings are acted on. The management roles' own conversation turns, and the models their agents name, are unchanged by this design.
 
 ## 7. A helper that reads for a conversation role
 
@@ -207,13 +222,14 @@ Every change above has a setting, a default and an owner, unless this section sa
 | High risk kinds never on the cheaper model (section 4) | `high_risk_labels`: which labels mean security, migrations, concurrency and public interfaces, and any further kinds | the labels `security`, `migration`, `concurrency` and `public-interface` | the development manager may add labels and kinds, never remove the four kinds |
 | Reviewer's model by kind of change (section 5) | `reviewer_models`: `documents` and `code`, each a kind | both `stronger` | the development manager |
 | A recurring task's model (section 6) | the task's existing `model`, which may now name a kind | unchanged | the development manager, as today |
+| The model of a program manager's scheduled passes (section 6) | a new optional `model` on each scheduled trigger of a program manager instance, naming a model or a kind | none, so the passes use the agent's model, as today | the development manager |
 | The reading helper (section 7) | `repository_ask`: its model kind, answer limit and time limit | on once built; `lightest`; 4 KiB, allowed between 1 KiB and 16 KiB; 60 seconds | the development manager; a project may take the tool from an agent with `tools: deny` |
 | Weekly cost figures | none | always kept | nobody |
 
-Why the floor stops at 12 hours, and why the two pass settings reach a program manager's triggers:
+Why the floor stops at 12 hours, and why these settings reach a program manager's triggers:
 
 - **12 hours, not 24.** The floor is what catches a change the skip check does not cover. A role left a whole day without one full pass could miss such a change for a working day, and the milestone's internal week allows no hour with ready work waiting and nobody moving it. Twelve hours still lets a project with little to do skip most of its passes.
-- **Program manager triggers.** A program manager instance is scheduled by its triggers, not by a recurring task, and it had the largest share of passes with nothing new, 53%. Section 2 says every role keeps its floor, so leaving the triggers out would leave the program manager out by accident. The development manager decides only these two keys on a trigger; the rest of an instance's settings stay the operator's.
+- **Program manager triggers.** A program manager instance is scheduled by its triggers, not by a recurring task, and it had the largest share of passes with nothing new, 53%. Section 2 says every role keeps its floor, so leaving the triggers out would leave the program manager out by accident, and section 6 needs the trigger's model for the same reason. The development manager decides only these three keys on a trigger, the two pass settings and its model; the rest of an instance's settings stay the operator's.
 
 Why some things have no setting:
 
@@ -221,13 +237,13 @@ Why some things have no setting:
 - **Which things the skip check reads.** The list is held in code for each role. A list a project could edit could hide a change from the role that has to act on it. A project chooses only whether passes are skipped and how long the floor is.
 - **The four high risk kinds.** The management loop protocol rules that high risk work never runs on the cheapest model, so a project can widen the list and never shrink it.
 - **Which roles hold the reading helper.** Grants are held in the role bundles in Go and configuration never grants a tool, as the invariant on configuration says; a project can only take the helper away from an agent.
-- **Which model each management role runs on.** It stays what it is today, the operator's, in each agent's configuration. Nothing in this design changes it.
+- **Which model each management role runs on.** It stays what it is today, the operator's, in each agent's configuration. A model on a recurring task or on a scheduled trigger changes only the passes it starts, never the agent's own model or its conversation turns. Nothing in this design changes the agent's model.
 
-A change that needs a model of a kind its provider has not named cannot be turned on: a configuration that turns on `developer_cheaper_first`, names a kind in `reviewer_models` or a task's model, or keeps the reading helper on, for a provider lacking that kind, is refused when it loads, naming the provider, the change and the missing kind. The reading helper is off for such a provider until its lightest kind is named.
+A change that needs a model of a kind its provider has not named cannot be turned on: a configuration that turns on `developer_cheaper_first`, names a kind in `reviewer_models`, a task's model or a trigger's model, or keeps the reading helper on, for a provider lacking that kind, is refused when it loads, naming the provider, the change and the missing kind. The reading helper is off for such a provider until its lightest kind is named.
 
 The trials in sections 4 to 6 decide what this repository turns on. They do not change the shipped defaults. If a trial shows a change helps without costing quality, changing the shipped default is a later decision recorded in its own revision of this design.
 
-Section 6 of portable agent configuration is where the development manager's path for these values is recorded. Its row for the two pass settings still allows `full_pass_every` up to 24 hours and names recurring tasks only. Its next revision brings that row into line with this section, and until it lands, this section decides. The admitted build of skipping passes with nothing new (yoyodyne-ifd.430.92) carries the 12 hour bound and the program manager triggers.
+Section 6 of portable agent configuration is where the development manager's path for these values is recorded. Its row for the two pass settings still allows `full_pass_every` up to 24 hours and names recurring tasks only, and it has no row for a trigger's model. Its next revision brings those rows into line with this section, and until it lands, this section decides. The admitted build of skipping passes with nothing new (yoyodyne-ifd.430.92) carries the 12 hour bound and the program manager triggers.
 
 ## What is measured
 
@@ -244,27 +260,28 @@ Each week the harness records, from the spend record, the cost per closed item a
 
 ## Build pieces, in order, for the Lead Product Manager to admit
 
-1. **Record where each opening stops being reused.** For every pass, record the digest of each part of its start in order and the cached and fresh tokens the provider reports, and name the first part that differs from the role's previous pass. No provider call is added.
-2. **Send the unchanging part apart.** Build the unchanging part as section 1 says, with none of what it may never hold, and send it as the separately cached block. Drop sizes from the listing of documents left out. A test shows that two passes with the same instructions and intent produce identical bytes in it. The piece first checks that the Claude Code command line accepts an opening of this size in the separately sent part; where it does not, the piece stops and asks the architect. Needs 1.
+1. **Record where each opening stops being reused.** Built in part with yoyodyne-ifd.430.89: each pass records the size and fingerprint of each part of its start in order and the first part that differs from the role's previous pass. What remains is recording, beside them, the cached and fresh tokens the provider reports for each pass. No provider call is added.
+2. **Send the unchanging part apart.** Built with yoyodyne-ifd.430.89, as section 1 says. Nothing remains; the sizes stay in the listing of documents left out.
 3. **Models by kind.** `model_kinds` with its defaults, the refusal at load where a turned on change needs an unnamed kind, and `yoyo config show` naming each kind's model.
 4. **Skip passes with nothing new.** The check, the skipped record, `skip_when_unchanged` and `full_pass_every` with their defaults and bounds, and a test for each thing checked.
 5. **The diagnosis of the development manager's sessions, messages and repeated reviews,** with a fix named for each cause.
 6. **Developers starting on the cheaper model and moving up once,** with `developer_cheaper_first`, `high_risk_labels`, the refusal to remove a fixed kind, the trial and its record. Needs 3.
 7. **Reviewer model by kind of change,** with `reviewer_models` and the trial for document reviews. Needs 3.
-8. **The factory-flow program manager on the cheaper model for a week,** set by the development manager, with the comparison recorded. Needs 3.
+8. **The factory-flow program manager on the cheaper model for a week.** First the optional `model` on a program manager's scheduled trigger, naming a model or a kind, with the refusal at load where its provider lacks that kind and a test that a trigger's model changes only the passes it starts; then the development manager sets it, and the comparison is recorded. Needs 3.
 9. **`repository.ask`,** with its setting, grants and tests. Needs 3.
 10. **The weekly figures** on cost per closed item and per landed code change.
 
-Pieces 1, 3, 4, 5 and 10 can start at once. Pieces 6, 7 and 8 carry trials the development manager runs.
+What remains of piece 1, and pieces 3, 4, 5 and 10, can start at once. Pieces 6, 7 and 8 carry trials the development manager runs.
 
 ## What a reviewer can check
 
-- After piece 2, two passes of one role with unchanged instructions and intent send identical bytes in the unchanging part, and the provider reports it read from the cache on the second.
+- Two passes of one role with unchanged instructions and intent send identical bytes in the unchanging part, and the provider reports it read from the cache on the second.
 - The unchanging part holds no time, count, size, commit, listing of documents left out, work item or memory.
-- No pass sends less evidence than before: every part it started from is still sent, apart from the sizes dropped from the listing of documents left out.
+- No pass sends less evidence than before: every part it started from is still sent, the sizes in the listing of documents left out included.
 - A project that states none of the settings in section 8 gets exactly the defaults that section names.
 - A configuration that turns on a change needing a model kind its provider has not named is refused at load, naming the provider, the change and the kind.
 - A configuration that removes one of the four high risk kinds is refused at load.
 - A skipped pass is recorded with its reason, and no role goes longer than its floor without a full pass.
+- A model set on a program manager's scheduled trigger changes only the passes that trigger starts; the agent's model and its conversation turns are unchanged.
 - A developer run that moved to the stronger model records why, when and what it cost.
 - No trial's change is kept without the comparison its section names.
