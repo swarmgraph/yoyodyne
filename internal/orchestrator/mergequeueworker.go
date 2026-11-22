@@ -1174,7 +1174,7 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 	}
 	selected := invariants.Select(item.Title, item.Description, item.Design, item.AcceptanceCriteria, change.Changes.Status, change.Changes.DiffStat)
 	revision := reviewedRevision(ctx, w.Candidates, generation.TargetBase)
-	revision.CandidateFiles = reviewedRevision(ctx, w.Candidates, generation.Candidate).ListFiles
+	revision.CandidateDirectory = reviewedRevision(ctx, w.Candidates, generation.Candidate).ListDirectory
 	intentRevision, _, err := p.intentRevision(ctx, "")
 	if err != nil {
 		return generation, false, fmt.Errorf("assemble product intent for the candidate's review: %w", err)

@@ -196,46 +196,82 @@ type fixedBranchClock struct{}
 
 type intentListingReader struct {
 	BranchChangeReader
-	err     error
-	omitted int
+	err error
 }
 
-func (r intentListingReader) FilesAtCommit(ctx context.Context, commit string, maxFiles, maxBytes int) (gitworktree.CommitListing, error) {
+func (r intentListingReader) FilesUnderAtCommit(ctx context.Context, commit, folder string) ([]string, error) {
 	if r.err != nil {
-		return gitworktree.CommitListing{}, r.err
+		return nil, r.err
 	}
-	listing, err := r.BranchChangeReader.FilesAtCommit(ctx, commit, maxFiles, maxBytes)
-	listing.Omitted = r.omitted
-	return listing, err
+	return r.BranchChangeReader.FilesUnderAtCommit(ctx, commit, folder)
 }
 
-func TestBranchReviewRefusesAnUnreadableOrPartialBaseIntentListing(t *testing.T) {
+func TestBranchReviewRefusesAnUnreadableProductFolderNamingIt(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range []struct {
-		name, want string
-		err        error
-		omitted    int
-	}{
-		{name: "failed", want: "base listing unavailable", err: errors.New("base listing unavailable")},
-		{name: "bounded", want: "base repository listing omitted 3 path(s) (limits: 20000 paths, 131072 bytes)", omitted: 3},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			repository := accumulatedRepository(t)
-			provider := branchProvider(`{"decision":"approve","summary":"fine"}`)
-			reviewer, records, _ := newBranchReviewer(t, repository, provider)
-			reviewer.Worktrees = intentListingReader{BranchChangeReader: reviewer.Worktrees, err: test.err, omitted: test.omitted}
-			_, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"})
-			if err == nil || !strings.Contains(err.Error(), "discover product documents at base commit") || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("review error = %v", err)
-			}
-			if len(provider.Requests) != 0 {
-				t.Fatal("reviewer was invoked without a complete base intent listing")
-			}
-			if saved, err := records.List(); err != nil || len(saved) != 0 {
-				t.Fatalf("review records = %#v, %v", saved, err)
-			}
-		})
+	repository := accumulatedRepository(t)
+	provider := branchProvider(`{"decision":"approve","summary":"fine"}`)
+	reviewer, records, _ := newBranchReviewer(t, repository, provider)
+	reviewer.Worktrees = intentListingReader{BranchChangeReader: reviewer.Worktrees, err: errors.New("docs/product could not be read whole: output was cut")}
+	_, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"})
+	if err == nil || !strings.Contains(err.Error(), "discover product documents at base commit") ||
+		!strings.Contains(err.Error(), "the product folder docs/product could not be read") ||
+		strings.Contains(err.Error(), "repository listing") {
+		t.Fatalf("review error = %v", err)
+	}
+	if len(provider.Requests) != 0 {
+		t.Fatal("reviewer was invoked without the product folder read whole")
+	}
+	if saved, err := records.List(); err != nil || len(saved) != 0 {
+		t.Fatalf("review records = %#v, %v", saved, err)
+	}
+}
+
+// A repository whose whole listing is far past the bound a reviewer is shown is
+// reviewed as a small one is: the candidate adds a file and the standing goals
+// are still found.
+func TestBranchReviewOfALargeRepositoryFindsStandingGoalsForACandidateAddingAFile(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	const goals = "# Goals\nStanding goal text that must reach the reviewer.\n"
+	bulk := filepath.Join(repository, "bulk")
+	if err := os.MkdirAll(bulk, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3500; i++ {
+		name := fmt.Sprintf("a-deliberately-long-file-name-to-fill-the-listing-%05d.txt", i)
+		if err := os.WriteFile(filepath.Join(bulk, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(repository, "docs", "product"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "docs", "product", "goals.md"), []byte(goals), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, repository, "add", ".")
+	runPipelineGit(t, repository, "commit", "-m", "a large repository")
+	runPipelineGit(t, repository, "checkout", "-b", "milestone")
+	if err := os.WriteFile(filepath.Join(repository, "added.go"), []byte("package harness\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, repository, "add", "added.go")
+	runPipelineGit(t, repository, "commit", "-m", "add a file")
+	runPipelineGit(t, repository, "checkout", "main")
+
+	provider := branchProvider(`{"decision":"approve","summary":"fine"}`)
+	reviewer, _, _ := newBranchReviewer(t, repository, provider)
+	whole, err := reviewer.Worktrees.FilesAtCommit(context.Background(), gitLine(t, repository, "rev-parse", "main"), 20000, maxRepositoryListingBytes)
+	if err != nil || whole.Omitted == 0 {
+		t.Fatalf("the repository's listing must exceed the bound for this test to mean anything: omitted %d, %v", whole.Omitted, err)
+	}
+	if _, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"}); err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if prompt := provider.Requests[0].Prompt; !strings.Contains(prompt, goals) || !strings.Contains(prompt, "added.go") {
+		t.Errorf("reviewer was not given the standing goals and the change")
 	}
 }
 
