@@ -50,6 +50,11 @@ revisions:
       at: 2026-11-21T23:20:52.307726Z
       reason: 'yoyodyne-ifd.428.189: aligns the dedicated-seat rule with the architect''s dedicated-slots decision, which answers that item. A dedicated seat still takes its own kind of work first, with one exception: a priority 0 item no seat''s labels cover goes ahead once it has waited past the time the scheduling design sets, so no priority 0 item waits without limit. Ordering is the Lead Product Manager''s; no goal changes, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-22T01:14:39.65361Z
+      reason: 'yoyodyne-ifd.428.189: records the operator''s direction of 16:55 PST Nov 21 2026: no time-based exception for priority 0 work no seat''s labels cover; a labelled seat takes its labelled work first; and the Lead Product Manager tells him when a priority 0 item is not moving that she thinks should. This replaces the exception my previous revision added. It is a rule he gave; no goal changes, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -83,6 +88,10 @@ approvals:
       by: product-manager
       at: 2026-11-21T23:20:52.307726Z
       reason: yoyodyne-ifd.428.189 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 9
+      by: product-manager
+      at: 2026-11-22T01:14:39.65361Z
+      reason: yoyodyne-ifd.428.189 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # Operating rules
@@ -104,7 +113,8 @@ Lead Product Manager.
 - A run is never killed for a flaky network or a sleeping laptop: a transport that drops or a machine that sleeps is waited out, and only a person or a bound on the work itself ends a run. (fb5a74a9)
 - Slack, the dashboard, the scheduler, and maintenance are parts of one product: started, stopped, restarted, and moved onto a new build together, by the product and not by a person. (6de828a8)
 - Developer seats are tagged, and one seat is dedicated to reliability work. (a43f7677, d83b6391)
-- A developer seat dedicated to one kind of work takes that work first, ahead of reliability work of any priority elsewhere, because reliability work has a seat of its own; when that kind of work has nothing ready, the seat takes the ordinary order, so it never sits idle while other ready work waits. The one exception: a priority 0 item that no seat's labels cover, once it has waited longer than the time the scheduling design sets, goes ahead of a dedicated seat's own work, so no priority 0 item waits without limit. (the Lead Product Manager, 2026-10-28, on the operator's direction that day; recorded on yoyodyne-ifd.428.130. Exception added 2026-11-21 on yoyodyne-ifd.428.189, after the operator's direction that day that priority 0 work stop displacing a labelled seat's own work.)
+- A developer seat dedicated to one kind of work takes that work first, ahead of reliability work of any priority elsewhere, because reliability work has a seat of its own; when that kind of work has nothing ready, the seat takes the ordinary order, so it never sits idle while other ready work waits. (the Lead Product Manager, 2026-10-28, on the operator's direction that day; recorded on yoyodyne-ifd.428.130)
+- A developer seat that prefers labels takes ready work carrying any of its labels ahead of priority 0 work carrying none of them, with no exception after a wait. A priority 0 item that no seat's labels cover starts when some seat has none of its own labelled work ready. When a ready priority 0 item is not moving and the Lead Product Manager thinks it should, she tells the operator, in her reply to him or his assistant and in her recurring pass's account, naming the item, how long it has waited, and why it should move. (the operator, 2026-11-21, recorded on yoyodyne-ifd.428.189; it replaces the one-hour exception the architect's ruling proposed)
 - Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, the reliability seat and any dedicated seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
 - When the intake brake trips, it summons the development manager to decide, never the operator; the operator is told and may release it. (789c052c)
 - A developer run never runs the tracker's command directly; the harness reads and writes the tracker on its behalf. (from CLAUDE.md, moved here by the item beside this one)
