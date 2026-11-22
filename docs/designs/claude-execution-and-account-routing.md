@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-21T13:18:51.172875Z
       reason: 'amendment-b3e82c78 follow-up: acceptance criterion 2 now matches this section (revision 8), so the temporary paragraph saying it still disagreed and that this section governs until then is removed. Nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T10:18:12.851991Z
+      reason: 'Review of every design against the code, execution group: the Delivery boundary section now lists what is built with code locations, names the one missing crash test, and decides three things the design left unsaid (fallback off still pins the pair; a run moved to a slot with no pair; the merge queue review uses reviewer fallback). It also records that the table of slots is unapplied and leaves applying it to the adoption step.'
 approvals:
     - revision: 3
       by: operator
@@ -81,6 +85,11 @@ approvals:
       by: harness
       at: 2026-11-21T13:18:51.172875Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3321, for document-3321.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-22T10:18:12.851991Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3439, for document-3439.1 under the automatic approval policy
 ---
 # Execution routing: pinned invocations, developer slots, and safe provider fallback
 
@@ -296,6 +305,42 @@ Existing live invocations remain pinned. Rollback restores the prior configurati
 
 ## Delivery boundary
 
-This revision contains the architectural guidance needed for bounded implementation. It does not require another architectural decision about slot identity, fallback scope, reviewer inclusion, recovery storage semantics, legacy treatment, or the four-slot mapping. The development manager owns implementation decomposition and the narrow application step; existing product sequencing remains with the Lead Product Manager.
+This revision contains the architectural guidance needed for bounded implementation. It does not require another architectural decision about slot identity, fallback scope, reviewer inclusion, recovery storage semantics, legacy treatment, or the mapping of slots to endpoints. The development manager owns implementation decomposition and the narrow application step; existing product sequencing remains with the Lead Product Manager.
 
-Other documents that still state a universal Claude-only or no-fallback rule require reconciliation by their owners through the existing provider-policy work. Such wording is not permission to weaken this design's execution protections or to broaden the authorized configuration change. Record the conflicting location and owning role rather than silently editing product intent.
+### What is built
+
+This table comes from the second reading of this group's designs against the code, taken on November 21, 2026 against main at 848d86190 (docs/diagnoses/yoyodyne-ifd-437-84-6b.md). The architect did not read the code again for this revision, so read the file and line a row names before building on it.
+
+| Part | Built | Where |
+| --- | --- | --- |
+| Slot numbers, endpoint pairs and their validation | Yes | `internal/domain/label.go:93-121`; `internal/runstate/routing.go:109-121` and `:234-276`; `internal/config/slotrouting.go` |
+| A run taken up again takes a free slot, pinned again to that slot's pair where it held one | Yes | `internal/runstate/store.go:319-372`; `routing.go:638` and `:669` |
+| One switch per operation, only on a classified usage limit or a primary already known to be limited, with the alternate checked first | Yes | `internal/orchestrator/developerrouting.go:1031-1111`, `:979-1006`, `:792-800`, `:1052` |
+| A switch whose source may still be running waits for reconciliation | Yes | `developerrouting.go:776-782`; `internal/runstate/launch.go:457-592` |
+| Crash, race and newer version tests for acceptance criteria 6, 7 and 9 | Yes, with one gap below | `internal/runstate/launch_unix_test.go:368-1034`; `internal/runstate/routing_test.go:224-634` |
+| The merge queue's review switches endpoints on a usage limit | Yes | `internal/orchestrator/mergequeueworker.go:1324` |
+| The table of slots above, applied to this repository | No | `.yoyodyne/config.yaml:124-157` |
+
+The gap: no test stops a run at the point where an attempt's usage is saved, one of the crash points acceptance criterion 6 names. Build piece 1 adds it.
+
+### Three things the sections above leave unsaid, decided here
+
+1. **Fallback can be off while the pair still pins the run.** A slot's routing setting names a primary, an alternate, and `enabled`, which turns automatic fallback on or off. It does not turn the pair on or off. With fallback off, a run in that slot is still pinned to the slot's primary, its snapshot still records an explicit pair, and a usage limit on the primary leaves the operation waiting under the capacity rules above instead of switching. Slot 2 on this repository runs its Sonnet trial this way. Rejected: reading fallback off as no pair at all. That would send the slot back to the shared developer model and end a trial the configuration set on purpose, which is the silent revert to the shared model that the slot section forbids. Code: `slotrouting.go:98`, `routing.go:527`, `developerrouting.go:207-219` and `:244-261`.
+
+2. **A run moved to a slot that has no pair.** When a run taken up again moves to a free slot with no explicit pair, it takes the endpoint the existing model precedence chooses for that slot, and its new snapshot records that it holds no explicit pair, whatever its earlier snapshot held. Everything the slot section says about a move still applies: the earlier and new slot, each one's pair where it has one, the time and the reason are recorded; the operation keeps its identity, attempt count, recovery deadline, spent budgets and switch count; a committed switch stays spent; and the next attempt is rebuilt from durable state. Rejected: carrying the earlier pair into the new slot, for the reason the slot section gives. Code: `developerrouting.go:221-241`.
+
+3. **Every reviewer invocation follows reviewer fallback, the merge queue's review of a candidate included.** The rules under Reviewer fallback and independence apply to it exactly as to a run's reviewer: its own primary and alternate, one switch per review, independence from the developer, and judgment only of the exact candidate. Code: `mergequeueworker.go:1324`.
+
+### The table of slots and this repository's configuration
+
+The table of slots above has not been applied. At the second reading, this repository's configuration ran three developers at once (`.yoyodyne/config.yaml:124`), its slots did not name the table's pairs, slot 2 ran Sonnet pinned with fallback off and kept for team development work (`:141-146`), and the model gpt-6.1-sol appeared in no slot. The configuration's comment that every role runs on Claude Opus (`:535`) is wrong against it.
+
+Applying the table is the development manager's adoption step, Coordinate and verify live adoption of the four developer slot pairs and reviewer fallback (yoyodyne-ifd.435.14.7). That step does not change the number of developer slots: it applies the table to the slots configured, and records any slot in the table that does not exist. Where a slot runs a trial the table would replace, such as slot 2's Sonnet pin, the step does not end it silently: it records the trial's state, and applies the table to that slot once the trial has ended. The same step corrects the configuration comment named above.
+
+### Build pieces
+
+1. A test that stops a run after an attempt's usage is reported and before it is saved, and shows that recovery neither loses that usage nor counts it twice (acceptance criterion 6).
+
+### Other documents
+
+Other documents that still say every role must use Claude Code, or that no automatic fallback exists, require reconciliation by their owners through the existing provider policy work. Such wording is not permission to weaken this design's execution protections or to broaden the authorized configuration change. Record the conflicting location and owning role rather than silently editing product intent.
