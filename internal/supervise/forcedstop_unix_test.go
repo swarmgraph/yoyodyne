@@ -34,13 +34,13 @@ func TestAStopThatForcesKillsAProcessIgnoringTheStopAndWhatItStarted(t *testing.
 	if err := command.Process.Release(); err != nil {
 		t.Fatalf("release the process: %v", err)
 	}
-	t.Cleanup(func() { _ = killTree(pid); _, _ = reap(pid) })
+	endOnCleanup(t, pid)
 	started := waitForAChild(t, pid)
 	if len(started) != 1 || started[0].group != started[0].pid {
 		t.Fatalf("children = %+v, want one child leading its own group", started)
 	}
 	grandchild := started[0].pid
-	t.Cleanup(func() { _ = killTree(grandchild) })
+	endOnCleanup(t, grandchild)
 
 	alive := func(of int) bool {
 		look, err := runstate.LookProcess(of)
@@ -102,7 +102,7 @@ func TestAStopThatDoesNotForceLeavesAProcessIgnoringTheStopRunning(t *testing.T)
 	if err := command.Process.Release(); err != nil {
 		t.Fatalf("release the process: %v", err)
 	}
-	t.Cleanup(func() { _ = killTree(pid); _, _ = reap(pid) })
+	endOnCleanup(t, pid)
 	waitForAChild(t, pid)
 	held := func() (bool, error) {
 		look, err := runstate.LookProcess(pid)
@@ -159,4 +159,27 @@ func waitForAChild(t *testing.T, pid int) []process {
 	}
 	t.Fatalf("pid %d started no child within ten seconds", pid)
 	return nil
+}
+
+// endOnCleanup ends a process this test started, and what it started, when the
+// test ends, but only while the process with that number is still the one the
+// test started: a process the test has already ended and collected may have
+// given its number to some other process on the machine — another package's
+// tests run beside this one — and that one is left alone.
+func endOnCleanup(t *testing.T, pid int) {
+	t.Helper()
+	started, err := runstate.LookProcess(pid)
+	if err != nil || !started.Exists || started.StartedAt.IsZero() {
+		t.Fatalf("pid %d could not be identified to end it when the test ends: %+v, %v", pid, started, err)
+	}
+	t.Cleanup(func() {
+		look, err := runstate.LookProcess(pid)
+		if err != nil || !look.Exists || !look.StartedAt.Equal(started.StartedAt) {
+			return
+		}
+		if !look.Exited {
+			_ = killTree(pid)
+		}
+		_, _ = reap(pid)
+	})
 }
