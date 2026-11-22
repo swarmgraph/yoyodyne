@@ -393,6 +393,11 @@ func (d Docketer) Build() (DocketBuild, error) {
 	if _, err := d.settleRedispatchedAttempts(recorded, now); err != nil {
 		problems = append(problems, err)
 	}
+	// And so is an earlier run whose item a later run holds or has landed the
+	// approved change for: see docketsupersededruns.go.
+	if _, err := d.settleSupersededRuns(recorded, now); err != nil {
+		problems = append(problems, err)
+	}
 	entries, err := d.Docket.List()
 	if err != nil {
 		problems = append(problems, fmt.Errorf("read the triage docket: %w", err))
