@@ -2802,8 +2802,18 @@ the item stays claimed, and the item's notes name the queue and the entry the
 change waits in; the run holds no developer slot meanwhile, so the next item
 starts beside it.
 
-The queue then lands the change on its own, one entry at a time in the order
-they were admitted. It builds a candidate — the target as it stands with the
+The queue then lands the change on its own, one entry at a time. It chooses the
+next entry each time, by these rules, the first that applies deciding: an entry
+already being checked or reviewed; then one that has waited four hours or more
+since it was admitted, oldest first; then priority 0 code; then documents; then
+other code by priority; then code whose priority could not be read, oldest
+first. When the last change the queue landed was a document and ordinary code is
+waiting, documents are passed over for that one choice, so two documents never
+land in a row while code waits. `yoyo status` and the dashboard show the waiting
+entries in this order, with the rule that put the first one first. The full
+rules are in
+[the merge queue design](designs/integration-through-a-merge-queue.md#the-order-the-queue-takes-entries-in).
+It builds a candidate — the target as it stands with the
 change merged onto it — and lands that candidate only once the candidate itself
 has passed the protected-path gate, the configured checks, and an independent
 review: the run's own approval admitted the change and authorizes no landing.

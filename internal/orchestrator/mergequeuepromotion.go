@@ -388,8 +388,10 @@ func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey
 	if len(waiting) == 0 {
 		return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, nil
 	}
-	order := queueOrder{pipeline: p.Pipeline, paths: p.Lander.CandidatePaths, now: p.Pipeline.clock().Now().UTC()}
-	entry := order.choose(ctx, waiting, started).Entry
+	order := queueOrder{pipeline: p.Pipeline, paths: p.Lander.CandidatePaths, now: p.Pipeline.clock().Now().UTC(), lastLandedDocument: lastLandingWasDocument(p.Queue, key, "")}
+	choice := order.choose(ctx, waiting, started)
+	queueChose(ctx, choice)
+	entry := choice.Entry
 	return entry, landings[entry.EntryID], true, nil
 }
 

@@ -200,6 +200,7 @@ func (d MergeQueueDriver) Pass(ctx context.Context, key runstate.MergeQueueKey) 
 		pass.Moved = &moved
 	}
 	pass.ForRestart = pass.Outcome == runstate.MergeQueuePassWaiting && queueCheckStagesOf(ctx).restarting()
+	pass.Order = progress.order()
 	if err := d.Queues.RecordPass(context.WithoutCancel(ctx), key, pass); err != nil && pass.Outcome != runstate.MergeQueuePassStopped {
 		pass.Says = fmt.Sprintf("%s; and what the pass found could not be recorded: %v", pass.Says, err)
 	}
@@ -437,6 +438,33 @@ type queueProgressKey struct{}
 type queueProgress struct {
 	mu    sync.Mutex
 	first time.Time
+	// chosen is the last choice the queue's order made in the pass, which the
+	// pass records as the order the waiting entries are taken in.
+	chosen *MergeQueueChoice
+}
+
+// queueChose keeps the order's choice for the pass to record, where the pass
+// asked to be told. The latest choice stands for the pass.
+func queueChose(ctx context.Context, choice MergeQueueChoice) {
+	progress, _ := ctx.Value(queueProgressKey{}).(*queueProgress)
+	if progress == nil {
+		return
+	}
+	progress.mu.Lock()
+	defer progress.mu.Unlock()
+	progress.chosen = &choice
+}
+
+// order is the last choice made in the pass as the pass records it, and nil
+// where the pass made none.
+func (p *queueProgress) order() *runstate.MergeQueueOrder {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.chosen == nil || len(p.chosen.Order) == 0 {
+		return nil
+	}
+	selection := p.chosen.Selection()
+	return &runstate.MergeQueueOrder{Entries: slices.Clone(p.chosen.Order), Rule: selection.Rule, Why: selection.Why}
 }
 
 func withQueueProgress(ctx context.Context, progress *queueProgress) context.Context {

@@ -255,10 +255,12 @@ func TestNothingIsCheckedAheadOnATargetThatLandsThroughAPullRequest(t *testing.T
 
 // The candidate checked ahead is the entry the queue's order would take next,
 // not the next one admitted. With code, a design, code and a second design
-// admitted in that order, the worker takes the first design (the architect's
-// oldest document goes with priority 0 code), and once it has landed the order
-// takes the second design next, so that is the one checked ahead; in admission
-// order it would have been the code admitted between them.
+// admitted in that order and no priority 0 code, the worker takes the first
+// design (documents go ahead of other code), and once it has landed the order
+// takes ordinary code next, the code admitted first, because a document never
+// lands twice in a row while code waits; in admission order it would have been
+// the code admitted between the designs, and by the document rule alone the
+// second design.
 func TestTheCandidateCheckedAheadIsTheOneTheOrderTakesNext(t *testing.T) {
 	t.Parallel()
 
@@ -287,9 +289,9 @@ func TestTheCandidateCheckedAheadIsTheOneTheOrderTakesNext(t *testing.T) {
 		t.Fatalf("worked entry %d, want the first design, entry %d", verification.Entry.Order, firstDesign.Order)
 	}
 	if verification.Ahead == nil {
-		t.Fatalf("nothing was checked ahead (%q), want the second design, entry %d", verification.Waiting, secondDesign.Order)
+		t.Fatalf("nothing was checked ahead (%q), want the code admitted first", verification.Waiting)
 	}
-	if verification.Ahead.Entry.EntryID != secondDesign.EntryID {
-		t.Fatalf("checked entry %d ahead, want the second design, entry %d, which the order takes next (not entry %d, admitted next)", verification.Ahead.Entry.Order, secondDesign.Order, between.Order)
+	if got := verification.Ahead.Entry; got.EntryID == between.EntryID || got.EntryID == secondDesign.EntryID || got.EntryID == firstDesign.EntryID {
+		t.Fatalf("checked entry %d ahead, want the code admitted first, which the order takes after a design (not entry %d, admitted next, nor the second design, entry %d)", got.Order, between.Order, secondDesign.Order)
 	}
 }

@@ -411,8 +411,12 @@ func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueu
 	if len(waiting) == 0 {
 		return MergeQueueChoice{}, false, nil
 	}
-	order := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths, now: w.now()}
-	return order.choose(ctx, waiting, started), true, nil
+	order := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths, now: w.now(), lastLandedDocument: lastLandingWasDocument(w.Queue, key, after)}
+	choice := order.choose(ctx, waiting, started)
+	if after == "" {
+		queueChose(ctx, choice)
+	}
+	return choice, true, nil
 }
 
 func (w MergeQueueWorker) now() time.Time {

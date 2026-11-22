@@ -26,13 +26,13 @@ var errNoQueueTracker = errors.New("no tracker is configured for the merge queue
 
 // mergeQueueAgeLimit is how long an entry waits, since admission, before it
 // goes ahead of everything else whatever its priority.
-const mergeQueueAgeLimit = 8 * time.Hour
+const mergeQueueAgeLimit = 4 * time.Hour
 
 // Rules that can choose an entry, in the words a record of the choice carries.
 const (
 	MergeQueueRuleInProgress  = "already being checked or reviewed"
-	MergeQueueRuleAged        = "waited eight hours or more"
-	MergeQueueRuleUrgent      = "priority 0 code, or the architect's oldest document"
+	MergeQueueRuleAged        = "waited four hours or more"
+	MergeQueueRuleUrgent      = "priority 0 code"
 	MergeQueueRuleDocument    = "document"
 	MergeQueueRulePriority    = "code, by priority"
 	MergeQueueRuleUnreadable  = "code whose priority could not be read"
@@ -58,6 +58,18 @@ type MergeQueueChoice struct {
 	Priority         int
 	PriorityKnown    bool
 	PriorityLastRead bool
+	// Document says the chosen entry is a document entry. It is what a later
+	// choice reads, from the record of this one, to learn whether the last
+	// candidate the queue landed was a document candidate.
+	Document bool
+	// DocumentPassedOver says documents were waiting and the document rule was
+	// passed over for this one choice, because the last candidate the queue
+	// landed was a document candidate and ordinary code was waiting.
+	DocumentPassedOver bool
+	// Order is every waiting entry's id in the order the rules would take them,
+	// the chosen entry first, supposing each lands in turn. It is what yoyo status
+	// and the dashboard show the waiting entries in.
+	Order []string
 }
 
 // QueueReadings remembers, for each work item the queue holds, what the
@@ -116,9 +128,9 @@ func (c MergeQueueChoice) Why() string {
 	case MergeQueueRuleInProgress:
 		why = "its checks or review had already begun, and they are not thrown away for another entry"
 	case MergeQueueRuleAged:
-		why = "it had waited eight hours or more, and an entry that has waited that long goes ahead of everything else whatever its priority"
+		why = "it had waited four hours or more, and an entry that has waited that long goes ahead of everything else whatever its priority"
 	case MergeQueueRuleUrgent:
-		why = "it is priority 0 code, or the architect's oldest document, which go ahead of other entries"
+		why = "it is priority 0 code, which goes ahead of documents and other code"
 	case MergeQueueRuleDocument:
 		why = "it is a document, and documents go ahead of code that is not priority 0"
 	case MergeQueueRulePriority:
@@ -134,6 +146,9 @@ func (c MergeQueueChoice) Why() string {
 			source = "as last read, because the tracker could not be read this time"
 		}
 		why += fmt.Sprintf("; its priority is %d (%s)", c.Priority, source)
+	}
+	if c.DocumentPassedOver {
+		why += "; the last change the queue landed was a document, so the documents waiting were passed over this once and code was taken, so that documents never land twice in a row while code waits"
 	}
 	if c.PlacedFirst {
 		why += "; the Lead Product Manager placed its work item first among its priority, which put it ahead of entries admitted earlier"
@@ -154,7 +169,7 @@ func (c MergeQueueChoice) Why() string {
 // Selection is the choice as a generation records it.
 func (c MergeQueueChoice) Selection() *runstate.MergeQueueSelection {
 	why := oneline.Bound(c.Why(), runstate.MaxMergeQueueTextBytes)
-	return &runstate.MergeQueueSelection{Rule: c.Rule, Why: why}
+	return &runstate.MergeQueueSelection{Rule: c.Rule, Why: why, Document: c.Document, PlacedFirst: c.PlacedFirst, DocumentPassedOver: c.DocumentPassedOver}
 }
 
 // rankedEntry is a waiting entry with what the order decides by.
@@ -162,7 +177,6 @@ type rankedEntry struct {
 	entry      runstate.MergeQueueEntry
 	inProgress bool
 	document   bool
-	architect  bool
 	priority   int
 	readable   bool
 	// lastRead says the priority is the one remembered from an earlier read,
@@ -185,6 +199,9 @@ type queueOrder struct {
 	// paths lists what a change makes against its base.
 	paths func(ctx context.Context, base, candidate string) ([]string, error)
 	now   time.Time
+	// lastLandedDocument says the last candidate the queue landed was a
+	// document candidate, as the recorded choices say (lastLandingWasDocument).
+	lastLandedDocument bool
 }
 
 func (o queueOrder) choose(ctx context.Context, waiting []runstate.MergeQueueEntry, started map[string]bool) MergeQueueChoice {
@@ -193,24 +210,24 @@ func (o queueOrder) choose(ctx context.Context, waiting []runstate.MergeQueueEnt
 
 // documentKind says from the paths the entry's change makes against its
 // recorded base, never from its recorded kind, whether the entry is a
-// document and whether it is the architect's. It asks the same question of
-// the paths as the document landing route (changeIsDocument). A change whose
-// paths cannot be read is a code entry, which is checked as code is.
-func (o queueOrder) documentKind(ctx context.Context, entry runstate.MergeQueueEntry) (document, architect bool) {
+// document, whoever wrote it. It asks the same question of the paths as the
+// document landing route (changeIsDocument). A change whose paths cannot be
+// read is a code entry, which is checked as code is.
+func (o queueOrder) documentKind(ctx context.Context, entry runstate.MergeQueueEntry) bool {
 	if o.pipeline.Store == nil || o.paths == nil {
-		return false, false
+		return false
 	}
 	run, err := o.pipeline.Store.Load(entry.RunID)
 	if err != nil || run.BaseCommit == "" || entry.ApprovedHead == "" {
-		return false, false
+		return false
 	}
 	changed, err := o.paths(ctx, run.BaseCommit, entry.ApprovedHead)
 	if err != nil {
-		return false, false
+		return false
 	}
 	// A blank line in a listing of paths is no path.
 	changed = slices.DeleteFunc(slices.Clone(changed), func(changedPath string) bool { return strings.TrimSpace(changedPath) == "" })
-	return changeIsDocument(o.pipeline.Config, changed), changeIsArchitects(o.pipeline.Config, changed)
+	return changeIsDocument(o.pipeline.Config, changed)
 }
 
 // entryInProgress is an entry whose newest generation has begun its checks or
@@ -218,7 +235,7 @@ func (o queueOrder) documentKind(ctx context.Context, entry runstate.MergeQueueE
 // both and waits only for the landing step. Either is never stopped for an
 // entry that ranks higher, so the checks and review it has are not thrown
 // away because the order's answer changed while it was checked, as when
-// another entry reaches eight hours of waiting in the meantime.
+// another entry reaches four hours of waiting in the meantime.
 //
 // A candidate checked ahead (mergequeueahead.go) stands on the candidate of the
 // entry it was built on, so it counts only once that entry no longer waits
@@ -253,7 +270,7 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	read := o.readEntryItems(ctx, waiting)
 	for _, entry := range waiting {
 		r := rankedEntry{entry: entry, inProgress: started[entry.EntryID]}
-		r.document, r.architect = o.documentKind(ctx, entry)
+		r.document = o.documentKind(ctx, entry)
 		var reading queueReading
 		item, err := read.item(ctx, o.pipeline.Tracker, entry.WorkItemID)
 		if err == nil {
@@ -300,18 +317,39 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	}
 	// An entry waiting on another waiting entry's item waits for it, unless
 	// every entry does, which would be a cycle that nothing could break.
-	candidates := ranked[:0:0]
+	var candidates, held []rankedEntry
 	for _, r := range ranked {
-		if !blocked[r.entry.EntryID] {
+		if blocked[r.entry.EntryID] {
+			held = append(held, r)
+		} else {
 			candidates = append(candidates, r)
 		}
 	}
 	if len(candidates) == 0 {
-		candidates = ranked
+		candidates, held = ranked, nil
 	}
-	chosen, rule, placed := rank(candidates, o.now)
+	chosen, rule, placed, passedOver := rank(candidates, o.now, o.lastLandedDocument)
+	// The entries held back by another entry's item follow the rest: they can
+	// go only once what holds them has landed.
+	order := append(rankAll(candidates, o.now, o.lastLandedDocument), rankAll(held, o.now, false)...)
 	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry), PlacedFirst: placed,
-		Priority: chosen.priority, PriorityKnown: chosen.readable, PriorityLastRead: chosen.lastRead, TrackerUnread: unread}
+		Priority: chosen.priority, PriorityKnown: chosen.readable, PriorityLastRead: chosen.lastRead, TrackerUnread: unread,
+		Document: chosen.document, DocumentPassedOver: passedOver, Order: order}
+}
+
+// rankAll is every candidate's entry id in the order the rules take them,
+// supposing each lands in turn: after a document, the next is chosen as the
+// document rule says it is after a document landing.
+func rankAll(candidates []rankedEntry, now time.Time, lastDocument bool) []string {
+	remaining := slices.Clone(candidates)
+	order := make([]string, 0, len(remaining))
+	for len(remaining) > 0 {
+		chosen, _, _, _ := rank(remaining, now, lastDocument)
+		order = append(order, chosen.entry.EntryID)
+		lastDocument = chosen.document
+		remaining = slices.DeleteFunc(remaining, func(r rankedEntry) bool { return r.entry.EntryID == chosen.entry.EntryID })
+	}
+	return order
 }
 
 // entryItems is what pick read of the waiting entries' work items together.
@@ -386,18 +424,23 @@ func queuePassedOver(waiting []runstate.MergeQueueEntry, chosen runstate.MergeQu
 }
 
 // rank applies the rules to candidates given in admission order and returns
-// the first entry the first applicable rule picks, and whether a placement
-// decided it. candidates is not empty.
+// the first entry the first applicable rule picks, whether a placement decided
+// it, and whether the document rule was passed over. candidates is not empty.
 //
 // Within rule 2, and within each priority under rule 4, an entry whose work
 // item was placed first goes ahead, earliest placement first, and the rest
 // follow in admission order. A placement never lifts an entry past an entry
-// already in progress or one that has waited eight hours, nor into a higher
+// already in progress or one that has waited four hours, nor into a higher
 // rule, because each rule's members are chosen before placement is looked at.
-func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string, bool) {
+//
+// lastDocument says the last candidate the queue landed was a document
+// candidate. Then, where any code entry waits under rule 4 or rule 5, the
+// document rule is passed over for this one choice, so a document candidate
+// never lands twice in a row while ordinary code waits.
+func rank(candidates []rankedEntry, now time.Time, lastDocument bool) (rankedEntry, string, bool, bool) {
 	for _, r := range candidates {
 		if r.inProgress {
-			return r, MergeQueueRuleInProgress, false
+			return r, MergeQueueRuleInProgress, false, false
 		}
 	}
 	var aged []rankedEntry
@@ -413,33 +456,35 @@ func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string, bool) {
 			}
 			return aged[i].entry.Order < aged[j].entry.Order
 		})
-		return aged[0], MergeQueueRuleAged, false
-	}
-	oldestArchitect := -1
-	for i, r := range candidates {
-		if r.document && r.architect {
-			oldestArchitect = i
-			break
-		}
+		return aged[0], MergeQueueRuleAged, false, false
 	}
 	var urgent []rankedEntry
-	for i, r := range candidates {
-		if i == oldestArchitect || (!r.document && r.readable && r.priority == 0) {
+	for _, r := range candidates {
+		if !r.document && r.readable && r.priority == 0 {
 			urgent = append(urgent, r)
 		}
 	}
 	if len(urgent) > 0 {
 		chosen, placed := placedFirst(urgent)
-		return chosen, MergeQueueRuleUrgent, placed
+		return chosen, MergeQueueRuleUrgent, placed, false
 	}
+	// No priority 0 code is waiting here, so any code entry is ordinary code
+	// under rule 4 or rule 5.
+	codeWaits := slices.ContainsFunc(candidates, func(r rankedEntry) bool { return !r.document })
+	passedOver := false
 	for _, r := range candidates {
-		if r.document {
-			return r, MergeQueueRuleDocument, false
+		if !r.document {
+			continue
 		}
+		if lastDocument && codeWaits {
+			passedOver = true
+			break
+		}
+		return r, MergeQueueRuleDocument, false, false
 	}
 	var code []rankedEntry
 	for _, r := range candidates {
-		if r.readable {
+		if !r.document && r.readable {
 			code = append(code, r)
 		}
 	}
@@ -452,9 +497,14 @@ func rank(candidates []rankedEntry, now time.Time) (rankedEntry, string, bool) {
 			}
 		}
 		chosen, placed := placedFirst(same)
-		return chosen, MergeQueueRulePriority, placed
+		return chosen, MergeQueueRulePriority, placed, passedOver
 	}
-	return candidates[0], MergeQueueRuleUnreadable, false
+	for _, r := range candidates {
+		if !r.document {
+			return r, MergeQueueRuleUnreadable, false, passedOver
+		}
+	}
+	return candidates[0], MergeQueueRuleUnreadable, false, false
 }
 
 // placedFirst is the first of one rule's or one priority's entries, given in
@@ -475,4 +525,78 @@ func placedFirst(group []rankedEntry) (rankedEntry, bool) {
 		return group[0], false
 	}
 	return group[chosen], chosen > 0
+}
+
+// queueLandingRecords is what the order reads the queue's landings and the
+// choices recorded on their candidates from. The worker's and the promoter's
+// records both satisfy it.
+type queueLandingRecords interface {
+	Entries(key runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, error)
+	Generations(key runstate.MergeQueueKey, entryID string) ([]runstate.MergeQueueGeneration, error)
+	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
+}
+
+// lastLandingWasDocument says whether the last candidate the queue landed on
+// key's target was a document candidate. It is read from the records alone —
+// the landings the queue confirmed, and the choice recorded on the candidate
+// that landed — so a process that has just started chooses as the one before
+// it would have. Where after names an entry, the answer is for the choice made
+// as if that entry had just landed (checking ahead, mergequeueahead.go).
+//
+// A record that cannot be read, and a queue that has landed nothing, answer
+// false: the document rule is then applied as written rather than passed over.
+func lastLandingWasDocument(records queueLandingRecords, key runstate.MergeQueueKey, after string) bool {
+	if records == nil {
+		return false
+	}
+	if after != "" {
+		generations, err := records.Generations(key, after)
+		if err != nil || len(generations) == 0 {
+			return false
+		}
+		return selectedDocument(generations[len(generations)-1].Selection)
+	}
+	entries, err := records.Entries(key)
+	if err != nil {
+		return false
+	}
+	var latestEntry string
+	var latestAt time.Time
+	var latestGeneration uint64
+	for _, entry := range entries {
+		landing, found, err := records.Landing(key, entry.EntryID)
+		if err != nil || !found || landing.Completion == nil {
+			continue
+		}
+		completion := landing.Completion
+		at := completion.QueueAt
+		for _, attempt := range landing.Attempts {
+			if attempt.Number == completion.Attempt && attempt.Landed != nil {
+				at = attempt.Landed.LandedAt()
+			}
+		}
+		if latestEntry == "" || at.After(latestAt) {
+			latestEntry, latestAt, latestGeneration = entry.EntryID, at, completion.Generation
+		}
+	}
+	if latestEntry == "" {
+		return false
+	}
+	generations, err := records.Generations(key, latestEntry)
+	if err != nil || len(generations) == 0 {
+		return false
+	}
+	landed := generations[len(generations)-1]
+	for _, generation := range generations {
+		if generation.Number == latestGeneration {
+			landed = generation
+		}
+	}
+	return selectedDocument(landed.Selection)
+}
+
+// selectedDocument says a recorded choice chose a document entry. A choice
+// recorded before the record said so is read by its rule.
+func selectedDocument(selection *runstate.MergeQueueSelection) bool {
+	return selection != nil && (selection.Document || selection.Rule == MergeQueueRuleDocument)
 }
