@@ -1939,7 +1939,8 @@ var standingWarningAgeSeconds = 5 * 60;
   // --spend --from` prints it: each role's spend and, for a management role,
   // what share of its passes unblocked delivery, changed records only,
   // repeated an earlier pass, or changed nothing; each week's spend and what
-  // each item completed in it cost in full; what the reviews led to; and the
+  // each item completed in it cost in full; each week's cost per closed item
+  // and per landed code change, by role; what the reviews led to; and the
   // completed items' mean cost beside the management spend that named no item.
   // It is asked for when the listing is opened rather than polled, because it
   // reads the whole spend log, and every figure and word in it is the read
@@ -1973,6 +1974,23 @@ var standingWarningAgeSeconds = 5 * 60;
     (reading.weeks || []).forEach(function (week) {
       var completed = week.completed === 0 ? "no item completed" : count(week.completed, "item") + " completed at " + money(week.cost_per_completed_item) + " each in full";
       row(week.from + " to " + week.to, money(week.cost_usd) + "; " + completed);
+    });
+    // The weekly cost figures: each week's known spend divided by the items
+    // the tracker closed and the code changes that landed in it, and the same
+    // by role, newest week first. The sentences are the read model's, which
+    // `yoyo status` prints for the current week and the one before it.
+    var weekly = reading.weekly_cost || {};
+    lines.push({ heading: "Cost per closed item and per landed code change, newest week first" });
+    if (weekly.problem) {
+      row("not read", weekly.problem, "grouping-day-unreached");
+    }
+    (weekly.weeks || []).slice().reverse().forEach(function (week) {
+      var label = (week.current ? "this week, from " + week.from : week.from + " to " + week.to);
+      row(label, week.says);
+      row("by role", week.roles_says);
+    });
+    (weekly.not_read || []).forEach(function (problem) {
+      row("not read", problem, "grouping-day-unreached");
     });
     lines.push({ heading: "Reviews and completed items" });
     var reviews = (reading.review_outcomes || []).filter(function (share) { return share.count > 0; });

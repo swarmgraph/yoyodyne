@@ -69,6 +69,11 @@ type statusOutput struct {
 	// from the standing, the throughput, and the spend beside it rather than
 	// read separately. It is absent when one item was named, as Standing is.
 	Summary *readmodel.OwnerSummary `json:"summary,omitempty"`
+	// WeeklyCost is each of the last four weeks' known spend, its cost per
+	// item closed and per code change landed, and the same by role, of which
+	// the text prints the current week and the one before it. It is absent when
+	// one item was named, as Summary is.
+	WeeklyCost *readmodel.WeeklyCost `json:"weekly_cost,omitempty"`
 	// Standing is where the harness stands right now, in the four lines the
 	// operator ratified. It comes first because it is the question this verb is
 	// actually reached for: the run history says what became of attempts that are
@@ -381,6 +386,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// product-wide state in front of the run they came here to read.
 	var standing *readmodel.Standing
 	var summary *readmodel.OwnerSummary
+	var weekly *readmodel.WeeklyCost
 	var stalls []runstate.StallEvent
 	var stallFailure string
 	if workItemID == "" {
@@ -395,6 +401,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		read := readmodel.ReadStanding(context.Background(), standingSources(*configPath))
 		standing = &read
 		summary = statusSummary(ctx, *configPath, standing, period)
+		weekly = statusWeeklyCost(ctx, *configPath)
 		// What the product recorded about having gone quiet, read for the whole
 		// product for the reason the four lines are: a stall is a fact about the
 		// line rather than about any item, and the item that was not started during
@@ -406,6 +413,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		throughput := readmodel.ReadThroughput(ctx, readmodel.ThroughputSources{Runs: store})
 		output := statusOutput{
 			Summary:    summary,
+			WeeklyCost: weekly,
 			Throughput: &throughput,
 			Standing:   standing,
 			Runs:       history.Runs,
@@ -438,6 +446,10 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// above all of it, so the cause is still the first words (Standing.Render),
 	// and the four lines under the summary do not say it again.
 	printStanding(stdout, standing, summary, *detail)
+	if weekly != nil {
+		fmt.Fprint(stdout, weekly.Render())
+		fmt.Fprintln(stdout)
+	}
 	printWatch(stdout, watched)
 	printStalls(stdout, stalls)
 	if heldBy != nil {
@@ -532,6 +544,20 @@ func statusSummary(ctx context.Context, configPath string, standing *readmodel.S
 	}
 	summary := readmodel.Summarize(in)
 	return &summary
+}
+
+// statusWeeklyCost is the weekly cost figures, read from the same spend log,
+// run records, and tracker the dashboard's reading of what the spend
+// accomplished reads them from. A state root that cannot be resolved is said
+// inside the reading rather than costing the status.
+func statusWeeklyCost(ctx context.Context, configPath string) *readmodel.WeeklyCost {
+	roots, err := statusStateRoots(configPath)
+	if err != nil {
+		reading := readmodel.ReadWeeklyCost(ctx, readmodel.WeeklyCostSources{SpendProblem: err.Error()})
+		return &reading
+	}
+	reading := readmodel.ReadWeeklyCost(ctx, weeklyCostSources(configPath, roots.stateRoot, roots.productID))
+	return &reading
 }
 
 // recordedRunStore resolves the same product-scoped run records every run
@@ -686,7 +712,7 @@ func reportStreamStatus(ctx context.Context, mode statusMode, options streamOpti
 			sweeps = nil
 		}
 		if options.accomplished != nil {
-			return reportAccomplishment(ctx, roots.stateRoot, roots.productID, *options.accomplished, holds, jsonOutput, stdout, stderr)
+			return reportAccomplishment(ctx, configPath, roots.stateRoot, roots.productID, *options.accomplished, holds, jsonOutput, stdout, stderr)
 		}
 		// The spend ledger is what says each call's cost as the kind it is. A
 		// ledger that cannot be opened costs the report that split and nothing

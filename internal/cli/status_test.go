@@ -1973,6 +1973,15 @@ func TestStatusOpensWithTheOwnerSummary(t *testing.T) {
 	if code != 0 || json.Unmarshal([]byte(stdout), &output) != nil || output.Summary == nil || output.Summary.Failures.Says != "2 runs" {
 		t.Fatalf("the JSON summary: code %d\n%s", code, stdout)
 	}
+	// The weekly cost figures ride beside the summary: four weeks in the JSON,
+	// and the current week and the one before it in the text.
+	if output.WeeklyCost == nil || output.WeeklyCost.Problem != "" || len(output.WeeklyCost.Weeks) != 4 {
+		t.Fatalf("the JSON weekly cost: %+v", output.WeeklyCost)
+	}
+	stdout, _, _ = runCLI(t, "status", "--config", configPath)
+	if !strings.Contains(stdout, "\nWeekly cost, Monday to Sunday in America/Los_Angeles:\n  This week, from ") || !strings.Contains(stdout, "\n  Last week, ") {
+		t.Fatalf("status does not print the weekly cost figures:\n%s", stdout)
+	}
 
 	if _, stderr, code := runCLI(t, "status", "--config", configPath, "--detail", "yoyodyne-one"); code != 2 || !strings.Contains(stderr, "printed only when no item is named") {
 		t.Fatalf("--detail with an item: code %d, %s", code, stderr)

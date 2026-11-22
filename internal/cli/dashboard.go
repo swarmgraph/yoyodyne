@@ -615,7 +615,7 @@ func (r dashboardReader) Accomplishment(ctx context.Context) (readmodel.Accompli
 	if err != nil {
 		return readmodel.Accomplishment{}, err
 	}
-	return readmodel.ReadAccomplishment(ctx, accomplishmentSources(stateRoot, productID), readmodel.AccomplishmentRange{}), nil
+	return readmodel.ReadAccomplishment(ctx, accomplishmentSources(r.configPath, stateRoot, productID), readmodel.AccomplishmentRange{}), nil
 }
 
 // Delivery is the factory's delivery measures, day by day and week by week in

@@ -6,7 +6,9 @@ import (
 	"io"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -23,9 +25,11 @@ var (
 
 // accomplishmentSources opens every record what the spend accomplished is read
 // from. A store that will not open costs the part of the reading read from it,
-// and the reason travels with the gap.
-func accomplishmentSources(stateRoot string, productID domain.ProductID) readmodel.AccomplishmentSources {
-	sources := readmodel.AccomplishmentSources{}
+// and the reason travels with the gap. The tracker, which only the weekly cost
+// figures' count of items closed reads, is found from the configuration.
+func accomplishmentSources(configPath, stateRoot string, productID domain.ProductID) readmodel.AccomplishmentSources {
+	sources := readmodel.AccomplishmentSources{TrackerTimeout: chatTrackerTimeout}
+	sources.Tracker, sources.TrackerReadings, sources.TrackerProblem = costTracker(configPath)
 	if store, err := runstate.NewSpendStore(stateRoot, productID); err != nil {
 		sources.SpendProblem = err.Error()
 	} else {
@@ -46,6 +50,50 @@ func accomplishmentSources(stateRoot string, productID domain.ProductID) readmod
 	return sources
 }
 
+// weeklyCostSources opens every record the weekly cost figures are read from:
+// the spend log, the run records, and the tracker. A store that will not open
+// costs the figures read from it, and the reason travels with the gap.
+func weeklyCostSources(configPath, stateRoot string, productID domain.ProductID) readmodel.WeeklyCostSources {
+	sources := readmodel.WeeklyCostSources{TrackerTimeout: chatTrackerTimeout}
+	if store, err := runstate.NewSpendStore(stateRoot, productID); err != nil {
+		sources.SpendProblem = err.Error()
+	} else {
+		sources.Spend = store
+	}
+	if store, err := runstate.NewStore(stateRoot, productID); err != nil {
+		sources.RunsProblem = err.Error()
+	} else {
+		sources.Runs = store
+	}
+	sources.Tracker, sources.TrackerReadings, sources.TrackerProblem = costTracker(configPath)
+	return sources
+}
+
+// costTracker is the tracker the weekly cost figures count closed items from,
+// with the product's one shared reading of it, so a status reading that has
+// already listed every item does not list them again (runstate,
+// trackerreading.go). Where the tracker cannot be found, it is nil and the
+// reason is said instead.
+func costTracker(configPath string) (readmodel.DeliveryTracker, readmodel.TrackerReadings, string) {
+	resolved, err := loadConfiguration(configPath)
+	if err != nil {
+		return nil, nil, err.Error()
+	}
+	roots, err := resolveRoots(resolved)
+	if err != nil {
+		return nil, nil, fmt.Sprintf("the product's directories could not be resolved: %v", err)
+	}
+	productID := resolved.Config.Product.ID
+	listings, _ := runstate.NewTrackerListingStore(roots.stateRoot, productID)
+	slowCalls, _ := runstate.NewTrackerSlowCallStore(roots.stateRoot, productID)
+	client := withTrackerRecords(beads.Client{Runner: execution.OSProcessRunner{}, Dir: roots.repository, WriterZone: readmodel.DeliveryZone()}, listings, slowCalls)
+	var readings readmodel.TrackerReadings
+	if store, err := runstate.NewTrackerReadingStore(roots.stateRoot, productID); err == nil {
+		readings = store
+	}
+	return client, readings, ""
+}
+
 type accomplishmentOutput struct {
 	Accomplishment readmodel.Accomplishment `json:"accomplishment"`
 	statusHolds
@@ -54,8 +102,8 @@ type accomplishmentOutput struct {
 // reportAccomplishment says what the spend over a range of days accomplished:
 // each role's spend and what its passes led to, the same by week, what each
 // review led to, and what every completed item cost in full.
-func reportAccomplishment(ctx context.Context, stateRoot string, productID domain.ProductID, span readmodel.AccomplishmentRange, holds statusHolds, jsonOutput bool, stdout, stderr io.Writer) int {
-	reading := readmodel.ReadAccomplishment(ctx, accomplishmentSources(stateRoot, productID), span)
+func reportAccomplishment(ctx context.Context, configPath, stateRoot string, productID domain.ProductID, span readmodel.AccomplishmentRange, holds statusHolds, jsonOutput bool, stdout, stderr io.Writer) int {
+	reading := readmodel.ReadAccomplishment(ctx, accomplishmentSources(configPath, stateRoot, productID), span)
 	if jsonOutput {
 		code := writeJSON(stdout, stderr, accomplishmentOutput{Accomplishment: reading, statusHolds: holds})
 		if reading.Problem != "" && code == 0 {
@@ -101,6 +149,18 @@ func printAccomplishment(writer io.Writer, reading readmodel.Accomplishment) {
 				spent = dollars(week.CostUSD) + " (" + strings.Join(roles, ", ") + ")"
 			}
 			fmt.Fprintf(writer, "  %s to %s: %s; %s\n", week.From, week.To, spent, completedPhrase(week.Completed, week.CostPerCompletedItem))
+		}
+	}
+
+	if weekly := reading.WeeklyCost; len(weekly.Weeks) > 0 {
+		fmt.Fprintln(writer)
+		fmt.Fprintln(writer, "cost per closed item and per landed code change, whole weeks from Monday:")
+		for _, week := range weekly.Weeks {
+			fmt.Fprintf(writer, "  %s to %s: %s\n", week.From, week.To, week.Says)
+			fmt.Fprintf(writer, "    by role: %s\n", week.RolesSays)
+		}
+		for _, problem := range weekly.NotRead {
+			fmt.Fprintf(writer, "  not read: %s\n", problem)
 		}
 	}
 
