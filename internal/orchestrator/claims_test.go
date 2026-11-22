@@ -916,3 +916,73 @@ func TestAnAuditorWithoutAClockUsesTheWallClock(t *testing.T) {
 		t.Fatalf("clock() = %T, want the wall clock", auditor.clock())
 	}
 }
+
+// freshClaimHarness is a claim harness whose tracker can read an item as it
+// stands now, and answers with the status given for it.
+type freshClaimHarness struct {
+	*claimHarness
+	now     map[string]string
+	failing error
+	reads   []string
+}
+
+func (h *freshClaimHarness) ShowAfresh(_ context.Context, id string) (beads.WorkItem, error) {
+	h.reads = append(h.reads, id)
+	if h.failing != nil {
+		return beads.WorkItem{}, h.failing
+	}
+	return beads.WorkItem{ID: id, Status: h.now[id]}, nil
+}
+
+// The claimed items an audit is handed come from a shared listing that may be
+// half a minute old, so each one is read afresh before it is settled or given
+// back: one closed or given back since is left alone, one still claimed is
+// given back, and one that cannot be read again is left claimed and named.
+func TestAnAuditReadsEachClaimAfreshBeforeGivingItBack(t *testing.T) {
+	t.Parallel()
+
+	harness := &freshClaimHarness{
+		claimHarness: newClaimHarness(deadRun("run-a", "yoyodyne-ifd.1"), deadRun("run-b", "yoyodyne-ifd.2"), deadRun("run-c", "yoyodyne-ifd.3")),
+		now:          map[string]string{"yoyodyne-ifd.1": "closed", "yoyodyne-ifd.2": "open", "yoyodyne-ifd.3": "in_progress"},
+	}
+	auditor := harness.auditor()
+	auditor.Tracker = harness
+	sweep, err := auditor.Audit(context.Background(), []beads.WorkItem{
+		claimedItem("yoyodyne-ifd.1", "Closed since the listing"),
+		claimedItem("yoyodyne-ifd.2", "Given back since the listing"),
+		claimedItem("yoyodyne-ifd.3", "Still claimed"),
+	})
+	if err != nil {
+		t.Fatalf("Audit() error = %v", err)
+	}
+	if len(harness.reads) != 3 {
+		t.Fatalf("read afresh %v, want every claim the audit judged dead", harness.reads)
+	}
+	if len(sweep.Released) != 1 || sweep.Released[0].WorkItemID != "yoyodyne-ifd.3" {
+		t.Fatalf("released = %+v, want only the item still claimed", sweep.Released)
+	}
+	for _, id := range []string{"yoyodyne-ifd.1", "yoyodyne-ifd.2"} {
+		if _, gave := harness.Released[id]; gave {
+			t.Fatalf("%s was given back over a listing older than the item", id)
+		}
+	}
+	for _, run := range []string{"run-a", "run-b"} {
+		if _, settled := harness.saved[run]; settled {
+			t.Fatalf("%s was settled over a claim that had already ended", run)
+		}
+	}
+
+	failing := &freshClaimHarness{claimHarness: newClaimHarness(deadRun("run-d", "yoyodyne-ifd.4")), failing: errors.New("tracker did not answer")}
+	auditor = failing.auditor()
+	auditor.Tracker = failing
+	sweep, err = auditor.Audit(context.Background(), []beads.WorkItem{claimedItem("yoyodyne-ifd.4", "Unreadable")})
+	if err != nil {
+		t.Fatalf("Audit() error = %v", err)
+	}
+	if len(sweep.Released) != 0 || len(failing.Released) != 0 {
+		t.Fatalf("a claim that could not be read again was given back: %+v", sweep.Released)
+	}
+	if len(sweep.Problems) != 1 || !strings.Contains(sweep.Problems[0], "could not be read again") {
+		t.Fatalf("problems = %v, want the unread claim named", sweep.Problems)
+	}
+}

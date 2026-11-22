@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -100,7 +101,25 @@ func (c AssigneeCleanup) Sweep(ctx context.Context, apply bool) (AssigneeSweep, 
 		}
 	}
 	sweep := AssigneeSweep{Applied: apply}
+	reader, readsAfresh := c.Tracker.(freshItems)
 	for _, item := range items {
+		if strings.TrimSpace(item.Assignee) == "" {
+			continue
+		}
+		// The listing is the shared one and may be up to half a minute old
+		// (beads, sharedlistings.go), so a clean-up that writes reads each item it
+		// may change afresh and decides on that.
+		if apply && readsAfresh {
+			fresh, err := reader.ShowAfresh(ctx, item.ID)
+			if err != nil {
+				sweep.Problems = append(sweep.Problems, fmt.Sprintf("%s was not read again before its assignee was judged, so it was left as it is: %v", item.ID, err))
+				continue
+			}
+			if !slices.Contains(unfinishedAssigneeStatuses, fresh.Status) {
+				continue
+			}
+			item = fresh
+		}
 		assignee := strings.TrimSpace(item.Assignee)
 		if assignee == "" {
 			continue

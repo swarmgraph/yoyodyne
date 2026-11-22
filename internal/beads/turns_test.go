@@ -277,3 +277,46 @@ func tickets(t *testing.T, dir string) []string {
 	}
 	return names
 }
+
+// A ticket is named, made and held under one lock, so a call paused between
+// reading the clock and making its ticket cannot make one named ahead of a
+// call already let through. Holding that lock from outside holds every call
+// before it has a ticket at all.
+func TestATicketIsTakenUnderTheTakingLock(t *testing.T) {
+	dir := listingStore(t)
+	store := storeDirectory(dir, "")
+	if err := os.MkdirAll(filepath.Join(store, writeLockDirectory), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	taking, err := os.OpenFile(filepath.Join(store, turnTakingLock), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taking.Close()
+	if err := lockWriteFile(context.Background(), taking); err != nil {
+		t.Fatal(err)
+	}
+	client := Client{Runner: &verbRunner{}, Binary: "bd-test", Dir: dir}
+	turned := make(chan error, 1)
+	go func() {
+		end, err := client.takeTurn(context.Background())
+		if err == nil {
+			end()
+		}
+		turned <- err
+	}()
+	select {
+	case err := <-turned:
+		t.Fatalf("a turn was taken while the taking lock was held: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if entries, _ := os.ReadDir(filepath.Join(store, turnDirectory)); len(entries) != 0 {
+		t.Fatalf("a ticket was made while the taking lock was held: %v", entries)
+	}
+	if err := unlockWriteFile(taking); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-turned; err != nil {
+		t.Fatalf("takeTurn() error = %v", err)
+	}
+}

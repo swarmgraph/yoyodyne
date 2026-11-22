@@ -178,6 +178,15 @@ func TestTwoProcessesNeverHoldTheStoreForListingsTogether(t *testing.T) {
 			}
 		}()
 	}
+	// The first listing to reach the store is waited for rather than given a
+	// fixed time to get there, so a loaded machine cannot fail this by being
+	// slow; the second is then given time it would need to slip in beside it.
+	select {
+	case <-a.started:
+	case <-b.started:
+	case <-time.After(time.Minute):
+		t.Fatal("neither listing reached the store")
+	}
 	time.Sleep(300 * time.Millisecond)
 	if running := a.running.Load() + b.running.Load(); running != 1 {
 		t.Fatalf("%d listings held the store at once, want 1", running)

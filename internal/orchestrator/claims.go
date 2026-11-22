@@ -45,6 +45,32 @@ type ClaimTracker interface {
 	Release(ctx context.Context, id, reason string) (beads.WorkItem, error)
 }
 
+// freshItems is a tracker that can read one item as it stands now, with
+// nothing read ahead of need standing in for it. beads.Client is one. The claimed items an audit is handed come from the shared listing of
+// open work, which may be up to half a minute old and does not see another
+// process's writes (beads, sharedlistings.go), so an audit whose tracker can
+// read an item reads each one afresh before acting on it.
+type freshItems interface {
+	ShowAfresh(ctx context.Context, id string) (beads.WorkItem, error)
+}
+
+// stillClaimed reports whether the tracker still holds id as claimed when it
+// is read afresh, and true for a tracker that cannot be read that way, which is
+// left to act on the listing it was given as it always did. A read that fails
+// is said as a problem and the claim left where it is: giving back a claim on
+// a doubt about it is the one thing an audit must not do.
+func (a ClaimAuditor) stillClaimed(ctx context.Context, id string) (bool, string) {
+	reader, reads := a.Tracker.(freshItems)
+	if !reads {
+		return true, ""
+	}
+	item, err := reader.ShowAfresh(ctx, id)
+	if err != nil {
+		return false, fmt.Sprintf("%s looked claimed with nothing working on it, but it could not be read again before giving it back, so it was left claimed: %v", id, err)
+	}
+	return item.Status == claimedStatus, ""
+}
+
 // ClaimRuns is the durable run state one claim audit reads and settles.
 //
 // Recorded is every run the harness holds rather than only the ones in flight,
@@ -199,6 +225,15 @@ func (a ClaimAuditor) Audit(ctx context.Context, claimed []beads.WorkItem) (Clai
 		if dead.Found.Recorded() {
 			found := dead.Found
 			released.Found = &found
+		}
+		// The item is read afresh before anything is settled or given back, so a
+		// claim another process gave back, or work it closed, since the listing
+		// was taken is left alone rather than reopened.
+		if still, problem := a.stillClaimed(ctx, dead.WorkItemID); !still {
+			if problem != "" {
+				sweep.Problems = append(sweep.Problems, problem)
+			}
+			continue
 		}
 		// The run's own record is settled first, because it is the half that
 		// actually frees the item: a record still saying in flight fills a developer
