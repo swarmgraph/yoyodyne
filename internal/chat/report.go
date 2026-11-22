@@ -451,7 +451,7 @@ func (s *Session) renderOperatorFindings() string {
 func renderReturnedHandlings(returned []readmodel.OperatorAction) string {
 	var rendered strings.Builder
 	rendered.WriteString("# Reports you handled as the operator's that are yours to finish\n")
-	rendered.WriteString("Each of these was handled as needing the operator and is not his: either it gives no reason only he can act on, having been handled before a handling had to, or the step it asks of him failed its check while it waited — a file it names is not there or is one a developer run may change, or the hold it names has been lifted — and the line says which. It is listed under you on `yoyo status` and is not said to him. Handle each one again: record what became of it, or, where only a person can act on it, handle it with \"needs\": \"operator\", an \"operator_reason\" from his closed list, and a step he can take.\n\n")
+	rendered.WriteString("Each of these was handled as needing the operator and is not his: either it gives no reason only he can act on, having been handled before a handling had to, or the step it asks of him failed its check while it waited — a file it names is not there or is one a developer run may change, the hold it names has been lifted, or it asks for a restart the product does itself — and the line says which. It is listed under you on `yoyo status` and is not said to him. Handle each one again: record what became of it, or, where only a person can act on it, handle it with \"needs\": \"operator\", an \"operator_reason\" from his closed list, and a step he can take.\n\n")
 	listed := returned
 	if len(listed) > maxRenderedFindings {
 		listed = listed[:maxRenderedFindings]

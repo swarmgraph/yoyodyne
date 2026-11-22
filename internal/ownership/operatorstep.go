@@ -20,8 +20,11 @@ import (
 // request naming a hold he placed himself can outlive the hold. So the step is
 // checked against the world when the request is recorded, and again while it
 // waits: the paths a "protected-file" step names must exist and be beyond every
-// grant, and an "own-hold" request must name a hold that still stands. The
-// other reasons name nothing this can look at, and pass.
+// grant, and an "own-hold" request must name a hold that still stands. Under
+// every reason, a step asking him to restart part of the product is refused:
+// Slack, the dashboard, the scheduler and maintenance are started, stopped,
+// restarted and moved onto a new build by the product itself (operating rule
+// 6de828a8), so a restart is never a step only a person can take.
 
 // OperatorStepRecheckAfter is how long a request naming the operator waits on
 // his list before the paths its step names are checked again. A hold is checked
@@ -48,6 +51,9 @@ type StepWorld struct {
 // an "own-hold" request when no hold he placed stands. The step is the request's
 // words, and remedy is the person-only remedy it carries, where it carries one.
 func CheckOperatorStep(reason OperatorReason, step string, remedy *PersonOnlyRemedy, world StepWorld) error {
+	if err := checkNoProductRestart(step, remedy); err != nil {
+		return err
+	}
 	switch reason {
 	case OperatorProtectedFile:
 		return checkProtectedFileStep(step, remedy, world)
@@ -63,13 +69,44 @@ func CheckOperatorStep(reason OperatorReason, step string, remedy *PersonOnlyRem
 }
 
 // RecheckOperatorStep is CheckOperatorStep for a request already waiting on
-// the operator's list since recordedAt: a hold is checked on every reading, and
-// the paths a step names once the request has waited OperatorStepRecheckAfter.
+// the operator's list since recordedAt: a restart and a hold are checked on
+// every reading, and the paths a step names once the request has waited
+// OperatorStepRecheckAfter.
 func RecheckOperatorStep(reason OperatorReason, step string, remedy *PersonOnlyRemedy, recordedAt, now time.Time, world StepWorld) error {
+	if err := checkNoProductRestart(step, remedy); err != nil {
+		return err
+	}
 	if reason != OperatorOwnHold && (now.IsZero() || recordedAt.IsZero() || now.Sub(recordedAt) < OperatorStepRecheckAfter) {
 		return nil
 	}
 	return CheckOperatorStep(reason, step, remedy, world)
+}
+
+// ProductRestartIsTheProducts is what a request asking the operator to restart
+// part of the product is told, and what is recorded as why it left his list.
+const ProductRestartIsTheProducts = `it asks the operator to restart part of the product, which the product does itself under operating rule 6de828a8, so it is never a step only he can take; leave the restart out, and where the product did not restart itself, that is the development manager's to look into`
+
+// restartWords are the words a step asks for a restart in, and productParts
+// the words it names a part of the product in. A step asking for one of the
+// first about one of the second is asking the operator for what the product
+// does itself.
+var (
+	restartWords = regexp.MustCompile(`(?i)\b(restart|restarts|restarted|restarting|relaunch|relaunches|relaunched|reboot|rebooted|reload|reloaded|start (it|them|.{0,40}) again|move (it|them|.{0,40}) onto (a|the) new build|onto (a|the) new build)\b`)
+	productParts = regexp.MustCompile(`(?i)\b(slack|dashboard|scheduler|maintenance|supervisor|yoyo|harness|factory|the product|its services|the services)\b`)
+)
+
+// checkNoProductRestart refuses a step asking for a restart of the product.
+func checkNoProductRestart(step string, remedy *PersonOnlyRemedy) error {
+	texts := []string{step}
+	if remedy != nil {
+		texts = append(texts, remedy.Target, remedy.Step)
+	}
+	for _, text := range texts {
+		if restartWords.MatchString(text) && productParts.MatchString(text) {
+			return errors.New(ProductRestartIsTheProducts)
+		}
+	}
+	return nil
 }
 
 func checkProtectedFileStep(step string, remedy *PersonOnlyRemedy, world StepWorld) error {

@@ -95,3 +95,46 @@ func TestAnOwnHoldRequestLeavesTheOperatorsListOnceTheHoldIsGone(t *testing.T) {
 		t.Fatalf("entry with only the brake's hold = %s, want it not his", entry.Mover)
 	}
 }
+
+// An escalation of a stopped run to the operator is checked again as a
+// handling is: one whose step names a file the repository does not have stays
+// his for three days and then goes back to the development manager, saying
+// why; one naming a hold of his that is gone, or a restart the product does
+// itself, goes back at once.
+func TestAnEscalationToTheOperatorIsCheckedAgainWhileItWaits(t *testing.T) {
+	t.Parallel()
+	world := ownership.StepWorld{Repository: t.TempDir(), OwnHold: func() (bool, error) { return false, nil }}
+	recheck := StepRecheck{Now: moment, World: world}
+	escalated := func(reason ownership.OperatorReason, why string, decidedAt time.Time) ([]OperatorAction, []EndedEscalation) {
+		t.Helper()
+		run := heldRun("run-153a", "yoyodyne-ifd.153", decidedAt.Add(-time.Hour))
+		decision := runstate.TriageDecision{
+			Decision: runstate.TriageDecisionEscalate, RunID: "run-153a", Reason: why,
+			DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 9, DecidedAt: decidedAt,
+			OperatorReason: reason,
+		}
+		standing, ended, problem := Escalations([]runstate.State{run}, recordedDecisions{"yoyodyne-ifd.153": {Decisions: []runstate.TriageDecision{decision}}}, nil, nil, recheck)
+		if problem != "" {
+			t.Fatalf("Escalations() problem = %q", problem)
+		}
+		return standing, ended
+	}
+	missing := "the grant needs .yoyodyne/roles/developer/ changed by hand"
+	if standing, ended := escalated(ownership.OperatorProtectedFile, missing, moment.Add(-48*time.Hour)); len(standing) != 1 || len(ended) != 0 {
+		t.Fatalf("Escalations(two days) = %#v, %#v, want it still his", standing, ended)
+	}
+	for _, tc := range []struct {
+		name, why, says string
+		reason          ownership.OperatorReason
+		decidedAt       time.Time
+	}{
+		{"a missing folder after three days", missing, ".yoyodyne/roles/developer/ does not exist", ownership.OperatorProtectedFile, moment.Add(-80 * time.Hour)},
+		{"a hold that is gone", "the run waits on the operator lifting his hold on new work", "none stands now", ownership.OperatorOwnHold, moment.Add(-time.Hour)},
+		{"a restart the product does itself", "the scheduler has to be restarted onto the new build", "operating rule 6de828a8", ownership.OperatorRepositorySetting, moment.Add(-time.Hour)},
+	} {
+		standing, ended := escalated(tc.reason, tc.why, tc.decidedAt)
+		if len(standing) != 0 || len(ended) != 1 || ended[0].ReturnedTo != MoverDevelopmentManager || !strings.Contains(ended[0].Why, tc.says) {
+			t.Errorf("%s: Escalations() = %#v, %#v, want it back with the development manager saying %q", tc.name, standing, ended, tc.says)
+		}
+	}
+}

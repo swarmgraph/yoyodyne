@@ -117,3 +117,33 @@ func TestAWaitingRequestIsCheckedAgainAfterThreeDays(t *testing.T) {
 		t.Fatal("RecheckOperatorStep(own-hold) = nil, want a lifted hold refused at once")
 	}
 }
+
+// A step asking the operator to restart part of the product is refused under
+// every reason, because the product restarts its own parts (operating rule
+// 6de828a8); a step that names a part without asking for a restart is not.
+func TestAStepAskingTheOperatorForAProductRestartIsRefused(t *testing.T) {
+	t.Parallel()
+	for _, step := range []string{
+		"restart the scheduler so it picks up the new build",
+		"move Slack onto the new build by hand",
+		"relaunch the dashboard",
+		"run yoyo restart",
+	} {
+		for _, reason := range []OperatorReason{OperatorCredential, OperatorRepositorySetting, OperatorHumanGate} {
+			if err := CheckOperatorStep(reason, step, nil, StepWorld{}); err == nil || !strings.Contains(err.Error(), "operating rule 6de828a8") {
+				t.Errorf("CheckOperatorStep(%s, %q) = %v, want the restart refused", reason, step, err)
+			}
+		}
+		if err := RecheckOperatorStep(OperatorCredential, step, nil, time.Time{}, time.Time{}, StepWorld{}); err == nil {
+			t.Errorf("RecheckOperatorStep(%q) = nil, want a waiting restart request refused at once", step)
+		}
+	}
+	for _, step := range []string{
+		"log in to Slack again with the workspace account",
+		"give the harness's forge token the right to merge",
+	} {
+		if err := CheckOperatorStep(OperatorCredential, step, nil, StepWorld{}); err != nil {
+			t.Errorf("CheckOperatorStep(%q) = %v, want it to pass", step, err)
+		}
+	}
+}

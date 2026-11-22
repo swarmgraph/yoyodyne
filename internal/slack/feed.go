@@ -1454,8 +1454,9 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		return nil, fmt.Errorf("read what became of the collected reports: %w", err)
 	}
 	// The feed holds no repository, so a finding's paths are checked where it is
-	// recorded and on the status line; a hold the operator has since lifted is
-	// checked here too, so a request about it is not said to him.
+	// recorded, on the status line, and by the reconcile sweep; a hold the
+	// operator has since lifted, and a restart the product does itself, are
+	// checked here too, so a request about either is not said to him.
 	var pause readmodel.OperatorHolds
 	if f.Holds != nil {
 		pause = f.Holds
@@ -1464,7 +1465,8 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 	if f.Intake != nil {
 		intake = f.Intake
 	}
-	actions := readmodel.OperatorActions(filed, handlings, readmodel.StepRecheck{Now: f.now(), World: ownership.StepWorld{OwnHold: readmodel.OwnHoldStands(pause, intake)}})
+	recheck := readmodel.StepRecheck{Now: f.now(), World: ownership.StepWorld{OwnHold: readmodel.OwnHoldStands(pause, intake)}}
+	actions := readmodel.OperatorActions(filed, handlings, recheck)
 	passFailuresRead := true
 	if f.Runs != nil {
 		passActions, problem := readmodel.PassFailureOperatorActions(readmodel.Sources{Passes: f.Runs.Sweeps(), Reports: f.Reports})
@@ -1476,7 +1478,7 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		}
 		actions = append(actions, passActions...)
 	}
-	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil, nil)
+	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil, nil, recheck)
 	if problem != "" {
 		// A triage record that cannot be read costs that item's finding this
 		// pass and is said here; the pass carries on, and the finding is read

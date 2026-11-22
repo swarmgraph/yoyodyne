@@ -334,7 +334,7 @@ func TestAnEscalatedStoppageIsAFindingForTheOperatorWhileItStands(t *testing.T) 
 	// The same derivation without a queue to read admits every item, which is
 	// the feed's reading: an item that left the backlog is still said once
 	// rather than never.
-	escalated, problem := EscalatedOperatorActions(sources.Stoppages.(fakeStoppages).runs, sources.Decisions, nil, nil)
+	escalated, problem := EscalatedOperatorActions(sources.Stoppages.(fakeStoppages).runs, sources.Decisions, nil, nil, StepRecheck{})
 	if problem != "" || len(escalated) != 2 || escalated[0].Key != "run:run-272a" || escalated[1].Key != "run:run-300a" {
 		t.Fatalf("EscalatedOperatorActions() = %#v, %q, want the two standing escalations oldest first", escalated, problem)
 	}
@@ -405,7 +405,7 @@ func TestAnEscalationEndsWhenItsItemIsParkedOrItsChangeIsGone(t *testing.T) {
 			}
 			return EscalatedItem{Admitted: true}
 		},
-		Looking(context.Background(), sources.Remains, func() time.Time { return moment }))
+		Looking(context.Background(), sources.Remains, func() time.Time { return moment }), StepRecheck{})
 	if problem != "" || len(standingActions) != 1 || len(ended) != 3 {
 		t.Fatalf("Escalations() = %#v, %#v, %q, want one standing and three ended", standingActions, ended, problem)
 	}
@@ -429,7 +429,7 @@ func TestAnEscalationEndsWhenItsItemIsParkedOrItsChangeIsGone(t *testing.T) {
 	// A look that never reached the repository ends nothing: a record is not a
 	// look, and an escalation dropped on a removal flag is one the operator was
 	// handed and never told the end of.
-	_, ended, _ = Escalations(runs[:3], sources.Decisions, nil, Looking(context.Background(), nil, nil))
+	_, ended, _ = Escalations(runs[:3], sources.Decisions, nil, Looking(context.Background(), nil, nil), StepRecheck{})
 	if len(ended) != 0 {
 		t.Fatalf("Escalations() with no repository = %#v, want nothing ended", ended)
 	}

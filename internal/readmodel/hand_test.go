@@ -197,7 +197,7 @@ func TestAnEscalatedCapRaiseWaitsOnTheLeadProductManagerAndLeavesTheOperatorsLin
 		DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 3, DecidedAt: stopped.Add(time.Hour),
 		Hand: ownership.HandCapCrossing,
 	}}}}
-	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil)
+	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil, StepRecheck{})
 	if problem != "" || len(ended) != 0 || len(standing) != 1 {
 		t.Fatalf("Escalations() = %#v, %#v, %q, want the escalation standing and not sent back for giving no reason", standing, ended, problem)
 	}

@@ -312,8 +312,8 @@ func reportFindings(reports []report.Report, handlings []report.Handling, rechec
 // the answer the held-work derivation gives the same absence: every surface the
 // harness builds wires them, and a fixture that does not is asking about
 // something else.
-func EscalatedOperatorActions(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look) ([]OperatorAction, string) {
-	standing, _, problem := Escalations(runs, decisions, items, look)
+func EscalatedOperatorActions(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look, recheck StepRecheck) ([]OperatorAction, string) {
+	standing, _, problem := Escalations(runs, decisions, items, look, recheck)
 	return standing, problem
 }
 
@@ -349,7 +349,7 @@ type EndedEscalation struct {
 // decided, split into the ones still standing, as findings oldest first, and
 // the ones something has since ended, with what ended each. See
 // EscalatedOperatorActions for the rule.
-func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look) ([]OperatorAction, []EndedEscalation, string) {
+func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look, recheck StepRecheck) ([]OperatorAction, []EndedEscalation, string) {
 	if decisions == nil {
 		return nil, nil, ""
 	}
@@ -371,7 +371,7 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 		if !decided || !decision.EscalatesToOperator() {
 			continue
 		}
-		if why, recorded, returnedTo := escalationEnding(run, decision, items, look); why != "" {
+		if why, recorded, returnedTo := escalationEnding(run, decision, items, look, recheck); why != "" {
 			ended = append(ended, EndedEscalation{RunID: run.RunID, WorkItemID: workItemID, Why: why, Recorded: recorded, DecidedAt: decision.DecidedAt, ReturnedTo: returnedTo})
 			continue
 		}
@@ -411,7 +411,7 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 // down the ladder to the development manager, whose decision about the stopped
 // run it always was. Every other ending is asked first, because each says more
 // about where the work now stands than that.
-func escalationEnding(run runstate.State, decision runstate.TriageDecision, items EscalatedItems, look Look) (string, bool, Mover) {
+func escalationEnding(run runstate.State, decision runstate.TriageDecision, items EscalatedItems, look Look, recheck StepRecheck) (string, bool, Mover) {
 	// An ending recorded before this escalation was decided ended an earlier one
 	// of the same run, and says nothing about this one.
 	if ending := run.EscalationEnded; ending != nil && strings.TrimSpace(ending.Why) != "" && !ending.At.Before(decision.DecidedAt) {
@@ -437,7 +437,24 @@ func escalationEnding(run runstate.State, decision runstate.TriageDecision, item
 	if !decision.OperatorReason.Valid() && !decision.Hand.Known() {
 		return unreasonedEscalationEnding(run.RunID), false, MoverDevelopmentManager
 	}
+	// A reason from the list says why only he can act, not that the step can
+	// still be taken; one that fails its check again goes back to her too,
+	// saying why (ownership.RecheckOperatorStep).
+	if decision.OperatorReason.Valid() {
+		if err := ownership.RecheckOperatorStep(decision.OperatorReason, decision.Reason, nil, decision.DecidedAt, recheck.Now, recheck.World); err != nil {
+			return failedStepEscalationEnding(run.RunID, err), false, MoverDevelopmentManager
+		}
+	}
 	return "", false, ""
+}
+
+// failedStepEscalationEnding is what an item is told when its escalation to
+// the operator goes back to the development manager because the step it asks
+// of him failed its check while it waited.
+func failedStepEscalationEnding(runID string, failed error) string {
+	return runstate.BoundEscalationEnding(fmt.Sprintf(
+		"the step it asks of the operator failed its check while it waited, so it is not his: %s; what becomes of run %s is the development manager's decision, and the run is listed under her as a stoppage waiting on that decision",
+		singleLine(failed.Error(), maxRefusalBytes), runID))
 }
 
 // unreasonedEscalationEnding is what an item is told when its escalation to the
@@ -512,7 +529,7 @@ func readOperatorActions(reports []report.Report, handlings []report.Handling, p
 	} else if runs, err := sources.Stoppages.Recorded(); err != nil {
 		problem = fmt.Sprintf("the recorded runs could not be read, so no escalated stoppage can be named: %v", err)
 	} else {
-		escalated, escalatedProblem := EscalatedOperatorActions(runs, sources.Decisions, items, look)
+		escalated, escalatedProblem := EscalatedOperatorActions(runs, sources.Decisions, items, look, sources.stepRecheck())
 		actions = append(actions, escalated...)
 		problem = escalatedProblem
 	}

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -69,7 +71,13 @@ func (r Reconciler) EndEscalations(ctx context.Context) ([]EscalationSettlement,
 		}
 	}
 	look := readmodel.Looking(ctx, r.Docket.Remains, func() time.Time { return r.clock().Now() })
-	actions, ended, problem := readmodel.Escalations(recorded, r.Docket.Decisions, items, look)
+	// The step each escalation asks of the operator is checked again as the
+	// status line checks it, against this repository and the operator's own
+	// switches, so one that fails ends here, saying why, and goes back to the
+	// development manager.
+	home, _ := os.UserHomeDir()
+	recheck := readmodel.StepRecheck{Now: r.clock().Now(), World: ownership.StepWorld{Repository: r.Repository, Home: home, OwnHold: r.OwnHold}}
+	actions, ended, problem := readmodel.Escalations(recorded, r.Docket.Decisions, items, look, recheck)
 	var settled []EscalationSettlement
 	for _, action := range actions {
 		if failure := itemProblems[action.WorkItemID]; failure != "" {

@@ -103,7 +103,7 @@ func TestTheSweepEndsAnEscalationWhoseItemWasParked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recorded() error = %v", err)
 	}
-	if standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil); len(standing) != 0 {
+	if standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil, readmodel.StepRecheck{}); len(standing) != 0 {
 		t.Fatalf("EscalatedOperatorActions() = %#v, want the ended escalation named nowhere", standing)
 	}
 }
@@ -237,7 +237,7 @@ func TestTheSweepMovesAnEscalationWithoutAReasonToTheDevelopmentManager(t *testi
 	if err != nil {
 		t.Fatalf("Recorded() error = %v", err)
 	}
-	standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil)
+	standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil, readmodel.StepRecheck{})
 	if len(standing) != 1 || standing[0].RunID != reasoned.RunID {
 		t.Fatalf("EscalatedOperatorActions() = %#v, want only the escalation with a closed-list reason still the operator's", standing)
 	}
