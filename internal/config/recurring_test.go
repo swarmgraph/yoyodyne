@@ -148,6 +148,54 @@ func TestRecurringTaskRefusesWhatCouldNeverRun(t *testing.T) {
 	}
 }
 
+// Skipping a scheduled pass with nothing new is on by default, with a full
+// pass at least every four hours, and a project may turn it off or move the
+// floor within the bounds held in code.
+func TestRecurringTaskSkipsUnchangedPassesByDefaultWithAFourHourFloor(t *testing.T) {
+	t.Parallel()
+
+	task, err := loadProject(t, projectWithSweep, nil).Config.RecurringTaskNamed("development-manager-sweep")
+	if err != nil {
+		t.Fatalf("RecurringTaskNamed() error = %v", err)
+	}
+	if got := task.Skipping(); !got.Skip || got.Floor != 4*time.Hour {
+		t.Fatalf("Skipping() = %+v, want skipping on with a four-hour floor", got)
+	}
+	configured := strings.Replace(projectWithSweep, "    max_turns: 4\n", "    max_turns: 4\n    skip_when_unchanged: false\n    full_pass_every: 2h\n", 1)
+	task, err = loadProject(t, configured, nil).Config.RecurringTaskNamed("development-manager-sweep")
+	if err != nil {
+		t.Fatalf("RecurringTaskNamed() error = %v", err)
+	}
+	if got := task.Skipping(); got.Skip || got.Floor != 2*time.Hour {
+		t.Fatalf("Skipping() = %+v, want skipping off with a two-hour floor", got)
+	}
+	if got := (Triggers{}).Skipping(); !got.Skip || got.Floor != DefaultFullPassEvery {
+		t.Fatalf("Triggers{}.Skipping() = %+v, want the same defaults", got)
+	}
+}
+
+func TestRecurringTaskFullPassFloorOutsideItsBoundsIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, floor := range []string{"30m", "13h", "24h"} {
+		t.Run(floor, func(t *testing.T) {
+			t.Parallel()
+			_, err := loadProjectError(t, strings.Replace(projectWithSweep, "    max_turns: 4\n", "    max_turns: 4\n    full_pass_every: "+floor+"\n", 1), nil)
+			if err == nil {
+				t.Fatalf("full_pass_every %s loaded", floor)
+			}
+			if !strings.Contains(err.Error(), `recurring task "development-manager-sweep" full_pass_every`) || !strings.Contains(err.Error(), "between 1h0m0s and 12h0m0s") {
+				t.Fatalf("error = %v, want it to name the key and its bounds", err)
+			}
+		})
+	}
+	for _, floor := range []string{"1h", "12h"} {
+		if _, err := loadProjectError(t, strings.Replace(projectWithSweep, "    max_turns: 4\n", "    max_turns: 4\n    full_pass_every: "+floor+"\n", 1), nil); err != nil {
+			t.Fatalf("full_pass_every %s at the bound was refused: %v", floor, err)
+		}
+	}
+}
+
 // A prompt is the whole of what the harness has to say to the role, so a task
 // with none wakes it for nothing. It is refused rather than fired with an empty
 // message, which the role would answer by asking what was wanted.

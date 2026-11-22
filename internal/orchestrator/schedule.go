@@ -5717,6 +5717,8 @@ func (s Scheduler) fire(ctx context.Context, schedule *Schedule, pull Pull) recu
 	for _, task := range sweep.Fired {
 		switch {
 		case held.why != "":
+		case task.Skipped != "":
+			// A skipped firing spent nothing and holds nothing back.
 		case task.Turns == 0 && strings.TrimSpace(task.Problem) != "":
 			// A firing that reached nobody — the provider out of capacity or
 			// answering nobody, the role's conversation held — says why in the

@@ -149,7 +149,9 @@ func FactoryStallOf(runs []runstate.State, passes []runstate.Sweep, paused bool,
 	byTask := map[string]*PassFailure{}
 	var earliest time.Time
 	for _, pass := range passes {
-		if PassSucceeded(pass) || pass.StartedAt.Before(stall.Since) {
+		// A skipped firing is neither a success nor a failure: nothing was new,
+		// so nothing was attempted.
+		if PassSucceeded(pass) || pass.IsSkip() || pass.StartedAt.Before(stall.Since) {
 			continue
 		}
 		if earliest.IsZero() || pass.StartedAt.Before(earliest) {

@@ -905,7 +905,7 @@ func (r *resolution) applyAgent(name string, document agentDocument, applied lay
 		agent.origins["remit"] = applied.origin
 	}
 	if document.Triggers != nil {
-		triggers := Triggers{Every: document.Triggers.Every}
+		triggers := Triggers{Every: document.Triggers.Every, SkipWhenUnchanged: document.Triggers.SkipWhenUnchanged, FullPassEvery: document.Triggers.FullPassEvery}
 		if len(document.Triggers.On) > 0 {
 			triggers.On = make([]TriggerEvent, 0, len(document.Triggers.On))
 			for _, event := range document.Triggers.On {
