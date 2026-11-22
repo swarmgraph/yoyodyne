@@ -153,7 +153,7 @@ func TestAPreferringSlotPullsItsLabelFirstAndFallsBackOnceItIsExhausted(t *testi
 
 // configurationGuide is the operator document whose developer-slot example is
 // this project's own configuration: one slot preferring the reliability label.
-const configurationGuide = "../../docs/configuration.md"
+const configurationGuide = "../../docs/configuration/runs.md"
 
 // configurationGuideSlotsHeading opens the section that example sits in. The
 // test below reads the first fenced YAML block under it as data, so renaming the

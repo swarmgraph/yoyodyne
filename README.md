@@ -433,7 +433,8 @@ is dropped.
   traces to.
 - [Operations and recovery](docs/operations.md) — starting, stopping, pausing,
   provider limits, recovery, and `yoyo dashboard`.
-- [The configuration guide](docs/configuration.md) — the full reference.
+- [The configuration guide](docs/configuration.md) — an index of the seven
+  configuration guides, which together are the full reference.
 - [Running on several Claude accounts](docs/multi-account-quickstart.md).
 - [Provider plugins](docs/provider-plugins.md) — declaring a provider variant.
 - [The v1 harness design](docs/designs/v1-harness-design.md) — the architecture.

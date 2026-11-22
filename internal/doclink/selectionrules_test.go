@@ -20,7 +20,6 @@ import (
 // one the others are compared against.
 var selectionRuleGuides = []string{
 	"docs/work.md",
-	"docs/configuration.md",
 	"docs/configuration/runs.md",
 }
 

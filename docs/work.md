@@ -1430,7 +1430,7 @@ facts about the pass rather than about any one item. The
 [configuration guide](configuration.md#scheduling-ready-work) lists the same
 thirteen in the same order, and a test fails when the two lists differ:
 
-<!-- selection-rules: the same names, in the same order, as docs/configuration.md and docs/configuration/runs.md; internal/doclink/selectionrules_test.go holds them together -->
+<!-- selection-rules: the same names, in the same order, as docs/configuration/runs.md; internal/doclink/selectionrules_test.go holds them together -->
 1. **An unresolved directive** withholds the item until a person resolves the
    directive, and is named in the directive's own words.
 2. **Unfinished children that carry its execution** withhold a container while

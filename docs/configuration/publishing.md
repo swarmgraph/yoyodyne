@@ -1,43 +1,23 @@
-<!--
-Landed by yoyodyne-ifd.117.3, tranche 3 of the configuration.md split, with
-docs/configuration.md left intact. The link below into ../configuration.md
-resolves today and points at a section no tranche has a home for:
-
-  #waiting-out-a-network-that-dropped -> no row in docs/docs-map.md; it stays
-                                         in configuration.md until the map
-                                         gives it a home
-
-"The configuration index ... lists the other guides" below is a forward claim:
-configuration.md becomes the index in 117.4.
-
-Scope against docs/docs-map.md: both sections the map's disposition table
-assigns this guide — Publishing through pull requests, with its children, and
-Losing a race for the target branch. The row names three children and the file
-now has four; the map already names the fourth, Publishing from a fork, among
-the nine headings it has never seen, and it goes where its parent goes. Merge
-and removal semantics, which this guide's row once carried, moved to
-setup.md in the map's reconciliation and is not here.
-
-Extracted from the docs/configuration.md beside this file, section for section,
-with the prose left word for word. The only edits are to links: a relative path
-out of docs/configuration/ gains a ../ prefix, and a link into a section the
-split has moved into a guide — one of this tranche's siblings or an earlier
-tranche's — is retargeted at that guide. Diffing
-this guide's body against lines 2698-2947 and 3492-3532 of that file shows those
-link lines and nothing else.
-
-Size: 329 lines against the map's 226-line budget; the sections themselves
-grew after the map's counts were taken.
--->
 # Configuring publishing, branches, and promotion
 
 How a finished branch reaches the remote, what to do when you cannot push to
-it, which branch is authoritative, what publishing needs from the machine, and
-what happens when two promotions race for the same target.
+it, which branch is authoritative, what publishing needs from the machine, how
+one repository is worked from more than one machine, what happens when two
+promotions race for the same target, and how a merge queue lands approved
+changes one at a time.
 
 [The configuration index](../configuration.md) lists the other guides.
 
 ## Publishing through pull requests
+
+This section is about run branches and their pull requests. A release tag is
+published separately, under `approvals.releases`. Under
+`human`, the default, a person cuts a release with `make release` and pushes
+its tag. Under `automatic` the supervisor's maintenance pass cuts a release the
+Lead Product Manager decided, once its notes and readiness stamp are on `main`,
+and pushes the tag alone under the harness's identity. It needs neither of the
+settings below. [Cutting a decided release](../operations.md#cutting-a-decided-release)
+is the whole of it.
 
 By default Yoyodyne is entirely local: it creates a branch and a worktree, runs
 the work, and fast-forwards your target branch. Nothing is pushed, and a
@@ -82,7 +62,7 @@ With both on, a run works like this:
    integration also gate the merge, and the remote target is checked again right
    before the call, so a target that moved in the meantime refuses the merge
    rather than having the forge reconcile it. That holds of a merge
-   [reissued after a dropped connection](../configuration.md#waiting-out-a-network-that-dropped)
+   [reissued after a dropped connection](recovery.md#waiting-out-a-network-that-dropped)
    too: the check is made again on each attempt rather than once in front of
    them, so what authorizes a merge made after a wait is a reading of the target
    taken after that wait.
@@ -167,7 +147,6 @@ that your local target branch is authoritative: work an agent pushed by itself
 is not integrated by having been pushed, and a pull request merged behind the
 harness's back moves the remote away from the local branch, which the harness's
 own check of the remote target then refuses rather than force-resolves.
-
 ### Publishing from a fork
 
 Everything above assumes you can push to the remote you publish into. When you
@@ -202,7 +181,6 @@ Your fork's account is read from the fork remote's URL rather than configured
 separately, so there is nothing to keep in step with it. A repository that does
 not have the remote you named publishes nothing and says which remote it was
 looking for, the same way a repository with no remote at all does.
-
 ### Publishing without automatic integration
 
 `approvals.publishing: automatic` with `approvals.integration: human` is
@@ -289,7 +267,6 @@ integration policy would be taking the decision that setting reserves for you.
 | `human` | `automatic` | Local fast-forward into the target branch, artifacts removed. Nothing pushed. |
 | `automatic` | `automatic` | Pull request opened, merged on approval — or queued with the forge until your required checks pass — and the branch removed locally, then on the remote once the merge has happened. |
 | `automatic` | `human` | Pull request opened once the reviewer approves, and left for you; the run frees its developer slot. Nothing merged. The item closes once you merge, or goes back to the Lead Product Manager if the request is closed unmerged. |
-
 ### Which branch is authoritative
 
 **The local target branch.** Your work is where that branch says it is. The
@@ -362,14 +339,13 @@ whoever decides which history is right.
 If a promotion onto an unprotected target cannot be published — the forge is
 unreachable, the remote target moved, or the forge refused the merge — the run
 still succeeds and closes its item, and reports an *outstanding publication*. A forge that could not be reached
-is [waited out and asked again](../configuration.md#waiting-out-a-network-that-dropped) first, so
+is [waited out and asked again](recovery.md#waiting-out-a-network-that-dropped) first, so
 an outstanding publication over a dropped connection is one that went on being
 dropped rather than one reset the next attempt would have survived. The change is integrated where
 it counts; only its publication is unfinished, and it is reconciled by hand.
 Nothing is ever force-pushed to resolve it. On a protected target the same
 failures leave nothing integrated, so the run stops rather than closing the item;
 the next section says how.
-
 ### Reviews and comments on a pull request waiting for you
 
 While a pull request waits for a person to merge it, under
@@ -428,8 +404,17 @@ merge, and the local target follows by the catch-up above: a fast-forward onto
 the remote, taken under the branch's promotion lease. So no ending of the run
 leaves your local target ahead of the remote:
 
-- **Merged.** The catch-up brings the local target onto the forge's merge
-  commit, and the item closes.
+- **Merged.** The run reads the remote target and records the change as merged
+  only once it finds the reviewed commit there; the catch-up then brings the
+  local target onto the forge's merge commit, and the item closes.
+- **Merged on the forge's word only.** The forge reports the request merged and
+  the remote target does not carry the reviewed commit — a merge that replayed
+  the change as fresh commits does this. The run is not recorded as merged: it
+  stops at its merge with the forge's state on its record and the item handed
+  back, as a refused merge is. The same reading by `yoyo reconcile`, for a
+  queued merge or an interrupted landing, leaves the run where it was, writes
+  the disagreement on it, and lists it for the development manager with the
+  cause given as uncertain.
 - **Queued.** Nothing moves locally. The worktree and branch are kept, because
   nothing proves the change is on the target yet; `yoyo reconcile` catches the
   local target up once the forge merges, closes the item, and cleans up.
@@ -446,8 +431,9 @@ leaves your local target ahead of the remote:
 - **The process was killed** after the landing was prepared and before the
   forge's answer was heard. The run recorded the landing before asking, and
   `yoyo reconcile` settles it on what the forge says rather than on the local
-  target, which says nothing here: merged is confirmed, caught up onto, closed,
-  and cleaned up; queued is recorded as a queued landing and settled like any
+  target, which says nothing here: merged is confirmed on the remote target,
+  caught up onto, closed, and cleaned up, or left at its merge as above where
+  the remote target does not carry it; queued is recorded as a queued landing and settled like any
   other; anything else hands the item to a person, as the run itself would have.
 
 **Why.** On a protected target, promoting locally first strands commits. A
@@ -462,7 +448,6 @@ nothing it needs, since the change still lands by the merge, while the other
 reading could move a branch the forge then refuses. Every publishing run
 records which path it took, and why, as the `Target branch:` line in its notes
 on the work item.
-
 ### What publishing needs
 
 - A remote by the configured name. **Without one the run is purely local**,
@@ -486,6 +471,100 @@ on the work item.
   fall back to a method that would replace the reviewed commit with a rewritten
   copy your local branch does not have. A protection rule requiring linear
   history has the same effect.
+## Working one repository from more than one machine: `team`
+
+Team mode is for a repository worked by more than one copy of the harness, each
+on its own machine, sharing one remote. It is off unless the committed
+configuration turns it on, so every factory working the repository reads the
+same value:
+
+```yaml
+team:
+  enabled: true
+```
+
+Turning it on is the Lead Product Manager's decision and the development
+manager applies it
+([working alongside other contributors](../designs/working-alongside-other-contributors.md#5-two-factories-and-the-same-work)).
+With it off, the harness works the repository alone: it takes no claim on the
+remote, reads no team pause, and no start of new work waits on the remote.
+
+With it on, the harness claims each item on the shared remote before it starts
+it, so two factories never do the same work:
+
+- **Taking.** Before a fresh run claims an item in the tracker, the harness reads
+  the intake hold, fetches the claims and the team pause from the remote
+  (`execution.remote`) in one fetch, and pushes `refs/yoyodyne/claims/<item id>`
+  with a lease that fails if the reference already exists. While the team pause
+  (`refs/yoyodyne/pause`, set and cleared with
+  [`yoyo pause --team`](../operations.md#pausing-everything-and-resuming-it)) is
+  set, no item the harness chose is claimed; one the operator named on this
+  machine still is. The tracker is claimed only after that push
+  succeeds. An item another factory holds is not started this turn, and the
+  schedule says who holds it; it is tried again at the next poll. A remote that
+  cannot be reached starts no new work in team mode, because a claim cannot be
+  taken without it.
+- **Renewing.** While the run holds the item — running, waiting for a person to
+  merge, or stopped and kept for a decision, which is any run in flight or any
+  item this machine's tracker still shows as claimed or blocked — the watch loop
+  renews the claim every 15 minutes, with a lease naming the commit it last
+  pushed. A renewal that cannot reach the remote is said on the schedule, tried
+  again at the next poll, and charges the run nothing.
+- **Taking over.** A claim nobody has renewed for two hours may be taken over,
+  with a lease naming the stale commit. The new claim names the earlier holder,
+  and so does a note on the item. A claim this machine left from an earlier run
+  of the same item is taken on by the next run without waiting. A claim counts
+  as this machine's own only when its record under `team-claims/` is still held
+  and names the very commit the remote has; a claim under the same name is
+  never enough, so a second home on the same machine is held to the same two
+  hours as anybody else.
+- **Releasing.** Once the run no longer holds the item, the watch loop deletes
+  the reference with a lease naming its own commit. A claim taken in the last
+  15 minutes is not released, because a run takes its claim a moment before
+  it records itself and claims the tracker, and the watch loop must not take
+  that moment for a run that has ended. A reference that is no
+  longer this machine's, because another factory took it over, is left alone and
+  said on the schedule.
+
+Each claim is a commit of the empty tree whose message records the factory
+holding it (the factory identity: the product id, the machine identity kept in
+the home's `machine-identity.json`, and the forge account the harness acts as),
+the item, the
+run, and when it was taken and last renewed. What this machine holds is kept
+under its state directory in `team-claims/`. Only the harness pushes these
+references, as it pushes pull request branches; no agent is given anything that
+writes one.
+
+### What the factories share: the records reference
+
+Reports, what was done about them, directives and later changes to directives
+travel between the team's factories as one file each, named by its own
+identifier and never rewritten; a change to a directive is a new file naming the
+directive. They are kept in the reference `refs/yoyodyne/records` on
+`execution.remote`, built in a Git repository of the harness's own under the
+state directory, `records.git`, so nothing is written in your repository.
+
+Each forge check shares them. The records other factories shared are copied
+into this machine's own report and directive records, naming the factory that
+filed them, and the ones filed here are sent. If another factory sent first, the
+check reads theirs and sends again; a record already on the remote stands. A
+directive from a Slack reply is named by the Slack message, so a reply two
+factories both see is one directive, and the reply is answered once the
+directive is shared or found already recorded. With the remote out of reach, the
+reply is told the directive is kept on this machine and shared at the next forge
+check. `yoyo status` counts the records not yet shared. Only the harness writes
+the reference; no agent is given anything that writes one.
+
+Team mode needs three things of the project, and `yoyo doctor` refuses team
+mode in plain words where any is missing: the harness has to publish through
+pull requests (`approvals.publishing: automatic`), because the forge is where
+factories learn about each other; the scheduler service has to be on
+(`services.scheduler.enabled`), because the watch loop is what renews and
+releases claims, including those taken by `yoyo run`; and the remote has to
+accept references under `refs/yoyodyne/`, which doctor tests by pushing
+`refs/yoyodyne/probe/doctor` and deleting it again. A push that never reaches
+the remote is reported as a check that could not be made, not as the forge
+refusing the reference.
 
 ## Losing a race for the target branch
 
@@ -682,3 +761,340 @@ is already in its base reads as merged. That is the same
 compare-and-swap every other write makes — a remote branch carrying anything
 else is refused rather than overwritten — and the refusal stops the run, because
 nothing has been promoted yet and there is nothing outstanding to report.
+## Integrating through a merge queue
+
+A run that loses a race for its target replays its change, checks it, and has
+it reviewed again ([above](#losing-a-race-for-the-target-branch)). With several
+runs landing on one branch that is work repeated on every race. A merge queue
+does it once per landing instead, on exactly what lands:
+
+```yaml
+execution:
+  merge_queue: false   # the default; true integrates through the queue
+```
+
+**Off, which is the default and what a file without the key means,** nothing
+changes: a run promotes its own approved change, replaying it onto a target
+that moved and earning its checks and a fresh review again first, exactly as
+the sections above describe.
+
+**On, a run that earns its approval admits its change to the queue of its
+target branch and ends.** Its gate is the same — the protected-path gate, the
+configured checks, and an independent review of the change — and is read off
+the run's record before anything is admitted. What the run no longer does is
+check its approved change whole a second time where the change goes to the
+harness's own queue ([where the whole suite runs](runs.md#where-the-whole-suite-runs)),
+promote the change, or replay it: the change is committed as it was approved,
+admitted as the queue's next entry, and the run ends succeeded with its item
+still claimed and its branch and worktree kept, because the queue may hand the
+change back to it. A run waiting in the queue holds no developer slot, so the
+next item starts beside it, and the claim audit leaves its item alone. The
+item's notes say which queue and entry the change waits in.
+
+**The queue lands only a candidate it verified itself.** For the first waiting
+entry, in the order the queue is worked, the harness builds a candidate in a
+checkout of its own: the target branch as it stands, with the approved head
+merged onto it. That candidate is what would land, so it is what is judged:
+
+- the protected-path gate is asked of every path the candidate changes, against
+  what the entry's work item grants, before anything runs on it, and its answer
+  is recorded on the candidate: a candidate with no such answer, or one the gate
+  refused, earns no landing whatever its checks and review say;
+- the configured checks run on it whole, told
+  `YOYODYNE_CHANGED_GO_PACKAGES=./...`, so a race check among them is the full
+  race check on the change combined with the target; a confirmed document's
+  candidate runs `document_checks` instead, where you declare any
+  ([the document checks](runs.md#the-document-checks));
+- an independent reviewer, under the run's account and charged to the run and
+  its item as review spend, is asked whether the change combined with what the
+  target now carries still does what the item asks.
+
+The approval the run earned admitted the change; it authorizes no landing, and
+evidence about one candidate never answers for another. The target moving while
+a candidate is checked or reviewed sets that candidate aside and builds a new
+one on the moved target, charged to nobody. The landing itself takes the
+target's promotion lease, reads the operator's pause, the item's directives and
+dependencies, and the integration approval policy again, checks the candidate's
+gate again, and moves the target only from the base the candidate was built on:
+a local fast-forward on an unprotected target, and the candidate's own pull
+request (on a branch named `yoyodyne/merge-queue/<entry>`) on a protected one,
+which the local target follows once the forge's merge is confirmed. The landing
+is then recorded on the run as its integration and the item is settled the way
+a run's own landing settles it. The run's own pull request is closed with a
+comment naming the entry that landed it, and the run's branch and the queue's
+candidate branch are deleted from the remote on the commit the harness last put
+there, so neither is left open; a failure to tidy them is said on the queue's
+pass and holds the landing up in nothing.
+
+**The next entry is checked while the first one is.** On a target the harness
+moves itself, in a project that does not publish, a candidate lands as exactly
+its own commit, so the queue builds the next waiting entry's candidate on top
+of the first entry's candidate, as if it lands, and runs its protected-path
+check, checks and review beside the first one's. It checks at most one entry
+ahead, and the pass lands the first entry once both are done. The candidate
+checked ahead is a commit of its own with its own recorded base, and its
+evidence is bound to it alone; it lands only if, as the promotion lease is
+taken, the target is exactly the commit it was built on. Where the entry before
+it fails, is withdrawn or handed back, or lands as any other commit, the
+candidate checked ahead is thrown away — recorded as `base_not_landed` — and
+built again on the target as it stands, and nothing is charged to its change;
+nothing found on it is handed back on its own account, and a check that fails
+on it is run on its base only once that base is the target. A project that
+publishes lands every candidate through a pull request, and the forge lands
+that with a merge commit of its own above the candidate, so the target never
+becomes the candidate: nothing is checked ahead there.
+
+**The candidate's checks and review pass the doors a run's do.** Nothing starts
+while the operator has paused harness activity (`yoyo pause`), and the review
+also waits out a provider nobody can reach, a usage limit already known for its
+account and model, and a provider that is not installed or not logged in. A
+provider refusing the review earns nothing and is asked again later. Holding
+intake does not stop the queue: what it lands was approved already, which is
+the "let what is running finish" half of the hold.
+
+**A failing candidate is the change's only where the target passes.** The queue
+runs no checks of the target's own, so a check that fails on a candidate is run
+once more on the target at the candidate's base. Where the base passes it, the
+failure is the change's: the change is handed back to its run for repair under
+the run's own repair budget, or, with that spent, put to the development manager.
+Where the base fails it too, the failure is the target's: the item a red landing
+files for that check on that branch is found or filed, nothing is charged to the
+change, and the entry steps aside for the entries behind it — one of which may
+be the fix — and is built afresh once the target moves. A head that will not
+merge onto the target at all, because the target moved while it waited, is
+first given its run's one reconciliation attempt rather than a stop: the run is
+put back live at its developer attempt, the reconciling sweep hosts it, its
+developer reconciles the conflict on top of the target, and the change is
+checked and reviewed again and rejoins the queue by itself, charged no repair
+attempt and no fresh run (`merge-queue-behind` in
+[run stops](../run-stops.md)); while every developer slot is taken, the queue
+gives it at a later pass. A run that already used that attempt, or cannot take
+it, is handed back the way a replay conflict is, saying why, so the repair
+continuation moves the change onto the target and asks its developer to
+reconcile it. A handback no single run can take up goes on the development
+manager's docket. While the forge holds a candidate's merge, a check on the
+candidate's pull request that ended without judging the change — cancelled by
+its own time limit, out of time, or never started — is run again once, at once,
+and the queue's pass says so on status and the dashboard. At every pass that
+finds GitHub holding the merge, the queue also asks GitHub what the merge is
+waiting on — whether the pull request can merge, its merge state, its reviews,
+and how each check the branch rules require stands — and keeps the latest
+answer on the entry with its time; status and the dashboard show it beside the
+entry. A pass that cannot ask GitHub, because GitHub cannot be reached or its
+certificate cannot be checked, keeps that failure instead, and the time until
+GitHub can be asked again is not counted toward `triage.stuck_merge_age`. A
+candidate's merge the forge drops, holds queued longer than
+`triage.stuck_merge_age`, or can never make — because a required check failed
+on it with no required check still running, or because such a check ended
+without judging the change again after being run again, or could not be run
+again, with nothing else still running — is withdrawn by the queue's own pass,
+naming what GitHub last said the merge was waiting on or the check that
+failed, and once the forge confirms the withdrawal the entry leaves
+the queue and the change is handed back to its run, kept, for the development
+manager to decide on. That limit counts from when the harness asked the forge
+for the merge, which it does only once the entry reaches the head of the queue,
+so time spent waiting behind other entries never counts toward it; the
+withdrawal says how long the forge held the merge and how long the entry was in
+the queue before that. An entry that has left the queue holds up nothing behind
+it: if its run cannot be told, the pass says so, works the entries behind it,
+and tries again on the next pass.
+
+While GitHub holds a candidate's merge, each pass reads the candidate's checks
+on GitHub as well. A check that ended without judging the change is run again
+as the paragraph above says, and what follows is about the checks that did
+judge it. Where they fail only in tests the candidate does not touch —
+every failure in GitHub's log is a named Go test, there are at most five, and
+none is in a directory the candidate changes — the pass asks GitHub to run the
+failing job once more on the same commit, writing the request down on the
+entry first, so a restart never asks twice for one candidate. While that run
+is asked for or going, a required check GitHub reports as failed does not
+withdraw the entry, because that failure is the one being run again. If that run
+passes, GitHub makes the merge and the entry lands. If it fails again, or the
+failure was anything else, or GitHub will not run the job again, the entry is
+withdrawn at once rather than after `triage.stuck_merge_age`, and the handback
+names the failing tests and says whether the candidate touched them; a failure
+in tests it does not touch is not put down to the change, and charges it
+nothing.
+
+The same goes for a candidate whose merge GitHub's own merge queue drops
+because its checks failed on the merge commit the queue built. Running the
+failed job again on that commit would not put the pull request back in GitHub's
+queue, so where the failure is confined to tests the candidate does not touch,
+the pass asks for the candidate's merge once more instead: GitHub builds a new
+merge commit and runs its checks again. That request is written on the entry
+first and made once per candidate; a second drop withdraws the entry, naming
+the tests.
+
+**Which queue an entry is in is chosen when it is admitted.** The harness runs
+the queue itself on any forge. The forge's own merge queue is used only where
+its adapter establishes, and the forge enforces before landing, everything the
+harness's queue gates on — the combined commit it lands, the project's
+configured checks bound to that commit, and an independent approval of it.
+GitHub's queue does not today: its required checks are named rather than the
+project's, and its required reviews approve a pull request's head rather than
+the commit it lands. The mode chosen, and why, is recorded on the entry and
+shown wherever the queue is.
+
+**A target that lands changes only through the forge's own queue holds the
+change rather than merging it**, because the forge would land a commit of its
+own rather than the candidate the harness checked and reviewed, and merging the
+old way would land work through the path the switch turned off. Before it
+admits anything the harness reads the target branch's protection. Where that
+protection requires GitHub's merge queue, or cannot be read:
+
+- nothing is admitted to the queue and nothing is replayed or merged the old
+  way;
+- the run stops at its promotion with its approval standing — an integration
+  stop outside the work, cause `merge-queue-held`, which charges nothing and
+  counts toward no brake — and the item is blocked naming the setting: the
+  branch rule that requires the forge's queue, or the protection read that
+  failed and why;
+- one report is filed for the queue when the condition is first found, and no
+  further report until it has cleared and been found again; the condition is
+  also kept beside the queue, where `yoyo status` and the dashboard show it. A
+  requirement or a refused login is a person's to change; a forge that simply
+  did not answer is the development manager's to watch;
+- the harness never changes a repository setting.
+
+A watching session looks at the held changes every five minutes. At the first
+reading that finds the protection readable and the forge's queue not required,
+it resumes each held run at its promotion, in the order they were held — which
+is the order they were approved — through the same action as
+`yoyo triage resume`, and each is admitted to the queue as any approved change
+is; the intake hold and a full harness hold that taking up as they hold any
+resumption. A change already admitted when the requirement appears is not
+landed while it stands: its verified candidate waits with its checks and review kept, and a
+target that moves meanwhile is drift as always.
+
+With the switch off nothing of this applies, so a person can remove GitHub's
+queue requirement from the branch's protection rules before turning the switch
+on, and merging carries on as before in between.
+
+**Turning the switch off admits nothing new and drains what is queued.** Each
+entry lands in the mode it was admitted in; nothing is discarded, admitted
+twice, or moved to another mode. A change the queue was holding because of the
+forge's own queue is taken up at the next look and integrated the way changes
+integrate with the switch off. A watching session works every queue that has
+an entry in it whatever the switch says, and a restarted one carries on from the
+queue's records.
+
+**Moving an entry to the other mode is something a person asks for:**
+
+```sh
+yoyo queue transfer <entry> --mode harness|forge
+```
+
+Whatever the entry's current queue was asked for is withdrawn first, and the
+withdrawal has to be confirmed: while the forge has not said it took a queued
+merge back, the transfer moves nothing. The entry is then released, and the
+change is admitted again in the other mode in the place it had, keeping the
+released entry, its candidates, and its landing record as history. The new
+entry has no candidate; it is built, checked and reviewed from nothing. A
+transfer interrupted part-way is finished by asking again.
+
+**Pushing a candidate.** A push of the candidate branch that fails without the
+remote refusing it — cut off by a restart onto a new build, timed out, exiting
+with nothing printed, or failing to reach the remote at all, such as a host
+that could not be looked up, a dropped connection or a server error — is not
+read as a refusal: the next pass looks at the candidate branch, records the
+push made where it arrived, and asks for it again where it did not, so nothing
+is pushed twice. A push the remote does refuse, which Git reports by naming the
+branch as rejected, hands that one entry back to its run, with the refusal in its words, for the
+development manager to decide on, and the queue goes on to the entries behind
+it.
+
+**An entry the queue stopped on** is taken up again, or handed back, with a
+command rather than by editing records:
+
+```sh
+yoyo queue retry <entry> --reason "<why>"
+yoyo queue hand-back <entry> --reason "<why>"
+```
+
+`retry` sets the stopped promotion attempt aside with the reason, and the next
+pass begins a fresh one on the same checked and reviewed candidate where it
+still stands. It refuses where something the queue asked the forge for could
+still land the change, and leaves a request with no recorded answer to the next
+pass, which looks at what it did first. `hand-back` withdraws whatever the queue
+asked the forge for, as a transfer does, and ends the entry's turn with its
+change kept on its run for the development manager, so the entries behind it go
+on. Before it hands the change back, it looks for it on the target: where the
+target carries the approved head, or the run's own pull request reads as merged
+with the approved head as its head and its merge commit is on the target — a
+change merged by hand while the queue was stopped on it — the entry leaves the
+queue as landed instead, the run ends landed, and its work item is settled as
+after any landing, with nothing asked of the development manager. Where the
+target does not show the change, the hand-back's reason says what was found,
+such as a pull request that reads as merged with nothing of it on the target.
+A hand-back whose work item is already closed leaves the item closed and says
+so in a note, without stopping the run or asking anything.
+
+The development manager can release the entry at the head of a queue herself,
+from her conversation, whatever stopped it there: a push the remote refused, a
+push cut off before it was answered, an approved commit already on the target
+branch, or a candidate that could not be built. Her `queue` action names the
+entry and the item it is for, and either hands the entry back to that item, as
+`hand-back` does, or, where the target branch already holds the entry's approved
+commit, records it as landed outside the queue: the run records the change as
+integrated, and the item is settled as its run's claim says. Either way the
+queue entry and the work item both say who released it and why, and the next
+pass goes on to the entry behind it. Only the head is released, because only the
+head holds the others back, and the release is refused while anything the queue
+asked the forge for could still land the change. `yoyo status` shows an entry
+released as landed as landed outside the queue, with who released it and why.
+
+**Who works the queues.** A `yoyo work` session works every queue with an entry
+in it beside its pulls, one pass per queue at a time, each in its own
+goroutine, and never inside a developer slot. A queue is worked by one process
+at a time: each step takes the queue's own worker lease, which is not the
+promotion lease, so a second session finds the queue taken and leaves it. Queues
+for different target branches move independently. A pass ends on its own — when
+nothing can move, when what is left waits on the operator, a provider or the
+forge, or when it stops on something that needs a look. A pass that ends
+waiting goes round again by itself a minute later, without waiting for the
+session's next pull, so a merge the forge makes is noticed within a few minutes
+however long the session's pulls take while the tracker is slow. Recording a
+landing on its work item may take at most a minute; where the tracker has not
+answered by then, the queue goes on to the next entry and records the work item
+at a later pass, so a slow tracker never holds the next candidate. Each time a
+candidate's checks begin, the queue writes beside itself how long it waited
+since its last landing — from the forge's own merge time where the forge gave
+one — so the queue's weekly figures can count it. A session draining to restart
+into a new build stops its passes going round and waits for them like its
+recurring firings. Past the drain bound no pass starts, and none starts a check
+stage or a review; a pass whose candidate's checks are running is let finish
+them, each check up to its configured `check_timeout`, so the check under way is
+not thrown away — and none for more than ten minutes past the drain bound, when
+the pass is stopped and the session restarts. Every other pass is given thirty
+seconds at the restart to end the step it is in, which ends it waiting, and is
+stopped only after that. A pass its session stops part-way through a step is
+recorded as waiting on the next pass, never as stopped: whatever the stopped
+step then failed on, such as reading where the target stands, says nothing about
+the queue. A stage stopped
+part-way keeps the checks that had already passed, as long as the candidate's
+commit and its list of checks are unchanged, and the session that comes back
+runs only the others, the one cut off included; the cut-off check is recorded
+as cut off by the restart, not as a failure, and nothing is charged for it.
+That wait too is given up while a developer slot sits empty with work for it:
+the pass is then stopped part-way, and the session that comes back keeps what
+had passed as above. Where the record of the stopped attempt cannot say which
+checks passed on that candidate, every check runs again and the candidate's
+record says why. Past the bound no queue starts a new
+check stage; the session that comes back runs it. While the session waits, its
+line names the queue, the candidate's generation, the check, and the latest
+moment that check can run to. A candidate's checks and review write to that
+candidate's own event stream under the product's merge queues.
+
+**What you can see.** `yoyo status` prints each queue under the four lines, and
+the dashboard has a section for them, both from the shared read model: each
+entry in the order it is worked, named by its work item's identifier and title,
+with its queue mode, where it stands — waiting, verifying, failed, waiting on the
+target, verified, landing, held by the forge, uncertain, landed, handed back, or
+released — and why, and what the queue's last pass found. Only a landing the
+queue confirmed on the target reads as landed: an approval, or a candidate that
+passed its gate, never does, and a merge asked of the target or the forge whose
+outcome nothing has established reads as uncertain.
+
+`execution.merge_queue` is a configuration key, so a running part of the product
+on a build from before it refuses a file that carries it; restart the product
+after upgrading and before turning it on.

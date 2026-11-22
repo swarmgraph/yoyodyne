@@ -1,27 +1,9 @@
-<!--
-Landed by yoyodyne-ifd.117.2, tranche 2 of the configuration.md split, with
-docs/configuration.md left intact. Nothing here links into ../configuration.md
-except the index link below, and no link here points at a tranche 3 guide
-(runs.md, publishing.md, recovery.md).
-
-"The configuration index ... lists the other guides" below is a forward claim:
-configuration.md becomes the index in 117.4.
-
-Scope against docs/docs-map.md: every section the map's disposition table
-assigns this guide — What reaches the queue, Traceability: references and
-orphans, Goals, and the work attributed to them, What a change upstream leaves
-stale, and Architectural invariants. The four lifted from under Artifact
-identity and metadata are promoted from ### to ## here, as the preserved
-branch had them; their slugs are unchanged. "The release-readiness workflow",
-which sits between the last two in configuration.md, has no destination row
-in the map and stays there. Size: 528 lines against the map's 440-line
-budget; the sections themselves grew after the map's counts were taken.
--->
 # Configuring admission, attribution, and staleness
 
 What reaches the work queue and on whose approval, how work is traced back to
 the brief, how a goal claims the work attributed to it, what a change upstream
-leaves stale, and the invariants a change is held to.
+leaves stale, how a release is judged ready, and the invariants a change is held
+to.
 
 [The configuration index](../configuration.md) lists the other guides.
 
@@ -82,6 +64,19 @@ setting that governed proposals while work arrived through the other door would
 say one thing and do another. Decomposition is not admission: a role that may
 only create underneath work you already admitted is building structure under a
 decision that was made, and it is unaffected by either setting.
+
+**One admission is the harness's own and is governed by neither value: the
+item a red landing files.** When the [landing checks](runs.md#where-the-whole-suite-runs)
+fail over a commit that every gate passed, the harness files a bug for it
+directly, at priority 0, under either `work_items` setting — the operator's
+standing order of 2026-09-19, that a red landing files its own item. No role
+asks for it and no proposal is put to you: it is the harness reporting that
+the target branch is broken, in the one form that stops the next run being cut
+from it unnoticed. Its notes record that basis — filed by the harness for the
+red landing of the named item and run, on the operator's standing order — and
+carry the `Goal served:` line of the item whose landing went red, so the
+attribution check reads it as work serving that goal rather than as work nobody
+attributed. Nothing else the harness does admits work on its own account.
 
 **`approvals.work_item_exemptions` narrows the per-item gate without lifting it.**
 It is a list of classes of work this project admits without asking, whatever
@@ -150,7 +145,6 @@ approval a role could record would be that role approving its own document.
 Refused, rather than recorded: an approval with no reason saying how you gave it,
 a second approval of a revision already approved, and approving a document that
 has been superseded or retired.
-
 ## Traceability: references and orphans
 
 Identity makes a relationship expressible; it does not make it true. So the
@@ -189,12 +183,24 @@ not an orphan.
 ```sh
 yoyo artifact list   # broken relationships go to stderr beside the listing
 yoyo artifact show v1-goals   # and what is wrong with one document, for that one
+yoyo artifact check   # the same reading with an exit code, for after you edit one
 ```
 
 `--kind` narrows the listing and not the reporting: the chain runs between
 kinds, and a listing narrowed to the goals would otherwise hide the design that
 names one of them and resolves to nothing.
 
+`check` is the one of the three that refuses. It reads every governed document —
+the artifacts, the goals stated in them, the invariants, the index at the door of
+each home, and the Markdown links written in any file a developer's change may
+not touch — and exits 1 on a defect in any of them, naming the file, the role
+that owns it, and the command that reaches that role. It exists because these
+documents live in directories every developer's diff refuses, so a defect in one
+is nobody's to fix but the owner's: the checks that read them during a run
+escalate what they find instead of failing, and this is where it fails. Run it
+after you edit one of these documents; nothing else you run will go red on what
+you wrote. A broken link written anywhere else is a developer's, and it fails in
+the check that found it rather than here.
 ## Goals, and the work attributed to them
 
 The chain's last link runs from a work item to a goal, and a work item is in the
@@ -423,7 +429,6 @@ is outstanding; it is not a substitute for making it. The pass is made by the
 Lead Product Manager in conversation, working from `yoyo goals attribution` and using
 the `attribute` action on each item — which appends, so nothing already recorded
 is lost.
-
 ## What a change upstream leaves stale
 
 A goal can be amended while the designs that serve it and the work admitted
@@ -486,6 +491,79 @@ operator's decision or the owning role's; this surfaces the condition.
 A tracker that cannot be read costs the work half of the report rather than all
 of it: the documents still report, and the report says the queue was not read
 instead of rendering it as one nothing has moved under.
+## The release-readiness workflow
+
+Every check above answers for one thing, and `yoyo conformance` asks the whole
+set together — which is what [cutting a
+release](../developing-yoyo.md#cutting-a-release) gates on.
+
+```sh
+yoyo conformance          # what a release is tagged behind
+yoyo conformance --json   # machine-readable
+yoyo conformance --notes  # the Markdown section a release's notes carry
+yoyo conformance --notes --from-export  # the same, read from the tracker's export, inside a developer run
+```
+
+The order the checks run in is not code. It is a **workflow definition**: a
+state machine in YAML that selects actions the harness registered in Go, maps
+each outcome to where the sequence goes next, and ends in one of two terminals —
+`ready`, which lets a tag be cut, and `mismatch`, which refuses it. This build
+ships one, and a project that wants its own writes it here:
+
+```
+.yoyodyne/workflows/release-readiness.yaml
+```
+
+Nothing is merged between the two. A project that writes one owns the whole
+sequence from then on, which is the only arrangement where reading the file
+tells you what actually ran; `yoyo conformance` names which of the two it read,
+and the content digest it pinned, in everything it prints.
+
+What a definition can change is the sequence and nothing else. It selects among
+the actions the build registered — `conformance.artifacts`,
+`conformance.references`, `conformance.invariants`, `conformance.goals` and
+`conformance.staleness` — and an action nothing registers is refused rather than
+run. Each action's authority is declared in Go, and the gate is compiled under
+`repository.read` and `work-item.read` and nothing else, so no definition can
+make it write anything. Each state must handle exactly the outcomes its check can
+produce — `conforms` and `diverges` for the four that gate, `noted` for
+`conformance.staleness`, which reports and refuses nothing — so an unhandled
+outcome, or a transition on one the check never returns, is refused here rather
+than met halfway through a cut. Validation and compilation both happen before the
+first check runs, and a definition that is wrong is refused whole rather than
+half adopted:
+
+```yaml
+schema: 1
+id: release-readiness
+summary: what this project checks before it tags
+initial: artifacts
+states:
+    artifacts:
+        action: conformance.artifacts
+        on:
+            conforms: references
+            diverges: mismatch
+    references:
+        action: conformance.references
+        on:
+            conforms: ready
+            diverges: mismatch
+terminals:
+    ready: {}
+    mismatch: {}
+```
+
+A definition names its own states; `action:` is what selects the check. A state
+called `check-artifacts` selecting `conformance.artifacts` is reported as
+`check-artifacts`, with the check named beside it, so a renamed sequence reads
+against both the file and this build.
+
+A run is recorded durably, one state boundary at a time, under the harness's own
+state root, so what a release was gated on can be read back afterwards. That
+record is the one thing `yoyo conformance` writes — it touches neither the
+repository nor the tracker — and nothing prunes them; one is written per
+invocation.
 
 ## Architectural invariants
 

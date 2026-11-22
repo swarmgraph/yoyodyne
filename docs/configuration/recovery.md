@@ -1,44 +1,11 @@
-<!--
-Landed by yoyodyne-ifd.117.3, tranche 3 of the configuration.md split, with
-docs/configuration.md left intact. The link below into ../configuration.md
-resolves today and points at a section no tranche has a home for:
-
-  #waiting-out-a-network-that-dropped -> no row in docs/docs-map.md; it stays
-                                         in configuration.md until the map
-                                         gives it a home, which is why this
-                                         guide links out to a section that
-                                         sits between two of its own
-
-117.3 retargeted setup.md's #triage-thresholds and
-#waiting-out-a-provider-that-refuses to this guide when it landed.
-
-"The configuration index ... lists the other guides" below is a forward claim:
-configuration.md becomes the index in 117.4.
-
-Scope against docs/docs-map.md: the three sections the map's disposition table
-assigns this guide — Waiting out a provider that refuses, Relaunching a run
-the provider killed, and Triage thresholds — with their children. Two of those
-children have no row of their own, because the table was last reconciled on
-2026-08-24 and the file has grown since: Serving a turn from a permitted
-alternate model and Pinning an agent to a model version both sit under Waiting
-out a provider that refuses, so both go where their parent goes.
-
-Extracted from the docs/configuration.md beside this file, section for section,
-with the prose left word for word. The only edits are to links: a relative path
-out of docs/configuration/ gains a ../ prefix, and a link into a section the
-split has moved into a guide — one of this tranche's siblings or an earlier
-tranche's — is retargeted at that guide. Diffing
-this guide's body against lines 2948-3433 and 3795-4577 of that file shows those
-link lines and nothing else.
-
-Size: 1312 lines against the map's 513-line budget; the sections themselves
-grew after the map's counts were taken, Triage thresholds most of all.
--->
 # Configuring triage thresholds and provider waits
 
 What the harness does when a provider refuses, serves a turn from another
-model, or dies mid-run, and the thresholds that decide when a stalled run, a
-stuck merge, or a work item that has been given enough is escalated to you.
+model, runs out of room in a session, or dies mid-run, and when the network
+drops; the model version, effort level, sub-agents, skills, and settings each
+agent is given; and the thresholds that decide when a stalled run, a stuck
+merge, or a work item that has been given enough is put to the development
+manager.
 
 [The configuration index](../configuration.md) lists the other guides.
 
@@ -212,7 +179,7 @@ named, spending `usage_limit_max_pause`. The rest are covered by
 them becomes a wait of the other kind once that budget is spent: a terminal
 `api_error` whose detail is plainly a dropped connection —
 `API Error: Connection closed mid-response` is the specimen — is then
-[waited out on the recovery window](../configuration.md#waiting-out-a-network-that-dropped) rather
+[waited out on the recovery window](#waiting-out-a-network-that-dropped) rather
 than blocking the item.
 
 `yoyo resume <beads-id>` is the one thing that overrides a recorded deadline,
@@ -224,7 +191,6 @@ acts on the release within seconds, and the run keeps its claim, its branch, its
 worktree, and its developer session. If the provider still refuses, the run
 records the new report and waits again, so a premature release costs one refused
 request. See the README for the whole of that behavior.
-
 ### Serving a turn from a permitted alternate model
 
 Waiting is the right answer for a run and the wrong one for a decision. On
@@ -360,7 +326,7 @@ What happens on a refused turn:
 - The endpoint the turn would move onto is checked against the tool access the
   role requires before it is moved. A substitution can never put a role on a
   provider whose sandbox cannot hold that tool access — a reviewer needs a provider
-  that can refuse every tool, and a developer one that can scope writes to a
+  that enforces read-only access, and a developer one that can scope writes to a
   worktree — and a substitution that would is refused with the tool access named,
   leaving the turn to take the refusal it would have taken anyway.
 - **A crossing rebuilds rather than resumes.** Every turn but the first resumes a
@@ -415,6 +381,52 @@ agent whose alternate is refused too. A run's developer and reviewer invocations
 are not covered by this and still wait their window out on the settings above;
 what this covers is the turns an agent takes — the conversations, where a
 decision nobody can make stops everything downstream of it.
+### A conversation too long for its provider session
+
+A conversation's provider session grows with every turn, and a long-held one can
+outgrow what the provider will take: it refuses the turn as too long (Claude
+Code's `Prompt is too long`, its API's `request_too_large`, Codex's
+`context_length_exceeded`), or the compaction that would have shrunk the session
+fails. That turn is not failed and the conversation is not replaced. The session
+is set aside and the same turn is asked once more in a fresh provider session,
+under the same conversation identifier, with its recent context rebuilt from the
+record exactly as [a crossing](#serving-a-turn-from-a-permitted-alternate-model)
+rebuilds it: the picture the conversation is working from, and the most recent
+80 messages of the exchange. The reconstruction tells the role why it has no
+session, so it knows the earliest of what it said is gone. Nothing else about the
+conversation changes — its agent's memory, its report position, and its picture
+carry over as they are.
+
+The conversation's event log records a `session.replaced` event naming the
+session set aside, the endpoint that refused it — the alternate's, where failover
+had moved the turn — and what the provider said. A reply the provider did not flag
+as a failure is read as this refusal only when the provider's notice is the whole
+of it, so a role that merely mentions one of these errors is never mistaken for
+one. The session is cleared on the record before the fresh attempt, so a fresh attempt that is refused too fails
+that turn only, and the next turn rebuilds again rather than resuming the session
+that was refused. A turn is given one fresh session, not a loop of them.
+
+A rebuilt conversation is also checked against the selected adapter's input
+limit before it is sent, with five percent left for framing. Oldest replayed
+messages are dropped first and their omission is named to the role; current
+instructions and evidence, memory, decisions and docket records are preserved.
+Codex's 1,048,576-character bound includes the role contract and inspection
+instructions its adapter adds. If the endpoint nevertheless refuses for request
+size (`input_too_large` or `request_too_large`), the turn gets one shorter
+reconstruction before it can fail. This also applies to the memory-save turn
+before compaction and to the receiving endpoint on failover. A save refused on
+the old session retries from the durable record; its writes are recorded before
+the waiting message continues. A capacity wait retains the shortened request
+and its spent size retry; an intervening turn rebuilds from the latest record
+with the reduced history allowance. If that reconstruction fails, the error is
+returned and the recorded replacement's event position is kept. Once no old
+messages are left to drop, the briefing's documents give way, shipped
+documentation first and specifications last, and the role is told which and how
+to read them; the role's instructions, the standing goals, the current work and
+the turn's own evidence never do. These bounds belong to the adapters and add
+no configuration key.
+See [request size protection](../conversation.md) for the
+compaction and refusal behavior.
 
 ### Pinning an agent to a model version
 
@@ -499,8 +511,418 @@ refused a turn nobody asked it.
 
 A pin covers the same invocations failover does: the turns an agent takes as
 itself, its conversation and the rounds where another role asks it something. A
-run's developer and reviewer invocations ask for `model`. `yoyo agent list` says
-so for every pinned agent rather than leaving it to be assumed.
+run's invocations are not among them, and neither of them asks for the pin: the
+reviewer's asks for the reviewer agent's `model`, and the developer's asks for
+whichever selector the item's own labels chose under
+[`execution.developer_models`](runs.md#a-developer-model-chosen-by-the-items-label) —
+which is the developer agent's `model` for an item that mapping names no label
+of, and the mapped one otherwise. `yoyo agent list` says so for every pinned
+agent rather than leaving it to be assumed. A recurring task's pass is the
+agent's own turn and carries the pin, unless the task
+[names another model](agents.md#a-tasks-own-model), which carries none.
+### An agent's effort level
+
+`effort` sits beside `model` in an agent's block and says how hard the agent's
+provider is asked to think on every invocation of that agent: its developer or
+reviewer invocations in a run, its conversation turns, the rounds where another
+role asks it something, its side threads, and its recurring and program manager
+passes. Claude Code accepts `low`, `medium`, `high`, `xhigh`, and `max` — its own
+`--effort` flag, which the harness passes — and anything else is refused when the
+file loads, naming those five.
+
+The template `yoyo init` writes states `effort: medium` for every agent. That is
+not a preference: it is Claude Code's own default for the model `opus` serves
+today, Opus 5.5, which its model configuration documentation gives as `medium`
+(every other model that takes an effort level defaults to `high`). Writing it
+down pins the level where it was, so it does not move when the alias does, and
+makes it something a record can say. A later change of level is an edit to this
+key.
+
+The key is optional. A Claude Code agent without one passes no level, and Claude Code
+resolves its own from the environment, the machine's settings, or the model's
+default — which is how every agent ran before the key existed and how a project
+whose file predates it still runs. Stating it empty in a later layer removes an
+inherited level. A project generated before the template carried it hears of
+it from [`yoyo config drift`](setup.md#extending-a-built-in-bundle) as an available
+value.
+
+**The level belongs to the agent, not the model.** A model
+[`execution.developer_models`](runs.md#a-developer-model-chosen-by-the-items-label)
+maps an item to, a model a [recurring task](agents.md#a-tasks-own-model) names, a pinned
+version's fallback to its alias, and a
+[failover alternate](#serving-a-turn-from-a-permitted-alternate-model) all serve
+the turn at the agent's level. The [run endpoint pair resolver](runs.md#developer-slot-endpoints)
+also accepts an explicit alternate effort and refuses incompatible inherited
+levels. For existing conversation failover, the one exception is a failover that crosses onto
+a provider that does not accept the agent's level: that turn is asked with none, and its record
+says none was asked rather than the level configured, so the failover still
+saves the turn.
+
+**Codex receives a level only when the agent sets one.** On fresh and resumed
+invocations, including developer, reviewer, conversation, and recurring turns, the adapter
+passes `--config 'model_reasoning_effort="high"'` for `effort: high`, before
+`resume` when resuming. This overrides personal Codex settings. Omitting `effort`
+or setting it empty passes no effort override, so the Codex CLI resolves its own
+configured level. Yoyo does not read the account's Codex home. Read-only Codex
+roles — reviewers and the management roles — still ignore the account's Codex
+configuration for isolation (see [provider capability validation](../provider-plugins.md#capability-validation)),
+so one with no `effort` runs at Codex's built-in level for its model, not the
+level in the account's `~/.codex/config.toml`. To run such an agent higher, set
+`effort` on it in the project configuration.
+The catalog below lists model defaults as reference values, not overrides Yoyo
+passes when effort is omitted:
+
+| Codex model | Accepted levels | Default |
+| --- | --- | --- |
+| `gpt-6-astra`, `gpt-6.1-sol`, `gpt-5.6-sol`, `gpt-daybreak-blue-latest` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| `gpt-6-sol`, `gpt-5.6-terra`, `gpt-daybreak-red-latest` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| `gpt-6-luna`, `gpt-5.6-luna`, `codex-auto-review` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
+| `gpt-5.5` | `low`, `medium`, `high`, `xhigh` | `medium` |
+
+Established against **codex-cli 0.159.2**: `codex exec --help` and
+`codex exec resume --help` establish the config override and its placement;
+`codex debug models --bundled` supplies these levels and defaults without a
+provider call. Local validation in an isolated `CODEX_HOME` shows that
+`model_reasoning_effort` takes a string (an integer is refused). That CLI accepts
+unadvertised strings locally too, so parsing alone cannot establish model
+support. Yoyo validates against the recorded bundled catalog in
+`internal/backend/testdata/codex-cli-0.159.2-effort.json`: an unsupported level is
+refused at configuration load with accepted values named. An unlisted selector,
+including an unverified exact model version, is refused because this build has
+no established levels or default for it. The same check covers Codex models in
+failover, developer mappings, and recurring tasks. A provider a project
+[declares](../provider-plugins.md) inherits its adapter's effort policy.
+
+For the technical-health program manager, configure `backend: codex`,
+`model: gpt-6-astra`, `effort: high`, with failover disabled and no model-version
+fallback. Deploy a build carrying this support before activating that live
+configuration; activation and the first-pass proof belong to delivering the
+technical-health program manager (yoyodyne-ifd.430.13.20). This change adds no
+configuration key: it extends the existing `agents.*.effort` key.
+
+**Every record says what was asked.** A run records the developer's level at
+reservation — read back by every attempt, as its account and model are, so an
+edit to the key reaches the next run and never one already in flight — and
+the reviewer's with its verdict; both appear in the item's notes beside the
+models. A conversation records the level of its last turn, an exchange round and
+a side thread record theirs, a recurring or program manager pass records its
+pass's, and a branch review records its reviewer's. Every line in the cost log
+carries the level its invocation asked for, so each turn is pinned to one even
+where the conversation's own record has moved on. An absent requested level
+means no override was asked for. Codex records carry
+`effort_description`, with `provider_*` and `review_*` names on run records,
+to distinguish `high, from the agent` from `high, from the Codex configuration`
+when the stream reports the latter level, or `not reported, from the Codex
+configuration` when it does not. `yoyo config show` prints the key beside the
+model, `yoyo agent list`
+says `model opus at medium effort`, `yoyo status` says it beside the model on
+the line of each running run and each conversation in flight — `developing, on
+claude-opus-5 at medium effort` — and carries it under `--json`, and the
+dashboard shows it beside the model on a run's card. Records keep the
+provider-reported level separately as `resolved_effort` and `effort_reported`,
+with corresponding `provider_*` and `review_*` fields on run records. A stream
+that reports no effort records `effort_reported: false`: the served effort was
+not reported, and the requested level is never copied into it. The current
+Codex `exec --json` stream normally omits effort; a `session_configured` event
+that includes `reasoning_effort` records that value. Every invocation's cost
+line preserves both facts, even when a later turn replaces the conversation's
+record. Sweep evidence uses the effort actually requested by the serving turn,
+rather than re-reading the configuration after a provider substitution. Run
+notes, status lines, and dashboard cards use the Codex effort description,
+including its source and an unreported level. Claude Code lines whose record
+names no level read as they did before the key existed.
+
+### Developer sub-agents on a cheaper model
+
+A developer run can plan on its own model and hand bounded pieces of coding to
+sub-agents on a cheaper one, through the provider's own sub-agent tool. The
+developer session stays the one invocation the harness launched and stays
+accountable for the change: it reads what its sub-agents did and verifies it
+before handing the change over. The design is
+[developer sub-agents](../designs/developer-sub-agents.md).
+
+**A run with sub-agents on is told how to use them.** Every developer
+invocation given sub-agents is also given a built-in instruction, after the
+developer persona. The harness chooses it from the models the invocation runs
+on, reading each model by the family its name carries, so `opus` and
+`claude-opus-4-7` are the same:
+
+- **An Opus developer with Sonnet or Haiku sub-agents** is given
+  `internal/orchestrator/developer-sub-agents-opus-main.md`. Nearly all of such
+  a run's cost is the developer reading its own context again on every turn,
+  so it keeps that context small: a sub-agent explores and returns a summary
+  of at most twenty lines; another writes each bounded piece, runs the
+  checks and fixes what fails, briefed with the files, the intended change, when it is
+  done and the repository's own conventions, and answers in a fixed three-line
+  report; the developer reviews each piece by its diff, and before submitting
+  reviews the whole change as one diff and runs the checks itself, reading
+  only how they ended.
+- **A Sonnet developer with Opus sub-agents** is given
+  `internal/orchestrator/developer-sub-agents-sonnet-main.md`. The sub-agent is
+  the expensive side here, so the developer consults it to review its plan and
+  for hard calls, giving it what it needs in the brief, and never hands it the
+  writing, the checks, or the reading of files.
+- **Any other arrangement** is given
+  `internal/orchestrator/developer-sub-agents.md`: plan the change itself, hand
+  the writing of code to sub-agents one bounded piece at a time, saying which
+  files to change, what the change must do, and how to check it, read what
+  each one changed before handing out the next, and verify the whole change
+  itself before submitting. It writes code itself only where handing it over
+  would cost more, such as a change of a few lines.
+
+In every arrangement a sub-agent's word that checks passed is not the
+developer's verification, and how the change is divided into pieces is still
+the developer's decision; the harness does not split the work. The
+instructions are built into the program, so every project receives the same
+text and nothing in a project's own files, its persona included, changes them.
+An invocation that goes without sub-agents — the setting off, a provider that
+does not offer them, a check that did not confirm them, or a usage limit on
+their model — is given none, and receives exactly what it received before the
+instructions existed. The run's record notes the instruction under its
+sub-agent setting, as `instruction`, with the file and the harness build it
+came from, and its line in `yoyo status` says so, for example `given the
+built-in sub-agent instruction developer-sub-agents-opus-main.md from build
+0123456789ab`. A run that later goes without sub-agents, whether for one of
+those reasons or because it was moved to a developer slot that does not turn
+them on, keeps the note, and its line then reads `an earlier attempt was given
+the built-in sub-agent instruction ...`, so a trial can still tell which runs
+received which.
+
+Sub-agents are off unless the configuration turns them on. Off is a developer
+invoked exactly as before the setting existed: the same tools, the same
+command line, and nothing about sub-agents on the run's record.
+
+```yaml
+agents:
+  developer:
+    subagents:
+      enabled: true      # off when absent
+      model: sonnet      # the default when enabled and no model is named
+      effort: medium     # optional; absent leaves the provider's own default
+
+execution:
+  max_concurrent_developers: 2
+  developer_slots:
+    - subagents: {enabled: false}   # slot 1 runs without them
+    - subagents: {model: haiku}     # slot 2 uses the agent's setting on haiku
+```
+
+- **Where it belongs.** `subagents` sits in the developer agent's block. Any
+  other role naming it is refused when the file loads: reviewers do not use
+  sub-agents. A layer that states the block replaces an inherited one whole, as
+  `failover` does.
+- **Slots.** An entry of `execution.developer_slots` may carry its own
+  `subagents` with `enabled` and `model`. The slot's value wins where it states
+  one, then the agent's, then off. The effort is always the agent's.
+- **The model** is asked of the same provider and account as the endpoint
+  serving the run, and defaults to `sonnet`.
+- **The effort** is checked against the levels the provider can apply to a
+  sub-agent — for Claude Code, the same five as `effort` — and one it cannot
+  apply is refused when the file loads, never dropped.
+- **Providers.** Claude Code offers sub-agents and Codex does not. Whether a
+  provider offers them is its adapter's to say, and no configuration key can
+  change it; a provider a project declares on an adapter inherits that
+  adapter's answer. Sub-agents turned on where no provider the agent or slot
+  could run on offers them are refused when the file loads, because the
+  setting could never take effect. Where some do and some do not — a slot pair
+  with a Claude Code primary and a Codex alternate — the file loads, `yoyo
+  config validate` says once which provider will serve runs without them, and
+  a run on that provider goes without them and its record says so, for example
+  `sub-agents off for this run: Codex does not offer them`. Falling back to an
+  alternate never depends on sub-agents.
+- **When a change takes effect.** The setting a run uses is written on its
+  record before its first launch and read back by every attempt after,
+  repairs included, so an edit reaches runs that start after it. A run that
+  started with nothing configured keeps running without sub-agents.
+
+**What holds a sub-agent in.** On Claude Code the harness defines the only
+sub-agent a run may start, on the command line and named for the run, so no
+definition in the repository, the account's home, or the provider's own
+configuration is used. Its tools are the run's own allowed tools without the
+sub-agent tool, so it cannot start a sub-agent of its own. It runs inside the
+developer's process, in the worktree, under the developer's settings: the same
+sandbox and the same write rules. A hook refuses any other sub-agent type and
+any sub-agent asked to run in the background, and background work is switched
+off in a session with sub-agents — for its shell commands too — so nothing a
+sub-agent starts outlives the run. Stopping, timing out, or interrupting the
+invocation ends its sub-agents with it, and a restarted run never resumes one.
+
+**Checked before every invocation that would have them.** What a provider
+says it offers is not relied on alone, because the installed CLI can be
+upgraded under a running harness. Before each developer invocation that would
+be given sub-agents, the harness launches the installed Claude Code the way
+that invocation is launched, asks it questions over its control channel, and
+sends no prompt, so no model is called and nothing is spent. It confirms that
+the CLI names `--agents` and `--forward-subagent-text` (on any version other
+than 2.1.286, which they were read from), that it loaded the run's own
+sub-agent on the configured model, that it rejected none of the settings, and
+that it will run the hook that refuses every other sub-agent. Where any of that
+does not hold, or the check cannot be made, that invocation runs without
+sub-agents and the run's record says why in the check's own words — for
+example `sub-agents off for this run: the installed claude-code (2.2.0) did not
+confirm what sub-agents are launched with: the flag --forward-subagent-text is
+not in its help`. Nothing else about the run changes. Two things cannot be
+confirmed without running a sub-agent, and so rest on what was read from Claude
+Code 2.1.286: that a sub-agent runs inside the developer's own process, and that
+the provider reports usage for each model. A provider that stops reporting
+usage per model leaves the split unknown on the record rather than guessed.
+
+**A usage limit on the sub-agents' model alone.** Claude Code names some
+usage limits for one model family, such as its weekly Sonnet limit. Where the
+limit it reports is on a family the sub-agents run on and the developer does
+not — a weekly Sonnet limit on a run whose developer is on Opus — the run does
+not wait and does not move to its alternate endpoint: the developer carries on
+the work itself, and the run's later attempts go without sub-agents until the
+limit resets. Its record and status say so, for example `sub-agents off for
+this run: the sub-agents' model has reached the provider's Sonnet weekly limit,
+so the developer works without them until it resets at Jan 23 09:00 PST`; a
+limit that names no reset time keeps them off for the rest of the run. A limit
+the harness does not recognize is called an unrecognized usage limit, with the
+provider's own name for it after those words. A limit on the whole account, or on the developer's own model, is the
+run's, and is waited out or answered by the endpoint fallback as described
+under [waiting out a provider that refuses](#waiting-out-a-provider-that-refuses).
+
+**What it costs, and what is recorded.** A sub-agent's spend is the run's: it
+is inside the cost the provider reports for the invocation, so it counts in the
+run's and the work item's cost, the account's usage limits, and every spend
+limit, exactly as the developer's own use does. Each cost line also carries
+`models`, what the provider reported each model doing, and the run's record
+carries the last session's split as `provider_model_usage`; where the provider
+reports a total only, the split is left unknown rather than estimated. Each
+call to a sub-agent is in the run's event log on the events that start and end it: when,
+the model, the task as the developer described it, how many tools it used, and
+its usage where reported. A run's line in `yoyo status` and its dashboard card
+say whether sub-agents are on, which models did its work and what each cost,
+and how many sub-agent calls it has made, with any interrupted ones counted.
+Every event a sub-agent produces counts as output for the limit that ends a
+run after five minutes without any, and that limit is not lengthened for
+sub-agents; time a sub-agent spends counts in the run's own time limits.
+
+Turning sub-agents on by default, or changing the default model, is the
+development manager's decision about developer models, made after a trial
+comparing a slot with sub-agents against the others on cost per merged change
+and first-review approval.
+
+### Skills and instruction files a Codex role is given
+
+A Codex role is given the skills and instruction files the project names in a
+top-level `codex` section, and nothing else. Skills, plugins, and instruction
+files in the Codex home of the account a turn runs under — `~/.codex/skills`,
+`~/.codex/AGENTS.md`, the plugins its `config.toml` enables, and the like — are
+not loaded, whether the role is a developer, a reviewer, a conversation, or a
+recurring pass, and whether the turn starts a session or resumes one. Neither
+are skills under `~/.agents/skills` or the repository's own `.agents/skills`. To
+give a role one of them, name it:
+
+```yaml
+codex:
+  skills:
+    # A directory holding SKILL.md, or the SKILL.md itself.
+    - path: .yoyodyne/skills/code-review
+      roles: [reviewer]
+  instructions:
+    - path: docs/agent-notes.md
+    # A personal file is given only when the project names it.
+    - path: ~/.codex/AGENTS.md
+      roles: [developer]
+```
+
+A relative path is read from the harness's own checkout of the repository,
+for every role — never from a run's worktree, so a change under review cannot
+rewrite the instructions its reviewer is given — and `~/` is the home
+directory of whoever runs the harness. A file named for a reviewer therefore
+takes effect once the change that edits it has landed. `roles` narrows an entry to those roles; without it every role gets
+it. The harness reads each file and puts it in the prompt between the role's
+contract and its task, with a skill's own directory named so the role can read
+the files the skill refers to. A named file that cannot be read stops the turn
+before the provider is asked, with the path in the error, rather than running
+the role without it. An entry with no path, or a role that does not exist, is
+refused when the file loads. Plugins cannot be named: none is loaded.
+
+Two things are not personal and stay. A developer's turn still reads the
+repository's own `AGENTS.md` (or `AGENTS.override.md`) from its worktree, as
+Codex always has. And the account's `config.toml` still applies to a
+developer's turn where nothing overrides it, so the
+[effort rule](#an-agents-effort-level) is unchanged — except for the settings in
+it that carry instructions: `developer_instructions` is emptied on every turn,
+and `model_instructions_file`, `experimental_compact_prompt_file`, and
+`compact_prompt` set at the top of the file are left out of what the turn
+reads. Nor does a developer's turn start any MCP server the account's
+`config.toml` or the worktree's `.codex/config.toml` lists: each one is turned
+off by name on every turn
+([provider plugins](../provider-plugins.md#capability-validation)).
+
+Every record says what was loaded, by name and source, and says `none` for
+each kind where that was nothing: a run keeps the developer's as
+`provider_loaded` and the review's as `review_loaded`, a conversation keeps its
+last turn's as `provider_loaded`, and every Codex turn's `run.started` event
+carries the same one-line account, for example
+`skills: none; plugins: none; instruction files: AGENTS.md (repository, /path/to/worktree/AGENTS.md)`.
+A Claude Code turn's record also names its settings sources and connectors; see
+[the next section](#settings-memory-skills-connectors-and-instruction-files-a-claude-code-role-is-given).
+
+This adds the `codex` configuration key. A part of the product still running a
+build from before it refuses a file that carries it; `yoyo config validate` and
+`yoyo doctor` name any such part, and the product restarts it on this build
+when it moves its parts onto the build. How the CLI is
+kept from loading the rest is in
+[provider plugins](../provider-plugins.md#codex-skills-plugins-and-instruction-files).
+
+### Settings, memory, skills, connectors, and instruction files a Claude Code role is given
+
+A Claude Code role is given the skills and instruction files the project names
+in a top-level `claude_code` section, and nothing personal. From the Claude
+Code home of the account a turn runs under it reads no settings file
+(`~/.claude/settings.json`, with the hooks, permissions, and plugins it
+enables), no memory (the auto-memory index and its notes), no skill, agent, or
+plugin, no MCP server, no claude.ai connector — Gmail, Calendar, and the rest
+attached to the account on claude.ai — and no instruction file
+(`~/.claude/CLAUDE.md` and its rules). That holds whether the role is a
+developer, a reviewer, a conversation, or a recurring pass, and whether the turn
+starts a session or resumes one. Neither are skills in the repository's own
+`.claude/skills` or the CLI's built-in ones. The section has the shape of the
+[Codex one](#skills-and-instruction-files-a-codex-role-is-given), and its
+entries are read the same way:
+
+```yaml
+claude_code:
+  skills:
+    - path: .yoyodyne/skills/code-review
+      roles: [reviewer]
+  instructions:
+    - path: docs/agent-notes.md
+    # A personal file is given only when the project names it.
+    - path: ~/.claude/CLAUDE.md
+      roles: [developer]
+```
+
+A relative path is read from the harness's own checkout, `~/` is the home
+directory of whoever runs the harness, and `roles` narrows an entry. The harness
+reads each file and adds it to the role's standing instructions after its
+contract. A named file that cannot be read stops the turn before the provider
+is asked. Plugins, MCP servers, and connectors cannot be named: none is loaded.
+The `codex` and `claude_code` sections are separate, so a file named in one is
+not given to the other provider's roles.
+
+What a developer reads from its own worktree is the repository's and stays: its
+checked-in `.claude/settings.json`, which is where its project hooks come from,
+and the `CLAUDE.md` files in the worktree. A `CLAUDE.md` in a directory above
+the worktree is not the repository's and is not read. Every other role reads no
+settings file and no `CLAUDE.md` at all, so the repository it inspects cannot
+configure it. Admin-managed policy settings installed on the machine still
+apply, as they do to every Claude Code session.
+
+Every record says what was loaded, by name and source, with `none` for each
+kind that was empty, in the same places as a Codex turn's — `provider_loaded`,
+`review_loaded`, and the `run.started` event — for example
+`settings sources: .claude/settings.json (repository, /path/to/worktree/.claude/settings.json); skills: none; plugins: none; connectors: none; instruction files: CLAUDE.md (repository, /path/to/worktree/CLAUDE.md)`.
+
+This adds the `claude_code` configuration key. A part of the product still
+running a build from before it refuses a file that carries it; `yoyo config
+validate` and `yoyo doctor` name any such part, and the product restarts it on
+this build when it moves its parts onto the build. How the CLI is kept from
+loading the rest is in
+[provider plugins](../provider-plugins.md#claude-code-settings-memory-skills-connectors-and-instruction-files).
 
 ## Relaunching a run the provider killed
 
@@ -544,7 +966,7 @@ that dies mid-relaunch resumes against the budget it had rather than a fresh one
 
 Setting the bound to `0` buys no relaunches at all: the first provider death is
 the last, and the run stops there. It is **not** an opt-out of
-[waiting a dropped connection out](../configuration.md#waiting-out-a-network-that-dropped), which
+[waiting a dropped connection out](#waiting-out-a-network-that-dropped), which
 is a different rule and is not configured — a death that is plainly a reset
 connection is waited out on the recovery window at `0` exactly as it is at `2`,
 because what the operator ruled is that the harness never fails outright on
@@ -555,7 +977,7 @@ What happens once the budget is spent depends on what killed the invocation. A
 death nothing can classify stops the run and records a blocker on the work item
 naming the provider's own last message. A death that is plainly a dropped
 connection does not: it is
-[waited out and asked again](../configuration.md#waiting-out-a-network-that-dropped) past the
+[waited out and asked again](#waiting-out-a-network-that-dropped) past the
 budget, on the backoff every other transport failure gets, and only a run that
 spends that window as well stops. This budget is the right bound for provider
 weather nobody has classified; a reset connection is not that, and stopping on
@@ -578,6 +1000,63 @@ ended twice whose first ending cannot be trusted is the one thing outside the
 API's own errors that still relaunches, because it is not a verdict on anything;
 one whose first ending can be trusted is answered by it, as
 [when the provider dies mid-run](../operations.md#when-the-provider-dies-mid-run) says.
+## Waiting out a network that dropped
+
+A run touches somebody else's network at its most expensive moments: it pushes
+the run branch, opens and updates the pull request, reads where the remote target
+branch stands, asks the forge to merge, confirms the merge, deletes the merged
+branch, catches the local branch up, and makes every provider invocation over
+it. It ends by writing to the tracker, which is not a network but is a store
+other processes are writing to, and a `bd` too busy to run judges the work no
+more than a reset connection does.
+**A failure at one of those whose class says the next attempt may well succeed —
+a connection reset, a network drop, a transport-level refusal — is waited out and
+asked again rather than recorded as terminal.**
+
+The rule is the operator's, and what produced it is four runs killed in one day
+on 2026-09-03, each at its final publish or integrate step, each by one
+connection reset, each with the work already completed and some of it already
+reviewed. The
+[intake hold](runs.md#watching-instead-of-draining) then held the whole line three
+times, because the blocked runs came one after another.
+
+**There is nothing to configure.** The waits are Fibonacci seconds — 1s, 1s, 2s,
+3s, 5s, 8s, 13s — capped at half an hour and reaching that cap after about
+seventy minutes, and each boundary gets a two-hour window of its own, which is
+about twenty attempts. The numbers are the harness's and the same for every
+product, exactly as the [watching session's](runs.md#watching-instead-of-draining)
+retry of a tracker it could not read is: what they measure is how long a
+connection that comes back takes rather than anything about a project. Each
+boundary has its own window because a network that dropped a push says nothing
+about a merge.
+
+**Nothing that is an answer is waited on.** An authentication failure, a merge
+the forge refused, a protected branch whose requirements are unmet, a conflict,
+and any 4xx all earn the identical answer next time, so they are reported as
+promptly as they always were. So is a failure whose class the harness does not
+recognize: the set is deliberately small, and anything outside it keeps exactly
+the behavior it had. The full recoverable-versus-terminal taxonomy is the
+architect's, and this does not wait on it.
+
+**Every wait is recorded before it is taken**, on the run itself, with the
+boundary, which attempt it was, the interval, and the failure it waited out. So a
+process that dies mid-wait comes back to the window it had already spent rather
+than to a fresh one, and a run that waited a network out and finished says so on
+the work item rather than merely looking slow. A window that runs out escalates
+rather than going quiet: what the boundary would have produced is produced — an
+outstanding publication, a blocker on the item — with the attempts and the time
+in front of it.
+
+A role's conversation reaches the same store, and its calls are under the same
+rule with the same numbers: a triage decision, an admission, a note, a closure,
+and the reads that gate them are waited out and asked again, with one window per
+operator message shared by every call in it, each wait recorded on the
+conversation as a `tracker.retried` event, and only a call that spent the
+window reported the way it always was. Nothing about that is configured either.
+
+[Waiting out a network that dropped](../operations.md#waiting-out-a-network-that-dropped)
+in the operations guide is the same thing said for an operator reading a run,
+and says what the conversation shows on screen while it waits.
 
 ## Triage thresholds
 
@@ -619,10 +1098,15 @@ nearly had one authorized recovery spent twice. An item whose record cannot be
 read says so on its entries instead of rendering as an item nobody has decided
 anything about.
 
-The docket is built when something scans: `yoyo reconcile`, and the moment a
-development manager conversation opens. There is no scheduled process behind it,
-so `stuck_merge_age` is a floor rather than a promise — a publication becomes
-docketable at that age and is docketed the next time one of those happens.
+The docket is built when something scans: `yoyo reconcile`, the moment a
+development manager conversation opens, and every firing of a
+[recurring task](agents.md#recurring-tasks) of hers, which carries the docket in the
+message that wakes her — and beside it the "Needs a human" entries whose move is
+the operator's, each with its age
+([operations](../operations.md#where-the-harness-stands-the-four-lines)). Only that last is scheduled, and only where a project
+configures one, so `stuck_merge_age` is a floor rather than a promise — a
+publication becomes docketable at that age and is docketed the next time one of
+those happens.
 
 **All three are read.** The docket above consumes `stuck_merge_age` — an approved
 publication older than it is docketed at the next scan — and `review_rounds_cap`
@@ -804,6 +1288,21 @@ retirement the harness could not write onto that run is reported rather than
 swallowed: the artifacts are gone and its record still says otherwise, which is
 a thing to go and correct.
 
+The pull request the stopped run published is the third artifact, and it is
+retired at the same moment: once the fresh run has integrated, that request
+carries work that landed by another vehicle and will never merge, so it is closed
+with a comment naming that vehicle and the remote branch it published is
+deleted. The run's own record keeps which vehicle retired it — `superseded` on
+its `pull_request` — which is what stops the
+[convergence sweep](../operations.md#recovering-interrupted-runs) asking the forge
+about a request that is already closed. That sweep closes the same requests for
+every stopped run nothing triaged, so a project wired without forge access here
+loses timeliness rather than the cleanup. The fresh run integrating nothing
+retires nothing: the request stays open, as pending work on a preserved branch.
+A promoted run's publication that nothing asked the forge to merge, handed back
+by the re-run, is retired the same way once the fresh run lands — its record then
+carries both `handed_back` and `superseded`.
+
 `yoyo triage repair <run-id>` is the other half of the same pair, and it starts
 nothing over. It re-enters the stopped run's
 own repair loop: the same branch, the same worktree, the same developer session,
@@ -892,7 +1391,10 @@ checkout the harness would call its own and that holds nothing passes the gate
 above and fails this one, and a developer handed the reviewer's findings and an
 empty directory delivers an empty repair or reinvents the change from them, with
 nothing in the run's record afterwards to tell either from a repair that went
-well. And the decision standing about the stoppage has to still be the repair:
+well. A stall is not held to that last one, for the reason the resumed run below
+exempts the same case: nothing was handed back to be about a change, and an
+empty worktree is what the attempt it is owed starts from.
+And the decision standing about the stoppage has to still be the repair:
 one decision stands per stopped run, and a re-run, an escalation, or a wait
 recorded in the repair's place released the rounds the repair had reserved (see
 [what spends a round and what does not](#what-spends-a-round-and-what-does-not)),
@@ -955,11 +1457,12 @@ the grant that bought the attempt. The order is the item first, because a run
 recorded as running behind an item that still says it is blocked is the one
 half-finished state nothing else here would notice. Preconditions are checked
 before the item claim, but later failures can leave the item claimed or the
-continuation and its expenditure already recorded. Success is reported, and its
-note appended, only after the continuation has been saved and read back. A refused
-claim or an unconfirmed save reports that outcome and dispatches no developer.
-A save that replaced the record but failed to confirm its durability is reported
-as uncertain, even when the continuation can be read back.
+continuation and its expenditure already recorded. The note before the claim
+describes preparation, and the success note is appended only after the run's
+continuation has been saved and read back. A refused claim or an unconfirmed save
+reports that outcome and dispatches no developer. A save that replaced the record
+but failed to confirm its durability is reported as uncertain, even when the
+continuation can be read back.
 
 Recovery reads the item and run before making another transition. It reuses an
 item already claimed and confirms a continuation already recorded for the
@@ -1065,6 +1568,13 @@ offers no event to hang a deadline on. It must be positive: an age of no time at
 all dockets every publication the instant it is made, which is a docket of
 everything and a triage of nothing.
 
+It is also how long a merge may wait with the forge. A merge still queued, or
+dropped and waiting to be brought up to date, this long after it was queued is
+asked about by `yoyo reconcile`, withdrawn where the forge still holds it, and
+recorded as not merged with the forge's reason, on the development manager's
+docket of stopped runs
+([operations](../operations.md#recovering-interrupted-runs)).
+
 It is also how long a decision to `wait` leaves that entry alone, whether the
 entry is a publication or a stopped run. Waiting says "not yet" rather than
 deciding anything, so the entry comes back once it has been sitting there this
@@ -1104,7 +1614,6 @@ record still holds that nothing carried out — its run could not be re-entered,
 or a re-run was decided in its place — is not added to it. The run's record and
 the item's notes say both: one repair grant, what it bought, and how many of
 those attempts the run was handed.
-
 ### What one work item has been given
 
 The thresholds above bound something, and what they bound is a durable record
@@ -1314,7 +1823,6 @@ bound in both halves: it granted one publication a second re-arm the design
 calls an escalation, and it refused a later publication of the same item its
 first. It is now once per publication and reads no configuration at all, so an
 operator raising the integration retries cannot move it back.
-
 #### What spends a round and what does not
 
 Stated once, because the rule above — an approval is not a round, and neither
@@ -1366,7 +1874,6 @@ which is what the decision superseding it releases; a repair superseded by a
 repair keeps both reservations and records their sum; and `yoyo triage repair`
 refuses a run whose standing decision is no longer a repair, because the rounds
 that repair reserved have gone with it.
-
 #### Crossing a cap the operator decides to cross
 
 **A cap refuses the answer to an escalation as readily as it refuses a machine,
@@ -1463,7 +1970,6 @@ configured caps to that shared count. See
 [`docs/team-mode-scope.md`](../team-mode-scope.md#a-recorded-gap-per-item-budgets-are-per-machine)
 and section 8 of
 [the design for working alongside other contributors](../designs/working-alongside-other-contributors.md#8-each-items-budgets-across-machines).
-
 #### A crossing the development manager takes himself
 
 **The development manager may cross a cap that refused him, far enough for the

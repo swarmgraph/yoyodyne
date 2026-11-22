@@ -1,32 +1,3 @@
-<!--
-Landed by yoyodyne-ifd.117.2, tranche 2 of the configuration.md split, with
-docs/configuration.md left intact. The links below into ../configuration.md
-resolve today and point at sections a later tranche moves; the tranche that
-moves a section retargets the link:
-
-  #reading-the-repository-from-a-conversation (two uses)
-                                      -> no row in docs/docs-map.md; it stays
-                                         in configuration.md until the map
-                                         gives it a home
-
-No link here points at a tranche 3 guide (runs.md, publishing.md,
-recovery.md).
-
-"The configuration index ... lists the other guides" below is a forward claim:
-configuration.md becomes the index in 117.4.
-
-"What Yoyodyne itself carries" names ../configuration.md rather than this
-guide: HarnessShippedDocumentation in internal/contextbundle/product.go still
-lists docs/configuration.md and none of the guides, and docs/docs-map.md has
-the run that lands the last split document grow the list.
-
-Scope against docs/docs-map.md: every section the map's disposition table
-assigns this guide — Product specifications (+ What the Lead Product Manager
-sees…), Artifact identity and metadata, Approving a document, Who may change
-an artifact, Protected paths in a developer's change, and Proposing a change
-to a document you do not own. Size: 794 lines against the map's 549-line
-budget; the sections themselves grew after the map's counts were taken.
--->
 # Configuring artifact homes, identity, and ownership
 
 Where every role reads the product's intent from, what identifies a document, how an
@@ -145,7 +116,6 @@ does with that signal is the [persona's](agents.md#personas) — the built-in on
 project with no brief or goals by asking what the product is for and offering to
 draft them, and a project that wants something else replaces that guidance like
 any other part of the persona.
-
 ### What the Lead Product Manager sees besides them, and what it does not
 
 **The specifications directory, the tracker, and a description of what the
@@ -154,7 +124,7 @@ and the help every command prints. It is carried in a section of its own,
 labeled as description of the implementation as built and never as authority
 about intent. That is the whole of what is delivered in its context: no source
 and no design document arrives there, and nothing runs a command. What it may
-additionally do is [read one named path at a recorded commit](../configuration.md#reading-the-repository-from-a-conversation)
+additionally do is [read one named path at a recorded commit](agents.md#reading-the-repository-from-a-conversation)
 — a source file or a design among them — which arrives under the same
 description-not-intent label, one path at a time, and only when it asks.
 
@@ -196,7 +166,8 @@ operator documents the README split put beside it — [the
 conversation](../conversation.md), [how work flows](../work.md), [what comes back to
 you](../reporting.md), [artifacts, goals, and invariants](../artifacts.md),
 [operations and recovery](../operations.md), and [working on yoyo
-itself](../developing-yoyo.md) — and [the configuration reference](../configuration.md). It lives in
+itself](../developing-yoyo.md) — and [the configuration index](../configuration.md), which names the guides
+under `docs/configuration/` and does not carry them. It lives in
 `HarnessShippedDocumentation` in `internal/contextbundle/product.go`, and it is
 deliberately narrower than the README's [further-reading
 index](../../README.md#further-reading): the provider-plugin format, the
@@ -255,7 +226,7 @@ half of `docs/` that made description reachable as intent in the first place.
 Reconciling accumulated documentation against the code belongs to a role that
 reads the code, and the harness still does not have one. What it has since
 gained is narrower: a management role can [read one named path at a recorded
-commit](../configuration.md#reading-the-repository-from-a-conversation), which lets the Lead Product
+commit](agents.md#reading-the-repository-from-a-conversation), which lets the Lead Product
 Manager check a document before it advises about it rather than sweep the tree
 for contradictions. Point `specifications` at a wider directory if you would
 rather have the breadth than the authority; the confinement rule is the only
@@ -268,7 +239,6 @@ none of the documentation it named is told so rather than getting a section that
 quietly carries less than it says it does — and a project that named none is
 told *that*, in different words, because a setting nobody wrote and a document
 nobody wrote are two different things to go and do something about.
-
 ## Artifact identity and metadata
 
 The canonical documents upstream of a work item — the brief, the goals, the
@@ -383,7 +353,6 @@ conversation](../artifacts.md#writing-a-document-from-a-conversation)). What the
 document whose identity is missing, malformed, or claimed by something else,
 [reporting a change recorded by a role that does not own it](#who-may-change-an-artifact),
 and [recording your approval](#approving-a-document).
-
 ### Approving a document
 
 Approving the brief and the goals is the one thing the design asks of you
@@ -404,6 +373,21 @@ approvals:
       reason: approved in conversation, with the adoption goal added
 ```
 
+A document written from a conversation whose policy is automatic records
+`by: harness` and `policy: approvals.designs` (or the applicable brief or goals
+policy). That confirmation opens an isolated run for the exact saved document,
+with configured checks and independent review before normal integration;
+it does not leave a file for you to commit. It needs `approvals.integration:
+automatic` as well; where integration is `human`, the document is put to you to
+confirm instead. A document governed by `approvals.brief` or `approvals.goals`
+— the non-goals, the operating rules, and anything filed in the specifications
+directory included — is never confirmed by the harness, whatever those settings
+say: it is approved by the Lead Product Manager where she records the creation
+or revision as consistent with intent with its directing work item, and is yours
+to approve otherwise, as below — a new goals document or brief, and a revision
+of either that adds or removes a goal or was not approved as it stood before it, among them however it is marked. [Writing a document from a conversation](../artifacts.md#writing-a-document-from-a-conversation)
+describes restart recovery and failures returned to the owner.
+
 `at` is when the approval was **recorded**, which is not always when it was given
 — an approval given in conversation is written down afterwards — so say when and
 how you gave it in `--reason`, which is the half only you can attest to.
@@ -422,7 +406,8 @@ takes the first of them rather than a commit the harness makes.
 
 **Where no run can carry it, the write lands in your checkout and stops
 there, and the command says so.** That is a project with no independent reviewer
-configured, and one that keeps its intent in a companion intent repository:
+configured. A project that keeps its intent in a companion intent repository
+lands the approval through a run cut from that repository instead:
 
 ```
 docs/product/brief.md is now an uncommitted change in /home/you/src/example, and
@@ -567,7 +552,6 @@ amendment after approval changes what is reported about the document rather than
 what is allowed, and what `human` buys you is that the difference is visible — in
 the document, in the listings, and in `--json`, where each artifact's `state` is
 `approved`, `amended`, or `unapproved`.
-
 ### Who may change an artifact
 
 Ownership is an authorization boundary rather than a prompt convention, so it is
@@ -628,7 +612,6 @@ developer that simply opens the file. That is what the protected-path gate below
 is for, and it is why an agent with an editor in its worktree is no longer the
 open case it was: the edit is refused before anybody reviews it, whatever the
 revision log does or does not say about it.
-
 ### Protected paths in a developer's change
 
 The documents above are upstream of every change a developer makes. A developer
@@ -836,7 +819,6 @@ genuinely needs one says so in its summary and
 grant goes into the item, which is not a developer's to write. Which role
 maintains an item's text is a question about the fixed set of roles rather than
 about this gate, and this document does not answer it.
-
 ### Proposing a change to a document you do not own
 
 A role that may not edit a document and has no way to say it is wrong has two
@@ -917,31 +899,43 @@ yoyo amendment approve <id> --reason ...  # record the change as authorized
 yoyo amendment decline <id> --reason ...  # turn it down, keeping why
 ```
 
-**The role that owns the document decides it.** Proposals against the designs,
-the specifications, and the decision records are carried into the architect's
-conversation, and proposals against the documents in the product home into the
-Lead Product Manager's, and each decides the ones against its own documents with
-the `amendment` action in its tracker block — `approve` or `decline`, with the
-reason. The harness writes that decision onto the proposal exactly as `yoyo
-amendment approve` or `decline` would, under the owner's authority, naming the
-owner as the one who decided and the conversation it decided in, and refuses a
-decision on a document the role does not own. You are told afterwards and are
-not asked. An owner may write its own documents, which is how an approved change
-is made: it writes the revision as a typed action, confirmation follows the
-document's policy, and the harness performs the write — see [writing a document
-from a conversation](../artifacts.md#writing-a-document-from-a-conversation).
+**The role that owns the document decides it.** Proposals against the
+designs, the specifications, and the decision records are carried into the
+architect's conversation, and proposals against the documents in the product
+home into the Lead Product Manager's, and each decides the ones against its own
+documents with the `amendment` action in its tracker block — `approve` or
+`decline`, with the reason. The harness writes that decision onto the proposal
+exactly as `yoyo amendment approve` or `decline` would, under the owner's
+authority, with the owner named as the one who decided and the conversation it
+decided in; it refuses a decision on a document the role does not own. You are
+told afterwards — the decision is said in the thread of the work that raised
+the proposal — and are not asked. An owner may write its own documents, which
+is how an approved change is made: it writes the revision as a typed action,
+confirmation follows the document's policy, and the harness performs the write
+— see [writing a document from a
+conversation](../artifacts.md#writing-a-document-from-a-conversation).
 
 **What stays yours is a change of fundamental intent.** A proposal against the
-brief or the goals is yours to decide unless it says it is
-consistent with what they intend — the proposer marks it `"intent":
-"consistent"` or `"fundamental"`, and one that says nothing stays yours. The Lead
-Product Manager is refused a decision on one of those and argues it for you
-instead. `yoyo amendment` records your decisions, and decides any other proposal
-nobody has decided yet when you want to override the owner; the record says you
-exercised the owner's authority rather than that the owner answered — the same
-override path `yoyo invariant` documents. A decline keeps the reason it was
-turned down with, because a proposal refused silently is one the same argument
-arrives to make again.
+brief or the goals is the operator's to decide unless it says
+it is consistent with what they intend — the proposer marks it with `"intent":
+"consistent"` or `"fundamental"`, and one that says nothing stays yours, because
+the default is the operator's and it takes a recorded claim to move off it. The
+Lead Product Manager is refused a decision on one of those and argues it for you
+instead. Every proposal says, wherever it is listed, whether its owner or you
+decide it. `yoyo amendment` still decides any proposal nobody has decided yet,
+which is how you override an owner — the same override path `yoyo invariant`
+documents — and the record says you exercised the owner's authority rather
+than that the owner answered. A decline keeps the reason it was turned down
+with, because a proposal refused silently is one the same argument arrives to
+make again.
+
+The argument is made on a cadence as well as when you open the conversation: a
+[recurring task](agents.md#working-the-amendment-queue-on-a-cadence) wakes the owner
+with the undecided proposals, oldest first and bounded. It decides the ones
+that are its own, and records what it recommends on the ones you decide —
+approve, decline, or merge with another, with the reason — as one batch on the
+firing's report, which is sent to you once as one decision list and named on
+`yoyo status` until you have decided it.
 
 The reviewer is deliberately not given this block. What it finds wrong with a
 change is a finding, which decides whether the change is repaired; a reviewer

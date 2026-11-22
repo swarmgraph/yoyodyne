@@ -38,11 +38,13 @@ table](#disposition-of-every-current-readme-section). **yoyodyne-ifd.437.13
 rewrote it on 2026-09-26 to 344 lines (15 KB, from 45 KB)**, taking that block
 out with the rest; [the rewrite's own
 table](#the-2026-09-26-rewrite-what-left-the-readme-and-where) records every
-move. The configuration guide has not been split. It was 3,848 lines at the end
-of the README split, the split-era figure its tables below were re-measured
-against, and measured on 2026-09-27 it is 6,770 lines, so those tables describe
-a file little more than half its current size. The disposition table's own
-section counts are older still, drawn from the 2,989-line file of 2026-08-24.
+move. The configuration guide has since been split: its sections live in the
+seven guides under `docs/configuration/`, and `docs/configuration.md` is the
+index, keeping every heading it had as a pointer to the guide that now holds the
+section (yoyodyne-ifd.117.5). The tables below were drawn from the file before
+the split finished — 3,848 lines at the end of the README split, and the section
+counts of the 2,989-line file of 2026-08-24 — and are kept as the record of how
+the split was planned; the index itself says where each section went.
 
 ## What each document is for
 
