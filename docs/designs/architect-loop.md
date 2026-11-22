@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-19T16:34:42.199687Z
       reason: 'Replaces the retired word for a required check in four places with ordinary words, under the operator''s November 8 rule, as part of replacing retired words in the architect''s documents (yoyodyne-ifd.437.21): the spending pause holding a pass back, the third constraint now ''Through the usual routes'', a finding going through the route for its kind, and ''a check a change must pass''. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T21:24:30.446026Z
+      reason: 'Design review against the code at main 7120a8560: the list of approved changes not yet written into their documents, and the unlanded field, are not built, so the section now says so and says how the architect covers the gap until they are; the closing of ruled items is built and is described as built. Build work reported to the Lead Product Manager.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -47,6 +51,11 @@ approvals:
       by: harness
       at: 2026-11-19T16:34:42.199687Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3100, for document-3100.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-22T21:24:30.446026Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3575, for document-3575.1 under the automatic approval policy
 ---
 # The architect loop: a windowed pass over what landed, reconciling decisions against documents first
 
@@ -81,12 +90,12 @@ Each pass starts a fresh provider session from: the role contract, persona and r
 
 ## The first shipment: decided against landed
 
-Before any drift review, a pass reconciles the architect's own decisions against the governed documents, because that gap is cheap to check and has already cost the most. Two derivations, supplied by the harness rather than reconstructed by the role:
+Before any drift review, a pass reconciles the architect's own decisions against the governed documents, because that gap is cheap to check and has already cost the most. Two derivations are meant to be supplied by the harness rather than reconstructed by the role. Checked against the code at main 7120a8560, one is built and one is not.
 
-- **Decided, not landed.** Every amendment against an architect-owned document decided as approved whose identifier appears in no later reason in that document's revision log. The pass writes the revision that carries it, or names the revision that already carries it under another wording.
-- **Ruled, not landed.** Every open work item carried by the architect's conversation whose notes or conversation record hold a ruling, and for which a document the item names, by path or identifier, has no revision whose reason opens with the item's identifier. An item counts as landed, and the harness closes it, only when each document it names has such a revision. A revision of a document the item does not name, whatever its reason says, is written onto the item's notes as related and leaves the item open. An item that names no document closes on its first such revision, with a note saying no named document was checked. An invariant revision closes no item, because the closing reads design and decision files and not the invariants directory: the pass names such an item to the Lead Product Manager to close once the invariant lands. For each item listed, the pass writes the revision or says what still blocks it.
+- **Ruled, not landed: built.** Every open work item carried by the architect's conversation whose notes or conversation record hold a ruling, and for which a document the item names, by path or identifier, has no revision whose reason opens with the item's identifier. An item counts as landed, and the harness closes it, only when each document it names has such a revision. A revision of a document the item does not name, whatever its reason says, is written onto the item's notes as related and leaves the item open. An item that names no document closes on its first such revision, with a note saying no named document was checked. An invariant revision closes no item, because the closing reads design and decision files and not the invariants directory: the pass names such an item to the Lead Product Manager to close once the invariant lands. What is built hands the pass every open item its conversation carries, not only the ruled ones; for each it writes the revision or says what still blocks it.
+- **Decided, not landed: not yet built.** Every amendment against an architect document decided as approved whose identifier appears in no later reason in that document's revision log. The pass writes the revision that carries it, or names the revision that already carries it under another wording. At main 7120a8560 the amendment log is read only for undecided proposals and the owner's recommendations on them, `yoyo amendment list --json` carries proposals and their decisions and no `unlanded` field, and no pass is handed this list. Until it is built, the architect keeps each approved change it still owes in its own memory, by the amendment's full identifier, and writes it when the document it names can carry it. That memory is the gap this derivation exists to close, and building it is work put to the Lead Product Manager.
 
-Both are derived by the harness from the amendment log, the revision logs, and the tracker, delivered into the pass as a list, and carried in `yoyo amendment list --json` under `unlanded` so an operator can read the same answer without a turn. The pass never computes them from prose, per `surfaces-project-one-read-model`.
+Once built, both are derived by the harness from the amendment log, the revision logs, and the tracker, delivered into the pass as a list, and carried in `yoyo amendment list --json` under `unlanded` so an operator can read the same answer without a turn. The pass never computes them from prose, per `surfaces-project-one-read-model`.
 
 ## The drift review, after that
 
