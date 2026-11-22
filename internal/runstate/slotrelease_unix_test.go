@@ -236,6 +236,116 @@ func TestAWorkerNothingCanShowEitherWayIsReleasedOnlyOnceTheRunHasGoneQuiet(t *t
 	}
 }
 
+// unheldByThisProgram is a run this test's own program reserved in developer
+// slot number and then let go of, written last at updated: what a continuation
+// refused after it made its run live leaves behind while the scheduler that
+// took the run keeps running.
+func unheldByThisProgram(t *testing.T, store *Store, workItem string, number int, updated time.Time) State {
+	t.Helper()
+	ctx := context.Background()
+	state := testState(t, StatusPending)
+	state.WorkItemID = workItem
+	state.UpdatedAt = updated
+	lease, err := store.Reserve(ctx, state, 3)
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+	claimed, err := store.ClaimSlot(ctx, load(t, store, state.RunID), number, 3, updated)
+	if err != nil {
+		t.Fatalf("ClaimSlot() error = %v", err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	return claimed
+}
+
+// A run whose worker's program is still running, with nothing holding the
+// run's lease, is let go once nothing has written it for UnheldRunQuiet: the
+// lease decides, not whether the program that took the run is alive. A run in
+// the same state written moments ago is between one step and the next and
+// keeps its slot, and so does a run whose worker holds its lease.
+func TestARunNoLeaseHoldsIsReleasedThoughItsProgramIsAlive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newTestStore(t)
+	now := time.Now()
+	refused := unheldByThisProgram(t, store, "yoyodyne-refused", 1, now.Add(-UnheldRunQuiet-time.Minute))
+	between := unheldByThisProgram(t, store, "yoyodyne-between", 2, now)
+	live := liveInSlot(t, store, "yoyodyne-live", 3)
+
+	if reading := store.Worker(load(t, store, refused.RunID), now); reading.Liveness != WorkerAbsent || reading.ProcessGone() {
+		t.Fatalf("Worker() = %+v, want a worker whose program is alive and holds no lease", reading)
+	}
+	released, err := store.ReleaseSlotsWithNoLiveWorker(ctx, now)
+	if err != nil {
+		t.Fatalf("ReleaseSlotsWithNoLiveWorker() error = %v", err)
+	}
+	if len(released) != 1 || released[0].RunID != refused.RunID || released[0].Release.Slot != 1 {
+		t.Fatalf("released = %+v, want only run %s's slot 1", released, refused.RunID)
+	}
+	stored := load(t, store, refused.RunID)
+	if !stored.Status.InFlight() || stored.SlotRelease == nil {
+		t.Fatalf("the released run is %s with release %+v, want it left in flight with the release recorded", stored.Status, stored.SlotRelease)
+	}
+	for _, want := range []string{"freed developer slot 1", "nothing holds the run's lease", "nothing has been written to the run since", "keeps its claim, branch and worktree"} {
+		if !strings.Contains(stored.SlotRelease.Says, want) {
+			t.Errorf("SlotRelease.Says = %q, want it to say %q", stored.SlotRelease.Says, want)
+		}
+	}
+	if store.HoldsDeveloperSlotNow(stored, now) {
+		t.Fatal("HoldsDeveloperSlotNow() = true for the released run")
+	}
+	if !store.HoldsDeveloperSlotNow(load(t, store, between.RunID), now) {
+		t.Fatal("the run written moments ago lost its slot")
+	}
+	if stored := load(t, store, live.RunID); stored.SlotRelease != nil || !store.HoldsDeveloperSlotNow(stored, now) {
+		t.Fatalf("the run whose worker holds its lease was released: %+v", stored.SlotRelease)
+	}
+}
+
+// A refusal is read as the reason a slot is given back only while it is the
+// last thing written on the run. One a later write has overtaken belongs to an
+// earlier round, and such a run waits out UnheldRunQuiet like any other.
+func TestOnlyARefusalThatIsTheLastWriteGivesTheSlotBackAtOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newTestStore(t)
+	now := time.Now()
+	refusedAt := now.Add(-time.Minute)
+	refusal := func() *EnvironmentalRefusal {
+		return &EnvironmentalRefusal{Cause: CauseDirtyPrimary, Detail: "primary repository has uncommitted changes: notes.txt", RecordedAt: refusedAt, NothingRan: true, Settled: true, Refused: true}
+	}
+	last := unheldByThisProgram(t, store, "yoyodyne-refused", 1, refusedAt)
+	last.Environmental = refusal()
+	if err := store.Save(last); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	overtaken := unheldByThisProgram(t, store, "yoyodyne-overtaken", 2, now)
+	overtaken.Environmental = refusal()
+	overtaken.Environmental.RecordedAt = now.Add(-5 * time.Minute)
+	if err := store.Save(overtaken); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if _, ok := load(t, store, overtaken.RunID).LastWriteRefusal(); ok {
+		t.Fatal("LastWriteRefusal() read a refusal a later write had overtaken")
+	}
+
+	released, err := store.ReleaseSlotsWithNoLiveWorker(ctx, now)
+	if err != nil {
+		t.Fatalf("ReleaseSlotsWithNoLiveWorker() error = %v", err)
+	}
+	if len(released) != 1 || released[0].RunID != last.RunID || released[0].Release.Refusal != CauseDirtyPrimary {
+		t.Fatalf("released = %+v, want only run %s's slot, given back for the checkout's refusal", released, last.RunID)
+	}
+	if says := released[0].Release.Says; !strings.Contains(says, "refused, not because its process vanished") || strings.Contains(says, "no live worker") {
+		t.Fatalf("Says = %q, want it to name the refusal and not a missing worker", says)
+	}
+	if !store.HoldsDeveloperSlotNow(load(t, store, overtaken.RunID), now) {
+		t.Fatal("the run whose refusal was overtaken lost its slot before UnheldRunQuiet")
+	}
+}
+
 // A released run taken up again by a new worker attempt holds a slot again.
 func TestAReleasedRunTakenUpAgainHoldsASlot(t *testing.T) {
 	t.Parallel()

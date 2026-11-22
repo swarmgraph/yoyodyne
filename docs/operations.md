@@ -5879,19 +5879,24 @@ has the rule.
   process number now belongs to another program, or the program it ran was
   replaced by a restart — the run holds no slot: the scheduler and the
   reservation count that slot free and fill it, and the line says so, in its
-  head and against the run. Three such runs still hold their slot: one its
+  head and against the run. Two such runs still hold their slot: one its
   session stopped for a restart, whose slot is kept for the session that comes
-  back and picks it up; one whose worker cannot be shown gone or present, so
+  back and picks it up; and one whose worker cannot be shown gone or present, so
   the configured number of developers is never exceeded, until nothing has
-  held or written the run for thirty minutes; and one whose program is still
-  running with nothing holding the run's lease for the moment, which is the gap
-  between one step of a run and the next.
+  held or written the run for thirty minutes. A run whose program is still
+  running with nothing holding the run's lease keeps its slot only for the gap
+  between one step of a run and the next: once nothing has written the run for
+  ten minutes, the slot is given back even though the program is alive, and
+  the same is done at once when the last thing written on the run is a
+  refusal, such as the main checkout carrying files the harness does not own.
+  A run that holds its lease keeps its slot however long it works.
 
   At every pull, and so as a scheduler starts, the harness frees the slot of a
-  run whose worker is shown gone, or cannot be shown either way and has gone
-  that quiet. Under the run's lease it ends each provider attempt whose process
+  run whose worker is shown gone, cannot be shown either way and has gone
+  that quiet, holds no lease while its program lives and has gone ten minutes
+  without a write, or was refused as its last write. Under the run's lease it ends each provider attempt whose process
   has stopped as interrupted, leaves open and names one it cannot show
-  stopped, and writes on the run what it freed and why. The run then holds no
+  stopped, and writes on the run what it freed and why, and adds a note to the work item with the run, the time in local time with its zone, and the reason; a refusal is said as a refusal, not as a vanished process. The run then holds no
   slot, by number or in the count, until a repair or a continuation takes it up
   with a new worker. If another run has claimed its slot number by then, it goes
   on in the lowest free slot and records that slot, the one it moved from, and

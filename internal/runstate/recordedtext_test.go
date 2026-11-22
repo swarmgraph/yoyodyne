@@ -229,6 +229,7 @@ var structuredStrings = map[string]string{
 	"stale_block_clear.outcome":                                                              "an enumeration",
 	"stale_block_clear.status":                                                               "a tracker status value",
 	"environmental.cause":                                                                    "an enumeration",
+	"slot_release.refusal":                                                                   "an enumeration",
 	"environmental.provider_stop":                                                            "an enumeration",
 	"environmental.round_charged_by":                                                         "a run id",
 	"integration_stop.cause":                                                                 "an enumeration",
