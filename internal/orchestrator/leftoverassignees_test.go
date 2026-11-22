@@ -206,3 +206,55 @@ func TestTheSchedulerClearsLeftoverAssigneesOnce(t *testing.T) {
 		t.Fatalf("a pass that could not record the clean-up said %q / %q", failed.AssigneeCleanup, failed.AssigneeCleanupProblem)
 	}
 }
+
+// assigneeFreshFake is an assignee tracker that can read an item afresh, and
+// answers with what the item holds now rather than what the listing said.
+type assigneeFreshFake struct {
+	assigneeTrackerFake
+	now   map[string]beads.WorkItem
+	reads []string
+}
+
+func (f *assigneeFreshFake) ShowAfresh(_ context.Context, id string) (beads.WorkItem, error) {
+	f.reads = append(f.reads, id)
+	return f.now[id], nil
+}
+
+// The listing a clean-up is handed is the shared one, so a clean-up that
+// writes decides on each item read afresh: an assignee cleared or an item
+// closed since the listing is not written to.
+func TestAssigneeCleanupDecidesOnEachItemReadAfresh(t *testing.T) {
+	t.Parallel()
+
+	tracker := &assigneeFreshFake{
+		assigneeTrackerFake: assigneeTrackerFake{items: []beads.WorkItem{
+			{ID: "yoyodyne-left", Status: "open", Assignee: "Mason Bryant", ClaimAssignee: true},
+			{ID: "yoyodyne-closed", Status: "open", Assignee: "Mason Bryant", ClaimAssignee: true},
+			{ID: "yoyodyne-cleared", Status: "open", Assignee: "Mason Bryant", ClaimAssignee: true},
+		}},
+		now: map[string]beads.WorkItem{
+			"yoyodyne-left":    {ID: "yoyodyne-left", Status: "open", Assignee: "Mason Bryant", ClaimAssignee: true},
+			"yoyodyne-closed":  {ID: "yoyodyne-closed", Status: "closed", Assignee: "Mason Bryant", ClaimAssignee: true},
+			"yoyodyne-cleared": {ID: "yoyodyne-cleared", Status: "open"},
+		},
+	}
+	runs := assigneeRunsFake{}
+	if _, err := (AssigneeCleanup{Tracker: tracker, Runs: runs}).Sweep(context.Background(), true); err != nil {
+		t.Fatalf("Sweep() error = %v", err)
+	}
+	if len(tracker.reads) != 3 {
+		t.Fatalf("read afresh %v, want every item the listing showed with an assignee", tracker.reads)
+	}
+	if !reflect.DeepEqual(tracker.cleared, []string{"yoyodyne-left"}) {
+		t.Fatalf("cleared %v, want only the item that still carries the claim's assignee", tracker.cleared)
+	}
+
+	// A sweep that only reports writes nothing, so reads nothing again.
+	reporting := &assigneeFreshFake{assigneeTrackerFake: assigneeTrackerFake{items: tracker.items}, now: tracker.now}
+	if _, err := (AssigneeCleanup{Tracker: reporting, Runs: runs}).Sweep(context.Background(), false); err != nil {
+		t.Fatalf("Sweep() error = %v", err)
+	}
+	if len(reporting.reads) != 0 {
+		t.Fatalf("a report-only sweep read %v afresh", reporting.reads)
+	}
+}

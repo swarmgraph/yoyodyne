@@ -579,6 +579,17 @@ type Client struct {
 	// tests whose stand-in store has to be asked by many callers at once; the
 	// harness never sets it.
 	UnorderedCalls bool
+	// unshared makes this client read the open and ready listings afresh rather
+	// than from the ones this process shares (sharedlistings.go). It is set on the
+	// client a write reads through (live).
+	unshared bool
+	// listingGeneration is the count of writes a shared listing's read was begun
+	// under, plus one, and zero on every other read. It keeps a read begun after a
+	// write from joining one begun before it (runListing).
+	listingGeneration uint64
+	// listingClock is how a shared listing tells its age. Nil is time.Now; it is
+	// set only by this package's tests.
+	listingClock func() time.Time
 }
 
 // beadsDirVariable is the BEADS_DIR bd is run under: the store this client is
@@ -741,6 +752,11 @@ func (c Client) List(ctx context.Context, status string) ([]WorkItem, error) {
 		if !statusPattern.MatchString(trimmed) {
 			return nil, fmt.Errorf("invalid Beads status %q", status)
 		}
+		// A status other than closed is read out of the shared listing of open
+		// work (sharedlistings.go).
+		if items, shared, err := c.sharedOpenHolding(ctx, []string{trimmed}); shared {
+			return items, err
+		}
 		filter = append(filter, "--status="+trimmed)
 	} else {
 		filter = append(filter, everyStatus)
@@ -763,6 +779,9 @@ func (c Client) List(ctx context.Context, status string) ([]WorkItem, error) {
 // times, and every other tracker call waits behind it once. bd takes several
 // statuses comma-separated on one flag; repeating the flag keeps only the last.
 // TestStatusesListingConformance pins it against bd itself.
+//
+// Statuses none of which is closed are read out of the shared listing of open
+// work (sharedlistings.go).
 func (c Client) ListStatuses(ctx context.Context, statuses []string) ([]WorkItem, error) {
 	if len(statuses) == 0 {
 		return nil, errors.New("a listing of several statuses needs at least one status")
@@ -774,6 +793,9 @@ func (c Client) ListStatuses(ctx context.Context, statuses []string) ([]WorkItem
 			return nil, fmt.Errorf("invalid Beads status %q", status)
 		}
 		wanted = append(wanted, trimmed)
+	}
+	if items, shared, err := c.sharedOpenHolding(ctx, wanted); shared {
+		return items, err
 	}
 	items, err := c.listPatiently(ctx, []string{"--status=" + strings.Join(wanted, ",")})
 	c.recordListing(ctx, err)
@@ -791,7 +813,12 @@ func (c Client) ListStatuses(ctx context.Context, statuses []string) ([]WorkItem
 // sharedlisting.go): closed work is most of the store and almost none of what
 // moves, and a listing of it on every refresh is the bulk of what such a reader
 // would otherwise ask the store for.
+//
+// It is the shared listing of open work (sharedlistings.go).
 func (c Client) ListUnfinished(ctx context.Context) ([]WorkItem, error) {
+	if items, shared, err := c.sharedOpen(ctx); shared {
+		return items, err
+	}
 	items, err := c.listPatiently(ctx, nil)
 	c.recordListing(ctx, err)
 	return items, err
@@ -831,13 +858,24 @@ var listingWaits = []time.Duration{2 * time.Second, 8 * time.Second}
 // listPatiently makes one listing, asking again after each wait where the
 // listing was killed by its bound and the caller has not given up.
 func (c Client) listPatiently(ctx context.Context, filter []string) ([]WorkItem, error) {
+	data, err := c.listDataPatiently(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	return decodeWorkListing(data, "list", c.writerZone())
+}
+
+// listDataPatiently is listPatiently's answer as the bytes bd wrote. Decoding
+// is left to the caller: an answer that does not decode is the same answer the
+// next time, so it was never asked again.
+func (c Client) listDataPatiently(ctx context.Context, filter []string) ([]byte, error) {
 	started := time.Now()
 	attempts := 0
 	for {
 		attempts++
-		items, err := c.workListing(ctx, "list", filter)
+		data, err := c.workListingData(ctx, "list", filter)
 		if err == nil {
-			return items, nil
+			return data, nil
 		}
 		if !timedOut(err) || ctx.Err() != nil {
 			return nil, err
@@ -918,7 +956,12 @@ func refusedFlag(err error, flag string) bool {
 // listing is not guaranteed to carry it, so deciding "this item lists no
 // blockers, therefore it can be pulled" would report a blocked item as the next
 // thing to work on wherever the listing leaves dependencies out.
+//
+// It is the shared listing of what is ready (sharedlistings.go).
 func (c Client) Ready(ctx context.Context) ([]WorkItem, error) {
+	if items, shared, err := c.sharedReady(ctx); shared {
+		return items, err
+	}
 	items, err := c.workListing(ctx, "ready", nil)
 	c.recordListing(ctx, err)
 	return items, err
@@ -927,6 +970,15 @@ func (c Client) Ready(ctx context.Context) ([]WorkItem, error) {
 // workListing lifts the row cap on both whole-set readings. The old-tracker
 // fallback is evidence about what was read, never a successful whole listing.
 func (c Client) workListing(ctx context.Context, verb string, filter []string) ([]WorkItem, error) {
+	data, err := c.workListingData(ctx, verb, filter)
+	if err != nil {
+		return nil, err
+	}
+	return decodeWorkListing(data, verb, c.writerZone())
+}
+
+// workListingData is workListing's answer as the bytes bd wrote, undecoded.
+func (c Client) workListingData(ctx context.Context, verb string, filter []string) ([]byte, error) {
 	data, err := c.runListing(ctx, append([]string{verb, "--json", unboundedListing}, filter...)...)
 	if err != nil && refusedFlag(err, unboundedListing) {
 		data, err = c.runListing(ctx, append([]string{verb, "--json"}, filter...)...)
@@ -938,10 +990,7 @@ func (c Client) workListing(ctx context.Context, verb string, filter []string) (
 			return nil, &ListingCut{Verb: verb, Items: items}
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	return decodeWorkListing(data, verb, c.writerZone())
+	return data, err
 }
 
 // ListingCut is a listing bd would not lift its default limit for. It is
@@ -1473,8 +1522,11 @@ func (c Client) Claim(ctx context.Context, id string) (WorkItem, *StaleBlockClea
 // leaves the claim unmarked rather than stopping it: the claim is what the run
 // needs, and an unmarked assignee is the one never cleared, which costs a name
 // left on an item rather than a person's name taken off one.
+//
+// The read is afresh (live), never an item read ahead of need, so what the
+// claim decides is decided on the item as it stands.
 func (c Client) claimWouldMark(ctx context.Context, id string) bool {
-	read := c.Show
+	read := c.live().Show
 	if c.claimRead != nil {
 		read = c.claimRead
 	}
@@ -1597,7 +1649,9 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 			"%s is at status %q when re-read under the claim, not blocked as bd refused it, so nothing here is a stale status to correct: %w",
 			id, item.Status, refusal)
 	}
-	unfinished, err := c.unfinished(ctx)
+	// The unfinished work is listed afresh rather than from the shared listing,
+	// because what it decides is a write (sharedlistings.go).
+	unfinished, err := c.live().unfinished(ctx)
 	if err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, err)
 	}
@@ -2187,6 +2241,13 @@ func (c Client) runWithInput(ctx context.Context, limit time.Duration, input io.
 	// runs, so a read after it asks the tracker (itemreads.go).
 	if c.Reads != nil && !readsOnly(args[0]) {
 		c.Reads.forget(args)
+	}
+	// A command that may change the store clears the shared open and ready
+	// listings before it runs and again once it has ended, so neither is kept
+	// from before it or from while it ran (sharedlistings.go).
+	if !readsOnly(args[0]) {
+		c.clearSharedListings()
+		defer c.clearSharedListings()
 	}
 	var raw boundedExportOutput
 	if args[0] == "export" {

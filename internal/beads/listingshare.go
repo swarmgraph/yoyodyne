@@ -22,6 +22,9 @@ type listingKey struct {
 	binary  string
 	server  bool
 	command string
+	// generation is the client's listingGeneration: a read made for a shared
+	// listing after a write never joins one made before it (sharedlistings.go).
+	generation uint64
 }
 
 // listingFlight is a listing being read, and everything a second request for
@@ -54,7 +57,7 @@ func (c Client) sharedListingKey(args []string) (listingKey, bool) {
 	if store == "" {
 		return listingKey{}, false
 	}
-	return listingKey{store: store, binary: c.Binary, server: c.serverMode, command: fmt.Sprint(args)}, true
+	return listingKey{store: store, binary: c.Binary, server: c.serverMode, command: fmt.Sprint(args), generation: c.listingGeneration}, true
 }
 
 // runListing is one bd listing read under two rules, so the tracker's store,
