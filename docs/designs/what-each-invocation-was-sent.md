@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-10-28T02:43:36.362467Z
       reason: 'yoyodyne-ifd.428.126.1.2: the operator asked on October 27 that each run keep exactly what each invocation was sent. Rules whole text over a rebuild record, each distinct part stored once by digest, written by the run store before the provider starts, and read back exactly by a command. Written from reads at main 18b3d3d5.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T18:52:10.167083Z
+      reason: 'amendment-6e188caa, approved Nov 22: an adapter is handed a recorder with each request and starts the provider only after the record succeeds, sending exactly the bytes recorded, in place of a start that takes a recorded invocation as its argument, which cannot exist because both adapters compose the final text themselves. The check list, the invariant section and the rejected alternatives follow. Written from main a767be20b.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-28T02:43:36.362467Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1880, for document-1880.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-22T18:52:10.167083Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3517, for document-3517.1 under the automatic approval policy
 ---
 # What each invocation was sent
 
@@ -39,6 +48,8 @@ Not read:
 - the operations guide.
 
 The build item reads that code first. If the harness puts instructions together in more than one place, the item lists each place and moves it onto the way in below. If it finds a part this design does not name, it records the part by the same rule and says so in its closing note.
+
+The revision of November 22 follows what the developer building the record found: both adapters put the final text together themselves, so a recorded invocation cannot exist before the adapter runs. How the record is required changed to match; what is recorded did not.
 
 ## Decided: the whole text, each distinct part stored once
 
@@ -79,7 +90,10 @@ Owner: the run store in `internal/runstate`, under guarantee 1 of the guarantees
   - the settings above;
   - the parts in order, each with its name (such as contract, persona, invariants, work item, notes, findings, change under review), its digest, its size, and where it came from: a repository path and commit, a tracker item and the time it was read, or the harness build;
   - the digest of the whole text.
-- The entry and every part are written before the provider is started. The adapter's start takes the recorded invocation as its argument, so an invocation that was not recorded does not compile. What the adapter sends is the text joined from the stored parts the entry names, never text put together a second time beside it.
+- The harness hands the adapter a recorder with each request. The recorder is the run store's way in for this record.
+- The adapter puts the final text together, as it does today. Before it starts the provider, it hands the recorder the parts in order, the joined text and the settings. The recorder writes every part and the entry, and returns.
+- The adapter starts the provider only after the recorder returns without an error. It sends exactly the bytes it handed the recorder, never text put together a second time afterwards.
+- In the live wiring every request carries a recorder. A test fails if the live wiring of any adapter lacks one.
 - If the entry or a part cannot be written, the invocation is not started. The run stops, with that reason in ordinary words. The cause is outside the work, so no repair attempt is spent, and the stop is handled as [recoverable and terminal failures](recoverable-and-terminal-failures.md) handles a state write that fails.
 
 ## Reading it back
@@ -94,10 +108,10 @@ Developer and reviewer invocations, as the item asks. Management conversation tu
 
 ## What a reviewer can check
 
-- A test with a stand-in provider shows that the bytes the provider received equal what the command prints, for every invocation. It covers a second message in one invocation, and a repair that starts a new invocation.
+- A test with a stand-in provider shows that the bytes the provider received equal what the command prints, for every invocation. It covers a second message in one invocation, and a repair that starts a new invocation. This is what catches an adapter that sends text other than what it recorded.
 - A part shared by two invocations is stored once.
-- A failed write stops the invocation before the provider starts and spends no repair attempt.
-- The adapter cannot be started without a recorded invocation, by its type.
+- A recorder that fails leaves the provider unstarted, stops the run, and spends no repair attempt.
+- A test fails if the live wiring of any adapter lacks a recorder.
 - `make test` and `make race` pass.
 
 ## Alternatives rejected
@@ -106,7 +120,8 @@ Developer and reviewer invocations, as the item asks. Management conversation tu
 - **The whole text inside the run record.** Every record would grow large and every routine read would slow, against guarantee 8, and identical parts would be repeated.
 - **The text in tracker notes.** Notes are bounded, and the tracker store's growth is already being measured (yoyodyne-ifd.428.126.4.1).
 - **Writing the record when the invocation ends.** A run that stops partway would leave nothing.
+- **An adapter start that takes the recorded invocation as its argument,** so an unrecorded invocation would not compile. This design first ruled it. Both adapters put the final text together themselves, so the recorded invocation cannot exist before the adapter runs; building it would mean moving that work out of every adapter and rewriting every adapter test. The recorder, the test on the live wiring, and the byte equality test give the same protection.
 
 ## Invariant
 
-None. The run store owns the record, and the type on the adapter's start guards it. The wording proposed in the guarantees design, against copies of a guarantee's rule, already covers a second place that puts instructions together.
+None. The run store owns the record, and the recorder on every request, with the tests above, guards it. The wording proposed in the guarantees design, against copies of a guarantee's rule, already covers a second place that puts instructions together.
