@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-11-19T17:08:05.359465Z
       reason: 'Replaces the retired word for a required check in its two places in this design, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the tracker boundary''s read ''at a gate boundary'' becomes the read a run makes ''between two of its steps'', and a check stopped by its time limit ''earns no credit toward any gate'' becomes ''toward any check the change must pass''. Written whole from a read at main 473d3600; nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T04:15:35.096212Z
+      reason: 'Sends again the revision document-3382.1, handed back when GitHub''s test check failed on pull request 2530 for a reason its log could not show; the change touched only this file and was level with main. Written fresh as one section from main 44c06300: names the tracker write and the catch-up with the target branch among the windows whose running out is outside the work, as the build item yoyodyne-ifd.428.99.35 asks. Stopped run recovery step 1 follows in the held document-3386.1.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -74,6 +78,11 @@ approvals:
       by: harness
       at: 2026-11-19T17:08:05.359465Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3112, for document-3112.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-22T04:15:35.096212Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3400, for document-3400.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -183,6 +192,18 @@ Where the two designs differ, that design decides which code makes a decision, a
 ## What exhausting a window produces
 
 Never a silent terminal failure. A window that runs out produces exactly what the boundary would have produced on an answer, with the attempts and the time in front of it: an outstanding publication on the item, a blocker naming the provider's own last message, a parked run naming the read it could not make, a refused dispatch naming the store. Each is docketed or held as that class already is, and each reaches the channel at the severity the reach rule gives that class. The escalation names the failure, the boundary, the attempts, and the window, so a person handed it knows the network was retried and for how long rather than reading the last reset as the first.
+
+A run stopped because one of this design's windows ran out stopped for a cause outside the work, because a request nobody answered is a verdict on nothing. Each window is named, so no code has to guess which ones count:
+
+- the provider boundary's thirty-minute window;
+- each forge and remote boundary's two-hour window, the catch-up with the target branch among them;
+- the tracker boundary's window, both where a read between two steps parks the run and where a write the run had to make ran out of retries and ended it.
+
+Such a run keeps its change, spends no repair attempt and no review round, and is kept out of the brake's count. It goes to the development manager, never back to the developer as a failure. Step 1 of [stopped run recovery](stopped-run-recovery.md) lists the same causes, and the two lists are changed together, in the same decision, so the designs never disagree. A local Git command that the harness's own budget ended is not a window running out; the Local Git boundary above says how it is treated.
+
+At main on November 21 the code kept only the provider and forge time limits out of the work, and charged a run whose retries ran out at the tracker write or at the catch-up with the target branch as a failure of the work, spending a repair attempt and counting it toward the brake. Bringing the code into line is the work on counting those stops as an outage outside the work (yoyodyne-ifd.428.99.35).
+
+A reviewer can check: a stop whose tracker write ran out of retries, and one whose catch-up with the target branch ran out of retries, each spends no repair attempt and is not counted by the brake; the provider and forge windows keep that treatment; and a failure of the work itself is still charged.
 
 ## What this orders
 
