@@ -1206,6 +1206,11 @@ type Started struct {
 	// was given no slot, so it is never counted against one until its run is
 	// on record (slotlessStarts).
 	slotless bool
+	// onRecord is the run a pull last saw on record over this start's item,
+	// and countCorrected the run this session last said it had over-counted
+	// (ownStartsTheRecordsFree, sayOwnSlotCountCorrected).
+	onRecord       string
+	countCorrected string
 	// awayCause is set when Failure is the provider turning the dispatch away —
 	// a login nobody has renewed, an API nothing reaches — which the settle reads
 	// to count the start toward nothing. It is not on the record because the
@@ -1476,6 +1481,10 @@ type Schedule struct {
 	// written while doing so; it stops nothing.
 	ReleasedSlots      []runstate.ReleasedSlot `json:"released_slots,omitempty"`
 	SlotReleaseProblem string                  `json:"slot_release_problem,omitempty"`
+	// SlotCountCorrections is each time this pass found it had counted a
+	// developer slot for a run of its own that the run records say holds none,
+	// in the words its log said it in (sayOwnSlotCountCorrected).
+	SlotCountCorrections []string `json:"slot_count_corrections,omitempty"`
 	// RunIndexProblem is what stopped the session rebuilding the index of run
 	// records as it started (ScheduleRunIndex). It stops nothing: the next pull
 	// tries again, and the index as it stands is read meanwhile.
@@ -3063,6 +3072,7 @@ pulling:
 				s.host(session.dispatching(ctx, id), pull, id, index, selection, hosted, landings, deliver)
 			}
 		}
+		noteOwnRunsOnRecord(occupied, waitingRuns, mine, schedule.Started)
 		for id := range mine {
 			// A run this session started and that has not reserved yet is in flight
 			// with no identifier to name; one that has reserved is already here under
@@ -3098,10 +3108,16 @@ pulling:
 		// (stalledStarts). Nor is a start of this session's own whose run is not
 		// working in a slot any more — waiting on GitHub's checks, approved into
 		// the merge queue, stopped with its change kept — while the session has
-		// yet to collect it (idleStarts). uncounted is all of these, and is what
-		// every count of the free slots below leaves out.
+		// yet to collect it (idleStarts), and nor is a start of this session's own
+		// whose own run the records say holds no slot, which the pull says it
+		// counted wrong (ownStartsTheRecordsFree). uncounted is all of these, and
+		// is what every count of the free slots below leaves out.
 		gone := workersGone(pull.Runs, occupied, mine, s.now())
 		uncounted := slotlessStarts(occupied, mine, schedule.Started)
+		for id, why := range ownStartsTheRecordsFree(pull.Runs, withoutItems(occupied, uncounted), mine, schedule.Started, handedBack.snapshot(), runHistory(pull.Runs), s.now()) {
+			uncounted[id] = true
+			sayOwnSlotCountCorrected(s.Log, &schedule, &schedule.Started[mine[id]], id, why)
+		}
 		for id := range idleStarts(occupied, waitingRuns, mine, schedule.Started, handedBack.snapshot(), continuing, runHistory(pull.Runs)) {
 			uncounted[id] = true
 		}
@@ -9436,6 +9452,9 @@ func (s Schedule) Render() string {
 	}
 	for _, released := range s.ReleasedSlots {
 		fmt.Fprintf(&rendered, "run %s of %s: %s\n", released.RunID, released.WorkItemID, released.Release.Says)
+	}
+	for _, corrected := range s.SlotCountCorrections {
+		fmt.Fprintf(&rendered, "%s\n", corrected)
 	}
 	if s.RunIndexProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.RunIndexProblem)
