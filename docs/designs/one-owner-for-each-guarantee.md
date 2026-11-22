@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-11-22T20:27:30.770181Z
       reason: 'Brings the section on the invariant up to date: the invariant each-guarantee-has-one-owner was recorded on November 22, 2026, so the section points to it, says what it adds, and says the design and the invariant are revised together. The wait on recording invariants from the architect''s conversation and the ''until then'' line are removed. Every other section is unchanged. Read whole at main caed7e958.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T21:54:48.036746Z
+      reason: 'From the architect''s review of every design against the code: the section on what this design rests on said no code was read, though the November 22 revisions read the code at 828db957 for the race check points and at 697f81f62 for migration statuses. It now lists those reads, the whole read of this design and its recorded invariant at caed7e958, and narrows what was not read to what nobody has read. Every other section is unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -106,6 +110,11 @@ approvals:
       by: harness
       at: 2026-11-22T20:27:30.770181Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3539, for document-3539.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-22T21:54:48.036746Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3541, for document-3541.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -129,7 +138,9 @@ Each copy was right where it was written and wrong as a whole, because nothing s
 
 ## What it rests on, and what was not read
 
-Read whole at commit 8a4317dd:
+The design was first written from reads at two commits, and later revisions read more. Each list below says when its reads were made.
+
+Read whole at commit 8a4317dd, when the design was first written:
 
 - [fewer lifecycle states](fewer-lifecycle-states.md);
 - [follow-ups](follow-ups.md);
@@ -146,14 +157,21 @@ Read whole at commit 0ef00fa8, for guarantee 9:
 - [capacity for heavy checks](heavy-check-capacity.md);
 - the item for the race check policy (yoyodyne-ifd.428.126.6.1.1), with its measurements of October 20 to 25.
 
+Code read on November 22, 2026, in the architect's review of every design against the code:
+
+- at commit 828db957, for the four race check points: what runs before review, what verifies the merge candidate in the harness's own merge queue, and what runs on main every four hours and who starts it;
+- at commit 697f81f62, for what is built of each migration item: the run store and the check that lists the places still saving a whole run record, the reservation that makes a run live, the record and lock that hold permits for heavy checks, the parsing of cost events in `internal/cost`, the index of run records, and the guards and tests in the scripts directory, the run store, the conformance and separation packages and `internal/beads` that migration item 13 describes.
+
+Read whole at commit caed7e958, on November 22, 2026: this design, and the invariant recorded from it, [each guarantee has one owner](../decisions/invariants/each-guarantee-has-one-owner.md).
+
 Not read:
 
-- the code of any of them, including `internal/runstate/store.go` and `internal/checks`;
-- the files in `internal/orchestrator` that run checks today;
-- the audit tests already in `internal/runstate`, such as `runrecordwriters_audit_test.go` and `strictdecode_audit_test.go`;
-- `internal/developerslot`, the conversation loop and its tools, `internal/cost`, `internal/beads`, and the provider adapters.
+- the code behind the migration items whose status says it was not checked: items 4, 8, 10, 12, 14 and 20, and whether the shared listings of item 13 have moved into `internal/beads`;
+- the files in `internal/orchestrator` that run checks today, beyond what the race check points needed;
+- the tools of the conversation loop one by one, so which still keep a limit of their own;
+- `internal/developerslot` and the provider adapters.
 
-Where this design says how the code behaves today, it takes that from the items, which cite the outside review at revision ddef0b1e. Each build item reads the code it changes first. Where the code holds a copy of a guarantee this design does not name, the item stops and the architect is asked.
+Where this design says how the code behaves today and no read above covers it, it takes that from the items, which cite the outside review at revision ddef0b1e. Each build item reads the code it changes first. Where the code holds a copy of a guarantee this design does not name, the item stops and the architect is asked.
 
 ## The rule
 
