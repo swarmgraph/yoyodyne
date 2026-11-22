@@ -10577,7 +10577,11 @@ The development manager's continuation turns also carry the next slice of her
 live docket, through the same listing as the first turn. Entries already
 delivered on that pass are not repeated, and decisions and closed work are read
 again before each slice. The harness continues while live entries remain
-undelivered, even if a turn's account says complete. A reply without an account
+undelivered, even if a turn's account says complete. A stoppage she decided to
+wait on, while its wait still stands, is listed where there is room but never
+counts as undelivered, so a docket whose remaining entries are all standing
+waits does not keep the pass going; once a wait runs out the stoppage counts
+again. A reply without an account
 must recover it through the one block-only request; otherwise the pass goes no
 further. It keeps the account an earlier turn gave, recorded as partial, or
 fails where no turn gave one. If the turn bound or a provider refusal ends the pass first, its

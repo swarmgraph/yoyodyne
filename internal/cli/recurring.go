@@ -496,6 +496,15 @@ func (p *sweepDocketPass) Remaining() (runstate.DocketDelivery, string) {
 			continue
 		}
 		seen[standing.At()] = true
+		// A stoppage she decided to wait on, whose wait still stands, asks
+		// nothing of her until it runs out (triage.Stoppage.Waiting), so it is
+		// listed where there is room and never holds the pass open for another
+		// turn. Counting it kept passes turning through slices of waits alone,
+		// each turn a provider session of its own; once the wait runs out the
+		// stoppage is undecided again and is owed like any other.
+		if standing.Waiting && !standing.Critical() {
+			continue
+		}
 		delivery.Undelivered = append(delivery.Undelivered, standing.At())
 		if delivery.Oldest == nil || standing.Since.Before(delivery.Oldest.Position.Since) {
 			delivery.Oldest = &runstate.UndeliveredDocketEntry{Position: standing.At(),
