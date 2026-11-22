@@ -25,7 +25,7 @@ type ReviewBoundRefusal struct {
 // Validate refuses a refusal that names nothing kept out.
 func (r ReviewBoundRefusal) Validate() error {
 	if len(r.Files) == 0 {
-		return errors.New("a review-bound refusal names at least one file kept out")
+		return errors.New("a refusal for a change too large for the reviewer's copy names at least one file kept out")
 	}
 	for index, file := range r.Files {
 		if strings.TrimSpace(file) == "" {

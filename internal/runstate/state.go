@@ -5510,7 +5510,7 @@ func (s State) Validate() error {
 			problems = append(problems, errors.New("integration requires no recorded protected-path refusal"))
 		}
 		if s.ReviewBoundRefusal != nil {
-			problems = append(problems, errors.New("integration requires no recorded review-bound refusal"))
+			problems = append(problems, errors.New("integration requires no recorded refusal for a change too large for the reviewer's copy"))
 		}
 		// The target is fixed before the work starts, so an integration into a
 		// different branch describes a promotion this run was never set up to
