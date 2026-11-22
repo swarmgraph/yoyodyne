@@ -595,9 +595,10 @@ func (u HarnessResumeRefused) apply(state *State) (bool, error) {
 // whose wait already records a decision: the first decision read is the one
 // kept, and the run's own reading when it is continued is what ends the wait.
 //
-// The record's updated time is left alone. A waiting run is continued oldest
-// wait first by that time (nextContinuations), and recording what GitHub said
-// must not send it to the back.
+// The record's updated time is left alone. Among written work at one priority
+// a waiting run is continued longest wait first by that time
+// (nextContinuations), and recording what GitHub said must not send it to the
+// back.
 type CIWaitDecided struct {
 	Commit   string
 	Decision CIWaitDecision

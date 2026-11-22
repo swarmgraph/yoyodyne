@@ -68,12 +68,22 @@ it to carry on: a watching `yoyo work` session continues it.** Its item stays
 claimed while it waits, so no queue ever offers it again, and until the watch
 came to continue these runs (yoyodyne-ifd.428.51) the only thing that continued
 one was somebody typing `yoyo run` on the item. Now every pull reads the runs
-paused this way, oldest pause first, and asks the tracker what each item still
-waits on. One whose work is all closed is continued in its own worktree and
-developer session, against a developer slot and under a session's `--limit`
-exactly as a recorded repair is fired, and under the same two switches: your
-pause and a held intake both leave it paused, and the first pull after either
-lifts continues it. The run writes on the item that it was continued, by whom
+paused this way and asks the tracker what each item still waits on. One whose
+work is all closed is continued in its own worktree and developer session,
+against a developer slot and under a session's `--limit` exactly as a recorded
+repair is fired, and under the same two switches: your pause and a held intake
+both leave it paused, and the first pull after either lifts continues it.
+**Paused runs, runs whose GitHub checks have passed, and recorded repairs or
+continuations of a kept change are all work a run has already written, and a
+freed slot takes them in one order: the item's priority first, then the longest
+wait, all ahead of fresh work.** The wait counts from when the work became ready
+to be taken up: the decision being recorded, GitHub's checks being read as
+decided, or, for a run paused on its dependencies, the pause. A paused run passed
+over at a pull records why on its own run — the slots went to written work ahead
+of it, which it names; a hold or your pause; a dependency still open; a stop
+somebody asked for — and `yoyo status` shows that reason under the run in its
+paused list, as "not continued since …". A recorded repair passed over for a
+paused run ahead of it names that run on the item. The run writes on the item that it was continued, by whom
 and why, at the moment its pause is lifted — so a continuation refused before
 it got that far writes nothing there. A continuation that comes back without
 the run going on — refused, or paused again — is said on the pass and left for

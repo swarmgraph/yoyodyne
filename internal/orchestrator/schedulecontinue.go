@@ -22,11 +22,18 @@ package orchestrator
 // recorded: where that one is held by another run it is moved, and a run that
 // keeps its slot's endpoint pair is switched to the new slot's own endpoints
 // (runstate.Store.takeUpSlot, through Pipeline.withSlotPairs).
+//
+// Paused runs and the decisions that build on a kept change are both written
+// work, and freed slots go to them in one order: the item's priority first,
+// then the longest wait (writtenWorkOrder). A run passed over says why on its
+// own record (runstate.ContinuationWait), which status shows.
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -104,14 +111,172 @@ type pausedContinuation struct {
 	state    runstate.State
 	holdsOne bool
 	reason   string
+	// priority is the run's item's priority in the Lead Product Manager's order,
+	// math.MaxInt where it could not be read, and named is the item by its title
+	// with its identifier after it, for the sentences a person reads.
+	priority int
+	named    string
+	// fullSlots is the pass-over reason for a run that is ready to be continued
+	// but finds no developer slot free.
+	fullSlots string
+	// ready is when the forge's decision was first read for a run waiting on
+	// it, and zero for a run paused on its dependencies (waitingSince).
+	ready time.Time
+}
+
+// waitingSince is when a paused run became ready to be taken up, which is
+// what its place among the written work waiting for a slot is measured from,
+// as the decision on dedicated developer slots (decision 3) counts it: for a
+// run waiting on the forge, when the scheduler first read the forge's decision
+// (runstate.CIWait.Decided), or now where this pull is the first to read it;
+// for a run paused on its dependencies, which records no time for their
+// closing, the moment it paused. Nothing writes to a paused run's record's
+// updated time until something continues it (the forge's decision and the
+// reasons it is passed over are recorded without touching it), so that time is
+// the moment it paused.
+func (c pausedContinuation) waitingSince() time.Time {
+	if !c.ready.IsZero() {
+		return c.ready
+	}
+	return c.state.UpdatedAt
+}
+
+// writtenWorkOrder is the one order among written work waiting for a developer
+// slot — paused runs to continue and decisions that build on a kept change
+// alike: the Lead Product Manager's priority first, then the longest wait. Ties
+// fall to the run identifier so the order is the same at every pull.
+func writtenWorkOrder(priorityA int, sinceA time.Time, runA string, priorityB int, sinceB time.Time, runB string) int {
+	if c := cmp.Compare(priorityA, priorityB); c != 0 {
+		return c
+	}
+	if c := sinceA.Compare(sinceB); c != 0 {
+		return c
+	}
+	return strings.Compare(runA, runB)
+}
+
+// continuationsAhead names the paused runs in candidates that the written-work
+// order puts ahead of a decision about an item at priority, decided at since.
+// A decision that does not build on a kept change is fresh work, and every
+// paused run is ahead of it.
+func continuationsAhead(candidates []pausedContinuation, kept bool, priority int, since time.Time, runID string) []string {
+	var ahead []string
+	for _, candidate := range candidates {
+		if candidate.holdsOne {
+			continue
+		}
+		if kept && writtenWorkOrder(candidate.priority, candidate.waitingSince(), candidate.state.RunID, priority, since, runID) > 0 {
+			continue
+		}
+		ahead = append(ahead, candidate.named)
+	}
+	return ahead
 }
 
 // nextContinuations reads the runs paused on work their items wait on and
-// returns the ones this pull continues, oldest pause first, as far as the free
-// developer slots and the session's --limit allow. A run whose dependency is
+// returns the ones this pull continues, as far as the free developer slots and
+// the session's --limit allow (continuationCandidates, then takeContinuations).
+func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, free, started int, passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
+	candidates, err := s.continuationCandidates(ctx, pull, occupied, mine, refused, nil, passOver)
+	return s.takeContinuations(ctx, pull, candidates, mine, free, started, nil, passOver), err
+}
+
+// takeContinuations gives the free developer slots to the paused runs ready to
+// be continued, in the written-work order (writtenWorkOrder): the highest
+// priority first, then the run that has waited longest. Until
+// yoyodyne-ifd.428.188 they went oldest pause first whatever their priority,
+// and on 2026-11-21 a priority 0 run whose checks had passed was passed over at
+// two freed slots for older priority 1 work. firedAhead names the decisions this
+// pull already gave slots to, which the written-work order put ahead of these
+// (Scheduler.Schedule), so a run left without one says what took them.
+func (s Scheduler) takeContinuations(ctx context.Context, pull Pull, candidates []pausedContinuation, mine map[string]int, free, started int, firedAhead []string, passOver func(workItemID, reason string)) []pausedContinuation {
+	ordered := slices.Clone(candidates)
+	// Two runs at one priority that became ready at the same moment, as two
+	// whose forge decisions this pull is the first to read, go earlier pause
+	// first.
+	slices.SortStableFunc(ordered, func(a, b pausedContinuation) int {
+		if a.priority == b.priority && a.waitingSince().Equal(b.waitingSince()) {
+			if c := a.state.UpdatedAt.Compare(b.state.UpdatedAt); c != 0 {
+				return c
+			}
+		}
+		return writtenWorkOrder(a.priority, a.waitingSince(), a.state.RunID, b.priority, b.waitingSince(), b.state.RunID)
+	})
+	var continuing []pausedContinuation
+	var taken []string
+	for _, candidate := range ordered {
+		state := candidate.state
+		// A decision this pull carried out about the same item is in flight under
+		// its own dispatch, and one item is never given two runs at once.
+		if _, dispatched := mine[state.WorkItemID]; dispatched {
+			continue
+		}
+		if s.Limit > 0 && started+len(continuing) >= s.Limit {
+			why := fmt.Sprintf("%s; the session was bounded to %d run(s) by its --limit, and they have been started", candidate.fullSlots, s.Limit)
+			if ahead := append(slices.Clone(firedAhead), taken...); len(ahead) > 0 {
+				why += fmt.Sprintf("; the written work this pull took ahead of it, by priority and then by longest wait, was %s", listedNames(ahead))
+			}
+			s.continuationWaits(ctx, pull, state, why, passOver)
+			continue
+		}
+		if !candidate.holdsOne {
+			if free < 1 {
+				why := candidate.fullSlots
+				if ahead := append(slices.Clone(firedAhead), taken...); len(ahead) > 0 {
+					why += fmt.Sprintf("; the developer slots free at this pull went to written work ahead of it, taken by priority and then by longest wait: %s", listedNames(ahead))
+				}
+				s.continuationWaits(ctx, pull, state, why, passOver)
+				continue
+			}
+			free--
+		}
+		taken = append(taken, candidate.named)
+		continuing = append(continuing, candidate)
+	}
+	return continuing
+}
+
+// continuationWaits says why a paused run was not continued at this pull: on
+// the pass's report, on a continuation the development manager asked for, and
+// on the run's own record, where status reads it (runstate.ContinuationWait).
+// A write that fails is said in the reason; the next pull writes it again.
+func (s Scheduler) continuationWaits(ctx context.Context, pull Pull, state runstate.State, reason string, passOver func(workItemID, reason string)) {
+	if err := s.askedContinuationWaits(ctx, pull, state, reason); err != nil {
+		reason += "; " + err.Error()
+	}
+	if err := s.recordContinuationWait(ctx, pull, state, reason); err != nil {
+		reason += "; " + err.Error()
+	}
+	passOver(state.WorkItemID, reason)
+}
+
+// recordContinuationWait writes onto a paused run why this pull did not
+// continue it (runstate.ContinuationPassedOver), where the runs take such a
+// write and the record does not already say it.
+func (s Scheduler) recordContinuationWait(ctx context.Context, pull Pull, state runstate.State, why string) error {
+	why = strings.TrimSpace(why)
+	if why == "" || (state.ContinuationWait != nil && state.ContinuationWait.Why == why) {
+		return nil
+	}
+	updates, ok := pull.Runs.(ScheduleRunUpdates)
+	if !ok {
+		return nil
+	}
+	if _, err := updates.Update(ctx, state.RunID, runstate.ContinuationPassedOver{Why: why, At: s.now()}); err != nil {
+		return fmt.Errorf("record on run %s why it was not continued: %w", state.RunID, err)
+	}
+	return nil
+}
+
+// continuationCandidates reads the runs paused on work their items wait on and
+// returns the ones that may be continued now, before any developer slot is
+// given out; takeContinuations gives the slots. A run whose dependency is
 // still open is passed over naming what it waits on, and so is a run with a stop
 // recorded on it: a stop is honoured before any continuation, and the sweep ends
-// such a run at once, so this never picks it up.
+// such a run at once, so this never picks it up. itemOf, where given, is the
+// pull's reading of the work items, which says each run's item's priority; a
+// run whose item it does not hold is ordered after every run whose priority was
+// read.
 //
 // A run paused this way gave its developer slot back as it recorded the pause
 // (runstate.State.HoldsDeveloperSlot), so the pull's occupied runs do not count
@@ -120,9 +285,10 @@ type pausedContinuation struct {
 // store's own capacity check is what finally decides, when the continued run is
 // adopted and takes its slot back (Store.ReclaimSlot).
 //
-// free and started are this pull's free slots and how many runs the session has
-// started; both are what the carry-outs above left of them.
-func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, free, started int, passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
+// The candidates are read before the decisions are carried out, so the
+// written-work order can keep a slot for a paused run that outranks a decision
+// (continuationsAhead).
+func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, itemOf func(string) (beads.WorkItem, bool), passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
 	if pull.Continuations == nil || pull.Runs == nil {
 		return nil, nil
 	}
@@ -143,24 +309,31 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		}
 		paused = append(paused, state)
 	}
-	// Oldest pause first. Nothing writes to a paused run until something
-	// continues it, so the record's last write is the moment it paused.
-	slices.SortStableFunc(paused, func(a, b runstate.State) int {
-		if c := a.UpdatedAt.Compare(b.UpdatedAt); c != 0 {
-			return c
-		}
-		return strings.Compare(a.RunID, b.RunID)
-	})
-	var continuing []pausedContinuation
-	for _, state := range paused {
-		// What is said about a run passed over is written onto a continuation the
-		// development manager asked for as well, so her request says why it has
-		// not started rather than reading as carried out while nothing runs.
-		passOver := func(state runstate.State, reason string) {
-			if err := s.askedContinuationWaits(ctx, pull, state, reason); err != nil {
-				reason += "; " + err.Error()
+	var candidates []pausedContinuation
+	// candidate is a run ready to be continued, with its item's priority and
+	// name as the pull read them.
+	candidate := func(state runstate.State, holdsOne bool, reason, fullSlots string, item *beads.WorkItem) pausedContinuation {
+		found := pausedContinuation{state: state, holdsOne: holdsOne, reason: reason, fullSlots: fullSlots, priority: math.MaxInt, named: state.WorkItemID}
+		if item == nil && itemOf != nil {
+			if read, known := itemOf(state.WorkItemID); known {
+				item = &read
 			}
-			passOver(state.WorkItemID, reason)
+		}
+		if item != nil {
+			found.priority = item.Priority
+			if title := strings.TrimSpace(item.Title); title != "" {
+				found.named = fmt.Sprintf("%s (%s)", title, state.WorkItemID)
+			}
+		}
+		return found
+	}
+	for _, state := range paused {
+		// What is said about a run passed over is written onto the run and onto a
+		// continuation the development manager asked for as well, so the run and
+		// her request say why it has not started rather than reading as carried out
+		// while nothing runs.
+		passOver := func(state runstate.State, reason string) {
+			s.continuationWaits(ctx, pull, state, reason, passOver)
 		}
 		// Waiting for the forge's checks: the forge is read first, which takes no
 		// slot, and its decision is recorded on the run the first time it has made
@@ -181,7 +354,7 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		}
 		request, stopped, err := pull.Continuations.StopRequested(state.RunID)
 		if err != nil {
-			return continuing, fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
+			return candidates, fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
 		}
 		if stopped {
 			passOver(state, fmt.Sprintf("run %s is paused waiting on %s and %s asked for it to stop, so it is not continued; the next `yoyo reconcile` ends it",
@@ -202,16 +375,7 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 			// (ciWaitLostItsHost), so it takes a free one like a run still waiting.
 			_, holdsOne := occupied[state.WorkItemID]
 			holdsOne = holdsOne && !ciWaitLostItsHost(pull.Runs, state, now)
-			if s.Limit > 0 && started+len(continuing) >= s.Limit {
-				break
-			}
-			if !holdsOne {
-				if free < 1 {
-					passOver(state, fmt.Sprintf("run %s's forge checks are decided (%s)%s, and it is continued at the first pull with a developer slot free, ahead of any new work", state.RunID, why, overdueSince(*state.CIWait, now)))
-					continue
-				}
-				free--
-			}
+			fullSlots := fmt.Sprintf("run %s's forge checks are decided (%s)%s, and it is continued at the first pull with a developer slot free, ahead of any new work", state.RunID, why, overdueSince(*state.CIWait, now))
 			reason := fmt.Sprintf("run %s waited for %s since %s and the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why)
 			if ciWaitLostItsHost(pull.Runs, state, now) {
 				reason = fmt.Sprintf("run %s waited for %s since %s and was being continued when the program carrying it ended; the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why)
@@ -223,16 +387,21 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 			if asked := state.RecoveryContinuation; state.RecoveryContinuationOutstanding(runstate.RecoverContinue) {
 				reason += fmt.Sprintf("; this carries out the development manager's request %s to continue it", asked.RequestID)
 			}
-			continuing = append(continuing, pausedContinuation{state: state, holdsOne: holdsOne, reason: reason})
+			found := candidate(state, holdsOne, reason, fullSlots, nil)
+			found.ready = now
+			if state.CIWait != nil && state.CIWait.Decided != nil {
+				found.ready = state.CIWait.Decided.At
+			}
+			candidates = append(candidates, found)
 			continue
 		}
 		item, err := pull.Continuations.Show(ctx, state.WorkItemID)
 		if err != nil {
-			return continuing, fmt.Errorf("read what %s waits on: %w", state.WorkItemID, err)
+			return candidates, fmt.Errorf("read what %s waits on: %w", state.WorkItemID, err)
 		}
 		met, err := pull.teamMergeMet(ctx)
 		if err != nil {
-			return continuing, err
+			return candidates, err
 		}
 		if blockers := blockingDependencies(withoutMetDependencies(item, met)); len(blockers) > 0 {
 			passOver(state, fmt.Sprintf("run %s is paused because %s waits on unfinished work: %s; it is continued at the first pull after that closes",
@@ -240,25 +409,13 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 			continue
 		}
 		_, holdsOne := occupied[state.WorkItemID]
-		if s.Limit > 0 && started+len(continuing) >= s.Limit {
-			break
-		}
-		if !holdsOne {
-			if free < 1 {
-				passOver(state, fmt.Sprintf("run %s was paused waiting on %s, which has closed, and is continued when a developer slot is free",
-					state.RunID, state.DependencyPause.Summary()))
-				continue
-			}
-			free--
-		}
-		continuing = append(continuing, pausedContinuation{
-			state:    state,
-			holdsOne: holdsOne,
-			reason: fmt.Sprintf("run %s paused at %s because %s waited on %s, which has since closed, and the harness is continuing it in its own worktree and developer session",
-				state.RunID, state.UpdatedAt.UTC().Format(time.RFC3339), state.WorkItemID, state.DependencyPause.Summary()) + ownSlotMove(pull.Runs, state, incomplete, now),
-		})
+		fullSlots := fmt.Sprintf("run %s was paused waiting on %s, which has closed, and is continued when a developer slot is free",
+			state.RunID, state.DependencyPause.Summary())
+		reason := fmt.Sprintf("run %s paused at %s because %s waited on %s, which has since closed, and the harness is continuing it in its own worktree and developer session",
+			state.RunID, state.UpdatedAt.UTC().Format(time.RFC3339), state.WorkItemID, state.DependencyPause.Summary()) + ownSlotMove(pull.Runs, state, incomplete, now)
+		candidates = append(candidates, candidate(state, holdsOne, reason, fullSlots, &item))
 	}
-	return continuing, nil
+	return candidates, nil
 }
 
 // waitSummary says what a paused run waits for, whichever kind of wait it is.
@@ -362,7 +519,8 @@ func (s Scheduler) readCIWait(ctx context.Context, pull Pull, state runstate.Sta
 // nothing — under the operator's pause, a held intake, or a session stepping
 // down to restart. Reading GitHub spends nothing and takes no slot, so what it
 // has decided is on the record whether or not anything may be continued yet.
-// A development manager's request to continue such a run is told why it waits.
+// The run's own record, and a development manager's request to continue such a
+// run, are told why it waits.
 // What could not be read or written is returned, for the pass to say as its
 // continuation problem; nothing here stops the pass.
 func (s Scheduler) recordCIDecisions(ctx context.Context, pull Pull, why string) error {
@@ -382,7 +540,11 @@ func (s Scheduler) recordCIDecisions(ctx context.Context, pull Pull, why string)
 		if _, _, err := s.readCIWait(ctx, pull, state); err != nil {
 			problems = append(problems, fmt.Errorf("read the forge for run %s: %w", state.RunID, err))
 		}
-		if err := s.askedContinuationWaits(ctx, pull, state, fmt.Sprintf("run %s is waiting for %s, and %s", state.RunID, waitSummary(state), why)); err != nil {
+		waits := fmt.Sprintf("run %s is waiting for %s, and %s", state.RunID, waitSummary(state), why)
+		if err := s.askedContinuationWaits(ctx, pull, state, waits); err != nil {
+			problems = append(problems, err)
+		}
+		if err := s.recordContinuationWait(ctx, pull, state, waits); err != nil {
 			problems = append(problems, err)
 		}
 	}

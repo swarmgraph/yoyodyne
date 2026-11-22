@@ -558,6 +558,7 @@ func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int)
 		return state, err
 	}
 	reclaimed.DependencyPause = nil
+	reclaimed.ContinuationWait = nil
 	// A run waiting for the forge's checks takes its slot back here too, but
 	// keeps the wait on its record, marked as holding the slot: what the forge
 	// said is read, and the wait ended, by the run once it holds the slot
