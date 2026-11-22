@@ -207,3 +207,37 @@ func TestThePassRecordsTheChosenOrderAndTheHistoryLeavesItOut(t *testing.T) {
 		t.Fatalf("history = %#v, %v; want one pass without the order", history, err)
 	}
 }
+
+// A document chosen because it was the only entry waiting is recorded as a
+// document, so the choice made after it lands passes over a waiting document
+// for ordinary code, as after any other document landing.
+func TestADocumentChosenAloneIsRecordedAsADocument(t *testing.T) {
+	key := runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"}
+	alone := chooseFrom(t, true, orderEntry{id: "doc", paths: intent})
+	if alone.Rule != MergeQueueRuleOnlyWaiting || !alone.Document || strings.Join(alone.Order, ",") != "doc" {
+		t.Fatalf("chose %s by %q (document %v, order %v), want the lone document recorded as one", alone.Entry.EntryID, alone.Rule, alone.Document, alone.Order)
+	}
+	if selection := alone.Selection(); !selection.Document {
+		t.Fatalf("selection = %#v, want it to record a document", selection)
+	}
+	if codeAlone := chooseFrom(t, true, orderEntry{id: "p2", paths: code, priority: 2}); codeAlone.Document {
+		t.Fatal("lone code was recorded as a document")
+	}
+	at := orderNow.Add(-time.Minute)
+	records := landingRecords{
+		entries:     []runstate.MergeQueueEntry{{EntryID: "doc"}},
+		generations: map[string][]runstate.MergeQueueGeneration{"doc": {{Number: 1, EntryID: "doc", Selection: alone.Selection()}}},
+		landings: map[string]runstate.MergeQueueLanding{"doc": {
+			EntryID:    "doc",
+			Attempts:   []runstate.MergeQueuePromotionAttempt{{Number: 1, Generation: 1, Landed: &runstate.MergeQueueLanded{ConfirmedAt: at}}},
+			Completion: &runstate.MergeQueueCompletion{Attempt: 1, Generation: 1, QueueAt: at},
+		}},
+	}
+	got := chooseAfter(t, true, lastLandingWasDocument(records, key, ""),
+		orderEntry{id: "doc-next", paths: design, age: 2 * time.Hour},
+		orderEntry{id: "p2", paths: code, priority: 2, age: time.Hour},
+	)
+	if got.Entry.EntryID != "p2" || !got.DocumentPassedOver {
+		t.Fatalf("after the lone document landed chose %s (passed over %v), want the ordinary code", got.Entry.EntryID, got.DocumentPassedOver)
+	}
+}

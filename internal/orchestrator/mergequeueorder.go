@@ -257,7 +257,9 @@ func entryInProgress(generations []runstate.MergeQueueGeneration, unlanded map[s
 // order, and the record of why.
 func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry, started map[string]bool) MergeQueueChoice {
 	if len(waiting) == 1 {
-		return MergeQueueChoice{Entry: waiting[0], Rule: MergeQueueRuleOnlyWaiting}
+		// Whether it is a document is recorded even here, because the choice
+		// made after it lands reads that from this record.
+		return MergeQueueChoice{Entry: waiting[0], Rule: MergeQueueRuleOnlyWaiting, Document: o.documentKind(ctx, waiting[0]), Order: []string{waiting[0].EntryID}}
 	}
 	admitted := map[string]struct{}{}
 	for _, entry := range waiting {
