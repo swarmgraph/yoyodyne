@@ -54,6 +54,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -92,6 +93,9 @@ const (
 	// ChangeHealth is the factory's health problems, for the development
 	// manager and the program manager whose lane covers factory health.
 	ChangeHealth PassChangeKind = "health"
+	// ChangeOverlaps is the unpublished documents that overlap an open work item
+	// and are not yet answered, for the architect and the Lead Product Manager.
+	ChangeOverlaps PassChangeKind = "document-overlaps"
 	// ChangeLane is the events in a program manager's lane past its cursor.
 	ChangeLane PassChangeKind = "lane"
 )
@@ -117,6 +121,8 @@ func (k PassChangeKind) Describe() string {
 		return "its list of stopped runs"
 	case ChangeHealth:
 		return "the factory's health problems"
+	case ChangeOverlaps:
+		return "unpublished documents overlapping open work"
 	case ChangeLane:
 		return "events in its lane"
 	}
@@ -168,6 +174,16 @@ func passChangeKinds(scope PassScope) []PassChangeKind {
 	return kinds
 }
 
+// passKinds is passChangeKinds with the overlaps the pass is handed, where the
+// trigger reads them.
+func (t Trigger) passKinds(scope PassScope) []PassChangeKind {
+	kinds := passChangeKinds(scope)
+	if t.Unpublished != nil && t.OpenWork != nil && documentOverlapRoles(scope.Role, scope.Agent) {
+		kinds = append(kinds, ChangeOverlaps)
+	}
+	return kinds
+}
+
 // passScope is the scope of a pass of a task's role or of an instance.
 func (t Trigger) passScope(role domain.AgentRole, agent string) PassScope {
 	scope := PassScope{Role: role, Agent: agent, Health: t.observesHealth(role, agent)}
@@ -183,7 +199,7 @@ func (t Trigger) passFingerprints(ctx context.Context, scope PassScope, task con
 	if t.Changes == nil {
 		return nil
 	}
-	kinds := passChangeKinds(scope)
+	kinds := t.passKinds(scope)
 	reading := t.Changes.Fingerprints(ctx, scope, kinds)
 	if reading.Digests == nil {
 		reading.Digests = map[PassChangeKind]string{}
@@ -199,6 +215,14 @@ func (t Trigger) passFingerprints(ctx context.Context, scope PassScope, task con
 			delete(reading.Digests, ChangeAddressed)
 		} else {
 			reading.Digests[ChangeAddressed] = digest
+		}
+	}
+	if slices.Contains(kinds, ChangeOverlaps) {
+		if overlaps, problem := t.documentOverlaps(ctx); problem != "" {
+			reading.Unread[ChangeOverlaps] = problem
+			delete(reading.Digests, ChangeOverlaps)
+		} else {
+			reading.Digests[ChangeOverlaps] = documentOverlapDigest(overlaps)
 		}
 	}
 	if t.Amendments != nil && scope.Agent == "" {
@@ -305,7 +329,7 @@ func (t Trigger) unchanged(ctx context.Context, name string, task config.Recurri
 	if reading == nil || len(reading.Unread) > 0 {
 		return passSkip{}
 	}
-	kinds := passChangeKinds(scope)
+	kinds := t.passKinds(scope)
 	for _, kind := range kinds {
 		before, recorded := last.Fingerprints[string(kind)]
 		current, read := reading.Digests[kind]

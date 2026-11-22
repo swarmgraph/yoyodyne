@@ -67,6 +67,10 @@ type WorkItem struct {
 	// say, and a caller that needs it reports that it does not know rather than
 	// treating an unknown admission time as the beginning of time.
 	CreatedAt time.Time
+	// UpdatedAt is when the tracker last changed the item for any reason: a
+	// note, its text, its status or priority, or the harness's own metadata. It
+	// is the zero time where the tracker did not say.
+	UpdatedAt time.Time
 	// ClosedAt is when the tracker recorded the item closed, and CloseReason what
 	// it was closed with. Both are empty on open work, and ClosedAt is the zero
 	// time where the tracker did not say. The Lead Product Manager's sweep reads
@@ -2399,6 +2403,8 @@ type rawWorkItem struct {
 	// timestamp this cannot read must leave the admission time unknown, not fail
 	// every read of the work it belongs to.
 	CreatedAt string `json:"created_at"`
+	// UpdatedAt is read as text for the reason CreatedAt is.
+	UpdatedAt string `json:"updated_at"`
 	// ClosedAt is read as text for the reason CreatedAt is.
 	ClosedAt    string `json:"closed_at"`
 	CloseReason string `json:"close_reason"`
@@ -2491,6 +2497,7 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 		Assignee:           raw.Assignee,
 		Parent:             raw.Parent,
 		CreatedAt:          admittedAt(raw.CreatedAt),
+		UpdatedAt:          admittedAt(raw.UpdatedAt),
 		ClosedAt:           admittedAt(raw.ClosedAt),
 		CloseReason:        raw.CloseReason,
 		Dependencies:       make([]Dependency, 0, len(raw.Dependencies)),
