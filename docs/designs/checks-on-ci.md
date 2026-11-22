@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-22T07:10:53.165106Z
       reason: Brought into line with the code at main 94f2620cb45e, from the second comparison reading for the checks group. The opening is no longer written as today; the queue stage names the narrowed local race check where no required check is a race check, and the capacity bullet counts its permit; the verification rule sentence is recorded as added on November 5; builds 6, 7 and 9 are marked partly or not built; CI is never narrowed by the harness, and the repository's own race skip is named.
+    - action: amended
+      by: architect
+      at: 2026-11-22T11:55:03.106434Z
+      reason: 'amendment-6ff10e09, approved: a required check the forge reports failed whose output cannot be read is a failed check, goes back to the developer with name, reason and link, spends a repair round, is reported once, and never falls back to local checks; terminal escape codes are removed from output first. Section revision from main 74aeda24389d; the behaviour is already built.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-22T07:10:53.165106Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3425, for document-3425.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-22T11:55:03.106434Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3443, for document-3443.1 under the automatic approval policy
 ---
 # Checks on CI: a short local check, the full suite on the forge before review, and a switch back to local checks
 
@@ -100,7 +109,13 @@ When a required check fails, the harness fetches through the forge adapter, beca
 - the failing tests, where the output names them;
 - the end of each failing check's output, at most its last 200 lines, with the output of all the failing checks together held to 8 KiB, the limit a run record keeps for a failed check's output. Where they are over it, the 8 KiB is shared equally between the failing checks, each keeping its last lines.
 
-The output is scrubbed of secrets before it is written anywhere. It is recorded on the run as a failed check, in the same shape as a local failed check with its failing tests, and spends one repair round as a local failure does. The developer receives it the same way. After the repair, the cycle starts again at the short local check, and the new commit needs its own CI result: a result for an earlier commit is never carried forward.
+Before the output is written anywhere or handed to any role, terminal escape codes are removed from it (the codes a terminal reads as colour, cursor movement or a cleared line), and it is scrubbed of secrets. It is recorded on the run as a failed check, in the same shape as a local failed check with its failing tests, and spends one repair round as a local failure does. The developer receives it the same way. After the repair, the cycle starts again at the short local check, and the new commit needs its own CI result: a result for an earlier commit is never carried forward.
+
+### A failed check whose output cannot be read
+
+When the forge reports a required check as failed but the harness cannot read that check's output, because the log has expired, is too large to fetch, or the request for it fails, the check is still a failed check. The forge has just answered that it failed, so this is not the case "the forge cannot be read" under When CI is down or slow, and it never falls back to the full local checks. The run goes back to the developer with the check's name, its result, why its output could not be read, and a link to the check on the forge, and it spends one repair round, as any failed check does. The harness reports it once for that run, so a check whose output is never readable is visible rather than repeated silently.
+
+Treating an unreadable output as an outage and running the full local checks instead was rejected: it cost up to 90 minutes of local checks for each such failure, and the repair still received only a link. This behaviour is built, under the work on unreadable failed check output (yoyodyne-ifd.429.239).
 
 ## When CI is down or slow
 
