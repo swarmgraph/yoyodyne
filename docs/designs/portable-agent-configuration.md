@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-07T05:37:53.155919Z
       reason: The MCP tools and scheduled message intake designs both ask this section's refused list to name their settings. It now names mcp, mcp_tools and intake, with the reason each stays the operator's. These keys were already refused, because every key not on the list is, so what a role may apply does not change. Written from a read at main 52f8379d.
+    - action: amended
+      by: architect
+      at: 2026-11-21T23:50:39.067914Z
+      reason: Section 8 of the factory cost design says these seven settings join the values the development manager decides, in a revision of this section. This adds them to the table with their bounds, and says removing the reading helper from one agent stays the operator's. The rest of the subsection is unchanged. Written from a read at main fe2db3d373d6.
 approvals:
     - policy: approvals.designs
       revision: 3
@@ -46,6 +50,11 @@ approvals:
       by: harness
       at: 2026-11-07T05:37:53.155919Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2402, for document-2402.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-21T23:50:39.067914Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3355, for document-3355.1 under the automatic approval policy
 ---
 # Portable agent configuration
 
@@ -324,8 +333,22 @@ may do it. These are those values, and the role that decides each:
 | --- | --- |
 | `checks` and `landing_checks`, including how a check's scope is narrowed | the development manager |
 | `developer_models` and `developer_slots` | the development manager |
-| the schedule and model of a recurring task | the development manager |
+| the schedule and model of a recurring task, where the model may name a kind of model | the development manager |
 | numeric limits, such as retries before reconciliation and check time limits | the development manager |
+| `model_kinds`: which of each provider's models is the stronger, the cheaper and the lightest | the development manager |
+| `reviewer_models`: the kind of model that reviews documents and the kind that reviews code | the development manager |
+| `developer_cheaper_first`: whether developers start on the cheaper model, and which items are eligible | the development manager |
+| `high_risk_labels`: which labels mark work that never runs on the cheaper model | the development manager, who may add labels and kinds and never remove the four fixed kinds |
+| `skip_when_unchanged` and `full_pass_every` on each recurring task | the development manager, with `full_pass_every` held between 1 hour and 24 hours |
+| `repository_ask`: the reading helper's model kind, answer limit and time limit | the development manager, with the answer limit held between 1 KiB and 16 KiB |
+
+The seven cost settings in the last six rows come from section 8 of
+[reducing what the factory costs](reducing-what-the-factory-costs.md), which
+gives each its default and the reason it is shaped as it is. Their bounds, and
+the four high risk kinds that cannot be removed, are held in Go, so a write
+outside them is refused before anything is prepared, naming the key and the
+bound. Taking the reading helper away from one agent is `tools: deny` in that
+agent's block, which names an agent and so stays the operator's, as below.
 
 A program manager may propose a value for its own lane, in its lane report or as
 a proposal to the development manager, and never applies one. The Lead Product
