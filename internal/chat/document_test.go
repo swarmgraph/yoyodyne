@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -947,5 +948,49 @@ func TestASectionRevisionIsCheckedAgainstTheWholeDocumentItLeaves(t *testing.T) 
 	var refused *documentcheck.Refusal
 	if !errors.As(err, &refused) || len(refused.Problems) != 1 || refused.Problems[0].Line != 3 || !strings.Contains(refused.Problems[0].Reason, "no-such-heading") {
 		t.Fatalf("a link to a missing heading in the section: %#v, %v", refused, err)
+	}
+}
+
+// A written document's record keeps when it was written, the work items it
+// names, and the document it revises with the file it is read from, so a pass
+// that looks for disagreement with admitted work needs nothing else.
+func TestAWrittenRevisionsRecordKeepsWhatItNamesAndRevises(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "s", ResolvedModel: "claude-opus-5",
+			FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing.")},
+		{SessionID: "s", ResolvedModel: "claude-opus-5",
+			FinalText: documentReply("revise", "v2-goals", "", "", "# Goals\\n\\nAnswers yoyodyne-ifd.78.9 and the plain-language goal.")},
+	}}
+	options, _ := documentOptions(t, provider)
+	options.Store = newTestStore(t, root)
+	session := openTestSession(t, options)
+
+	first, err := session.Send(context.Background(), "Write the goals up.")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if _, err := session.ApproveWrite(first.Writes[0].ID); err != nil {
+		t.Fatalf("ApproveWrite() error = %v", err)
+	}
+	if _, err := session.Send(context.Background(), "Narrow the second goal."); err != nil {
+		t.Fatalf("Send() second error = %v", err)
+	}
+
+	conversations, err := newTestStore(t, root).Recorded()
+	if err != nil || len(conversations) != 1 || len(conversations[0].PendingWrites) != 1 {
+		t.Fatalf("recorded = %#v, %v, want one waiting revision", conversations, err)
+	}
+	write := conversations[0].PendingWrites[0]
+	if write.WrittenAt.IsZero() {
+		t.Fatalf("the record keeps no time the document was written")
+	}
+	if want := []string{"yoyodyne-ifd.78.9"}; !reflect.DeepEqual(write.Names, want) {
+		t.Fatalf("names = %v, want %v", write.Names, want)
+	}
+	if want := []runstate.DocumentRef{{ID: "v2-goals", Path: "docs/product/v2-goals.md"}}; !reflect.DeepEqual(write.Revises, want) {
+		t.Fatalf("revises = %v, want %v", write.Revises, want)
 	}
 }

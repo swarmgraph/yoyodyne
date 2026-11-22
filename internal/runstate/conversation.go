@@ -533,6 +533,12 @@ type PendingWrite struct {
 	// Hold is what its owning role put on sending it; see artifact.Write.
 	Answers []string              `json:"answers,omitempty"`
 	Hold    *artifact.SendingHold `json:"hold,omitempty"`
+	// Names are the work items the document names, by what it answers, its hold,
+	// or an identifier in its reason or body, and Revises the document a revision
+	// replaces, by identifier and file. Both are filled for a record written
+	// before they were kept when it is read back; see WithRelations.
+	Names   []string      `json:"names,omitempty"`
+	Revises []DocumentRef `json:"revises,omitempty"`
 	// EstablishedBy and Scope are an invariant's own fields; see artifact.Write.
 	EstablishedBy []string  `json:"established_by,omitempty"`
 	Scope         *[]string `json:"scope,omitempty"`
@@ -1559,6 +1565,11 @@ func (s *ConversationStore) decode(path, label string, tolerateUnknownFields boo
 	}
 	if err := s.validateConversation(conversation); err != nil {
 		return Conversation{}, err
+	}
+	// A document written before its record kept what it names and revises reads
+	// back with both, worked out from what the record holds.
+	for i := range conversation.PendingWrites {
+		conversation.PendingWrites[i] = conversation.PendingWrites[i].WithRelations()
 	}
 	return conversation, nil
 }
