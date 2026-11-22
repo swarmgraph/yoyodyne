@@ -694,3 +694,48 @@ func (u WorktreeRebuilt) apply(state *State) (bool, error) {
 	state.UpdatedAt = u.At
 	return true, nil
 }
+
+// HostForcedStopRecorded records on a run the stop its hosting watch session
+// could not record for itself because the supervisor forced that session to
+// stop (orchestrator.PreserveRunsOfForcedHost). It is the stop a drain records
+// as it stops a run for a redeploy, so the session that comes back continues
+// the run from it exactly as it continues one the drain stopped. It changes
+// nothing on a run that is no longer running, already carries a stop, or whose
+// worker is not the process that was forced, so a run some other process took
+// up in between is left as that process has it.
+type HostForcedStopRecorded struct {
+	// Host is the forced process: its number and the start time the operating
+	// system reported for it. A run is changed only where its worker names both.
+	Host WorkerIdentity
+	Stop RedeployStop
+}
+
+func (u HostForcedStopRecorded) apply(state *State) (bool, error) {
+	if state.Status != StatusRunning || state.RedeployStop != nil || !forcedHostWorked(state.Worker, u.Host) {
+		return false, nil
+	}
+	// The stop is at whatever phase the run had reached, as a drain's is.
+	stop := u.Stop
+	stop.Phase = state.Phase
+	if err := stop.Validate(); err != nil {
+		return false, fmt.Errorf("stop recorded for a forced host: %w", err)
+	}
+	state.RedeployStop = &stop
+	if u.Stop.At.After(state.UpdatedAt) {
+		state.UpdatedAt = u.Stop.At
+	}
+	return true, nil
+}
+
+// forcedHostWorked reports a run's worker being the forced process: the same
+// number, and the same start time where both are known, so a later process that
+// took the number is never mistaken for it.
+func forcedHostWorked(worker *WorkerIdentity, host WorkerIdentity) bool {
+	if worker == nil || host.PID <= 0 || worker.PID != host.PID {
+		return false
+	}
+	if worker.StartedAt.IsZero() || host.StartedAt.IsZero() {
+		return true
+	}
+	return sameStart(worker.StartedAt, host.StartedAt)
+}
