@@ -9308,6 +9308,14 @@ These outcomes look similar in a listing and are not the same thing:
   firing the provider refused, or one the
   [outage wait](#waiting-out-a-provider-nobody-can-reach) recorded, is not one
   of these: waiting ends those, and nothing waiting does ends this.
+- **A scheduled firing skipped with nothing new** says `SKIPPED` with the
+  reason: nothing the role would be handed had changed since its last completed
+  pass, which it names with its start time, and when the next full pass is owed
+  whatever changes. Nothing was asked and nothing was spent, it is not a failure,
+  and it counts as that window's firing. `--json` carries it as `skipped`, and
+  every pass that was started carries the `fingerprints` the next scheduled
+  firing is compared with. See [skipping a pass with nothing
+  new](configuration.md#skipping-a-pass-with-nothing-new).
 - **A pass whose reply carried more than one block** shows the last block as its
   account and says beside it that more than one was sent. It is an account, not
   a lost pass: the role slipped on the one-block contract, and the decisions it

@@ -41,7 +41,9 @@ type passChanges struct {
 	}
 	// conversations lists the roles' conversation records.
 	conversations func() ([]runstate.Conversation, error)
-	// runs lists every recorded run, for the documents a role sent to land.
+	// runs lists the runs still in flight, from the run index, for the
+	// documents a role sent to land: one joins the list when it is sent and
+	// leaves it when it lands or is returned, so either moves the digest.
 	runs func() ([]runstate.State, error)
 	// followUps lists the follow-ups the product keeps.
 	followUps func() ([]followup.FollowUp, error)
@@ -184,8 +186,8 @@ func (p passChanges) messageLines(scope orchestrator.PassScope) ([]string, error
 }
 
 // documentLines is the scope's documents: those its conversations hold handed
-// back or returned, and every run that carries one of its documents to land,
-// with where that run stands.
+// back or returned, and every run in flight that carries one of its documents
+// to land, with where that run stands.
 func (p passChanges) documentLines(scope orchestrator.PassScope) ([]string, error) {
 	conversations, err := p.scopeConversations(scope)
 	if err != nil {
@@ -290,7 +292,7 @@ func (p passChanges) stopLines() ([]string, error) {
 func passChangesFrom(parts components) orchestrator.PassChangeSources {
 	changes := passChanges{
 		items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
-		runs:  parts.store.Recorded,
+		runs:  parts.store.Incomplete,
 		head: func(ctx context.Context) (string, error) {
 			return repositoryHead(ctx, parts.runner, parts.repository)
 		},

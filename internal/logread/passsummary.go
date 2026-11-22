@@ -49,7 +49,7 @@ type passFields struct {
 	Skipped           *struct {
 		LastCompleted string `json:"last_completed"`
 	} `json:"skipped"`
-	Missed            *struct {
+	Missed *struct {
 		Trigger string `json:"trigger"`
 		How     string `json:"how"`
 	} `json:"missed"`
