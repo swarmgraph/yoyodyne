@@ -50,20 +50,19 @@ func accomplishmentSources(configPath, stateRoot string, productID domain.Produc
 	return sources
 }
 
-// weeklyCostSources opens every record the weekly cost figures are read from:
-// the spend log, the run records, and the tracker. A store that will not open
-// costs the figures read from it, and the reason travels with the gap.
-func weeklyCostSources(configPath, stateRoot string, productID domain.ProductID) readmodel.WeeklyCostSources {
-	sources := readmodel.WeeklyCostSources{TrackerTimeout: chatTrackerTimeout}
+// weeklyCostSources opens the spend log and the tracker the weekly cost figures
+// are read from, beside the run records its caller has already read. A store
+// that will not open costs the figures read from it, and the reason travels
+// with the gap.
+func weeklyCostSources(configPath, stateRoot string, productID domain.ProductID, runs []runstate.State, runsErr error) readmodel.WeeklyCostSources {
+	sources := readmodel.WeeklyCostSources{TrackerTimeout: chatTrackerTimeout, Runs: runs, RunsRead: runsErr == nil}
+	if runsErr != nil {
+		sources.RunsProblem = fmt.Sprintf("the run records could not be read: %v", runsErr)
+	}
 	if store, err := runstate.NewSpendStore(stateRoot, productID); err != nil {
 		sources.SpendProblem = err.Error()
 	} else {
 		sources.Spend = store
-	}
-	if store, err := runstate.NewStore(stateRoot, productID); err != nil {
-		sources.RunsProblem = err.Error()
-	} else {
-		sources.Runs = store
 	}
 	sources.Tracker, sources.TrackerReadings, sources.TrackerProblem = costTracker(configPath)
 	return sources

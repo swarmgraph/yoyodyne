@@ -21,10 +21,6 @@ func (f fakeWeeklyTracker) List(context.Context, string) ([]beads.WorkItem, erro
 	return f.items, f.err
 }
 
-type fakeWeeklyRuns []runstate.State
-
-func (f fakeWeeklyRuns) Recorded() ([]runstate.State, error) { return f, nil }
-
 func weeklySpend(at time.Time, role domain.AgentRole, item string, amount float64) runstate.Spend {
 	return runstate.Spend{At: at, Role: role, WorkItemID: item, Classification: runstate.SpendKnown, AmountUSD: amount}
 }
@@ -64,7 +60,8 @@ func TestWeeklyCostDividesAWeeksSpendByItsClosedItemsAndLandedChangesByRole(t *t
 			// The week before, outside last week.
 			weeklySpend(atPacific(t, "2026-11-08 23:59"), domain.RoleDeveloper, "item-z", 1000),
 		},
-		Runs: fakeWeeklyRuns{
+		RunsRead: true,
+		Runs: []runstate.State{
 			landedRun(t, "run-a", "item-a", "2026-11-11 15:00", false),
 			landedRun(t, "run-b", "item-b", "2026-11-15 23:00", false),
 			landedRun(t, "run-doc", "doc", "2026-11-12 08:00", true),
@@ -145,10 +142,11 @@ func TestWeeklyCostDividesAWeeksSpendByItsClosedItemsAndLandedChangesByRole(t *t
 
 func TestWeeklyCostSaysAWeekWithNothingAsNothing(t *testing.T) {
 	reading := ReadWeeklyCost(context.Background(), WeeklyCostSources{
-		Spend:   fakeAccomplishmentSpend{},
-		Runs:    fakeWeeklyRuns{},
-		Tracker: fakeWeeklyTracker{},
-		Now:     weeklyNow(t),
+		Spend:    fakeAccomplishmentSpend{},
+		Runs:     nil,
+		RunsRead: true,
+		Tracker:  fakeWeeklyTracker{},
+		Now:      weeklyNow(t),
 	})
 	for _, week := range reading.Weeks {
 		if week.CostUSD != 0 || week.Calls != 0 || *week.Closed != 0 || *week.Landed != 0 || week.CostPerClosedItem != nil || week.CostPerLandedChange != nil || week.Floor || len(week.Roles) != 0 {
@@ -163,7 +161,7 @@ func TestWeeklyCostSaysAWeekWithNothingAsNothing(t *testing.T) {
 func TestWeeklyCostGivesNoFigureDividedByACountItCouldNotRead(t *testing.T) {
 	reading := ReadWeeklyCost(context.Background(), WeeklyCostSources{
 		Spend:       fakeAccomplishmentSpend{weeklySpend(atPacific(t, "2026-11-17 09:00"), domain.RoleDeveloper, "item-a", 30)},
-		RunsProblem: "permission denied",
+		RunsProblem: "the run records could not be read: permission denied",
 		Tracker:     fakeWeeklyTracker{err: errors.New("bd timed out")},
 		Now:         weeklyNow(t),
 	})
@@ -194,9 +192,10 @@ func TestWeeklyCostRendersTheCurrentWeekAndTheOneBefore(t *testing.T) {
 			weeklySpend(atPacific(t, "2026-11-10 09:00"), domain.RoleReviewer, "item-b", 12),
 			weeklySpend(atPacific(t, "2026-11-03 09:00"), domain.RoleArchitect, "", 99),
 		},
-		Runs:    fakeWeeklyRuns{landedRun(t, "run-a", "item-a", "2026-11-17 10:00", false)},
-		Tracker: fakeWeeklyTracker{items: []beads.WorkItem{closedItem(t, "item-a", "2026-11-17 11:00")}},
-		Now:     weeklyNow(t),
+		RunsRead: true,
+		Runs:     []runstate.State{landedRun(t, "run-a", "item-a", "2026-11-17 10:00", false)},
+		Tracker:  fakeWeeklyTracker{items: []beads.WorkItem{closedItem(t, "item-a", "2026-11-17 11:00")}},
+		Now:      weeklyNow(t),
 	})
 	rendered := reading.Render()
 	want := "Weekly cost, Monday to Sunday in America/Los_Angeles:\n" +

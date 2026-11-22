@@ -45,18 +45,21 @@ import (
 // included.
 const weeklyCostWeeks = 4
 
-// WeeklyCostRuns is the run records. It is satisfied by *runstate.Store.
-type WeeklyCostRuns interface {
-	Recorded() ([]runstate.State, error)
-}
-
 // WeeklyCostSources are the records one reading is assembled from. Each is
 // optional and carries the reason its caller could not open it.
 type WeeklyCostSources struct {
 	Spend        AccomplishmentSpend
 	SpendProblem string
-	Runs         WeeklyCostRuns
-	RunsProblem  string
+	// Runs is every run record, as its caller has already read them: the
+	// reading does not read every record itself, because a routine reader that
+	// does so is one more over the whole run history, and its callers each read
+	// them already for an answer of their own (`yoyo status`'s history, and what
+	// the spend accomplished). RunsRead says they were read, and RunsProblem,
+	// in a sentence naming the run records, why they could not be where they
+	// were not.
+	Runs        []runstate.State
+	RunsRead    bool
+	RunsProblem string
 	// Tracker is listed once, closed items included, out of the shared reading
 	// where TrackerReadings is set (listEveryItem).
 	Tracker         DeliveryTracker
@@ -174,16 +177,13 @@ func ReadWeeklyCost(ctx context.Context, sources WeeklyCostSources) WeeklyCost {
 		return WeeklyCost{ObservedAt: now, Zone: zone.String(), Weeks: []CostWeek{}, Problem: problem}
 	}
 
-	var runs []runstate.State
 	runsProblem := ""
 	switch {
-	case sources.Runs == nil:
-		runsProblem = absent(sourceRuns, sources.RunsProblem)
+	case sources.RunsRead:
+	case strings.TrimSpace(sources.RunsProblem) != "":
+		runsProblem = sources.RunsProblem
 	default:
-		var err error
-		if runs, err = sources.Runs.Recorded(); err != nil {
-			runsProblem = fmt.Sprintf("%s could not be read: %v", sourceRuns, err)
-		}
+		runsProblem = absent(sourceRuns, "")
 	}
 
 	var items []beads.WorkItem
@@ -198,7 +198,7 @@ func ReadWeeklyCost(ctx context.Context, sources WeeklyCostSources) WeeklyCost {
 		}
 	}
 
-	return weeklyCost(lines, runs, runsProblem, items, trackerProblem, first, weekStart(today).AddDate(0, 0, 7), now, zone)
+	return weeklyCost(lines, sources.Runs, runsProblem, items, trackerProblem, first, weekStart(today).AddDate(0, 0, 7), now, zone)
 }
 
 // weeklyCost makes the figures for every whole week from the Monday first to

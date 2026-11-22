@@ -401,7 +401,10 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		read := readmodel.ReadStanding(context.Background(), standingSources(*configPath))
 		standing = &read
 		summary = statusSummary(ctx, *configPath, standing, period)
-		weekly = statusWeeklyCost(ctx, *configPath)
+		// Every run record, read here where the history beside it already reads
+		// them, for the weekly cost figures' count of code changes landed.
+		runs, runsErr := store.Recorded()
+		weekly = statusWeeklyCost(ctx, *configPath, runs, runsErr)
 		// What the product recorded about having gone quiet, read for the whole
 		// product for the reason the four lines are: a stall is a fact about the
 		// line rather than about any item, and the item that was not started during
@@ -546,17 +549,17 @@ func statusSummary(ctx context.Context, configPath string, standing *readmodel.S
 	return &summary
 }
 
-// statusWeeklyCost is the weekly cost figures, read from the same spend log,
-// run records, and tracker the dashboard's reading of what the spend
+// statusWeeklyCost is the weekly cost figures, read from the run records the
+// status already read and the same spend log and tracker the dashboard's reading of what the spend
 // accomplished reads them from. A state root that cannot be resolved is said
 // inside the reading rather than costing the status.
-func statusWeeklyCost(ctx context.Context, configPath string) *readmodel.WeeklyCost {
+func statusWeeklyCost(ctx context.Context, configPath string, runs []runstate.State, runsErr error) *readmodel.WeeklyCost {
 	roots, err := statusStateRoots(configPath)
 	if err != nil {
 		reading := readmodel.ReadWeeklyCost(ctx, readmodel.WeeklyCostSources{SpendProblem: err.Error()})
 		return &reading
 	}
-	reading := readmodel.ReadWeeklyCost(ctx, weeklyCostSources(configPath, roots.stateRoot, roots.productID))
+	reading := readmodel.ReadWeeklyCost(ctx, weeklyCostSources(configPath, roots.stateRoot, roots.productID, runs, runsErr))
 	return &reading
 }
 
