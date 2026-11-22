@@ -53,6 +53,9 @@ type teamUpdateFixture struct {
 	forge      *orchestratortest.Forge
 	verdict    string
 	updater    TeamBranchUpdater
+	// developer is what a run the development manager decided on does in its
+	// worktree, where a test sets one.
+	developer func(backend.RunRequest) error
 }
 
 // newTeamUpdateFixture is a project whose target is staging, checked out in the
@@ -73,7 +76,18 @@ func newTeamUpdateFixture(t *testing.T) *teamUpdateFixture {
 	runPipelineGit(t, team, "config", "user.email", "teammate@example.invalid")
 
 	f := &teamUpdateFixture{t: t, repository: repository, remote: remote, team: team, verdict: teamApprove}
-	provider := &orchestratortest.Backend{Respond: func(backend.RunRequest) (backend.RunResult, error) {
+	provider := &orchestratortest.Backend{Respond: func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleDeveloper {
+			if f.developer != nil {
+				if err := f.developer(request); err != nil {
+					return backend.RunResult{}, err
+				}
+			}
+			return backend.RunResult{
+				Backend: domain.BackendClaudeCode, SessionID: "conflict-developer-session", ResolvedModel: orchestratortest.DeveloperResolved,
+				FinalText: "settled the conflict", Process: execution.ProcessResult{Status: execution.ProcessSucceeded}, LastEvent: request.LastSequence,
+			}, nil
+		}
 		return backend.RunResult{
 			Backend: domain.BackendClaudeCode, SessionID: "update-review-session", ResolvedModel: "claude-opus-5",
 			FinalText: f.verdict, Process: execution.ProcessResult{Status: execution.ProcessSucceeded},

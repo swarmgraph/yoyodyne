@@ -325,7 +325,7 @@ func (m *Manager) RestoreWorktree(ctx context.Context, worktree Worktree) (Workt
 	if head != worktree.HarnessCommit {
 		return Worktree{}, fmt.Errorf("branch %s is at %s, not at the commit the harness recorded (%s); what is on it is not the change that was reviewed", worktree.Branch, head, worktree.HarnessCommit)
 	}
-	if err := m.verifyHarnessHistory(ctx, m.repositoryRoot, worktree.BaseCommit, head); err != nil {
+	if err := m.verifyHarnessHistory(ctx, m.repositoryRoot, worktree.BaseCommit, head, worktree.MergedCommit); err != nil {
 		return Worktree{}, err
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
