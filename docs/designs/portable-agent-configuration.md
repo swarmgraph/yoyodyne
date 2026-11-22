@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-11-22T04:08:52.80704Z
       reason: 'The baseline file at main 3220fd777 records plain values for settings and digests only for persona text, while this section said digests and never values. Read lock.go and drift.go and ratify what is built: the drift report has to show what a value was, and the file holds only template content. Also names yoyo config baseline, says adopt is not built and how an improvement is taken meanwhile, and states the cost of a baseline recorded late.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T05:33:32.374272Z
+      reason: The closing list still left projects that predate the baseline file open, though yoyo config baseline is built and section 4 describes it and its cost. The bullet leaves the list, a paragraph says what is decided, and rebuilding a baseline by matching current values is rejected. Written from a read at main 62d9a16a5.
 approvals:
     - policy: approvals.designs
       revision: 3
@@ -82,6 +86,11 @@ approvals:
       by: harness
       at: 2026-11-22T04:08:52.80704Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3394, for document-3394.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-22T05:33:32.374272Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3404, for document-3404.1 under the automatic approval policy
 ---
 # Portable agent configuration
 
@@ -548,19 +557,24 @@ section to be built.
 ## What this design deliberately does not decide
 
 - **A bundle registry, a resolver, or a fetch protocol.** Section 5 decides
-  where a third-party bundle may be used and what it may not do. How one is
-  named, discovered, verified, or pinned belongs to the plugin contract, and
-  deciding it here would be this document legislating for a design it is not.
+  where a bundle from outside the executable may be used and what it may not
+  do. How one is named, discovered, verified, or pinned belongs to the plugin
+  contract, and deciding it here would be this document legislating for a
+  design it is not.
 - **Whether `yoyo init` should change what it writes.** It should not, on this
-  design's evidence — ifd.35's trade holds, and the lock is additive.
+  design's evidence: ifd.35's trade holds, and the baseline file is additive.
 - **Fleet configuration across several projects.** One repository at a time.
   Several projects sharing defaults is what a bundle is for; a fleet that also
   wants shared *state* is team mode's problem, not this one.
-- **A migration for projects that predate the lock.** They report an unknown
-  baseline and keep working. Whether `materialize` should offer to reconstruct
-  a baseline by matching current values against a bundle is a real question with
-  a real wrong answer — reconstructing one is guessing that unedited values were
-  never edited — and it is left open.
+
+Projects that predate the baseline file were left open by earlier revisions of
+this section, and are not open now. Such a project reports an unknown baseline
+and keeps working, and it records one with `yoyo config baseline`, at the cost
+section 4 states: every value that differs from the template then counts as
+yours, including an improvement the project never took. Rebuilding a baseline
+by matching the project's current values against a template is rejected, and no
+command does it, because it would guess that a value matching the template was
+never edited.
 
 ## Decided at ratification
 
