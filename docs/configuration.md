@@ -10385,6 +10385,8 @@ task's last completed pass. It looks at:
   arrives;
 - the role's documents sent to land, and how each run carrying one stands;
 - the follow-ups the role owns whose deadline has passed;
+- for the architect and the Lead Product Manager, the unpublished documents
+  that overlap an open work item and are not yet answered;
 - for the development manager, her list of stopped runs; and for her and the
   program manager whose lane is `factory-flow`, the factory's health problems;
 - for a program manager, the events in its lane since its last pass.

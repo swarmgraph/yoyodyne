@@ -569,6 +569,12 @@ type Trigger struct {
 	// it. Optional: a trigger wired without it hands the pass nothing to audit.
 	// See closedwork.go.
 	ClosedWork RecurringClosedWork
+	// Unpublished and OpenWork are the documents written and not yet published
+	// and the tracker's items, from which every pass of the architect's and of the
+	// Lead Product Manager's is handed the overlaps nobody has answered. Optional:
+	// a trigger wired without both lists none. See documentoverlap.go.
+	Unpublished RecurringUnpublishedDocuments
+	OpenWork    RecurringOpenWork
 	// WaitingPullRequests is why no new developer work is starting, where as
 	// many pull requests as execution.max_waiting_pull_requests allows are
 	// waiting for a person to merge, and empty otherwise: the sentence the
@@ -1322,6 +1328,17 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			problems = append(problems, problem)
 		}
 		message = section + "\n" + message
+	}
+	// The unpublished documents that overlap an open item, for the architect and
+	// the Lead Product Manager, in the first turn's message for the same reason.
+	if documentOverlapRoles(task.Role, f.agent) {
+		overlaps, problem := t.documentOverlaps(ctx)
+		if problem != "" {
+			problems = append(problems, problem)
+		}
+		if section := documentOverlapSection(task.Role, overlaps); section != "" {
+			message = section + "\n" + message
+		}
 	}
 	// New work held back for the pull requests waiting on a person goes in the
 	// first turn's message too, above everything else she is handed.
