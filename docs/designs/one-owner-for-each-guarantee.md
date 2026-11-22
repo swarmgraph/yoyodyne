@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-11-22T16:08:09.136141Z
       reason: 'From the design review against the code at main 828db957: race point 3''s harness queue case now matches choosing checks by change (declared list or GitHub''s required checks on the exact candidate, plus one of three race results), since the pace design moved the full race check out of the queue. Point 4 says the November 20 narrowing is not built, the whole make race runs until the parked build item lands, and the supervisor runs it itself. Points 1 and 2 say what is built. Read whole at 828db957.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T19:39:43.863862Z
+      reason: 'From the architect''s review of every design against the code, read at main 697f81f62: each migration item now says what is built. Items 1, 5, 11 and 21 are built; 2, 7, 9 and 19 partly; 3, 6, 13 and 15 to 18 not built; the rest were not checked and say so. Item 13 names the guards found and why none of them is its check. Every item''s wording is otherwise unchanged. Read whole at main 1c494e218.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -88,6 +92,11 @@ approvals:
       by: harness
       at: 2026-11-22T16:08:09.136141Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3469, for document-3469.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-22T19:39:43.863862Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3530, for document-3530.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -366,44 +375,67 @@ Each step is an ordinary work item that leaves the factory running and moves one
 
 The items keep the numbers they were first given, so work already citing an item stays right. The checks group was added later and is numbered 15 to 21, but it comes second.
 
+What is built of each item was read from the code at main 697f81f62 on November 22, 2026, in the architect's review of every design against the code, and is said after each item. Where an item says its status was not checked, nothing here claims it either way, and its build item reads the code first as before.
+
 **Storage**
 
 1. The run store refuses a stale whole save, and the four paths the review traced move onto narrow updates: merge queue retirement, transfer (which stops discarding the save's error), admission, and reconciliation's cleanup progress. This is yoyodyne-ifd.428.116 as written.
+   Built.
 2. Each other whole save outside the run store moves onto narrow updates, one execution path an item, shrinking the check's list. The paths are the pipeline's completion, each continuation path as it moves into `internal/continuation`, the carrying out of decisions, and triage.
+   Partly built: the check is in place, and its list of places that still save a whole record held about 150 entries at that commit.
 3. Run state changes go through one function, with its check. It is built with the function that chooses where a run resumes (yoyodyne-ifd.428.99.6, and yoyodyne-0rm, which asks for the same).
+   Not built.
 4. The merge queue records, the list of stopped runs and triage decisions each refuse a stale whole save, one store an item.
+   Status not checked in the review.
 
 **Admission**
 
 5. One reservation for every start, and making a run live requires it. This is yoyodyne-ifd.428.117 as written, covering every path in one item, because a path left outside it can still overrun the slots, and that is the defect.
+   Built: making a run live goes through one reservation in the run store, and a save that would make a stopped run live without it is refused.
 6. Permits for heavy checks are taken through the same reservation, under the same lock, as developer slots, kept as a separate count. This is the capacity part of checks.
+   Not built: permits for heavy checks are still kept in their own record for the whole machine, under a lock of their own, in `internal/runstate`, as guarantee 3 allows until this item lands.
 
 **Checks**
 
 15. The runner in `internal/checks` becomes the only way a configured check is launched, with guarantee 9's check and its list of places still going around it. The check stages, with their continuation and recovery, move onto it first.
+   Not built.
 16. Each other path that runs checks moves onto the runner, one an item, shrinking the list: heavy checks, kept checks, landing checks, path checks, queued checks on the forge, the harness's check of its own build, and the repair of a forge check.
+   Not built.
 17. One plan decides which checks run, whether each is whole or narrowed, and whether it runs here or on the forge, with the reason for each. The selection policy of choosing checks by change and the switch of checks on CI are both read there. This repository's race check points 1 and 3 are built on it: its declaration of what counts as Go code changing, the narrowed race before review, and the two conditions for the merge candidate with their confirmation and fallback.
+   Not built as one plan. What runs today is described in choosing checks by change.
 18. What a result proves: the result record with the five things that make two runs the same run, written through one narrow update. It includes the rule that a revision none of whose checks ran is not integrated, and the report for a finish record that failed to save (yoyodyne-ifd.429.77).
+   Not built.
 19. When a result is kept or a check runs again: kept results, the single rerun of failures in untouched tests (the pieces of yoyodyne-ifd.429.87), reruns of a check stopped by its time limit, and keeping a result across commits by the analyser's answer, in shadow first. This repository's race check point 2 is built on it.
+   Partly built. Keeping a result across commits by the analyser's answer is not built, and the build items read which of the rest is.
 20. Time limits in one place: from launch, scaled for load, the stage limit as a numeric limit, and the stage limit back to 60 minutes once item 17's narrowed race check has landed (yoyodyne-g9g). The measured limits for heavy checks then apply on every path (yoyodyne-ifd.429.48).
+   Status not checked in the review.
 21. The recurring full run on main, with its single rerun of the failing tests on the same commit and its warning or critical report, as this repository's race check point 4 says, run as a plan of the same runner.
+   Built, run by the supervisor itself rather than as a plan of the runner, which does not exist yet. The narrowing of point 4 is not built.
 
 **One invocation policy**
 
 7. `internal/budget` and the budget for each message, with the conversation loop and every tool on it. This is yoyodyne-ifd.428.118 as written.
+   Partly built. The build item reads which tools still keep a limit of their own.
 8. The recovery budget's decisions move onto `internal/budget`, with a grant and an attempt counted in one unit. This takes in yoyodyne-ifd.428.86.
+   Status not checked in the review.
 9. The rule for cost evidence: adapters return the best result they have with any error, and `internal/cost` alone parses cost events and decides completeness. This is yoyodyne-ifd.428.121 as written.
+   Built for cost: `internal/cost` parses cost events and decides whether a total is complete.
 10. Retries in place, one boundary an item, decided by `internal/budget` inside each boundary's window.
+   Status not checked in the review.
 
 **Bounded reads**
 
 11. The index of run records, written with every narrow update and read by the scheduler, the reservation, the read model and the health observation. This is the first half of yoyodyne-ifd.428.119, and it depends on item 1.
+   Built.
 12. Spend added up once for each completed stream, the spend query reading only its window, and one index for each dashboard reading. This is the second half of yoyodyne-ifd.428.119. Whether that item is built as one change or two is the development manager's.
+   Status not checked in the review.
 13. The tracker client: shared listings move from the scheduler into `internal/beads`, the status reading uses them once yoyodyne-ifd.432.46 has landed, and the check that nothing else runs the tracker's command goes in.
+   The check is not built. The review looked in the scripts directory, the run store, the conformance and separation packages, and the tests in `internal/beads`. The two guards there refuse, in the text of a command an agent is about to run, a status change with no note saying why and a wholesale replacement of an item's notes. Two more tests name what held the store when a call ran out of time, and count calls. None of them refuses code that runs the tracker's command outside the client. Whether the shared listings have moved was not checked.
 
 **Tests across component boundaries**
 
 14. A suite drives a completion, an admission, a reconciliation, a recovery start and a reservation race against one run in fixed orders, through the components' ways in only. It shows no field lost, no slot or permit taken twice, no check launched outside the runner, and no budget passed.
+   Status not checked in the review.
 
 Guarantee 6 moves by the build pieces of follow-ups and fewer lifecycle states, in their order.
 
