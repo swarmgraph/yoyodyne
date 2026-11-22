@@ -1561,8 +1561,22 @@ checks and an independent review and lands on the target branch; the earlier
 run stays recorded as integrated, the item stays waiting for the team's merge,
 and the tracked pull request picks up the new landing commit. The team's merge
 of the earlier change does not close the item while the repair's landing is
-still waiting. A repair of an item waiting on a pull request the harness opened
-is not built yet.
+still waiting. An item whose change waits on a pull request the harness opened,
+for a person to merge, is repaired by the same decision, naming that pull
+request, the feedback and the item; an ordinary comment on such a request goes on
+her list naming the feedback identifier to use. The decision is refused, in plain
+words, once the item has closed, when the entry already has a decision, when the
+item is not waiting on a merge, when the request's branch has been removed, and
+when the item has no attempts left. Otherwise it spends one of the item's
+attempts, and the next forge check starts a new run from the change that
+request's branch carries, applied onto the target branch as it stands. The run
+goes through the configured checks and an independent review, and then its
+change replaces the head of that branch, so the same pull request is updated and
+none is opened. The replacement is made only from the head the harness last put
+on the branch: where a person has pushed a commit there, nothing is overwritten,
+the run's change is kept in its own checkout and branch, and the development
+manager's list gets one entry naming the branch and the commit found. The new
+run takes over the wait for the person's merge, and the earlier run's wait ends.
 `yoyo status` and the dashboard say which pull request carries each waiting
 item, or that none does yet.
 

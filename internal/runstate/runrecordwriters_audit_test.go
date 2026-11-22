@@ -386,6 +386,7 @@ var outsideRunRecordBypasses = []outsideRunRecordSite{
 	{"internal/orchestrator/publication.go", "(Reconciler).recordRecoveredRequest", savesWholeRecord},
 	{"internal/orchestrator/publication.go", "(Reconciler).recordSettledPublication", savesWholeRecord},
 	{"internal/orchestrator/publication.go", "(Reconciler).refreshPublication", savesWholeRecord},
+	{"internal/orchestrator/continuation.go", "(*activeRun).publishContinuation", savesWholeRecord},
 	{"internal/orchestrator/publish.go", "(*activeRun).publishAttempt", savesWholeRecord},
 	{"internal/orchestrator/publish.go", "(*activeRun).publishIntegration", savesWholeRecord},
 	{"internal/orchestrator/publish.go", "(*activeRun).recordPublishFailure", savesWholeRecord},

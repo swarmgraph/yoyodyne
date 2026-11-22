@@ -5487,8 +5487,11 @@ func (s State) Validate() error {
 			problems = append(problems, err)
 		}
 		// The pull request publishes this run's branch, so a record naming a
-		// different one describes a publication this run never made.
-		if s.Branch != "" && s.PullRequest.Branch != s.Branch {
+		// different one describes a publication this run never made. A run that
+		// repairs another run's pull request publishes onto that request's branch
+		// (Selection.Continues) instead of one of its own.
+		continued := s.Selection != nil && s.Selection.Continues != nil && s.Selection.Continues.Branch == s.PullRequest.Branch
+		if s.Branch != "" && s.PullRequest.Branch != s.Branch && !continued {
 			problems = append(problems, fmt.Errorf("pull_request branch %q does not match the run branch %q", s.PullRequest.Branch, s.Branch))
 		}
 		// The forge is only asked to merge a pull request once the promotion it
