@@ -235,6 +235,12 @@ type RepairContinuer struct {
 	// harness has no room for would put one more developer to work than the
 	// operator configured.
 	Capacity int
+	// SlotPairs resolves each developer slot's endpoint pair from the
+	// configuration, handed to the store with the run this makes live, so a run
+	// keeping its slot's pair whose slot another run holds takes a free slot,
+	// pinned to that slot's own pair, ahead of fresh work (SlotPairsFor).
+	// Without it such a run waits for its own slot.
+	SlotPairs runstate.SlotPairs
 	// Backends says whether the run's developer can be invoked on the backend
 	// the run recorded, which is asked before the grant is spent
 	// (recordedbackend.go). The zero value leaves the question to the pipeline.
@@ -1481,7 +1487,7 @@ func (c RepairContinuer) saveContinuation(ctx context.Context, continued runstat
 		if err := checkoutReadyToTakeUp(ctx, c.Checkout, continued.RunID); err != nil {
 			return runstate.State{}, err
 		}
-		saveErr = c.Runs.ReserveLive(ctx, continued, c.Capacity)
+		saveErr = c.Runs.ReserveLive(withPairs(ctx, c.SlotPairs), continued, c.Capacity)
 		if _, taken := slotTakenMeanwhile(saveErr); taken {
 			return runstate.State{}, saveErr
 		}

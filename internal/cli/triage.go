@@ -364,7 +364,8 @@ func integrationResumerFrom(parts components) orchestrator.IntegrationResumer {
 		Remains:   parts.worktrees,
 		// The same limit the reservation enforces, read before the run is made live
 		// so a full harness leaves it stopped rather than live with no room to go.
-		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
+		SlotPairs: orchestrator.SlotPairsFor(parts.config),
 		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
 			// The same entry point a repair takes, and for the same reason: what is
 			// dispatched is this run's promotion and nothing else, and a fresh run
@@ -392,8 +393,9 @@ func checkStageContinuerFrom(parts components) orchestrator.CheckStageContinuer 
 		Worktrees: parts.worktrees,
 		// Supplied for compatibility; continuations, like fresh work, do not
 		// wait for machine load to fall.
-		Load:     gitworktree.MachineLoad,
-		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		Load:      gitworktree.MachineLoad,
+		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
+		SlotPairs: orchestrator.SlotPairsFor(parts.config),
 		// Asked before the run takes its developer slot back, so a dirty checkout
 		// leaves it stopped and holding none rather than live with nobody working it.
 		Checkout: parts.worktrees,
@@ -417,6 +419,7 @@ func stallContinuerFrom(parts components) orchestrator.StallContinuer {
 		Items:     parts.tracker(),
 		Worktrees: parts.worktrees,
 		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
+		SlotPairs: orchestrator.SlotPairsFor(parts.config),
 		Backends:  developerBackendsFrom(parts),
 		Events:    parts.store,
 		Checkout:  parts.worktrees,
@@ -731,7 +734,8 @@ func repairContinuerFrom(parts components) orchestrator.RepairContinuer {
 		// The same limit the reservation enforces, read before the grant so a full
 		// harness leaves the decision standing rather than spending the item's
 		// grant on a run there is no room to continue.
-		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
+		SlotPairs: orchestrator.SlotPairsFor(parts.config),
 		// The backend the stopped run's developer worked on, asked before the
 		// grant is spent, and the run's event log, which a session an earlier
 		// failed attempt erased from its record is restored from.

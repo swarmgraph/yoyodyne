@@ -88,8 +88,14 @@ type CheckStageContinuer struct {
 	// the pipeline asks once the run holds the slot.
 	Checkout CheckoutReadiness
 	Capacity int
-	Start    RepairContinueStarter
-	Clock    execution.Clock
+	// SlotPairs resolves each developer slot's endpoint pair from the
+	// configuration, handed to the store with the run this makes live, so a run
+	// keeping its slot's pair whose slot another run holds takes a free slot,
+	// pinned to that slot's own pair, ahead of fresh work (SlotPairsFor).
+	// Without it such a run waits for its own slot.
+	SlotPairs runstate.SlotPairs
+	Start     RepairContinueStarter
+	Clock     execution.Clock
 }
 
 // CheckStageContinueRequest names the run the docket entry is about.
@@ -279,7 +285,7 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 	if err := checkoutReadyToTakeUp(ctx, c.Checkout, prior.RunID); err != nil {
 		return result, err
 	}
-	if err := c.Runs.ReserveLive(ctx, continuedAtChecks(prior, result.Reason, c.now()), c.Capacity); err != nil {
+	if err := c.Runs.ReserveLive(withPairs(ctx, c.SlotPairs), continuedAtChecks(prior, result.Reason, c.now()), c.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			result.CapacityFull = &capacity
 			result.RecordProblem = noteSlotTaken(ctx, c.Items, entry.WorkItemID, prior.RunID, capacity)
