@@ -1692,6 +1692,9 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		// A candidate GitHub's own merge queue dropped only for tests the change
 		// does not touch has its merge queued once more.
 		promoter.Drops = forge
+		// Just before a candidate's merge is asked for, GitHub is asked whether
+		// it would merge it now; the merge is asked for directly.
+		promoter.Mergeable = forge
 		held.Forge = forge
 		// Once the queue lands a change, the run's own pull request and the
 		// queue's candidate branch are closed and deleted on the forge.

@@ -159,11 +159,20 @@ type MergeRequest struct {
 	Number     int
 	HeadCommit string
 	Method     MergeMethod
+	// Directly asks the forge to merge now and never to hold the merge until
+	// the base branch's requirements are met: merging when ready is not turned
+	// on, so a request the forge cannot merge at once is refused. The merge
+	// queue asks this way, because it may only ask for a merge at the moment it
+	// has read the target at the candidate's base ("When main moves after a
+	// candidate was sent to GitHub" in
+	// docs/designs/integration-through-a-merge-queue.md).
+	Directly bool
 }
 
-// MergeResult is what the forge did with a merge request. The harness asks for
-// the merge to happen when the base branch's requirements are met rather than
-// now, so the answer has to say which of the two the forge did: a queued merge
+// MergeResult is what the forge did with a merge request. Unless the request
+// asks for a direct merge (MergeRequest.Directly), the harness asks for the
+// merge to happen when the base branch's requirements are met rather than now,
+// so the answer has to say which of the two the forge did: a queued merge
 // completes minutes later, without the harness watching, and a caller that
 // assumed otherwise would report a publication as unfinished on every protected
 // branch.
@@ -230,6 +239,38 @@ type MergeRefused struct {
 	// about the change, and the refusal names the setting
 	// (MergeQueueRequiredRemedy).
 	QueueRequired bool
+	// Behind says the forge refused because the pull request is not up to date
+	// with its base branch: the base moved after the head was built.
+	Behind bool
+}
+
+// MergeBehind reports a merge the forge refused because the pull request is
+// not up to date with its base branch, wherever in err the refusal is wrapped.
+func MergeBehind(err error) bool {
+	var refused MergeRefused
+	return errors.As(err, &refused) && refused.Behind
+}
+
+// notUpToDate recognizes a refusal for a head behind its base, from the merge
+// state the forge reports or, where that could not be read, from its words.
+func notUpToDate(status, reason string) bool {
+	if strings.EqualFold(strings.TrimSpace(status), "BEHIND") {
+		return true
+	}
+	normalized := strings.ToLower(reason)
+	return strings.Contains(normalized, "not up to date") ||
+		strings.Contains(normalized, "out of date") ||
+		strings.Contains(normalized, "out-of-date")
+}
+
+// MergeStateReady reports a merge state the forge would merge now (CLEAN,
+// UNSTABLE, HAS_HOOKS; readyToMergeNow), and MergeStateBehind one whose head is
+// behind its base. Every other state has something to settle before a direct
+// merge is accepted.
+func MergeStateReady(status string) bool { return readyToMergeNow(status) }
+
+func MergeStateBehind(status string) bool {
+	return strings.EqualFold(strings.TrimSpace(status), "BEHIND")
 }
 
 // MergeQueueRequiredRemedy is what a person changes when the forge refuses a
@@ -484,6 +525,11 @@ func (g GitHub) Close(ctx context.Context, request CloseRequest) (Closure, error
 // harness published it: what merges must be the commit the run integrated and
 // nothing else.
 //
+// A request that asks for a direct merge (MergeRequest.Directly) is one merge
+// asked for now and nothing else: merging when ready is never turned on for
+// it, and a forge that will not merge at once refuses it. Everything below is
+// about a request that does not.
+//
 // The request is queued rather than demanded. A protected branch will not
 // accept a merge until its required checks have passed, and those take longer
 // than the moment between an approving verdict and this call, so asking to
@@ -517,6 +563,9 @@ func (g GitHub) Merge(ctx context.Context, request MergeRequest) (MergeResult, e
 	arguments := append([]string{"pr", "merge", strconv.Itoa(request.Number)}, append(scope,
 		request.Method.flag(),
 		"--match-head-commit", request.HeadCommit)...)
+	if request.Directly {
+		return g.mergeNow(ctx, request, arguments)
+	}
 	// The queued request is the same command with one flag more, built as its own
 	// slice so the arguments stay intact for the immediate merge below.
 	queueing := append(append([]string{}, arguments...), "--auto")
@@ -559,18 +608,27 @@ func (g GitHub) Merge(ctx context.Context, request MergeRequest) (MergeResult, e
 	// names is already satisfied, and nothing is overridden to get there. A forge
 	// that turns out to disagree refuses this merge too, and that refusal is what
 	// gets reported.
+	return g.mergeNow(ctx, request, arguments)
+}
+
+// mergeNow asks the forge to merge the request at once, with merging when
+// ready left off, and reports a refusal as MergeRefused naming the forge's
+// merge state and whether the head is behind its base.
+func (g GitHub) mergeNow(ctx context.Context, request MergeRequest, arguments []string) (MergeResult, error) {
 	merged, err := g.exec(ctx, arguments...)
 	if err != nil {
 		return MergeResult{}, fmt.Errorf("merge pull request %d: %w", request.Number, err)
 	}
 	if merged.Status != execution.ProcessSucceeded {
 		refusal := g.redact(strings.TrimSpace(merged.Stderr))
+		status := g.mergeState(ctx, request.Number)
 		return MergeResult{}, MergeRefused{
 			Number:        request.Number,
 			Method:        request.Method,
-			Status:        g.mergeState(ctx, request.Number),
+			Status:        status,
 			Reason:        refusal,
 			QueueRequired: mergeQueueRequired(refusal),
+			Behind:        notUpToDate(status, refusal),
 		}
 	}
 	return MergeResult{}, nil

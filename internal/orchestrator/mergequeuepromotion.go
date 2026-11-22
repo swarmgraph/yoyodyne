@@ -150,6 +150,18 @@ type MergeQueuePromoter struct {
 	// queued once more (forgererun.go). Nil reads nothing, and a dropped merge
 	// is withdrawn as before.
 	Drops ReconcileDrops
+	// Mergeable reads whether GitHub would merge a candidate's pull request
+	// now, under the promotion lease and just before the merge is asked for
+	// (mergeReadiness). Nil reads nothing, and GitHub's answer to the merge
+	// itself decides.
+	Mergeable MergeQueueMergeStates
+}
+
+// MergeQueueMergeStates reads the forge's own merge state for a pull request,
+// in its vocabulary (CLEAN, BLOCKED, BEHIND and the rest). It is satisfied by
+// publish.GitHub.
+type MergeQueueMergeStates interface {
+	MergeState(ctx context.Context, number int) (string, error)
 }
 
 // MergeQueueForgeChecks is the forge access a promotion reads a held merge's
@@ -854,11 +866,28 @@ func (q *queuePromotion) mutateTarget(ctx context.Context, mutation runstate.Mer
 	if err := q.request(mutation, attempt.Candidate, ""); err != nil {
 		return err
 	}
-	result, err := p.Publisher.Merge(ctx, publish.MergeRequest{Number: attempt.PullRequest, HeadCommit: attempt.Candidate, Method: mergeMethod})
+	// A candidate's merge is asked for directly, never with merging when
+	// ready, so it can only happen now, while the lease is held and just after
+	// the remote target was read at the candidate's base (fresh). A merge GitHub
+	// held for later would land whenever its requirements were met, on whatever
+	// the target had become by then. Only an entry admitted to GitHub's own
+	// merge queue is handed to it the queued way, because that queue accepts no
+	// direct merge.
+	direct := attempt.Path != runstate.MergeQueueLandThroughForgeQueue
+	result, err := p.Publisher.Merge(ctx, publish.MergeRequest{Number: attempt.PullRequest, HeadCommit: attempt.Candidate, Method: mergeMethod, Directly: direct})
 	var refused publish.MergeRefused
 	var unavailable publish.AutoMergeUnavailable
 	if errors.As(err, &refused) || errors.As(err, &unavailable) {
-		return q.settle(runstate.MergeQueueMutationNotMade, err.Error(), false)
+		if settleErr := q.settle(runstate.MergeQueueMutationNotMade, err.Error(), false); settleErr != nil {
+			return settleErr
+		}
+		if direct && refused.Behind && !attempt.Path.MovesLocalTargetFirst() {
+			// GitHub refusing a head behind the target is the target having moved
+			// between the read above and the merge: the candidate is built again
+			// on the target as it stands, charged to nothing.
+			return q.driftFrom(ctx)
+		}
+		return nil
 	}
 	if err != nil {
 		// Whether the forge took the request is not known, so it is left
@@ -995,8 +1024,45 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 		if err != nil {
 			return false, fmt.Errorf("check the remote %s before asking for the merge: %w", q.key.TargetBranch, err)
 		}
+		return q.mergeReadiness(ctx, moved)
 	}
 	return true, nil
+}
+
+// mergeReadiness asks GitHub, under the promotion lease and after the remote
+// target was read at the candidate's base, whether it would merge the
+// candidate's pull request now. The merge is asked for directly, so a pull
+// request GitHub is not ready to merge would only be refused: one whose
+// required checks are still running, or whose mergeability GitHub has not
+// worked out yet, waits for a later pass with nothing written down, and one
+// GitHub reads as behind the target is the target having moved. A state that
+// cannot be read, or one of the states GitHub merges at, leaves the decision
+// to GitHub's answer to the merge itself.
+func (q *queuePromotion) mergeReadiness(ctx context.Context, moved bool) (bool, error) {
+	attempt := q.attempt()
+	if q.p.Mergeable == nil {
+		return true, nil
+	}
+	status, err := q.p.Mergeable.MergeState(ctx, attempt.PullRequest)
+	switch {
+	case err != nil || strings.TrimSpace(status) == "" || publish.MergeStateReady(status):
+		return true, nil
+	case publish.MergeStateBehind(status):
+		if moved {
+			// The local target already moved onto the candidate, and nothing here
+			// takes that move back.
+			q.outcome.Unresolved = fmt.Sprintf("%s was moved onto the candidate here, and GitHub reads pull request %d as behind the remote %s", q.key.TargetBranch, attempt.PullRequest, q.key.TargetBranch)
+			return false, nil
+		}
+		return false, q.driftFrom(ctx)
+	case strings.EqualFold(strings.TrimSpace(status), "DIRTY"):
+		// A conflict is not something a later pass waits out: the merge is asked
+		// for and GitHub's refusal is recorded and reported.
+		return true, nil
+	}
+	q.outcome.Waiting = fmt.Sprintf("GitHub would not merge pull request %d yet (%s), so no merge is asked for; the next pass reads %s and the pull request again",
+		attempt.PullRequest, strings.ToUpper(strings.TrimSpace(status)), q.key.TargetBranch)
+	return false, nil
 }
 
 // refusedPaths is every path the attempt's candidate changes that the
@@ -1169,7 +1235,7 @@ func (q *queuePromotion) requeueUntouchedDrop(ctx context.Context) (requeued boo
 	refused := ""
 	switch {
 	case len(attempt.Mutations) == asked:
-		refused = nonEmpty(q.outcome.Refusal, "the merge could not be asked for again")
+		refused = nonEmpty(q.outcome.Refusal, q.outcome.Waiting, "the merge could not be asked for again")
 	case attempt.Mutations[len(attempt.Mutations)-1].Settled == nil:
 		refused = "GitHub's answer was not recorded"
 	case attempt.Mutations[len(attempt.Mutations)-1].Settled.Result == runstate.MergeQueueMutationNotMade:
@@ -1184,7 +1250,7 @@ func (q *queuePromotion) requeueUntouchedDrop(ctx context.Context) (requeued boo
 		return true, "", nil
 	}
 	if refused != "" {
-		q.outcome.Refusal = ""
+		q.outcome.Refusal, q.outcome.Waiting = "", ""
 		return false, queueDropSays(drop, &settled, attempt.Candidate), nil
 	}
 	q.outcome.Waiting = fmt.Sprintf("GitHub's merge queue dropped pull request %d because its checks on the queue's merge commit failed only in tests the change does not touch (%s), so the harness queued the merge once more and GitHub runs its checks again on a fresh merge commit",
