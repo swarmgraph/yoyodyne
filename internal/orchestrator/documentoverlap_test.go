@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -63,7 +64,7 @@ func TestAnUnpublishedDocumentNamingAnOpenItemIsListedInBothPasses(t *testing.T)
 	decided := overlapItem(overlapWritten.Add(-time.Hour), beads.FrameNote("Decision: keep the old route."))
 	for name, tasks := range map[string]map[string]config.RecurringTask{"architect": architectTask(), "lead product manager": productManagerSweep()} {
 		message := firedMessage(t, tasks, Trigger{Unpublished: unpublishedList{writes: []runstate.PendingWrite{overlapDocument()}}, OpenWork: openWork{items: []beads.WorkItem{decided}}})
-		for _, want := range []string{"## Unpublished documents that overlap open work", "Document design-x, revision document-9.1", "item example-5 (Build the thing)",
+		for _, want := range []string{"## Unpublished documents that overlap open work", "Document design-x, revision document-9.1", "item Build the thing (example-5)",
 			"the document names this item", "before the document was written", "Decision: keep the old route."} {
 			if !strings.Contains(message, want) {
 				t.Errorf("%s's message does not carry %q:\n%s", name, want, message)
@@ -136,6 +137,11 @@ func TestAnAgreementNoteOrAConflictReportAnswersTheOverlap(t *testing.T) {
 	if got := find(doc, overlapItem(recorded.Add(time.Hour), ""), conflict); got != 0 {
 		t.Errorf("a conflict report left %d listed, want 0", got)
 	}
+	// A report naming a longer identifier that starts the same way answers nothing.
+	longer := report.Report{Message: "Revision document-9.10 refuses what example-50 requires."}
+	if got := find(doc, overlapItem(recorded.Add(time.Hour), ""), longer); got != 1 {
+		t.Errorf("a report of document-9.10 and example-50 left %d listed, want 1", got)
+	}
 	if got := find(revised, overlapItem(recorded.Add(time.Hour), ""), conflict); got != 1 {
 		t.Errorf("a report of the older revision left %d listed, want 1", got)
 	}
@@ -152,7 +158,7 @@ func TestEveryWaitingKindOfDocumentIsListedAndClosedItemsAreNot(t *testing.T) {
 	confirmed.ID, confirmed.Publication = "document-9.2", &runstate.DocumentPublication{}
 	held := overlapDocument()
 	held.ID = "document-9.3"
-	held.Hold = nil
+	held.Hold = &artifact.SendingHold{UntilClosed: "example-5", Reason: "waits for the fix"}
 	item := overlapItem(overlapWritten.Add(-time.Hour), "")
 	if got := FindDocumentOverlaps([]runstate.PendingWrite{waiting, confirmed, held}, []beads.WorkItem{item}, nil); len(got) != 3 {
 		t.Errorf("overlaps = %d, want one for each waiting document", len(got))

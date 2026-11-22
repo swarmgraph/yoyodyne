@@ -119,7 +119,15 @@ func citesDocumentID(text, id string) bool {
 	if id == "" || !strings.ContainsAny(id, "-0123456789") {
 		return false
 	}
-	return regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])` + regexp.QuoteMeta(id) + `(?:$|[^A-Za-z0-9_-])`).MatchString(text)
+	return namesWhole(text, id)
+}
+
+// namesWhole reports whether text holds id as a whole identifier: not as the
+// start of a longer one, so document-9.10 is not document-9.1 and example-50 is
+// not example-5. A dot that ends a sentence still ends the identifier; a dot
+// followed by a digit or letter continues it.
+func namesWhole(text, id string) bool {
+	return regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])` + regexp.QuoteMeta(id) + `(?:$|[^A-Za-z0-9_-]|\.(?:$|[^A-Za-z0-9_-]))`).MatchString(text)
 }
 
 // answered reports whether the overlap has been answered: the item carries an
@@ -129,7 +137,7 @@ func citesDocumentID(text, id string) bool {
 // changed, an agreement cannot be placed after it and the overlap stands.
 func (o DocumentOverlap) answered(reports []report.Report) bool {
 	for _, filed := range reports {
-		if strings.Contains(filed.Message, o.Revision) && strings.Contains(filed.Message, o.Item.ID) {
+		if namesWhole(filed.Message, o.Revision) && namesWhole(filed.Message, o.Item.ID) {
 			return true
 		}
 	}
@@ -260,7 +268,7 @@ func documentOverlapSection(role domain.AgentRole, overlaps []DocumentOverlap) s
 		}
 		fmt.Fprintf(&section, "- Document %s, revision %s, %s; item %s (%s): %s. %s\n",
 			overlap.Document, overlap.Revision, writtenAtSaid(overlap.Written),
-			overlap.Item.ID, oneline.Fold(overlap.Item.Title, maxOverlapItemBytes), overlap.Why, newestEntrySaid(overlap))
+			oneline.Fold(overlap.Item.Title, maxOverlapItemBytes), overlap.Item.ID, overlap.Why, newestEntrySaid(overlap))
 	}
 	return section.String()
 }
