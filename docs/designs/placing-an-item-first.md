@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-10-29T13:53:35.059955Z
       reason: 'yoyodyne-364h: settles how the Lead Product Manager records that an item comes first among work of its own priority, and how the scheduler reads it. Kept on the item in the tracker, earliest placement first, at most three in one priority, ended by closing, a priority change or her removal, never ahead of higher priority or of work on a change already written, and shown in plain words in every listing. One build piece and the reviewer''s checks are named. Resent with two joined words the word check refused written as ordinary words.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T20:37:22.611111Z
+      reason: 'Adds a section saying which parts of this design are built, checked by reading main at 136bd9734 on November 22: the stored placement, the order, the ending on closing with its note, and the listing line are built; the role check, the refusal of a fourth placement, a note on a priority change, and the dashboard listing are not yet confirmed. The decision itself is unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-29T13:53:35.059955Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1951, for document-1951.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-22T20:37:22.611111Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3552, for document-3552.1 under the automatic approval policy
 ---
 # Placing an item first among work of its own priority
 
@@ -64,6 +73,18 @@ One piece, covering:
 - the placement stored on the item in the tracker, and the three automatic endings recorded;
 - the scheduler's order in point 3, inside every slot's choice of fresh work, with the rule for work on a change already written left above it;
 - the line in every listing of the queue.
+
+## What is built
+
+Checked against main at commit 136bd9734 on November 22, 2026, by reading the code; nothing was run.
+
+- **Built: the placement on the item (point 2).** The tracker keeps it in the item's metadata under the key `yoyodyne_placed_first`, as one record of who placed it, when, the priority it was placed among, and the reason, with the reason held to one line. A value the harness could not have written reads as no placement. Placing and removing are one write: removing writes the key empty, and a write the tracker did not keep is reported as a failure.
+- **Built: the order (point 3).** The backlog sorts placed items first within one priority, earliest placement first, then the rest oldest admitted first, and never lifts a placed item above a higher priority.
+- **Built: closing ends a placement and records it (point 6, first case).** Closing a placed item clears the placement and appends a note saying the item closed and what the placement had been. Closing an item with no placement makes no second write.
+- **Built in part: a priority change ends a placement (point 6, second case).** A placement counts only while the item is still at the priority it was placed among, so a priority change stops it ordering the item at once. Whether a note recording that ending is written was not confirmed.
+- **Built in part: the limit of three (point 5).** The limit is held in code, and the harness can list the placements already made in one priority, earliest first, which is what the refusal names. The refusal itself was not read.
+- **Built: the line (point 7)** in the briefings and the live survey, in the wording above, with the time in the operator's zone and the zone named. Seen working on November 22 on the merge queue fix that asks GitHub to merge directly (yoyodyne-ifd.429.242). The dashboard and `yoyo status` listings were not checked.
+- **Not confirmed: who may place or remove (point 1).** The action that places and removes, and its refusal for every role but the Lead Product Manager, were not read.
 
 ## How a reviewer checks an implementation
 
