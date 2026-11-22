@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-22T20:33:54.438698Z
       reason: 'States which of the hold''s builds exist, from a read of the backlog ordering, the architect''s wake and the P0 wait report at main 136bd9734: the selection rule, the wake and the report are built; removal on landing and the instruction clause are not; a developer''s raise and the display are not yet checked. Adds build 7: three harness texts still tell the architect to remove the label or write the item''s design field, which the November 22 revision dropped. Part of the design review against the code.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T22:06:37.945387Z
+      reason: 'Marks the display half of build 5 built, from a read of the read model at main f50f9e66: the factory problems section lists each item waiting on design as the architect''s, with the time first seen in local time and its age, or says no time is recorded, P0 items first then the longest waiting. The daily digest and build 2 stay unchecked. Every other build is unchanged. Part of the design review against the code.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-22T20:33:54.438698Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3546, for document-3546.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-22T22:06:37.945387Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3590, for document-3590.1 under the automatic approval policy
 ---
 # Holding an item until its design is readable
 
@@ -109,17 +118,17 @@ The hold protects only work that is marked. It does not find a prerequisite nobo
 
 ## Builds
 
-For the development manager to break into bounded work items. Each build says whether it is built, as checked against the code on main at 136bd9734 on November 22, 2026, as part of the design review against the code.
+For the development manager to break into bounded work items. Each build says whether it is built, as checked against the code on main at 136bd9734 on November 22, 2026, as part of the design review against the code; the display half of build 5 was checked later the same day, against main at f50f9e66.
 
 1. The selection rule: an item carrying the label is not started, with the recorded reason; a running run and an operator-named run are unaffected. **Built.** The backlog's order marks a labelled item not ready, beside parked work, and lists it with the label, and every place that refuses a start uses one sentence for the refusal. That sentence says a run already going carries on and a run the operator names is not held; the pipeline's own start was not read in this check, so the exemption for a run the operator names rests on that sentence and is not yet checked in code.
 2. Setting the label from the Lead Product Manager, the development manager and a program manager, and from a developer's run outcome that keeps the change and returns the item labelled with the question. **Not yet checked.** The wake reads the label as the tracker holds it, so any route that sets it wakes the architect alike; whether a developer's run outcome can return the item labelled with its question was not read.
 3. The harness removes the label when a document whose write names the item among the items it answers lands on the target branch, and records the document and the commit on the item. No role's tools remove it directly. **Not built, and no work item covers it yet.** Until it is built, the development manager removes the label as the section on how the label is lifted says.
 4. The wake on the background path, queued while the conversation is busy. **Built.** Every scheduler pull reads which open items carry the label and wakes the architect for any not yet woken for. A wake that falls while another of the architect's passes is running waits for the next pull, and a pass that did not complete leaves its items unwoken so they are taken again. Wakes are spaced at least the shortest recurring interval apart. A daily pass lists every item still carrying the label, and takes no pass when none does.
-5. The wait shown in the factory problems section with its age, and the P0 report after a day. **The report is built; the display is partly checked.** The harness records when it first saw each item carrying the label. A P0 item still labelled after 24 hours is reported to the Lead Product Manager once for that wait, and taking the label off and putting it back starts a new wait. Whether the factory problems section names the architect as the owner, and whether the daily digest carries the item after the report, was not read.
+5. The wait shown in the factory problems section with its age, and the P0 report after a day. **The report and the display are built; the digest is not yet checked.** The harness records when it first saw each item carrying the label. A P0 item still labelled after 24 hours is reported to the Lead Product Manager once for that wait, and taking the label off and putting it back starts a new wait. The factory problems section lists each item waiting on design as a problem the architect owns, saying since when it has waited, in local time with the zone, and its age; where the harness has no time recorded for the item, the entry says so instead. P0 items are listed first, then the longest waiting. Whether the daily digest carries the item after the report was not read.
 6. The admission and decomposition check, as a clause in the Lead Product Manager's and development manager's prompt rules: a known prerequisite is a label or a dependency before the item is selectable. **Not built;** its work item is open (the instruction clause on holding a known design prerequisite, yoyodyne-2kr.5).
 7. Three texts the harness writes still describe the route the November 22 revision dropped: the one sentence every refusal of a labelled item uses, the message that wakes the architect, and the report to the Lead Product Manager on a P0 item waiting more than a day. Each says the design may be written into the item's design field, and that the architect removes the label. They must say instead that the label comes off when a document in `docs/designs` naming the item among the items it answers lands on the target branch, and, until build 3 is built, that the development manager removes it once that document has landed. The wake message must not ask the architect to change the item, which the architect's tools cannot do, and the P0 report must name the development manager, not the architect, as the role that removes the label today. **Not built.** A reviewer checks it by reading the three texts.
 
-Build 2 and the display half of build 5 are left for a later check against the code.
+Build 2 and the digest half of build 5 are left for a later check against the code.
 
 ## How a reviewer checks an implementation
 
