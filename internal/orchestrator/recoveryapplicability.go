@@ -164,11 +164,12 @@ func recordedSupersession(counters runstate.TriageCounters, runID string) (runst
 }
 
 // harnessSettlement reports a closure the harness made because the question an
-// entry asked was answered elsewhere: its item closed, or its publication
-// settled. Every other closure is somebody's decision.
+// entry asked was answered elsewhere: its item closed, its publication
+// settled, or a later run of its item holds or landed the approved change.
+// Every other closure is somebody's decision.
 func harnessSettlement(decision string) bool {
 	switch strings.TrimSpace(decision) {
-	case triage.ItemClosedDecision, settledPublicationDecision:
+	case triage.ItemClosedDecision, settledPublicationDecision, triage.SupersededByLaterRunDecision:
 		return true
 	default:
 		return false
