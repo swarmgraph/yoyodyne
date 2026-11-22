@@ -389,19 +389,32 @@ var (
 	logStamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z `)
 )
 
+// allowEscapes is the gh flag that lets `gh api` print a response containing
+// terminal escape sequences. gh refuses such a response without it, and an
+// Actions job's log nearly always carries the colour codes the test runner
+// printed, so the log is asked for with it and the codes are removed here
+// (PlainLog) before anything reads the log.
+const allowEscapes = "--allow-escape-sequences"
+
 // CheckOutput reads the log of the Actions job behind a failing check and
 // returns its failing tests and its end. A log that cannot be read, or is
 // longer than the harness keeps of a command's output (so that its end was not
 // kept), is an error rather than an empty output.
 //
-// Secrets are removed — the values the harness knows and any recognized by
-// their shape — before the output is returned, so nothing written from it
-// carries one.
+// Terminal escape sequences and other control characters are removed first,
+// and then secrets — the values the harness knows and any recognized by their
+// shape — so nothing returned, recorded or handed to a role carries either.
 func (g GitHub) CheckOutput(ctx context.Context, check RequiredCheck) (CheckOutput, error) {
 	if check.ID <= 0 {
 		return CheckOutput{}, fmt.Errorf("check %q has no check run to read the output of", check.Name)
 	}
-	result, err := g.api(ctx, fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", check.ID))
+	endpoint := fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", check.ID)
+	result, err := g.apiQuery(ctx, "GET", endpoint, allowEscapes)
+	if err == nil && result.Status != execution.ProcessSucceeded && unknownFlag(result.Stderr, allowEscapes) {
+		// A gh older than the flag never refuses escape sequences, so it is asked
+		// again without it.
+		result, err = g.apiQuery(ctx, "GET", endpoint)
+	}
 	if err != nil {
 		return CheckOutput{}, fmt.Errorf("read the forge's log of check %q: %w", check.Name, err)
 	}
@@ -412,11 +425,43 @@ func (g GitHub) CheckOutput(ctx context.Context, check RequiredCheck) (CheckOutp
 		return CheckOutput{}, fmt.Errorf("the forge's log of check %q is longer than the harness keeps of a command's output, so its end was not read: %s", check.Name, result.OutputTruncation)
 	}
 	scrub := execution.NewRedactor(g.RedactValues...).WithSecretShapes()
-	log := scrub.Redact(result.Stdout)
+	log := scrub.Redact(PlainLog(result.Stdout))
 	output := CheckOutput{FailingTests: failingTests(log)}
 	tail := logTail(log, MaxCIOutputLines)
 	output.Tail, output.Cut = cutFront(tail, MaxCIOutputBytes)
 	return output, nil
+}
+
+// unknownFlag reports whether gh refused a command because it does not know
+// the flag named, as an older gh does.
+func unknownFlag(stderr, flag string) bool {
+	return strings.Contains(stderr, "unknown flag") && strings.Contains(stderr, flag)
+}
+
+var (
+	// terminalSequence matches the escape sequences a terminal acts on: control
+	// sequences such as colour codes (ESC [ ... final byte), operating system
+	// commands such as a window title (ESC ] ... ended by BEL or ESC \), the
+	// other string commands (ESC P, X, ^ or _ ... ESC \), and the two-byte
+	// escapes. The eight-bit forms of the first two are matched as well.
+	terminalSequence = regexp.MustCompile(
+		"(?:\x1b\\[|\u009b)[0-?]*[ -/]*[@-~]" +
+			"|(?:\x1b\\]|\u009d)[^\x07\x1b\u009c]*(?:\x07|\x1b\\\\|\u009c)?" +
+			"|\x1b[PX^_][^\x1b]*(?:\x1b\\\\)?" +
+			"|\x1b[ -/]*[0-~]?")
+	// controlCharacter is any other control character but a tab or a line end.
+	controlCharacter = regexp.MustCompile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u0080-\u009f]")
+)
+
+// PlainLog is a log as text with nothing a terminal would act on: terminal
+// escape sequences, colour codes among them, are removed, and so is every
+// other control character but a tab, a line feed or a carriage return. The
+// words the log prints are kept as they were.
+func PlainLog(log string) string {
+	if strings.IndexFunc(log, func(r rune) bool { return r < 0x20 && r != '\t' && r != '\n' && r != '\r' || r >= 0x7f && r <= 0x9f }) < 0 {
+		return log
+	}
+	return controlCharacter.ReplaceAllString(terminalSequence.ReplaceAllString(log, ""), "")
 }
 
 // failingTests names the tests a log reports failing, each once, in the order
