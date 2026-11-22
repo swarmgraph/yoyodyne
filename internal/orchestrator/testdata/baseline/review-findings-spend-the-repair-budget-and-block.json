@@ -255,6 +255,7 @@
     },
     "work_item_claimed_at": "\u003ctime\u003e",
     "work_item_id": "yoyodyne-task",
+    "work_item_priority": 0,
     "work_item_title": "Task",
     "worker": {
       "attempt": 1,
