@@ -44,8 +44,11 @@ candidate told `./...`, with checks on CI on or off, so the whole suite runs on
 this machine before anything is promoted. See
 [where the whole suite runs](configuration.md#where-the-whole-suite-runs). The
 unset-only default is what makes those lines safe to run outside the harness —
-the probe and the evidence a developer records in its worktree, or your own
-hand — where the variable is not set and the whole module is what should run.
+the probe a developer runs in its worktree, or your own hand — where the
+variable is not set and the whole module is what should run. A developer's
+evidence for its change is not that run: it names the packages the change
+touches, such as `make test CHANGED_GO_PACKAGES=./internal/config`, or the
+named tests, as the developer persona says.
 [`scripts/check-scope.sh`](../scripts/check-scope.sh) decides what a named list
 becomes: the listed packages and only those, with any package the change,
 read from Git since its merge base with `main`, touches that the list leaves
