@@ -29,6 +29,7 @@ package supervise
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -160,7 +161,13 @@ func (s *Supervisor) collectCopy(pid int) (bool, error) {
 	if s.Collect != nil {
 		return s.Collect(pid)
 	}
-	return collect(pid)
+	// A child still finishing its exit is collected at a later look, exactly as
+	// one this process is not the parent of is left to its own parent.
+	collected, err := collect(pid)
+	if errors.Is(err, errNotCollectable) {
+		return false, nil
+	}
+	return collected, err
 }
 
 // collectDied collects a child the supervisor saw die, where it is the
