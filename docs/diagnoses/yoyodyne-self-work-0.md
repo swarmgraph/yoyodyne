@@ -1,8 +1,21 @@
 # Self-work review: is the factory wasting its time on itself?
 
-The operator asked on 2026-11-21 for deep dives into a few threads of the factory's work on itself: "what caused them, how many beads did it take to address the issue, was it really fixed? Was is a real issue in the first place?", and for a write-up that "critically considers the possibility that we are wasting time with some or many of these issues". Seven investigators, one thread each, traced seven threads through the tracker, git history and the factory's own logs. Their reports are the seven files beside this one, named `yoyodyne-self-work-review-2026-11-21-<n>-<thread>.md`.
+The operator asked on 2026-11-21 for deep dives into a few threads of the factory's work on itself: "what caused them, how many beads did it take to address the issue, was it really fixed? Was is a real issue in the first place?", and for a write-up that "critically considers the possibility that we are wasting time with some or many of these issues". Seven investigators, one thread each, traced seven threads through the tracker, git history and the factory's own logs. Their reports are the seven files beside this one, `yoyodyne-self-work-1.md` to `yoyodyne-self-work-7.md`, listed under "The files" below.
 
 This summary argues the sceptical case, because that was the question asked. "What was worth it" below gives the other side.
+
+## The files
+
+| File | Thread |
+|---|---|
+| `yoyodyne-self-work-0.md` | this summary |
+| `yoyodyne-self-work-1.md` | slow tracker listings |
+| `yoyodyne-self-work-2.md` | developer slots left empty or held |
+| `yoyodyne-self-work-3.md` | moving onto new builds |
+| `yoyodyne-self-work-4.md` | the merge queue |
+| `yoyodyne-self-work-5.md` | moving tests and tests that fail under load |
+| `yoyodyne-self-work-6.md` | the wording shown to people |
+| `yoyodyne-self-work-7.md` | the factory's own documents |
 
 ## In short
 
