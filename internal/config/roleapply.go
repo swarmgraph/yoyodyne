@@ -20,6 +20,14 @@ var roleApplicableKeys = []string{
 	"main_checks",
 	"execution.developer_models",
 	"execution.developer_slots",
+	// Which model is which kind, which items start on the cheaper one, and
+	// which labels are added to the fixed high risk list: each chooses a model
+	// and nothing else, and the bounds that matter are held in code
+	// (cheaperfirst.go). The development manager decides them
+	// (docs/designs/reducing-what-the-factory-costs.md, section 8).
+	"execution.model_kinds",
+	"execution.developer_cheaper_first",
+	"execution.high_risk_labels",
 	"recurring_tasks.*.every",
 	"recurring_tasks.*.model",
 	"execution.check_timeout",

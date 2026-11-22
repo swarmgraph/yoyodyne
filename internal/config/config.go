@@ -648,6 +648,19 @@ type Execution struct {
 	// model is not nameable from here at all — its posture is a safety property
 	// rather than a spend decision, which is why the mapping has no key for it.
 	DeveloperModels []DeveloperModelRule `yaml:"developer_models,omitempty" json:"developer_models,omitempty"`
+	// ModelKinds names, for each provider, which of its models is the
+	// stronger, the cheaper and the lightest (cheaperfirst.go). Empty takes the
+	// shipped defaults, which name Claude Code's and no other provider's.
+	ModelKinds map[domain.Backend]ModelKindNames `yaml:"model_kinds,omitempty" json:"model_kinds,omitempty"`
+	// DeveloperCheaperFirst is whether eligible developer runs start on the
+	// cheaper model and move once to the stronger after a failed review or
+	// failed checks, and which items are eligible (cheaperfirst.go). Off by
+	// default.
+	DeveloperCheaperFirst DeveloperCheaperFirst `yaml:"developer_cheaper_first,omitempty" json:"developer_cheaper_first,omitzero"`
+	// HighRiskLabelsAdded is execution.high_risk_labels: labels added to the
+	// four fixed ones that keep an item off the cheaper model. It adds and never
+	// removes (Execution.HighRiskLabels).
+	HighRiskLabelsAdded []string `yaml:"high_risk_labels,omitempty" json:"high_risk_labels,omitempty"`
 	// DeclarativeDelivery is how a new run is executed, and it defaults on: each
 	// run compiles the built-in delivery definition, records a workflow instance
 	// of it, and steps that instance beside the run, so the sequence the
@@ -1369,6 +1382,7 @@ func (c Config) Validate() error {
 	problems = append(problems, failingTestProblems(c)...)
 	problems = append(problems, ciCheckProblems(c)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
+	problems = append(problems, cheaperFirstProblems(c)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")
 	}

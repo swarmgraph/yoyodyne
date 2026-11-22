@@ -590,6 +590,30 @@ func (r *resolution) apply(applied layer) error {
 			r.config.Execution.DeveloperModels = append([]DeveloperModelRule(nil), *execution.DeveloperModels...)
 			r.origins["execution.developer_models"] = applied.origin
 		}
+		// Models by kind inherit provider by provider (cheaperfirst.go).
+		for provider, names := range execution.ModelKinds {
+			if r.config.Execution.ModelKinds == nil {
+				r.config.Execution.ModelKinds = map[domain.Backend]ModelKindNames{}
+			}
+			r.config.Execution.ModelKinds[provider] = names
+			r.origins["execution.model_kinds."+string(provider)] = applied.origin
+		}
+		if cheaper := execution.DeveloperCheaperFirst; cheaper != nil {
+			setValue(r.origins, "execution.developer_cheaper_first.enabled", cheaper.Enabled, &r.config.Execution.DeveloperCheaperFirst.Enabled, applied.origin)
+			setValue(r.origins, "execution.developer_cheaper_first.trial_runs", cheaper.TrialRuns, &r.config.Execution.DeveloperCheaperFirst.TrialRuns, applied.origin)
+			if cheaper.Labels != nil {
+				r.config.Execution.DeveloperCheaperFirst.Labels = append([]string(nil), *cheaper.Labels...)
+				r.origins["execution.developer_cheaper_first.labels"] = applied.origin
+			}
+			if cheaper.Priorities != nil {
+				r.config.Execution.DeveloperCheaperFirst.Priorities = append([]int(nil), *cheaper.Priorities...)
+				r.origins["execution.developer_cheaper_first.priorities"] = applied.origin
+			}
+		}
+		if execution.HighRiskLabels != nil {
+			r.config.Execution.HighRiskLabelsAdded = append([]string(nil), *execution.HighRiskLabels...)
+			r.origins["execution.high_risk_labels"] = applied.origin
+		}
 		// The declarative path carries a harness default like the values above it,
 		// because it is what a run does rather than something a project opts into.
 		// A layer that writes the key — `false` for the rollback to the legacy

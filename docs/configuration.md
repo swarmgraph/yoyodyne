@@ -4863,6 +4863,72 @@ what an item takes, so a second entry for one label is a mapping the operator
 believes is active and that nothing will ever reach. All three are refused when
 the configuration loads, before anything is claimed.
 
+### Developers that start on the cheaper model
+
+[Reducing what the factory costs](designs/reducing-what-the-factory-costs.md),
+sections 4 and 8. Three settings, all off or at their defaults for a project
+that states nothing, and all the development manager's to set:
+
+```yaml
+execution:
+  # Which of each provider's models is the stronger, the cheaper and the
+  # lightest. Claude Code's are named by default (opus, sonnet, haiku); Codex
+  # and any provider a project declares name none until the project does.
+  model_kinds:
+    codex:
+      stronger: gpt-5
+      cheaper: gpt-5-mini
+  developer_cheaper_first:
+    enabled: true          # default false
+    labels: [docs, tests]  # optional: only items carrying one of these
+    priorities: [2, 3, 4]  # optional, each 1 to 4; default all four
+    trial_runs: 40         # optional, 40 to 1000; default 40
+  # Added to the four fixed labels: security, migration, concurrency and
+  # public-interface. The list adds and never removes.
+  high_risk_labels: [billing]
+```
+
+**What it does.** With `developer_cheaper_first` on, a developer run over an
+eligible item starts on its provider's cheaper model. At its first failed
+review or failed checks it moves once to the stronger model, before the repair
+attempt that answers the failure, and keeps the stronger for every attempt
+after. The run records the move: when, from which model to which, why, and
+what the run had spent when it moved. A run whose stronger model is the only
+one it ever used never moves.
+
+**Which items are eligible.** A priority 0 item never is, and neither is an
+item carrying any high risk label, whatever the file says: those two rules are
+held in code. Beyond them, an item is eligible when its priority is one
+`priorities` names and, where `labels` names any, it carries one of them. An
+item `execution.developer_models` maps to a model keeps that model, a run on a
+slot with an [endpoint pair](#developer-slot-endpoints) keeps the endpoint's
+model, and a run on a provider naming no cheaper model keeps its configured
+model. Whether an item was eligible and why is written on the run.
+
+**The trial.** Eligible runs alternate: the first starts cheaper, the second
+stronger, and so on, so the two halves can be compared on the same kind of
+work. `yoyo model-trial` shows, for each half, the runs, the changes merged,
+the cost per merged change, how often the first review approved, the repair
+rounds, how many runs moved up, and the defects found after landing. A defect
+traced to a run's change after it landed is recorded with
+`yoyo model-trial defect <run-id> --note "<what it is>"`; on a run that started
+cheaper it stops the trial at once, and every eligible run after it starts on
+the developer's configured model for as long as the setting stays on. The
+trial counts at least `trial_runs` runs before its comparison is due; keeping
+the setting on afterwards, or turning it off, is the development manager's
+decision on that comparison.
+
+**What the file refuses at load.** A provider in `model_kinds` that is neither
+`claude-code`, `codex`, nor one the project declares; a model name that cannot
+name a model; priority 0, a priority outside 1 to 4, or one named twice; a
+`trial_runs` outside 40 to 1000; a label the tracker would not carry or one
+named twice; an eligible label that is also a high risk label; and
+`developer_cheaper_first` turned on while a developer agent's provider names
+no cheaper model.
+
+These are new keys: a part of the product still running a build from before
+them refuses a file that carries them until it moves onto a newer build.
+
 ### Saying why ready work has not started
 
 ```yaml

@@ -2404,6 +2404,15 @@ func (s *State) recordedTexts() []recordedText {
 	own("workflow_divergence", &s.WorkflowDivergence, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("workflow_unobserved", &s.WorkflowUnobserved, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("developer_model_reason", &s.DeveloperModelReason, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	if s.CheaperFirst != nil {
+		unstated("cheaper_first.reason", "cheaper_first.reason", &s.CheaperFirst.Reason, MaxRecordedTextBytes)
+		if s.CheaperFirst.Move != nil {
+			unstated("cheaper_first.move.reason", "cheaper_first.move.reason", &s.CheaperFirst.Move.Reason, MaxRecordedTextBytes)
+		}
+		if s.CheaperFirst.DefectAfterLanding != nil {
+			unstated("cheaper_first.defect_after_landing.note", "cheaper_first.defect_after_landing.note", &s.CheaperFirst.DefectAfterLanding.Note, MaxLandedDefectNoteBytes)
+		}
+	}
 	own("provider_effort_description", &s.ProviderEffortDescription, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("review_effort_description", &s.ReviewEffortDescription, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("review_summary", &s.ReviewSummary, MaxReviewSummaryBytes, reviewSummaryCutNote)
@@ -3893,14 +3902,23 @@ type State struct {
 	// this did. The reason is recorded even where the item was unmapped, because
 	// an unmapped item and a mapping nobody read are two different accounts of
 	// one model and only the record can tell them apart.
-	DeveloperModel       string     `json:"developer_model,omitempty"`
-	DeveloperModelReason string     `json:"developer_model_reason,omitempty"`
-	Status               Status     `json:"status"`
-	Phase                Phase      `json:"phase,omitempty"`
-	LastSequence         uint64     `json:"last_sequence"`
-	StartedAt            time.Time  `json:"started_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
-	CompletedAt          *time.Time `json:"completed_at,omitempty"`
+	DeveloperModel       string `json:"developer_model,omitempty"`
+	DeveloperModelReason string `json:"developer_model_reason,omitempty"`
+	// WorkItemPriority is the tracker's priority on the item when the run was
+	// claimed, copied for the reason the labels are. Absent means nothing
+	// recorded one, which is treated as priority 0 wherever priority decides
+	// anything about the run.
+	WorkItemPriority *int `json:"work_item_priority,omitempty"`
+	// CheaperFirst is an eligible run's record of starting on the cheaper
+	// model, its one move to the stronger, and the trial comparing the two
+	// (cheaperfirst.go). Absent on every run that was not eligible.
+	CheaperFirst *CheaperFirst `json:"cheaper_first,omitempty"`
+	Status       Status        `json:"status"`
+	Phase        Phase         `json:"phase,omitempty"`
+	LastSequence uint64        `json:"last_sequence"`
+	StartedAt    time.Time     `json:"started_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	CompletedAt  *time.Time    `json:"completed_at,omitempty"`
 	// SettledQuietSince is set only where the harness ended a run whose own
 	// process was already gone: `yoyo reconcile` settling a run nothing was
 	// carrying, or the claim audit cancelling a dead claim. It is the moment the
