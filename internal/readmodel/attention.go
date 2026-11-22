@@ -104,6 +104,9 @@ func (a Attention) Label() string {
 	if a.Kind == AttentionOperatorAction && a.OperatorAction != nil && a.OperatorAction.Returned {
 		return "report to handle again"
 	}
+	if a.Kind == AttentionDocumentApproval && a.DocumentApproval != nil && a.DocumentApproval.HarnessConfirms {
+		return "document waiting to be published"
+	}
 	return map[AttentionKind]string{
 		AttentionAmendment:         "proposed document change",
 		AttentionCarriedItem:       "work in conversation",
@@ -1456,6 +1459,7 @@ func (a Attention) ownershipRecord() ownership.Record {
 	case AttentionDocumentApproval:
 		if a.DocumentApproval != nil {
 			record.Role, record.FundamentalIntent = a.DocumentApproval.Owner, a.DocumentApproval.ProductIntent
+			record.HarnessConfirms = a.DocumentApproval.HarnessConfirms
 			record.Command = a.DocumentApproval.approveCommand()
 		}
 	case AttentionCapacityBlocked:

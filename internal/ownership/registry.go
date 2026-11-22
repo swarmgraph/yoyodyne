@@ -147,6 +147,10 @@ type Record struct {
 	// DocumentRun is a stopped run that was writing a document; Role is the
 	// document's owner.
 	DocumentRun bool
+	// HarnessConfirms is a waiting document the harness confirms itself, under
+	// its kind's automatic approval setting or as the Lead Product Manager's
+	// consistent change, and has not yet sent to be published.
+	HarnessConfirms bool
 
 	// Hand is the capability the harness lacks that the record itself names: a
 	// report handling's or a development manager's escalation's, recorded for a
@@ -699,8 +703,13 @@ func laneHumanBlockRule(r Record) (Answer, bool) {
 // because the project's approval setting for its kind asks for a person, which
 // is no reason on his closed list, so it stays its owning role's, as the
 // ownership design's "A role's decision that needs the operator's hand" says,
-// and the remedy names his act.
+// and the remedy names his act. One the harness confirms itself waits on
+// nobody's decision, only on the harness confirming and sending it, so it is
+// the harness's whatever its kind.
 func documentApprovalRule(r Record) (Answer, bool) {
+	if r.HarnessConfirms {
+		return owned(MoverHarness, "confirm the document under its kind's approval setting and send it to be published", "document publication")
+	}
 	if r.FundamentalIntent {
 		return operator(OperatorFundamentalIntent, "approve or decline the document", "yoyo agent chat approve|decline")
 	}

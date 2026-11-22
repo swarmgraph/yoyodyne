@@ -50,7 +50,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -928,9 +930,33 @@ func standingSources(configPath string) readmodel.Sources {
 		return sources
 	}
 	sources.Repository = repository
+	sources.DocumentConfirmations = documentConfirmations(repository, cfg)
 	slowCalls, _ := runstate.NewTrackerSlowCallStore(stateRoot, cfg.Product.ID)
 	sources.Tracker = withTrackerRecords(beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}, listings, slowCalls)
 	return sources
+}
+
+// documentConfirmer answers which waiting documents the harness confirms by
+// itself, from the store and settings a conversation confirms them with
+// (chat.Options.Documents and DocumentPolicy, wired in chat.go).
+type documentConfirmer struct {
+	store                   artifact.Store
+	policy                  artifact.Policy
+	integratesAutomatically bool
+	now                     func() time.Time
+}
+
+func documentConfirmations(repository string, cfg config.Config) documentConfirmer {
+	return documentConfirmer{
+		store:                   artifactStore(repository, cfg.Product),
+		policy:                  artifact.Policy{Brief: cfg.Approvals.Brief, Goals: cfg.Approvals.Goals, Designs: cfg.Approvals.Designs, SpecificationsHome: cfg.Product.Specifications},
+		integratesAutomatically: cfg.Approvals.Integration == domain.ApprovalAutomatic,
+		now:                     time.Now,
+	}
+}
+
+func (c documentConfirmer) HarnessConfirms(role domain.AgentRole, conversationID string, write runstate.PendingWrite) (bool, error) {
+	return chat.HarnessConfirms(c.store, c.policy, c.integratesAutomatically, role, conversationID, write, c.now())
 }
 
 // agentEndpoints is every configured agent as the read model needs it: what
