@@ -40,15 +40,22 @@ func (a Authority) OnSideStream() Authority {
 	narrowed := a
 	narrowed.TrackerActions = nil
 	narrowed.LaneActions = nil
+	narrowed.AddressedActions = nil
 	for _, action := range a.TrackerActions {
-		// A lane-scoped action is held through its lane-scoped name, so that is
-		// the name the side thread is asked about.
+		// A lane-scoped or addressed action is held through its scoped name, so
+		// that is the name the side thread is asked about.
 		held := trackerCapabilities[action]
 		if a.LaneScoped(action) {
 			held = laneCapabilities[action]
 		}
+		if a.AddressedOnly(action) {
+			held = addressedCapabilities[action]
+		}
 		if sidestream.Permits(held) {
 			narrowed.TrackerActions = append(narrowed.TrackerActions, action)
+			if a.AddressedOnly(action) {
+				narrowed.AddressedActions = append(narrowed.AddressedActions, action)
+			}
 		}
 	}
 	narrowed.Proposals = a.Proposals && sidestream.Permits(capability.ProposalRaise)

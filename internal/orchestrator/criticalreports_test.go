@@ -362,7 +362,7 @@ func TestAReportAddressedToARoleIsPutInFrontOfThatRolesPass(t *testing.T) {
 
 	sweep := config.RecurringTask{Role: domain.RoleDevelopmentManager, Every: config.Duration(time.Hour), Enabled: true, Prompt: "work the docket", MaxTurns: 3}
 	message := wakeMessage("development-manager-sweep", sweep, "", "", trigger.addressedTo(sweep), amendmentBatch{})
-	for _, want := range []string{"## Reports addressed to you", critical, "four ready P0 fixes have no run", warning, "none of them is the operator's"} {
+	for _, want := range []string{"## Reports addressed to you", critical, "four ready P0 fixes have no run", warning, "none of them is the operator's", `record that with a "handle" action`} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("the pass's message is missing %q:\n%s", want, message)
 		}

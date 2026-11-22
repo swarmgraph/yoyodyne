@@ -248,10 +248,12 @@ func renderReportEvidence(reported report.Report, gauge *report.Gauge) string {
 // walk reaches it.
 func (s *Session) renderUnhandledReports() string {
 	s.shownCriticals = nil
-	// The pile is delivered to the role that can record what became of a report
-	// and to no other. A role that cannot act on one would read past this every
-	// turn, which is how a channel becomes something nobody reads.
-	if s.options.Reports == nil || !s.authority().MayAct(actionHandle) {
+	// The pile is delivered to the role that can record what became of any
+	// report and to no other. A role that cannot act on one would read past this
+	// every turn, which is how a channel becomes something nobody reads; a role
+	// that may handle only the reports addressed to it is put those on its pass
+	// (orchestrator/criticalreports.go) rather than the whole pile here.
+	if s.options.Reports == nil || !s.handlesPile() {
 		return ""
 	}
 	reports, err := s.options.Reports.List()
@@ -402,6 +404,9 @@ func (s *Session) renderOperatorFindings() string {
 		return ""
 	}
 	handled := report.Handled(handlings)
+	// A role that handles only the reports addressed to it is listed only the
+	// findings it recorded itself; the rest are the Lead Product Manager's.
+	addressedOnly := s.authority().AddressedOnly(actionHandle)
 	// A handling that named the operator with no reason from his closed list and
 	// no hand is not his, and is listed apart as this role's to finish.
 	returned := map[string]bool{}
@@ -414,7 +419,7 @@ func (s *Session) renderOperatorFindings() string {
 	}
 	var standing []report.Report
 	for _, reported := range report.ByFiling(reports) {
-		if handling, done := handled[reported.ID]; done && (handling.NeedsOperator || handling.Hand != "") && !returned[reported.ID] {
+		if handling, done := handled[reported.ID]; done && (handling.NeedsOperator || handling.Hand != "") && !returned[reported.ID] && (!addressedOnly || handling.Role == s.state.Role) {
 			standing = append(standing, reported)
 		}
 	}
@@ -518,6 +523,10 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		outcome.fail(errors.New("handle names no report, so nothing was recorded"))
 		return
 	}
+	if err := s.refuseUnaddressedHandling(subject); err != nil {
+		outcome.refused(err)
+		return
+	}
 	if subject.PassFailureTask != "" && strings.TrimSpace(outcome.Action.Needs) == handleNeedsOperator && outcome.Action.PersonOnly == nil {
 		outcome.fail(errors.New("a product-pass finding needs a validated person_only reason, target, and exact step before it can name the operator; nothing was recorded"))
 		return
@@ -586,6 +595,38 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 	}
 	outcome.applied("recorded what became of %s, reported at %q by the %s%s%s",
 		subject.ID, subject.Severity, RoleTitle(subject.Role), reportedOn(subject), mappingClause(requests))
+}
+
+// handlesPile reports whether this conversation's role may record what became
+// of any report, which is what the whole unhandled pile is delivered for.
+func (s *Session) handlesPile() bool {
+	authority := s.authority()
+	return authority.MayAct(actionHandle) && !authority.AddressedOnly(actionHandle)
+}
+
+// refuseUnaddressedHandling refuses, before anything is written, a handling by
+// a role that may handle only the reports addressed to it, of a report that is
+// not addressed to that role by name. Whom a report is for is read off the
+// report as the pile holds it, through the read model's derivation, so a role
+// handles exactly what its own list on `yoyo status` names and nothing
+// more: an unaddressed report, and one addressed to another role, are the Lead
+// Product Manager's or that role's.
+func (s *Session) refuseUnaddressedHandling(subject report.Report) error {
+	if !s.authority().AddressedOnly(actionHandle) {
+		return nil
+	}
+	if subject.For != "" && readmodel.MoverOf(subject.Addressee()) == readmodel.MoverOf(s.state.Role) {
+		return nil
+	}
+	whom := "addressed to no role, so it is the Lead Product Manager's to handle"
+	if subject.For != "" {
+		whom = "addressed to the " + RoleTitle(subject.Addressee()) + ", so it is that role's to handle"
+	}
+	return &AuthorityError{
+		Role:    s.state.Role,
+		Refused: "a handling of " + subject.ID,
+		Reason:  "this role records what became of the reports addressed to it by name, and this one is " + whom,
+	}
 }
 
 // handlingOperatorReason is the closed-list reason a handling that says a

@@ -37,11 +37,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -390,7 +392,15 @@ func (t Trigger) addressedTo(task config.RecurringTask) string {
 		return ""
 	}
 	var rendered strings.Builder
-	rendered.WriteString("These reports are addressed to your role and nobody has recorded what became of them. Each asks for a move of yours: act on what it asks within the authority your role already holds, and say in your account what you did about each, naming it. The Lead Product Manager records the handling that takes it off your list; none of them is the operator's.\n\n")
+	rendered.WriteString("These reports are addressed to your role and nobody has recorded what became of them. Each asks for a move of yours: act on what it asks within the authority your role already holds, and say in your account what you did about each, naming it. ")
+	// A role that may record what became of a report addressed to it is told to,
+	// because that handling is the only thing that takes one off its list; one
+	// that may not leaves it to the Lead Product Manager.
+	if rolecapability.MustDefault().Holds(task.Role, capability.ReportHandleAddressed) {
+		rendered.WriteString("Once you have acted on one or decided nothing is to be done, record that with a \"handle\" action naming the report by its full identifier: that takes it off your list and out of the Lead Product Manager's pile, and nothing else does; none of them is the operator's.\n\n")
+	} else {
+		rendered.WriteString("The Lead Product Manager records the handling that takes it off your list; none of them is the operator's.\n\n")
+	}
 	listed := addressed
 	if len(listed) > maxOverdueListed {
 		listed = listed[:maxOverdueListed]

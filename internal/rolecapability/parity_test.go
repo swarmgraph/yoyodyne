@@ -266,10 +266,15 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // The development manager's `keep_version` records which of two machines'
 // versions of a held item stands, the design's rule that such an item is hers
 // to decide (docs/designs/working-alongside-other-contributors.md, section 5).
+// The architect's and the development manager's `handle` records what became of
+// a report addressed to that role by name, and of no other, under
+// report.handle-addressed (yoyodyne-ifd.430.72): reports a role had already acted
+// on came back on every pass until the Lead Product Manager recorded a handling
+// for it, so the role records its own.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
-	domain.RoleArchitect:          {"amendment"},
-	domain.RoleDevelopmentManager: {"brake", "keep_version", "label", "queue", "team_conflict"},
+	domain.RoleArchitect:          {"handle", "amendment"},
+	domain.RoleDevelopmentManager: {"brake", "keep_version", "label", "queue", "team_conflict", "handle"},
 }
 
 func TestConversationAuthorityDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {

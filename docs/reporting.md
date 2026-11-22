@@ -747,6 +747,17 @@ Product Manager's, since she handles the pile; a critical one is listed under
 her by name as well as reaching her pass at once. Either way it leaves the list
 when a handling of it is recorded.
 
+The architect or the development manager, when a report is addressed to it,
+records that handling itself once it has acted on the report or decided
+nothing is to be done, with the same `handle` action the Lead Product Manager
+uses and the same mapping of each request to
+the item that covers it, an admission, or a reason it is declined. The handling
+names the role that recorded it, and the report is then offered neither to that
+role nor to the Lead Product Manager again. A role other than hers may handle
+only a report addressed to it by name: one addressed to another role, or to
+none, is refused and nothing is recorded. A report addressed to the program
+manager is still handled by the Lead Product Manager.
+
 A report is never addressed to you, and a critical report is never shown to you
 as needing your hand. A critical one still reaches the channel, so you see it,
 and it says whose it is:
@@ -941,7 +952,10 @@ nothing at all — a report that asks for nothing is handled by saying so. It
 records the decision with a `handle` action, the same bounded, recorded mechanism
 it acts on the queue through, and that record is the only thing that takes a
 report out of the pile. A report it read and did not handle comes back to the
-next conversation. No other role has the action.
+next conversation. The architect and the development manager have the
+action too, but only for the reports addressed to them by name
+(see [whom a report is for](#whom-a-report-is-for)); neither of them is shown
+the pile.
 
 What is recorded is a second file beside the pile rather than a change to it. The
 report stays exactly as its author wrote it — that is what makes the pile evidence

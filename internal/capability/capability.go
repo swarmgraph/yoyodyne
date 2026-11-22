@@ -297,6 +297,13 @@ const (
 	// ReportFile is filing a report at one of the three severities, the pass's
 	// digest to the product manager included.
 	ReportFile Capability = "report.file"
+	// ReportHandleAddressed is recording what became of a report addressed to
+	// the role by name, from the role's own conversation, exactly as the Lead
+	// Product Manager's handling records it. It reaches no other report: the
+	// unaddressed pile, and a report addressed to another role, stay with the
+	// role they are for. It is not BacklogAdmit, which handles any report and
+	// carries admission, closing, and retiring with it.
+	ReportHandleAddressed Capability = "report.handle-addressed"
 	// AmendmentPropose is proposing a change to a governed document its role does
 	// not own, to be decided under the owner's authority.
 	AmendmentPropose Capability = "amendment.propose"
@@ -385,6 +392,7 @@ var declared = []Capability{
 	LaneReportWrite,
 	StopCauseRecord,
 	ReportFile,
+	ReportHandleAddressed,
 	AmendmentPropose,
 	AmendmentDecide,
 	ServiceRequestRestart,

@@ -198,6 +198,11 @@ var expresses = map[string]expression{
 		},
 		gap: "which items are inside a lane is state — the label read off the item, and off a named parent, as the action runs — and no bundle carries state",
 	},
+	"conversation.addressed-handling": {
+		question: "does the role hold handling only through its addressed name, and not admission?",
+		asks:     []capability.Capability{capability.ReportHandleAddressed, capability.BacklogAdmit},
+		gap:      "whom a report is addressed to is state, the role named in the report as the pile holds it, read as the handling runs, and no bundle carries state",
+	},
 	"conversation.admission-gate": {
 		question: "does the role hold admission?",
 		asks:     []capability.Capability{capability.BacklogAdmit},
