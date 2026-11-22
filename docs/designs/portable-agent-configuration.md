@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-11-22T03:43:45.260074Z
       reason: 'Section 3 described yoyo config materialize and extract without saying they are not built. Read at main 3220fd777: internal/cli/drift_test.go exercises yoyo init and yoyo config baseline as the only writers of config.lock, and no test exercises materialize or extract. The section now says so, names the manual steps as the way until they are built, and keeps their design unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T04:08:52.80704Z
+      reason: 'The baseline file at main 3220fd777 records plain values for settings and digests only for persona text, while this section said digests and never values. Read lock.go and drift.go and ratify what is built: the drift report has to show what a value was, and the file holds only template content. Also names yoyo config baseline, says adopt is not built and how an improvement is taken meanwhile, and states the cost of a baseline recorded late.'
 approvals:
     - policy: approvals.designs
       revision: 3
@@ -73,6 +77,11 @@ approvals:
       by: harness
       at: 2026-11-22T03:43:45.260074Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3391, for document-3391.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-22T04:08:52.80704Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3394, for document-3394.1 under the automatic approval policy
 ---
 # Portable agent configuration
 
@@ -250,49 +259,99 @@ criterion above.
 ## 4. How a bundle improvement reaches a project that materialized
 
 This is the specific thing an explicit configuration trades away, and the
-mechanism that buys it back is **a baseline, recorded at materialization, that
-is never read at load time**.
+mechanism that buys it back is **a baseline, recorded when the project
+materializes, that is never read at load time**.
 
-`materialize` and `init` write `.yoyodyne/config.lock`, and its shape is a
-ratified contract: the bundle's name, the bundle's revision digest, and the
-digest of each value as that bundle supplied it — digests, never the values
-themselves; a version field, because a committed file that outlives schemas
-needs one, by the same rule `config.yaml` follows; generated, never
-hand-authored; committed with the configuration; and **nothing in the load
-path reads it**, held by a conformance test asserting the loader never opens
-the file. Any implemented format meeting that contract is ratified as it
-stands; anything beyond it — values rather than digests, anything a loader
-consults — is a deviation to correct. What the file says is still exactly what
-runs, which is ifd.35's guarantee and is not weakened here.
+### The baseline file, as built
 
-With a baseline, `yoyo config drift` is a three-way comparison rather than a
-diff, and it sorts every value into four answers:
+`yoyo init` and `yoyo config baseline` write `.yoyodyne/config.lock` today.
+`materialize` will write it too, once it is built (section 3). Its shape is a
+ratified contract, and it is what `internal/config/lock.go` writes:
+
+- **A version field**, checked on read. A file declaring another version is
+  reported as unreadable, never compared as if it were empty. It moves apart
+  from the configuration schema's version, for different reasons.
+- **The template's name.**
+- **A revision**: `bnd-` and a digest of every recorded value taken together.
+  It is recomputed when the file is read, and a file whose revision does not
+  match its values has been edited by hand; it is refused, and the refusal names
+  version control as the way back, never a command that would regenerate the
+  configuration.
+- **Each value the template itself supplied**, keyed the way
+  `yoyo config show --origins` keys them. A value the template leaves to a
+  harness default is not recorded, and neither are derived values, such as an
+  agent's capabilities, nor `version` and `extends`, which no project can take
+  from a template. A setting is recorded as its value. A persona's text is
+  recorded as a digest, and so is each persona file the template ships without
+  binding it to an agent.
+- **Generated and committed** beside the configuration, headed by a comment
+  saying what it is for, and **nothing in the load path reads it**, held by a
+  test asserting the loader never opens the file. What the configuration file
+  says is still exactly what runs, which is ifd.35's guarantee and is not
+  weakened here.
+
+**Values, not digests.** An earlier revision of this section required
+digests and never values. That is reversed, and what is built is ratified,
+because the comparison below exists to show what each value was and what it is
+now, which a digest cannot do: it could only say that something changed. The
+file records only what the template inside the executable supplies, so
+committing those values discloses nothing the executable does not already ship.
+Persona text stays a digest, because a copy of it would be a second copy of
+files already in the project, drifting from them. Rejected: digests for every
+value, which leaves the drift report unable to say what a value was; and a
+separate copy of the persona text. The rule a later change must keep is that
+the baseline never records a value the project wrote.
+
+### The comparison
+
+With a baseline, `yoyo config drift` compares three sides rather than two, and
+sorts every recorded value into four answers. `--all` lists every class and
+`--json` gives the same answer for a program to read. The classification and
+the wording of every notice live once, in `internal/config/drift.go`, and every
+surface prints them rather than computing them again.
 
 | Answer | What it means | What is offered |
 | --- | --- | --- |
-| unchanged | Neither you nor the bundle moved it. | Nothing. |
-| yours | You changed it; the bundle did not. | Nothing. It is yours, and it is never touched. |
-| available | The bundle improved it; you never edited it. | Adopting it. |
-| conflicting | Both moved it, to different values. | Both values, named, for you to decide. |
+| unchanged | You and the template agree, whether neither moved it or both moved it to the same value. | Nothing. |
+| yours | You changed it; the template did not. | Nothing. It is yours, and it is never touched. |
+| available | The template improved it; you never edited it. | Adopting it. |
+| conflicting | Both moved it, to different values. | Both values, named, until it is settled. |
 
-The middle two are the entire point. Today's advice — regenerate into a scratch
-directory and diff — is a two-way diff with no base, so it cannot tell a value
-you deliberately changed from a value the bundle improved, and it reports both
-as differences. The baseline is what supplies the missing third side.
+The middle two are the entire point. The old advice, regenerate into a scratch
+directory and diff, compares only two sides, so it cannot tell a value you
+deliberately changed from a value the template improved, and reports both as
+differences. The baseline supplies the missing third side.
 
-`yoyo config adopt <key>` takes one available improvement and rewrites that
-value and its baseline entry. Adoption is per value and never wholesale: a
-command that adopted everything available would be `init --force` with better
-manners, and would silently move values the operator had reasons for. A
-conflicting value is never adopted; it is reported until it is settled. The
-command is designed but not yet built; a role adopts an available value through
-the path in section 6, which needs no command a person runs.
+Only keys the baseline recorded are compared. A key the template states now and
+the baseline never saw has no third side, so it is left out rather than offered
+as an improvement nobody can be sure is one. A persona file the template ships
+without binding is the one exception: every baseline records every such file
+the template shipped when it was taken, so a baseline without one says the
+template supplied nothing there, and a project that has no such file is offered
+it.
 
-**A missing or stale lock is a report, not a refusal.** A project that predates
-this, or that deleted the file, gets told once that its baseline is unknown and
-that `yoyo config drift` cannot answer for it — the same treatment a document
-with a broken relationship gets, and for the same reason: refusing would break a
-project over a file that decides nothing about how it runs.
+**Adopting an improvement.** `yoyo config adopt <key>`, which takes one
+available value at a time and never all of them, is designed and not built.
+Until it is, an available value is taken by writing the template's value into
+the configuration through the reviewed change of section 6. The comparison then
+reads that value as unchanged, because your value and the template's agree, so
+the baseline does not need rewriting for it. A conflicting value is never
+adopted; it is reported until it is settled, as the closing section says.
+
+### A missing, unreadable or edited baseline
+
+**It is a report, not a refusal.** The comparison answers unknown and says
+which kind: no baseline at all, a file that could not be read, or a file that
+was edited or declares another version. None of these breaks the command that
+asked, because the file decides nothing about how the project runs.
+
+A project with no baseline records one with `yoyo config baseline`. It records
+what the template supplies now: from then on, a value that matches the template
+reads as unchanged, and every value that differs is counted as yours, including
+any improvement the template made earlier that the project never took, which is
+never offered again. The command says that cost when it writes. It refuses to
+replace an existing baseline without `--force`, and where the existing file is
+unusable it points to the copy in version control first.
 
 ## 5. Where bundles come from, and where this meets the plugin contract
 
