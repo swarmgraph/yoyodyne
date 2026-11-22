@@ -41,6 +41,22 @@ func TestAnEligibleRunStartsCheaperAndMovesOnceToTheStrongerAfterAFailedReview(t
 	pipeline, store, tracker, provider := cheaperFirstPipeline(t, beads.WorkItem{
 		ID: "yoyodyne-task", Title: "Work", Status: "open", Priority: 2, Labels: []string{"docs"},
 	})
+	// Every invocation reports a price, so what the run had spent when it moved
+	// is something its own event log can say: the first developer attempt and
+	// the review that asked for repair.
+	respond := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		result, err := respond(request)
+		if err != nil {
+			return result, err
+		}
+		last, emitErr := emitTerminal(request, request.Role, 0.25, false)
+		if emitErr != nil {
+			return backend.RunResult{}, emitErr
+		}
+		result.LastEvent = last
+		return result, nil
+	}
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -64,6 +80,16 @@ func TestAnEligibleRunStartsCheaperAndMovesOnceToTheStrongerAfterAFailedReview(t
 		!strings.Contains(move.Reason, "independent review asked for repair") {
 		t.Fatalf("move = %+v, want sonnet to opus for repair attempt 1 after the review", move)
 	}
+	// What the run had spent when it moved is priced from its own event log:
+	// at least the first developer attempt, and less than the whole run, which
+	// went on to spend on the stronger model.
+	if !move.SpentKnown || move.SpentBeforeUSD < 0.25 {
+		t.Fatalf("move records spend %v (known %v), want the run's spend so far of at least $0.25", move.SpentBeforeUSD, move.SpentKnown)
+	}
+	if total, known := store.RunSpentSoFar(state); !known || total <= move.SpentBeforeUSD {
+		t.Fatalf("the run's whole cost %v (known %v) is not more than the %v it had spent when it moved", total, known, move.SpentBeforeUSD)
+	}
+
 	if state.DeveloperModel != "opus" || !strings.Contains(state.DeveloperModelReason, "moved once to the stronger model opus") {
 		t.Fatalf("developer model = %q (%q), want opus and the move said", state.DeveloperModel, state.DeveloperModelReason)
 	}
