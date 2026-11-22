@@ -148,7 +148,10 @@ func TestABriefingsListingThatRanOutOfTimeIsKept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ground := conversationGround{runner: timedOutRunner{}, repository: project, gitBinary: "git", timeout: 200 * time.Millisecond, slowCalls: slowCalls}
+	// A call whose deadline has passed before it starts is not kept
+	// (runWithInput in internal/beads/client.go), so the bound leaves room for a loaded
+	// machine to reach the listing; the listing's first pause ends with it.
+	ground := conversationGround{runner: timedOutRunner{}, repository: project, gitBinary: "git", timeout: 2 * time.Second, slowCalls: slowCalls}
 
 	// The rest of the picture is not this test's: a project with no
 	// specifications may fail to assemble one after the listing has been made.
