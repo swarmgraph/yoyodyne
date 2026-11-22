@@ -115,47 +115,23 @@ services:
     hide_summary: true
 
 execution:
-  # Back to 3 (operator, 2026-11-19, yoyodyne-nn0z): it was 2 while the merge
-  # queue landed more slowly than developers filled it, and the queue now keeps
-  # up, with the narrowed race check on each candidate (yoyodyne-ifd.429.212)
-  # and checks on CI (yoyodyne-ifd.429.185, yoyodyne-ifd.429.186) landed. The
-  # product slot is the one brought back, as slot 3 so that slots 1 and 2 keep
-  # the runs they hold. A fourth slot stays out (operator, 2026-11-11).
-  max_concurrent_developers: 3  # slot 1 reliability, slot 2 team development (Sonnet trial), slot 3 product and cost (dedicated)
-  # One developer slot prefers the reliability label, per the operator's
-  # direction of 2026-09-19: bugs, anything that keeps the system from
-  # stalling, and anything that keeps the system from making mistakes. The
-  # mechanism is yoyodyne-ifd.388's and the direction is yoyodyne-ifd.415's;
-  # the paste is the operator's own because .yoyodyne/ is a protected path no
-  # run may write, so until this line existed the seat was directed and not
-  # configured. docs/configuration.md, "A developer slot that prefers a
-  # label", is this block and explains what a preference does and does not
-  # change: it selects what a slot pulls first, and never what it may do.
+  # Two developer slots at the operator's direction of 2026-11-22: "move us
+  # back to 2 dev seats. One without a label preference and another dedicated
+  # to the cost items". Lowering the count stops no run: a run already holding
+  # a slot keeps it, and new work waits until fewer than two slots are held.
+  # A third slot stays out until the operator says otherwise.
+  max_concurrent_developers: 2  # slot 1 no preference, slot 2 cost (dedicated)
+  # docs/configuration.md, "A developer slot that prefers a label", explains
+  # what a preference does and does not change: it selects what a slot pulls
+  # first, and never what it may do.
   developer_slots:
-    - prefer: [reliability]   # slot 1 pulls reliability-labelled work first
-    # Slot 2 is dedicated to team-development by the development manager's decision of October 28.
-    # At the operator's direction of 2026-11-14 it trials Sonnet as its main developer model, with
-    # sub-agents off, to see whether quality holds while using less of the weekly Opus limit; the
-    # Opus-main, Sonnet-sub-agent trial (yoyodyne-wj4l) cost more without a quality gain. Opus is
-    # named only because a pair needs an alternate; fallback stays off.
-    - prefer: [team-development]
-      dedicated: true
-      routing:
-        enabled: false
-        primary: {provider: claude-code, model: sonnet}
-        alternate: {model: opus}
-    # Slot 3 pulls usability-, product- and performance-labelled work first:
-    # how the chat and dashboard behave for the operator, product features,
-    # and delivery metrics, which P0 fixes would otherwise crowd out.
-    # It also pulls cost-labelled work first, the work that cuts what the
-    # factory spends, at the operator's direction of 2026-11-21: "lets label
-    # them all cost and give that label to one of the dev seats".
-    # Dedicated at the operator's direction of 2026-11-21 ("make the config
-    # change for now"): the slot takes its labelled work ahead of fresh
-    # priority-0 work that carries none of its labels, which is what he asked
-    # of this seat on 2026-10-06 ("work only on usability and product
-    # features"). Work on a change already written still goes first.
-    - prefer: [usability, product, performance, cost]
+    # Slot 1 prefers nothing: it pulls in the Lead Product Manager's order.
+    - {}
+    # Slot 2 is kept for cost-labelled work, the work that cuts what the
+    # factory spends. Dedicated, it takes cost work ahead of fresh priority-0
+    # work carrying no cost label, and falls back to the ordinary order when no
+    # cost work is ready. Work on a change already written still goes first.
+    - prefer: [cost]
       dedicated: true
   repair_attempts_before_replan: 4
   # A promotion that loses a race -- to another run, or to whoever moved the
@@ -645,8 +621,8 @@ agents:
     backend: claude-code
     model: opus
     effort: medium
-    # Raised 1->2 alongside max_concurrent_developers: 3 so reviews don't
-    # queue behind one instance when the slots fill (operator, 2026-09-04).
+    # Two instances so reviews don't queue behind one when the slots fill
+    # (operator, 2026-09-04).
     instances: 2
     persona:
       version: v2
