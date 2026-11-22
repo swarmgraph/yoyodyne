@@ -23,9 +23,10 @@ import (
 func TestAStopThatForcesKillsAProcessIgnoringTheStopAndWhatItStarted(t *testing.T) {
 	t.Parallel()
 
-	// The shell ignores the stop signal and starts a child in a group of its own
-	// (set -m); both end by themselves after a minute however this test ends.
-	command := exec.Command("/bin/sh", "-c", `trap "" TERM; set -m; /bin/sleep 60 & wait`)
+	// The test binary started again ignores the stop signal and starts a child
+	// in a group of its own (ignoreTheStop).
+	command := exec.Command(os.Args[0], "-test.run=^$")
+	command.Env = append(os.Environ(), ignoringStopVariable+"=1")
 	if err := command.Start(); err != nil {
 		t.Fatalf("start a process that ignores the stop signal: %v", err)
 	}
@@ -143,8 +144,8 @@ func TestTheChildrenOfAProcessAreReadFromTheProcessTable(t *testing.T) {
 	t.Fatalf("children of %d = %+v, want pid %d among them", os.Getpid(), children, command.Process.Pid)
 }
 
-// waitForAChild waits for pid to have started a child, which for the shells
-// these tests start says the trap before it is set.
+// waitForAChild waits for pid to have started a child, which for the
+// processes these tests start says the stop signal is already ignored.
 func waitForAChild(t *testing.T, pid int) []process {
 	t.Helper()
 	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
