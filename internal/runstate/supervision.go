@@ -152,6 +152,15 @@ type SupervisedChild struct {
 	// having been deployed to five times in two minutes.
 	Restarts    int       `json:"restarts,omitempty"`
 	RestartedAt time.Time `json:"restarted_at,omitempty"`
+	// ForcedStops is how many times the supervisor has had to force the child
+	// to stop because it was still there after the whole wait a stop gives it,
+	// ForcedStopAt when it last did, and ForcedStop why and what was done for
+	// the work the child was carrying, in the words every surface shows. They
+	// are counted apart from Failures, as Restarts are: the supervisor stopped
+	// it, and it did not die.
+	ForcedStops  int       `json:"forced_stops,omitempty"`
+	ForcedStopAt time.Time `json:"forced_stop_at,omitempty"`
+	ForcedStop   string    `json:"forced_stop,omitempty"`
 	// Settings says, while a setting the running child holds from its start has
 	// a different value in the configuration, which setting and where applying
 	// it stands: what it waits on, or why the supervisor does not restart it.

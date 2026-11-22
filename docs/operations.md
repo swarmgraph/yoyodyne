@@ -118,7 +118,9 @@ so, and the parts are stopped whether or not a supervisor was running — a
 supervisor that died left them running, and this is what stops them. One thing
 to know before typing it: stopping the scheduler cancels the runs it is hosting,
 as stopping a watch session always has, and [`yoyo reconcile`](#recovering-interrupted-runs)
-settles what that leaves. When what you want is for the runs to keep what they
+settles what that leaves. A scheduler that has not let go of its lease when
+the wait runs out is forced to stop, and the runs it was carrying are kept for
+the next start to continue, as a forced restart keeps them. When what you want is for the runs to keep what they
 have and carry on later, [`yoyo pause`](#pausing-everything-and-resuming-it) is
 the verb and the product stays up.
 
@@ -268,6 +270,17 @@ the part is doing:
   the stop ends keeps its record, branch, worktree and change as any stopped
   run does, a promotion cut off part-way is settled by reconciliation against
   the remote, and nothing is restarted this way while a restart is held.
+  A scheduler still holding its lease when that stop's wait runs out (two
+  and a half minutes) is not left to stop in its own time: the supervisor
+  forces it to stop, together with the AI sessions and checks it had started,
+  and records on each run it was carrying the stop it could not record
+  itself, so the session started in its place continues each of those runs
+  where it was, in the same worktree and developer session and with what it
+  had written, rather than the maintenance sweep abandoning it. The scheduler
+  is then started from the deployed binary at once. `yoyo status` says the
+  forced stop on the scheduler's line, with when and why, and the health
+  check's service entry carries it as `forced_stop`, `forced_stop_at` and
+  `forced_stops`.
 
   The supervisor also reads, with its own build, when the scheduler's move
   falls due: three hours (`execution.build_move_interval`) after the last
@@ -325,7 +338,8 @@ supervisor is its parent, and it collects the exited process rather than
 leaving it in the process table. Only then is the part started again from the
 binary, so exactly one copy runs and it is on the build just deployed; a stop
 whose process is still there at the end of the stop's bound says so in the
-part's `redeploy` line. `yoyo stop` waits the same way for each process it
+part's `redeploy` line, except the scheduler's, which is forced at that point
+as [moving onto a deployed build](#starting-the-product-and-stopping-it) says. `yoyo stop` waits the same way for each process it
 stops. Until yoyodyne-ifd.434.19 nothing collected a stopped sink: the launcher
 lets each part go without waiting on it, and the supervisor re-executes into a
 deployed build keeping its process, so every sink a deploy replaced stayed in

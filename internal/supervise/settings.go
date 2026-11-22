@@ -150,6 +150,7 @@ func (s *Supervisor) restartForSettings(ctx context.Context, child Child, state 
 	state.Settings = changed + "; restarting it so it starts on the new value"
 	stopped, err := child.Stop(ctx)
 	release()
+	s.recordForced(child, state, stopped)
 	if err != nil {
 		state.SettingsRestarting = false
 		state.Settings = fmt.Sprintf("%s; it could not be stopped to restart it, and is tried again at the next look: %v", changed, err)

@@ -348,6 +348,14 @@ type Service struct {
 	State    string `json:"state,omitempty"`
 	Deployed string `json:"deployed,omitempty"`
 	Copies   []Copy `json:"copies"`
+	// ForcedStop is the last stop the supervisor had to force on the service
+	// because it was still there after the whole wait a stop gives it — when,
+	// why, and what became of the work it was carrying, in the supervisor's
+	// words — and ForcedStops how many there have been. Empty for a service
+	// never forced.
+	ForcedStop   string    `json:"forced_stop,omitempty"`
+	ForcedStopAt time.Time `json:"forced_stop_at,omitempty"`
+	ForcedStops  int       `json:"forced_stops,omitempty"`
 }
 
 // MaintenanceFailure is one failed maintenance pass since the observer's last

@@ -52,6 +52,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/maincheck"
 	"github.com/mason-bryant/yoyodyne/internal/maintain"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/redeploy"
 	"github.com/mason-bryant/yoyodyne/internal/releasecut"
@@ -1078,6 +1079,10 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 			if err != nil {
 				return nil, nil, nil, err
 			}
+			runs, err := runstate.NewStore(p.stateRoot, productID)
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			children = append(children, schedulerChild{
 				watch:      watch,
 				launcher:   p.launcher,
@@ -1089,6 +1094,7 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				log:        home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + schedulerLogFile,
 				moveEvery:  p.resolved.Config.Execution.BuildMoveEvery(),
 				drainLimit: p.resolved.Config.Execution.RedeployDrainLimit.Duration(),
+				runs:       runs,
 			})
 		case config.ServiceDashboard:
 			// `yoyo dashboard` on the configured port, started and confirmed ready
@@ -1259,6 +1265,10 @@ type schedulerChild struct {
 	// to have made it (NextMove, MoveGrace).
 	moveEvery  time.Duration
 	drainLimit time.Duration
+	// runs is the product's run records, where a scheduler the supervisor had
+	// to force to stop has the runs it was carrying kept for the one started in
+	// its place (preserveRuns).
+	runs *runstate.Store
 }
 
 func (schedulerChild) Name() config.ServiceName { return config.ServiceScheduler }
@@ -1406,11 +1416,58 @@ func (c schedulerChild) Stop(ctx context.Context) (supervise.Stopped, error) {
 	if !held {
 		return supervise.Stopped{}, nil
 	}
-	pid := c.holderPID()
-	if pid <= 0 {
+	holder, found, err := c.watch.Holder()
+	if err != nil {
+		return supervise.Stopped{WasRunning: true}, err
+	}
+	if !found || holder.PID <= 0 {
 		return supervise.Stopped{WasRunning: true}, errors.New("a session is watching and did not record which process it is, so it could not be stopped")
 	}
-	return supervise.StopHolder(ctx, pid, c.watch.Held)
+	return supervise.StopHolderForcing(ctx, holder.PID, c.watch.Held, c.preserveRuns(holder.SessionID))
+}
+
+// preserveRuns is what the supervisor does for a scheduler it had to force to
+// stop: it records on each run the scheduler was carrying the stop the
+// scheduler would have recorded itself had it stopped when asked, so the
+// scheduler started in its place continues each run where it was rather than
+// the maintenance sweep abandoning it (orchestrator.PreserveRunsOfForcedHost).
+func (c schedulerChild) preserveRuns(sessionID string) supervise.Settle {
+	return func(ctx context.Context, pid int, forced runstate.ProcessLook, at time.Time) (string, error) {
+		if c.runs == nil {
+			return "", nil
+		}
+		drain := c.drainLimit
+		if drain <= 0 {
+			drain = config.DefaultRedeployDrainLimit()
+		}
+		done, err := orchestrator.PreserveRunsOfForcedHost(ctx, c.runs, orchestrator.ForcedHost{
+			PID:       pid,
+			StartedAt: forced.StartedAt,
+			SessionID: sessionID,
+			At:        at,
+			Bound:     drain,
+			Why:       fmt.Sprintf("the scheduler carrying this run did not stop when asked, so the supervisor forced it to stop at %s", at.Local().Format("15:04:05 MST")),
+		})
+		return describeForcedRuns(done), err
+	}
+}
+
+// describeForcedRuns says what became of the runs a forced scheduler was
+// carrying.
+func describeForcedRuns(done orchestrator.ForcedHostRuns) string {
+	var said []string
+	switch len(done.Preserved) {
+	case 0:
+		said = append(said, "it was carrying no run that needed keeping")
+	case 1:
+		said = append(said, fmt.Sprintf("the run it was carrying (%s) keeps what it wrote and is continued by the scheduler started in its place", done.Preserved[0]))
+	default:
+		said = append(said, fmt.Sprintf("the %d runs it was carrying (%s) keep what they wrote and are continued by the scheduler started in its place", len(done.Preserved), strings.Join(done.Preserved, ", ")))
+	}
+	if len(done.Left) > 0 {
+		said = append(said, fmt.Sprintf("%s, at a promotion or a cleanup, is left to the maintenance sweep, which finishes it from the repository", strings.Join(done.Left, ", ")))
+	}
+	return strings.Join(said, "; ")
 }
 
 func printStartUsage(writer io.Writer) {
