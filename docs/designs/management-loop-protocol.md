@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-20T01:34:44.257803Z
       reason: 'Plain wording, one more document of the architect''s part of the vocabulary replacement: words a reader would have to look up are replaced by what they mean - the inter-role ask exchange, the umbrella contract, the promotion criterion, accretes, round-capped, write-shell, lane, promote and demote, hardening step, idempotency and open consoles. The round-limit sentence states how an unresolved thread ends today. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T21:17:49.508009Z
+      reason: 'Design review against the code at 7120a8560: adds a section saying what is built. One kind of question between roles exists, with no kind field; the three owned readiness judgments, summaries after landing and execution profiles are not built; the readiness package is a narrower check of an item''s own citations and waiting sentences. The round limit sentence now says the harness tells the operator, as the code does.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -38,6 +42,11 @@ approvals:
       by: harness
       at: 2026-11-20T01:34:44.257803Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3147, for document-3147.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-22T21:17:49.508009Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3563, for document-3563.1 under the automatic approval policy
 ---
 # The management-loop protocol: request kinds, readiness, outcome summaries, and execution profiles
 
@@ -47,7 +56,7 @@ approvals:
 
 ## Request kinds
 
-Three, deliberately: **consult** — ask another role for a judgment within that role's authority; **clarify** — request information the caller needs to complete its own judgment; **escalate** — ask the Lead Product Manager to obtain an operator decision because delegated authority or policy is insufficient. The existing way one role puts a question to another, carried and recorded by the harness, is how consult and clarify are sent, and it keeps the properties already agreed for it: the answer is judgment only and decides nothing, every round is recorded and visible to the operator, the number of rounds is limited and a thread that reaches the limit unresolved is reported to the Lead Product Manager, and each thread's cost is recorded. Later kinds (`review`, `handoff`, `notify`) arrive only for demonstrated workflows with distinct semantics, never to mirror conversational phrasing. A request is accepted only when the source–target pairing, kind, scope, and requested decision fit both roles' authority; it is persisted before the target is invoked, supplied referenced evidence rather than an unbounded transcript, recorded against its id, and completed by waking the source — all as the contract in management-and-supervision requires.
+Three, deliberately: **consult** — ask another role for a judgment within that role's authority; **clarify** — request information the caller needs to complete its own judgment; **escalate** — ask the Lead Product Manager to obtain an operator decision because delegated authority or policy is insufficient. The existing way one role puts a question to another, carried and recorded by the harness, is how consult and clarify are sent, and it keeps the properties already agreed for it: the answer is judgment only and decides nothing, every round is recorded and visible to the operator, the number of rounds is limited and the harness closes a thread that reaches the limit as unresolved and tells the operator, and each thread's cost is recorded. Later kinds (`review`, `handoff`, `notify`) arrive only for demonstrated workflows with distinct semantics, never to mirror conversational phrasing. A request is accepted only when the source–target pairing, kind, scope, and requested decision fit both roles' authority; it is persisted before the target is invoked, supplied referenced evidence rather than an unbounded transcript, recorded against its id, and completed by waking the source — all as the contract in management-and-supervision requires.
 
 ## Readiness
 
@@ -74,6 +83,18 @@ The development manager selects among five named profiles — **mechanical-low-r
 ## Role boundaries, condensed
 
 The authority tables in code and in the harness design remain the enforcement; this restates the planning-level boundary each role holds in the loop: the Lead Product Manager owns intent, priority, admission, acceptance, and which work is planned next, and does not own decomposition or model choice; the architect owns designs, decisions, invariants, and the architecture disposition, and does not set priority or delivery plans; the development manager owns decomposition, shape, conflict surfaces, and profile selection, and does not redefine intent or settle architecture; the harness validates, persists, invokes, and records, and invents no judgment.
+
+## What is built
+
+Checked against the code on main at commit 7120a8560 on November 22, 2026. Most of this protocol is not built. What exists, and where it differs from the sections above:
+
+- **Request kinds.** One kind of request is built: a role puts a question to another role through the harness, which records every round, attaches the records the asker names, refuses an answer that carries any action, limits the rounds, and closes a thread that reaches the limit as unresolved and tells the operator. The request carries no kind, so consult and clarify are not told apart; both are sent as the same question. Escalation is not a request kind: a role that needs the operator files a report whose message opens with one of the operator's closed list of reasons, and the Lead Product Manager records it as his. None of the later kinds exists.
+- **Readiness.** None of the three owned readiness judgments is recorded anywhere. What the harness has under the name readiness, in internal/readiness, is a narrower check: before an item is pulled, it reads the four fields somebody wrote for the item and reports a cited file and line or a qualified Go name that the code no longer holds, and any sentence in which the item says it must wait for something. Each finding names who releases it. It holds nothing back by itself and records nothing; the caller decides what to do with it. Holding an item until its design is readable is the subject of [the needs-design label design](needs-design-gate.md), not of this one.
+- **Outcome summaries.** Not built. Nothing derives a summary for any role after a change lands, and nothing reopens a judgment on divergence.
+- **Escalation shape.** No code checks it; this review found nothing that does. It is guidance the Lead Product Manager follows when she writes to the operator.
+- **Execution profiles.** Not built. No profile names exist anywhere in the code; work runs on the agent and model configured for its role or developer slot. The nearer plan for running some work on a cheaper model first is in [reducing what the factory costs](reducing-what-the-factory-costs.md).
+
+The demonstration bar below is therefore not met. This design stays the agreed vocabulary for when the loop is built, and work that builds any part of it starts from this section rather than from the description above.
 
 ## The demonstration bar
 
