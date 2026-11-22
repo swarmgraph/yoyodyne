@@ -96,6 +96,11 @@ type Stopped struct {
 	// Detail is anything worth saying about how it stopped: that it was still
 	// holding its lease when the wait ran out, for one.
 	Detail string
+	// Forced says, for a process that did not stop when asked and was killed,
+	// why and when, and what was done for the work it was carrying; ForcedAt is
+	// when. Both are empty for a process that stopped when asked.
+	Forced   string    `json:",omitempty"`
+	ForcedAt time.Time `json:",omitempty"`
 }
 
 // NotYet is a part the configuration enables whose adoption as a child has not
@@ -681,6 +686,8 @@ func (c ChildStop) Describe() string {
 		return fmt.Sprintf("%s: was not running", c.Service)
 	case c.Stopped.Detail != "":
 		return fmt.Sprintf("%s: asked pid %d to stop; %s", c.Service, c.Stopped.PID, c.Stopped.Detail)
+	case c.Stopped.Forced != "":
+		return fmt.Sprintf("%s: stopped pid %d; %s", c.Service, c.Stopped.PID, c.Stopped.Forced)
 	default:
 		return fmt.Sprintf("%s: stopped pid %d", c.Service, c.Stopped.PID)
 	}
@@ -718,6 +725,7 @@ func DescribeChild(child runstate.SupervisedChild) string {
 			fmt.Fprintf(&said, "; %s", child.Redeploy)
 		}
 		said.WriteString(describeSettings(child))
+		said.WriteString(DescribeForcedStop(child))
 	case runstate.ChildDegraded:
 		fmt.Fprintf(&said, "degraded, %s", child.Reason)
 	case runstate.ChildDown:
@@ -732,6 +740,21 @@ func DescribeChild(child runstate.SupervisedChild) string {
 		fmt.Fprintf(&said, "%s", child.State)
 	}
 	return said.String()
+}
+
+// DescribeForcedStop is the last stop the supervisor had to force on the
+// child, in the reader's own zone, and how many there have been; it says
+// nothing for a child never forced.
+func DescribeForcedStop(child runstate.SupervisedChild) string {
+	if child.ForcedStops == 0 {
+		return ""
+	}
+	times := "once"
+	if child.ForcedStops > 1 {
+		times = fmt.Sprintf("%d times", child.ForcedStops)
+	}
+	return fmt.Sprintf("; forced to stop by the supervisor %s, most recently at %s: %s",
+		times, child.ForcedStopAt.Local().Format("2006-01-02 15:04 MST"), child.ForcedStop)
 }
 
 // describeSettings is a setting the running child holds that has changed, and
