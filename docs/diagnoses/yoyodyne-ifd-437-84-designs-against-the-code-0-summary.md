@@ -2,12 +2,25 @@
 
 ## In short
 
-- **Only 6 of the 53 design documents are current.** 28 are partly stale and 19 are mostly plans that are not built. None is superseded outright.
+- **Only 3 of the 53 design documents are current.** 30 are partly stale and 20 are mostly plans that are not built. None is superseded outright. (The first reading said 6, 28 and 19; the second reading moved four.)
 - **Every document is marked "status: active", so the label says nothing.** Plans and shipped behaviour are mixed in the same sections, and several documents list unbuilt things under "what is enforced in code".
 - **The reports hold 82 findings where the code does something else and 76 where what the document describes is not built**, each with the document line and the code line. 55 claims could not be settled.
 - **39 rules in the code decide order or choice of work, and only 5 are in the operating rules.** 11 are in the code alone, including the order among waiting written work, which is consistent with two seat picks on 2026-11-21.
 - **The readers proposed about 40 consolidations.** The largest are splitting four oversized designs into "built" and "plan", folding six small designs into their neighbours, and moving incident history out.
-- **This is evidence for the architect, not a ruling.** The documents are hers to change. The operator's assistant checked 30 findings by hand and 29 held.
+- **A second reading on a stronger model corrected the first.** Of 186 findings re-read, 129 were confirmed, 47 needed a detail corrected and 10 were wrong. The hand check of 30 findings, of which 29 held, had made the first reading look more reliable than it was.
+- **This is evidence for the architect, not a ruling.** The documents are hers to change.
+
+## The second reading
+
+Nine readers on Opus 5.5 re-read the nine reports in the evening of 2026-11-21, with main at `848d86190`. Each re-read every finding that differs or is not built, tried to settle the unclear ones, checked a sample of the matches, and looked for what the first reading missed. Their files sit beside the first reports, named `...-second-reading.md`. **Where a first report and its second reading disagree, the second reading stands.**
+
+- **186 findings re-read:** 129 confirmed, 47 corrected in a detail, 10 wrong.
+- **About 50 of the 55 unclear claims were settled.**
+- **Four verdicts changed:** `repository-confined-writes` from partly stale to mostly a plan; `needs-design-gate`, `developer-sub-agents` and `pinned-outside-files` from current to partly stale.
+- **Do not act on these as first written:** G5-56, G6-26, G7-18, G8-8 and G9-9 are wrong; G2-16, G2-39, G5-30 and G5-65 were recorded as matches and are not. Each second-reading file lists its own.
+- **The second readings also list what the first missed:** 88 mismatches and 75 contradictions between designs, each with the design's line and the code's file and line.
+
+One statement in the first version of this summary was wrong and is removed below: the warning about a service running an older build is documented, in `docs/slack/setup.md`, and the Slack design leaves the list of such messages to that guide on purpose (G7-18).
 
 ## What was done
 
@@ -48,18 +61,18 @@ The ten full reports are the files beside this one in `docs/diagnoses/` whose na
 | | heavy-check-capacity | partly stale |
 | | repeated-checks | mostly a plan |
 | | project-dependencies-in-runs | current |
-| | repository-confined-writes | partly stale |
+| | repository-confined-writes | mostly a plan (second reading; was partly stale) |
 | Roles and management | program-manager | partly stale |
 | | management-and-supervision | partly stale |
 | | management-loop-protocol | mostly a plan |
 | | architect-loop | mostly a plan |
 | | ownership-and-the-operator | partly stale |
 | | unmet-goal-review | mostly a plan |
-| | needs-design-gate | current |
+| | needs-design-gate | partly stale (second reading; was current) |
 | | placing-an-item-first | current (still reads as a plan) |
 | | one-label-per-item | mostly a plan |
 | Execution and cost | claude-execution-and-account-routing | partly stale |
-| | developer-sub-agents | current |
+| | developer-sub-agents | partly stale (second reading; was current) |
 | | provider-adapters-and-endpoints | partly stale |
 | | provider-usage-and-cost | partly stale (built, but says nothing is) |
 | | reading-published-prices | mostly a plan |
@@ -72,7 +85,7 @@ The ten full reports are the files beside this one in `docs/diagnoses/` whose na
 | | alpha-releases | mostly a plan |
 | Machine and configuration | machine-home | partly stale |
 | | portable-agent-configuration | partly stale |
-| | pinned-outside-files | current |
+| | pinned-outside-files | partly stale (second reading; was current) |
 | | project-groups | mostly a plan |
 | | tracker-store-size | partly stale |
 | | configurable-workflows | partly stale |
@@ -100,7 +113,7 @@ Finding ids point into the nine group reports; rule ids (R1 to R39) point into t
 - Repository-confined writes are specified on `openat2` and `renameat2`. The code uses Go's `os.Root` and plain renames (G4-18).
 
 **Built, and missing from the design**
-- The Slack design names about a dozen event kinds and the code has many more. The warning about a service running an older build, and the hourly heartbeat, are in no design (G7 report).
+- The Slack design names about a dozen event kinds and the code has many more (G7-17).
 - The routing design still calls the slot-pair fields and routing records future work. They are built (G6-2).
 
 **Whole documents that are plans**
@@ -159,7 +172,7 @@ The ones a decider would most want to know:
 
 ## What to treat with care
 
-- **One sampled finding is doubtful.** The dashboard report says the design's "80 percent" mark conflicts with the `usage_window_degraded_percent` setting, default 90. These may be two different thresholds, one for display and one for routing.
-- **55 claims are unclear.** Each says what was looked at. The readers also named what they did not finish, mostly the internals of overlaps between groups and a few traces through the largest files.
+- **G7-3 was doubted and is now settled.** The design's 80 percent mark and the `usage_window_degraded_percent` setting (default 90) are two different thresholds, and neither affects routing. The real conflict is that the code lists a usage window at 90 percent or more as a problem, which the design forbids.
+- **55 claims were unclear after the first reading.** The second reading settled about 50 of them. The readers also named what they did not finish, mostly the internals of overlaps between groups and a few traces through the largest files.
 - **The counts are by finding, not by claim.** Matching claims are bundled several to a line, so the 93 "matches" lines stand for roughly 290 claims.
 - **Nothing here was run.** The readers read code and did not execute it or its tests.
