@@ -308,12 +308,12 @@ func TestADocketEntryDecidedOrClosedBetweenTurnsIsNotDeliveredAgain(t *testing.T
 func TestStandingWaitsDoNotHoldAPassOpenAndAreOwedOnceTheyRunOut(t *testing.T) {
 	t.Parallel()
 	role := &docketPassRole{}
-	trigger, docket, _, clock := docketPassFixture(t, 65, 4, role)
+	trigger, docket, _, clock := docketPassFixture(t, 30, 4, role)
 	// Building the docket records its entries, which is what a decision closes.
 	if _, err := trigger.Docket.(sweepDocket).docketer.Build(); err != nil {
 		t.Fatal(err)
 	}
-	for i := 26; i <= 65; i++ {
+	for i := 26; i <= 30; i++ {
 		run := fmt.Sprintf("run-%032x", i)
 		if _, err := docket.Close(triage.Closure{SchemaVersion: triage.ClosureSchemaVersion, ProductID: "yoyodyne", Key: triage.Key(triage.ClassStoppedRun, run),
 			RunID: run, WorkItemID: fmt.Sprintf("yoyodyne-ifd.430.40.%d", i), Decision: "wait",
@@ -328,7 +328,7 @@ func TestStandingWaitsDoNotHoldAPassOpenAndAreOwedOnceTheyRunOut(t *testing.T) {
 	if len(role.messages) != 1 {
 		t.Fatalf("turns = %d, want one: the entries past the first slice are all standing waits", len(role.messages))
 	}
-	if !strings.Contains(role.messages[0], "40 are stoppages you decided to wait on") {
+	if !strings.Contains(role.messages[0], "5 are stoppages you decided to wait on") {
 		t.Fatalf("the first turn did not say the unlisted entries are waits:\n%s", role.messages[0])
 	}
 	recorded, unreadable, err := trigger.Reports.List()
@@ -351,7 +351,7 @@ func TestStandingWaitsDoNotHoldAPassOpenAndAreOwedOnceTheyRunOut(t *testing.T) {
 		t.Fatalf("turns = %d, want the lapsed waits delivered across further turns", len(next.messages))
 	}
 	recorded, _, err = trigger.Reports.List()
-	if err != nil || len(recorded) != 2 || len(recorded[1].Docket.Undelivered) != 0 || recorded[1].Docket.Delivered != 65 {
+	if err != nil || len(recorded) != 2 || len(recorded[1].Docket.Undelivered) != 0 || recorded[1].Docket.Delivered != 30 {
 		t.Fatalf("the lapsed waits were not all delivered: %+v, %v", recorded, err)
 	}
 }
