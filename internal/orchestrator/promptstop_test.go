@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,9 +39,11 @@ func stopWaitedItsBound(runID string) runstate.StopRequest {
 
 // longDeveloper is a provider whose developer attempt runs until its context is
 // cancelled, as a real attempt of an hour would, after doing what develop does.
-// It never runs longer than a minute, so a test that fails to cut it ends.
+// It never runs longer than a minute, so a test that fails to cut it ends, and
+// ranOut records that it reached that minute rather than being cut short.
 type longDeveloper struct {
 	*orchestratortest.Backend
+	ranOut *atomic.Bool
 }
 
 func (b longDeveloper) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
@@ -53,6 +56,9 @@ func (b longDeveloper) Run(ctx context.Context, request backend.RunRequest) (bac
 		result.Process.Status = execution.ProcessCancelled
 		return result, ctx.Err()
 	case <-time.After(time.Minute):
+		if b.ranOut != nil {
+			b.ranOut.Store(true)
+		}
 		return result, nil
 	}
 }
@@ -97,14 +103,18 @@ func TestAStopCutsALongDeveloperAttemptShortAtItsBound(t *testing.T) {
 		}
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("half done\n"), 0o600)
 	}, approveVerdict)
-	provider := longDeveloper{Backend: inner}
+	ranOut := &atomic.Bool{}
+	provider := longDeveloper{Backend: inner, ranOut: ranOut}
 	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
 	pipeline.StopWatchInterval = 10 * time.Millisecond
 
+	// Whether the stop cut the attempt short is read from the attempt itself
+	// rather than from the whole run's time, which on a loaded machine includes
+	// tens of seconds of worktree and check setup that say nothing about the stop.
 	started := time.Now()
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
-	if elapsed := time.Since(started); elapsed > 30*time.Second {
-		t.Fatalf("the run took %s, want the stop to have cut the attempt short", elapsed)
+	if ranOut.Load() {
+		t.Fatalf("the developer attempt ran its whole minute (the run took %s), want the stop to have cut it short", time.Since(started))
 	}
 	if err == nil {
 		t.Fatal("Run() error = nil, want the stop reported as what ended the run")
