@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-22T02:26:15.471892Z
       reason: 'yoyodyne-ifd.428.126.4.26: rules on opening the tracker store once in bd''s server mode. Adopted only on four conditions checked first on a copy: speed under load, no developer run can reach the server, every bd on this machine goes through it, and dolt installed pinned by the harness''s setup. Otherwise, and meanwhile, listings of open and ready work come from one shared listing that any write clears. Adds build pieces 7 to 10. Read whole at main 848d8619071d.'
+    - action: amended
+      by: architect
+      at: 2026-11-22T19:44:41.868185Z
+      reason: 'amendment-162715f6, approved by the architect: dolt 2.7.6 has been installed on this machine since 19:00 PST on November 21 and the server mode measurement uses it. bd''s documentation names no dolt version, so condition 4 pins 2.7.6, the version measured with bd 1.1.2, and a later pin needs a fresh measurement and a revision. Condition 4, build pieces 7 and 8, the reviewer''s checks and one assumption change. Read whole at main 1c494e218811.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-11-22T02:26:15.471892Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3370, for document-3370.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-22T19:44:41.868185Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3532, for document-3532.1 under the automatic approval policy
 ---
 # Keeping the tracker store small
 
@@ -83,6 +92,8 @@ The squash is therefore replaced by a rebuild from the export, and the wait for 
 The measuring step established earlier that the harness's own code never reads the store's history; the only reader is one conformance test. That is what makes a rebuild, which keeps no history, safe for the harness.
 
 The fix for slow listings (yoyodyne-ifd.428.126.4.24) then found, with the store small, that listings still ran past 10 seconds because every bd call pays for the store's change journal when it opens the store. Its figures are in `docs/diagnoses/yoyodyne-ifd-428-126-4-24-slow-listings.md`. Opening the store once, below, was ruled on November 21, 2026, on the reviewer's report 13a77d30 and the developer's report 37a0193e, for the ruling on server mode (yoyodyne-ifd.428.126.4.26).
+
+The version of `dolt` the harness installs was chosen on November 22, 2026, on the developer's proposal amendment-162715f6, after the operator installed `dolt` 2.7.6 on this machine and bd's documentation was found to name no version.
 
 ## Writes that stop or change
 
@@ -200,7 +211,7 @@ The harness opens the tracker store through bd's server mode, provided all four 
 1. **It is fast enough, measured first.** Server mode has never been timed here. On a copy of the live store with a journal of at least 100 MB, with developer runs loading the machine, the server and direct opening are run side by side for eight minutes, each with the live mix the diagnosis used: four processes reading one item every 12 seconds and three listing every 30 seconds. Server mode is adopted only if no listing through it takes over 10 seconds and the median one item read through it is under half a second.
 2. **No developer run can reach the server.** This is a safety boundary, not a matter of speed: no role or run reads or writes the tracker except through the harness. The server listens only on the machine's own local address, on a port the supervisor picks, behind a password the harness generates and keeps in its own state, outside every worktree and never placed in any run's environment. The measurement shows that a developer run, under the confinement it works in, is refused when it tries to connect to that port. If its confinement cannot refuse the connection, server mode is not adopted.
 3. **Every bd on this machine goes through the server while it runs.** A bd that opened the store files directly beside a running server would be a second writer on one store. The measurement finds bd's own setting for reaching the store through its server, and the harness writes it in this machine's local tracker configuration, never in a committed file, so other contributors' clones are untouched. If bd has no such setting, server mode is not adopted.
-4. **The harness installs `dolt`.** Server mode needs a `dolt` program this machine does not have. Installing a program the harness needs is harness work, not a step for the operator: the harness's setup installs `dolt` into the harness's own tools folder under its state directory, pinned to the version bd's documentation names for its server mode, and refuses a download whose checksum does not match. `yoyo doctor` reports `dolt` missing or at another version, naming the version wanted. Until it is installed the factory keeps opening the store directly, and nothing else in this design waits on it.
+4. **The harness installs `dolt` 2.7.6.** Server mode needs a `dolt` program. This machine had none until 19:00 PST on November 21, 2026, when the operator installed `dolt` 2.7.6 at `/opt/homebrew/bin/dolt`, and build piece 7 measures with that install. bd's documentation names no `dolt` version for its server mode, so the version is chosen here: `dolt` 2.7.6, the version measured with bd 1.1.2. A later version is pinned only by a revision of this design made after a fresh measurement with that version. Installing a program the harness needs is harness work, not a step for the operator, and a copy installed by hand outside the harness's own folder is not what the factory relies on: the harness's setup installs `dolt` 2.7.6 into the harness's own tools folder under its state directory, and refuses a download whose checksum does not match. `yoyo doctor` reports `dolt` missing from that folder or at another version, naming 2.7.6. Until it is installed there the factory keeps opening the store directly, and nothing else in this design waits on it.
 
 ### Running the server
 
@@ -225,6 +236,8 @@ Rejected: putting the server's address in the committed tracker configuration. I
 
 Rejected: letting a developer run reach the server and relying on it not to. No role or run reads or writes the tracker except through the harness, and that holds by what a run can reach, not by its behaviour.
 
+Rejected: relying on the copy of `dolt` the operator installed by hand. It is outside the harness's own folder, nothing records or checks its version, and a later change to it by anyone would change what the factory runs without a revision.
+
 ## Build pieces
 
 Each is admitted under the work that gives reads of the harness's present state one owner, and is bounded on its own. Pieces 1 to 3 are as first ruled.
@@ -235,12 +248,12 @@ Each is admitted under the work that gives reads of the harness's present state 
 4. The rebuild: the rehearsal on a copy and its comparison, the 60 second bound, the live rebuild under the write lock, the kept copy for 14 days and its removal, putting the kept copy back when the comparison fails, and the warnings. The fix that brings the store under its limit (yoyodyne-ifd.428.126.4.19) carries this piece, replacing the squash step it was built against, and stays open until the live store is under 1 GB.
 5. The weekly measurement checks the 10 second limit and the 1 GB size, starts the rebuild, and files the one warning. Where the measurement still runs `bd compact` or `bd flatten` on its copy, those steps are removed.
 6. The backup folder: deletion of copies older than 14 days except the newest, the ignore rule checked, the tracker's own setting set, and the stop and warning when something else is found.
-7. The measurement of server mode, first: on a copy of the live store with `dolt` installed by hand in a scratch folder, conditions 1, 2 and 3 are each checked as written above, and the figures and the outcome, adopted or not with the condition that failed, are recorded in the slow listings diagnosis. It changes nothing on the live factory.
-8. Only if piece 7 adopts server mode: the harness's setup installs `dolt`, pinned and checked by checksum, and `yoyo doctor` reports it missing or at another version.
+7. The measurement of server mode, first: on a copy of the live store, using the `dolt` 2.7.6 the operator installed on this machine on November 21, 2026, conditions 1, 2 and 3 are each checked as written above, and the figures and the outcome, adopted or not with the condition that failed, are recorded in the slow listings diagnosis, with the `dolt` and bd versions used. It changes nothing on the live factory.
+8. Only if piece 7 adopts server mode: the harness's setup installs `dolt` 2.7.6, pinned and checked by checksum, and `yoyo doctor` reports it missing or at another version.
 9. Only if piece 7 adopts server mode, after piece 8: the supervisor runs the server with the product's other parts; the tracker reader and writer connects through it and opens the store directly only while the server is known to be stopped; the local setting from condition 3 is written; the live rebuild stops and starts the server within its bound; doctor names outside processes holding the store's files; status and the dashboard say how the tracker is reached.
 10. Now, independent of pieces 7 to 9: the shared listings of open and ready items in the tracker reader and writer, cleared by any write it makes and never more than 30 seconds old, used by every caller of those listings, with claims and writes reading their item afresh. It widens piece 3.
 
-A reviewer can check each piece against this design alone: the comparison covers items, notes, dependencies, labels and comments; nothing lists work items to decide a rebuild is due; no rebuild runs when the rehearsal exceeds 60 seconds; the live store is never left missing; no step holds new starts or waits for runs in flight; server mode is never adopted without the figures for all four conditions recorded; no developer run is given the server's address or password; the store is never opened directly while the server might hold it; and no write is decided from a shared listing.
+A reviewer can check each piece against this design alone: the comparison covers items, notes, dependencies, labels and comments; nothing lists work items to decide a rebuild is due; no rebuild runs when the rehearsal exceeds 60 seconds; the live store is never left missing; no step holds new starts or waits for runs in flight; server mode is never adopted without the figures for all four conditions recorded; the version setup installs and doctor checks is 2.7.6; no developer run is given the server's address or password; the store is never opened directly while the server might hold it; and no write is decided from a shared listing.
 
 ## Assumptions
 
@@ -253,5 +266,6 @@ These are what this design takes to be true; a measurement that shows otherwise 
 - A shared listing for the dashboard exists or can be built on the one tracker reader.
 - Ten seconds leaves room under every caller's wait.
 - bd's server mode reads and writes the same store files as direct opening, so the export and the rebuild are unchanged by it; piece 7 checks this by comparing exports taken each way.
+- bd 1.1.2's server mode works with `dolt` 2.7.6; piece 7 checks this, and a failure there is recorded as server mode not adopted.
 
 This is a design decision, not an invariant: a change that gets it wrong slows the factory but breaks nothing outside its own scope, and the comparison and the kept copy stand between a wrong change and lost work. The one rule here a change could break outside its own scope, that no run reaches the tracker except through the harness, is already held by the operating rules and by condition 2.
