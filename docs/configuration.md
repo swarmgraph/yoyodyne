@@ -3852,13 +3852,17 @@ restart during the wait pushes nothing and carries on with the same wait.
 A required check that failed on the forge goes back to the developer as a
 failed check. The harness reads the forge's log, because a developer's sandbox
 has no network, and records on the run the failing checks, the failing tests
-the log names, and the end of each failing check's output, with secrets removed,
-in the shape a local failed check is recorded in (so each check keeps a share of
-the same 8 KiB a local check's output is held to). It spends one repair round.
-After the repair the short local check runs again, the new commit is pushed, and
-it needs a result of its own: a result for an earlier commit is never carried
-forward. If the log cannot be read, that is the forge being unreadable, not a
-failure of the change, and the next paragraph applies.
+the log names, and the end of each failing check's output, with terminal colour
+codes and secrets removed, in the shape a local failed check is recorded in (so
+each check keeps a share of the same 8 KiB a local check's output is held to).
+It spends one repair round. After the repair the short local check runs again,
+the new commit is pushed, and it needs a result of its own: a result for an
+earlier commit is never carried forward. If a failed check's log cannot be read,
+the failure still goes back to the developer, naming the check, why its log
+could not be read, and a link to it; the full checks do not run on this machine
+instead, because the forge has already said the check failed. The harness also
+files one warning report for the development manager for that commit, naming
+each check whose log it could not read and why.
 
 When the wait ends any other way, the run runs the full declared checks on this
 machine over the same commit and goes on from their result, and the reason is
@@ -3874,7 +3878,9 @@ when the local checks have passed and again before the approved change is
 promoted. An answer it finds is recorded on the run too, and a failure from
 either the forge or this machine counts as a failure: a required check that
 failed on the forge goes back to the developer as a failing check and spends a
-repair round, even though the local checks passed. The other stages of the flow
+repair round, even though the local checks passed. That failure carries the
+failing tests and the end of each failing check's log, read the same way as
+above, and not only a link to the forge's page. The other stages of the flow
 arrive in later builds.
 
 A push the forge refuses, or a draft pull request it will not open, blocks the

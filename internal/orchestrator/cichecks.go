@@ -19,7 +19,10 @@ package orchestrator
 // A required check that failed on the forge is a failed check, not an outage:
 // it goes back to the developer with the failing checks, the failing tests and
 // the end of each check's output, secrets removed, recorded on the run as a
-// local failed check is, and it spends one repair round. After the repair the
+// local failed check is, and it spends one repair round. A failed check whose
+// log cannot be read is still a failed check: it goes back with why its log
+// could not be read, and is not a reason to run the full checks here
+// (handBackCIFailure). After the repair the
 // short local check runs again and the new commit is pushed and waited on for
 // its own result; a result for an earlier commit is never carried forward.
 //
@@ -38,8 +41,11 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/checks"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -282,18 +288,16 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 // handBackCIFailure ends the wait on required checks that failed on the
 // commit and returns them as a failed check, which the round's repair loop
 // records and answers with one repair round like any failed check. The forge's
-// output is read here because a developer's sandbox has no network. If it
-// cannot be read the forge is unreadable, which is an outage and not a failure
-// of the change, so the full checks run on this machine instead.
+// output is read here because a developer's sandbox has no network.
+//
+// A log that cannot be read does not send the run to the full checks on this
+// machine: the forge has just said the check failed, so the failure is handed
+// back all the same, naming the check, why its log could not be read and where
+// it is, and the unreadable log is reported once (readCIOutputs). Running the
+// whole suite here instead would cost up to an hour and a half and, when it
+// passed, still end with the forge's failure handed back without its cause.
 func (a *activeRun) handBackCIFailure(ctx context.Context, wait runstate.CIWait, failed []publish.RequiredCheck) error {
-	outputs := make([]publish.CheckOutput, len(failed))
-	for i, check := range failed {
-		output, err := a.pipeline.CIForge.CheckOutput(ctx, check)
-		if err != nil {
-			return a.endCIWaitWithFullChecks(ctx, wait, fmt.Sprintf("%s failed on the forge and its output could not be read: %v", check.Name, err))
-		}
-		outputs[i] = output
-	}
+	outputs, reported := a.readCIOutputs(ctx, wait.Commit, failed)
 	names := make([]string, len(failed))
 	for i, check := range failed {
 		names[i] = check.Name
@@ -301,7 +305,8 @@ func (a *activeRun) handBackCIFailure(ctx context.Context, wait runstate.CIWait,
 	now := a.pipeline.clock().Now()
 	a.state.CIWait = nil
 	a.state.CIWaitEnd = &runstate.CIWaitEnd{Commit: wait.Commit, At: now,
-		Says: "required checks failed on the forge, so the change went back to its developer: " + strings.Join(names, ", ")}
+		Says:              "required checks failed on the forge, so the change went back to its developer: " + strings.Join(names, ", "),
+		UnreadLogReported: reported}
 	a.state.UpdatedAt = now
 	// Nothing is saved here: the repair loop records the failure and saves the
 	// run when it spends the repair round. A process that stops before then
@@ -310,39 +315,148 @@ func (a *activeRun) handBackCIFailure(ctx context.Context, wait runstate.CIWait,
 	return checkFailure{result: ciFailureResult(wait.Commit, failed, outputs)}
 }
 
+// ciCheckOutput is one failing check's output as read from the forge, or why
+// it could not be read.
+type ciCheckOutput struct {
+	publish.CheckOutput
+	unread error
+}
+
+// readCIOutputs reads the log of each failing check on commit. A log that
+// cannot be read is kept as the reason, and the first time a log on this commit
+// cannot be read the harness reports it, once, naming each such check and why.
+// It returns whether that report is owed no longer, which the caller records on
+// the wait's ending (runstate.CIWaitEnd.UnreadLogReported) so a later read of
+// the same commit does not report it again.
+func (a *activeRun) readCIOutputs(ctx context.Context, commit string, failed []publish.RequiredCheck) ([]ciCheckOutput, bool) {
+	outputs := make([]ciCheckOutput, len(failed))
+	var unread, links []string
+	for i, check := range failed {
+		output, err := a.pipeline.CIForge.CheckOutput(ctx, check)
+		outputs[i] = ciCheckOutput{CheckOutput: output, unread: err}
+		if err != nil {
+			unread = append(unread, fmt.Sprintf("%s (%v)", check.Name, err))
+			if check.URL != "" {
+				links = append(links, check.Name+": "+check.URL)
+			}
+		}
+	}
+	reported := a.unreadLogReported(commit)
+	if len(unread) == 0 || reported {
+		return outputs, reported
+	}
+	return outputs, a.reportUnreadCILogs(commit, unread, links)
+}
+
+// unreadLogReported reports whether an unreadable log on commit was already
+// reported for this run.
+func (a *activeRun) unreadLogReported(commit string) bool {
+	end := a.state.CIWaitEnd
+	return end != nil && end.UnreadLogReported && end.Commit == commit
+}
+
+// reportUnreadCILogs files the harness's one report that the log of a check
+// that failed on the forge could not be read, for the development manager,
+// and returns whether it was filed. A report that could not be filed is noted
+// on the run and tried again the next time the commit's logs are read.
+func (a *activeRun) reportUnreadCILogs(commit string, unread, links []string) bool {
+	p := a.pipeline
+	if p.Reports == nil {
+		return false
+	}
+	message := fmt.Sprintf("Run %s: GitHub says a required check failed on commit %s, and the harness could not read that check's log: %s. "+
+		"The developer was handed the failure without the failing test or its output, so the repair may be a guess until somebody reads the log on GitHub",
+		a.state.RunID, shortCommit(commit), oneline.Fold(strings.Join(unread, "; "), report.MaxMessageBytes/2))
+	if len(links) > 0 {
+		message += " (" + strings.Join(links, ", ") + ")"
+	}
+	message += "."
+	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityWarning, Message: message, For: domain.RoleDevelopmentManager}}, report.Attribution{
+		Role:         report.HarnessReporter,
+		RunID:        a.state.RunID,
+		WorkItemID:   a.state.WorkItemID,
+		Build:        p.Build,
+		ProductID:    p.Config.Product.ID,
+		RepositoryID: string(p.Config.Product.RepositoryID),
+	}, p.clock().Now())
+	if err == nil {
+		for _, reported := range collected {
+			if err = p.Reports.Append(reported); err != nil {
+				break
+			}
+		}
+	}
+	if err != nil {
+		a.noteReportProblem(report.HarnessReporter, fmt.Errorf("the report that a check's log on the forge could not be read: %w", err))
+		return false
+	}
+	return true
+}
+
 // ciFailureResult is the forge's failure in the shape of a local failed check:
 // a command, a failing exit, and an output that opens with the failing tests
 // as checks.FailingNames reads them, followed by the end of each failing
 // check's output. The whole is held to the bound a recorded check output has,
 // so each check keeps an equal share of its end.
-func ciFailureResult(commit string, failed []publish.RequiredCheck, outputs []publish.CheckOutput) checks.Result {
-	var names, tests []string
-	for i, check := range failed {
+func ciFailureResult(commit string, failed []publish.RequiredCheck, outputs []ciCheckOutput) checks.Result {
+	var names []string
+	for _, check := range failed {
 		names = append(names, check.Name)
-		tests = append(tests, outputs[i].FailingTests...)
 	}
-	header := checks.FailingNamesLine(tests)
-	if header == "" {
-		header = "No failing test was named in the forge's output, so only its end is kept.\n"
-	}
-	header += fmt.Sprintf("Failed on the forge for commit %s.\n", commit)
-	share := (runstate.MaxCheckOutputBytes - len(header)) / len(failed)
-	var body strings.Builder
-	for i, check := range failed {
-		section := fmt.Sprintf("\nCheck %s (%s):\n", check.Name, check.Result)
-		tail := strings.TrimRight(outputs[i].Tail, "\n")
-		if outputs[i].Cut {
-			tail = "[earlier check output truncated]\n" + tail
-		}
-		body.WriteString(section)
-		body.WriteString(boundedTail(tail, max(share-len(section), 0)))
-		body.WriteString("\n")
-	}
+	header := ciFailingTestsLine(outputs) + fmt.Sprintf("Failed on the forge for commit %s.\n", commit)
 	return checks.Result{
 		Command:       "checks on the forge: " + strings.Join(names, ", "),
 		Process:       execution.ProcessResult{ExitCode: 1},
-		FailureOutput: boundedTail(header+body.String(), runstate.MaxCheckOutputBytes),
+		FailureOutput: ciFailureOutput(header, failed, outputs, runstate.MaxCheckOutputBytes),
 	}
+}
+
+// ciFailingTestsLine is the line that opens a forge failure's output: the
+// failing tests as checks.FailingNames reads them back, or why none is named.
+func ciFailingTestsLine(outputs []ciCheckOutput) string {
+	var tests []string
+	read := 0
+	for _, output := range outputs {
+		if output.unread == nil {
+			read++
+			tests = append(tests, output.FailingTests...)
+		}
+	}
+	if line := checks.FailingNamesLine(tests); line != "" {
+		return line
+	}
+	if read == 0 {
+		return "The forge's log of the failing checks could not be read, so the failing tests are not known.\n"
+	}
+	return "No failing test was named in the forge's output, so only its end is kept.\n"
+}
+
+// ciFailureOutput is header followed by each failing check's section: the end
+// of its log, or why its log could not be read and where it is. The whole is
+// held to limit, and each check keeps an equal share of what the header
+// leaves.
+func ciFailureOutput(header string, failed []publish.RequiredCheck, outputs []ciCheckOutput, limit int) string {
+	share := (limit - len(header)) / max(len(failed), 1)
+	var body strings.Builder
+	for i, check := range failed {
+		section := fmt.Sprintf("\nCheck %s (%s):\n", check.Name, check.Result)
+		var tail string
+		if outputs[i].unread != nil {
+			tail = "Its log on the forge could not be read: " + outputs[i].unread.Error()
+			if check.URL != "" {
+				tail += "\nThe log is at " + check.URL
+			}
+		} else {
+			tail = strings.TrimRight(outputs[i].Tail, "\n")
+			if outputs[i].Cut {
+				tail = "[earlier check output truncated]\n" + tail
+			}
+		}
+		body.WriteString(section)
+		body.WriteString(boundedTail(tail, max(share-len(section)-1, 0)))
+		body.WriteString("\n")
+	}
+	return boundedTail(header+body.String(), limit)
 }
 
 type ciEvidence struct {
@@ -428,8 +542,10 @@ func (a *activeRun) parkAgain(wait runstate.CIWait, _ string) error {
 // declared checks over the same commit. The result stands for this commit only:
 // a repaired commit starts the flow again at the short check.
 func (a *activeRun) endCIWaitWithFullChecks(ctx context.Context, wait runstate.CIWait, why string) error {
+	reported := a.unreadLogReported(wait.Commit)
 	a.state.CIWait = nil
-	a.state.CIWaitEnd = &runstate.CIWaitEnd{Commit: wait.Commit, At: a.pipeline.clock().Now(), Says: why + "; the full checks run on this machine over the same commit"}
+	a.state.CIWaitEnd = &runstate.CIWaitEnd{Commit: wait.Commit, At: a.pipeline.clock().Now(), Says: why + "; the full checks run on this machine over the same commit",
+		UnreadLogReported: reported}
 	a.fullLocalCommit = wait.Commit
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
@@ -493,8 +609,21 @@ func (a *activeRun) lateCIResult(ctx context.Context) error {
 	if len(failed) == 0 {
 		return nil
 	}
+	outputs, reported := a.readCIOutputs(ctx, end.Commit, failed)
+	end.UnreadLogReported = reported
+	end.Late = &runstate.CIWaitLate{At: now, Says: lateCIFailureSays(end.Commit, failed, outputs)}
+	a.state.UpdatedAt = now
+	return lateCIFailure(end.Late.Says)
+}
+
+// lateCIFailureSays is the forge's later failure as the run records it and the
+// developer is handed it: the failing tests first, as checks.FailingNames reads
+// them, then which checks failed and where, then the end of each check's log or
+// why it could not be read. It is held to the bound the record keeps of it, so
+// a repair that leaves the commit as it was is handed the same text again.
+func lateCIFailureSays(commit string, failed []publish.RequiredCheck, outputs []ciCheckOutput) string {
 	lines := make([]string, 0, len(failed)+1)
-	lines = append(lines, "The full checks passed on this machine, but these required checks failed on the forge for the same commit "+end.Commit+", and a failure from either counts:")
+	lines = append(lines, "The full checks passed on this machine, but these required checks failed on the forge for the same commit "+commit+", and a failure from either counts:")
 	for _, check := range failed {
 		line := "- " + check.Name + " ended " + string(check.Result)
 		if check.URL != "" {
@@ -502,9 +631,8 @@ func (a *activeRun) lateCIResult(ctx context.Context) error {
 		}
 		lines = append(lines, line)
 	}
-	end.Late = &runstate.CIWaitLate{At: now, Says: strings.Join(lines, "\n")}
-	a.state.UpdatedAt = now
-	return lateCIFailure(end.Late.Says)
+	header := ciFailingTestsLine(outputs) + strings.Join(lines, "\n") + "\n"
+	return strings.TrimRight(ciFailureOutput(header, failed, outputs, runstate.MaxRecordedTextBytes), "\n")
 }
 
 // lateCIFailure is the forge's later failure as a failing check, in the shape

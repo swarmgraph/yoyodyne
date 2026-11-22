@@ -416,7 +416,7 @@ func (g GitHub) JobLogTail(ctx context.Context, checkRun int64, lines int) (stri
 	if checkRun <= 0 {
 		return "", fmt.Errorf("check run %d is not a check run", checkRun)
 	}
-	result, err := g.api(ctx, fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", checkRun))
+	result, err := g.jobLog(ctx, checkRun)
 	if err != nil {
 		return "", fmt.Errorf("read the forge's log of check %d: %w", checkRun, err)
 	}
@@ -495,7 +495,7 @@ func (g GitHub) FailedStep(ctx context.Context, checkRun int64, maxBytes int) (J
 	if failed != nil {
 		failure.Step, failure.StepNumber = strings.TrimSpace(failed.Name), failed.Number
 	}
-	result, err := g.api(ctx, fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", checkRun))
+	result, err := g.jobLog(ctx, checkRun)
 	if err != nil {
 		return failure, fmt.Errorf("read the forge's log of check %d: %w", checkRun, err)
 	}

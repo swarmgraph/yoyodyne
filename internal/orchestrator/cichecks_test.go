@@ -13,6 +13,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -35,8 +36,10 @@ type fakeCIForge struct {
 	// failOn is a commit the forge reports failing whatever result says, so a
 	// repaired commit can pass where the one before it failed.
 	failOn string
-	// outputReads counts reads of a failing check's output.
+	// outputReads counts reads of a failing check's output, and outputErr,
+	// where set, is what every such read fails with.
 	outputReads int
+	outputErr   error
 	// digest is the workflow digest the forge gives; reading another commit is
 	// answered as if the forge's checks had run on readCommit.
 	digest     string
@@ -92,7 +95,7 @@ func (f *fakeCIForge) RequiredChecks(_ context.Context, commit string, required 
 				result = publish.CheckFailed
 			}
 		}
-		reading.Checks = append(reading.Checks, publish.RequiredCheck{Name: name, Result: result, Commit: commit, ID: 11})
+		reading.Checks = append(reading.Checks, publish.RequiredCheck{Name: name, Result: result, Commit: commit, ID: 11, URL: "https://forge.example/job/" + name})
 	}
 	return reading, nil
 }
@@ -101,6 +104,9 @@ func (f *fakeCIForge) CheckOutput(_ context.Context, check publish.RequiredCheck
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.outputReads++
+	if f.outputErr != nil {
+		return publish.CheckOutput{}, f.outputErr
+	}
 	return publish.CheckOutput{FailingTests: []string{"TestWidget"}, Tail: "--- FAIL: TestWidget (0.00s)\nFAIL\n"}, nil
 }
 
@@ -121,6 +127,7 @@ type ciFixture struct {
 	store                    *runstate.Store
 	tracker                  *orchestratortest.Tracker
 	forge                    *fakeCIForge
+	reports                  *fakeReports
 	shortLog, fullLog        string
 	providers                []*orchestratortest.Backend
 	developed                int
@@ -135,6 +142,7 @@ func newCIFixture(t *testing.T) *ciFixture {
 		repository: repository, worktreeRoot: worktreeRoot, store: store,
 		tracker:  &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}},
 		forge:    &fakeCIForge{result: publish.CheckPending},
+		reports:  &fakeReports{},
 		shortLog: filepath.Join(dir, "short.log"), fullLog: filepath.Join(dir, "full.log"),
 	}
 }
@@ -161,6 +169,7 @@ func (f *ciFixture) pipeline(t *testing.T, enabled bool) Pipeline {
 	pipeline.Config.Execution.CIChecks.Local = []string{short}
 	pipeline.Config.Execution.CIChecks.Required = []string{"test", "race"}
 	pipeline.CIForge = f.forge
+	pipeline.Reports = f.reports
 	return pipeline
 }
 
@@ -393,7 +402,7 @@ func TestCIFailureResultKeepsTheOutputWithinTheRecordedBound(t *testing.T) {
 	t.Parallel()
 	big := strings.Repeat("a line of output that is long enough\n", 1000)
 	failed := []publish.RequiredCheck{{Name: "test", Result: publish.CheckFailed}, {Name: "race", Result: publish.CheckFailed}}
-	result := ciFailureResult(strings.Repeat("c", 40), failed, []publish.CheckOutput{{Tail: big, Cut: true}, {Tail: big}})
+	result := ciFailureResult(strings.Repeat("c", 40), failed, []ciCheckOutput{{CheckOutput: publish.CheckOutput{Tail: big, Cut: true}}, {CheckOutput: publish.CheckOutput{Tail: big}}})
 	if len(result.FailureOutput) > runstate.MaxCheckOutputBytes {
 		t.Fatalf("output is %d bytes, over %d", len(result.FailureOutput), runstate.MaxCheckOutputBytes)
 	}
@@ -560,6 +569,13 @@ func TestChecksOnCIRecordsTheForgesLaterAnswerAndCountsItsFailure(t *testing.T) 
 			for _, request := range provider.RequestsForRole(domain.RoleDeveloper) {
 				if strings.Contains(request.Prompt, "failed on the forge for the same commit") {
 					handedBack = true
+					// The failing test and the end of its output reach the
+					// developer, not only a link to the forge's page.
+					for _, want := range []string{"TestWidget", "--- FAIL: TestWidget", "https://forge.example/job/test"} {
+						if !strings.Contains(request.Prompt, want) {
+							t.Errorf("the repair prompt for the forge's later failure lacks %q:\n%s", want, request.Prompt)
+						}
+					}
 				}
 			}
 		}
@@ -718,4 +734,110 @@ type changingDigestForge struct {
 func (f *changingDigestForge) WorkflowDigest(_ context.Context, _ string) (string, error) {
 	f.calls++
 	return "sha256:workflows-v" + string(rune('0'+f.calls)), nil
+}
+
+// A required check that failed on the forge whose log cannot be read still goes
+// back to the developer: the run does not repeat the whole suite on this
+// machine, the repair is told which check failed, why its log could not be
+// read and where it is, and the harness reports the unreadable log once.
+func TestChecksOnCIAFailedCheckWhoseLogCannotBeReadGoesBackWithoutTheFullChecks(t *testing.T) {
+	t.Parallel()
+	f := newCIFixture(t)
+	_, parked := f.park(t)
+	f.forge.mu.Lock()
+	f.forge.failOn = parked.CIWait.Commit
+	f.forge.outputErr = errors.New("read the forge's log of check \"test\": exit code 1: HTTP 410: Gone")
+	f.forge.mu.Unlock()
+
+	outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !outcome.Paused || outcome.PausedByCIWait == nil {
+		t.Fatalf("outcome = %#v, want the repaired commit waiting for its own result", outcome)
+	}
+	state, err := f.store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RepairAttempts != 1 || logLines(t, f.fullLog) != 0 {
+		t.Fatalf("repair attempts=%d full checks=%d, want one repair round and no full checks on this machine", state.RepairAttempts, logLines(t, f.fullLog))
+	}
+	var prompt string
+	for _, provider := range f.providers {
+		for _, request := range provider.RequestsForRole(domain.RoleDeveloper) {
+			if strings.Contains(request.Prompt, "repair attempt 1 of") {
+				prompt = request.Prompt
+			}
+		}
+	}
+	for _, want := range []string{"checks on the forge: test, race", "could not be read", "HTTP 410: Gone", "https://forge.example/job/test", parked.CIWait.Commit} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("repair prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	if len(f.reports.appended) != 1 {
+		t.Fatalf("reports = %#v, want exactly one about the unreadable log", f.reports.appended)
+	}
+	filed := f.reports.appended[0]
+	if filed.For != domain.RoleDevelopmentManager || filed.Severity != "warning" ||
+		!strings.Contains(filed.Message, "test (") || !strings.Contains(filed.Message, "HTTP 410: Gone") || !strings.Contains(filed.Message, outcome.RunID) {
+		t.Fatalf("report = %#v, want a warning for the development manager naming the run, the check and why", filed)
+	}
+}
+
+// The unreadable log is reported once for a commit: reading the same commit's
+// logs again, as a repair that left the change as it was does, files nothing
+// more, and another commit's unreadable log is reported on its own.
+func TestAnUnreadableCheckLogIsReportedOnceForACommit(t *testing.T) {
+	t.Parallel()
+	forge := &fakeCIForge{outputErr: errors.New("HTTP 403: Resource not accessible by integration")}
+	reports := &fakeReports{}
+	pipeline := Pipeline{CIForge: forge, Reports: reports}
+	pipeline.Config.Product.ID = "yoyodyne"
+	pipeline.Config.Product.RepositoryID = "yoyodyne"
+	run := &activeRun{pipeline: pipeline, state: runstate.State{RunID: "run-unread-log", WorkItemID: "yoyodyne-task"}}
+	failed := []publish.RequiredCheck{{Name: "test", Result: publish.CheckFailed, ID: 11, URL: "https://forge.example/job/test"}}
+	first, second := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	for _, commit := range []string{first, first, second} {
+		err := run.handBackCIFailure(context.Background(), runstate.CIWait{Commit: commit, Required: []string{"test"}}, failed)
+		var failure checkFailure
+		if !errors.As(err, &failure) {
+			t.Fatalf("handBackCIFailure() = %v, want the failure handed back", err)
+		}
+		if out := failure.result.FailureOutput; !strings.Contains(out, "could not be read") || !strings.Contains(out, "HTTP 403") {
+			t.Fatalf("failure output = %q, want why the log could not be read", out)
+		}
+		if !run.state.CIWaitEnd.UnreadLogReported {
+			t.Fatalf("how the wait ended = %#v, want the report recorded as made (%s)", run.state.CIWaitEnd, run.outcome.ReportProblem)
+		}
+	}
+	if len(reports.appended) != 2 {
+		t.Fatalf("filed %d reports, want one for each commit", len(reports.appended))
+	}
+}
+
+// The forge's later failure, recorded on the run, opens with the failing tests
+// so the run's record names them, keeps the end of the log, and fits what the
+// record keeps of it.
+func TestLateCIFailureSaysNamesTheFailingTestsWithinTheRecordedBound(t *testing.T) {
+	t.Parallel()
+	big := strings.Repeat("a line of output that is long enough\n", 1000) + "--- FAIL: TestWidget (0.00s)"
+	failed := []publish.RequiredCheck{{Name: "test", Result: publish.CheckFailed}, {Name: "race", Result: publish.CheckFailed}}
+	says := lateCIFailureSays(strings.Repeat("c", 40), failed, []ciCheckOutput{
+		{CheckOutput: publish.CheckOutput{FailingTests: []string{"TestWidget"}, Tail: big, Cut: true}},
+		{unread: errors.New("HTTP 502")},
+	})
+	if len(says) > runstate.MaxRecordedTextBytes {
+		t.Fatalf("says is %d bytes, over %d", len(says), runstate.MaxRecordedTextBytes)
+	}
+	names := checks.FailingNames(checks.Result{FailureOutput: says})
+	if strings.Join(names, ",") != "TestWidget" {
+		t.Fatalf("failing names read back = %v, want TestWidget", names)
+	}
+	for _, want := range []string{"--- FAIL: TestWidget", "Check race (failed):", "HTTP 502", "failed on the forge for the same commit"} {
+		if !strings.Contains(says, want) {
+			t.Errorf("says lacks %q:\n%s", want, says)
+		}
+	}
 }
