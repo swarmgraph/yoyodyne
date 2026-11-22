@@ -212,7 +212,7 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 		adopted = rebuilt
 	}
 	live := catchUpState(adopted, entry, handback, marker, h.now())
-	if err := h.CatchUp.ReserveLive(ctx, live, h.Capacity); err != nil {
+	if err := h.CatchUp.ReserveLive(withPairs(ctx, h.SlotPairs), live, h.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			return false, "", MergeQueueCatchUpWaiting{RunID: entry.RunID, TargetBranch: entry.TargetBranch, Why: slotWentElsewhere(capacity)}
 		}

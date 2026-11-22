@@ -512,7 +512,7 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 			published.Number, target, why)
 		return result, nil
 	}
-	if err := r.Store.ReserveLive(ctx, resumed, r.Capacity); err != nil {
+	if err := r.Store.ReserveLive(withPairs(ctx, r.SlotPairs), resumed, r.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
 			if dropped {
 				return waiting(putBackWait(capacity))
