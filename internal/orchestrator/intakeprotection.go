@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -126,10 +127,7 @@ func readWorktreeConfiguration(root, file string) ([]byte, error) {
 func boundedIntakeSettings(settings []string) []string {
 	bounded := make([]string, 0, len(settings))
 	for _, setting := range settings {
-		if len(setting) > runstate.MaxIntakeSettingBytes {
-			setting = strings.ToValidUTF8(setting[:runstate.MaxIntakeSettingBytes-len("…")], "") + "…"
-		}
-		bounded = append(bounded, setting)
+		bounded = append(bounded, oneline.Fold(setting, runstate.MaxIntakeSettingBytes-len(oneline.Marker)))
 	}
 	if len(bounded) > runstate.MaxIntakeSettings {
 		dropped := len(bounded) - (runstate.MaxIntakeSettings - 1)
