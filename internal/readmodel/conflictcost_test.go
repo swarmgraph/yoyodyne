@@ -124,7 +124,7 @@ func TestTheDevelopmentManagersPassIsToldTheFilesInConflict(t *testing.T) {
 	handedBack(t, &run, "2026-11-11 09:00", 4, "old.go")
 	handedBack(t, &run, "2026-11-17 09:00", 4, "x.go")
 	said := ConflictFilesSection(conflictRuns{runs: []runstate.State{run}}, now)
-	for _, phrase := range []string{"This week, from 2026-11-16: 1 hand-back", "x.go in 1, from The first item (item-a)", "Last week, from 2026-11-09", "old.go in 1"} {
+	for _, phrase := range []string{"This week, from 2026-11-16: changes handed back for a conflict 1 time", "x.go in 1, from The first item (item-a)", "Last week, from 2026-11-09", "old.go in 1"} {
 		if !strings.Contains(said, phrase) {
 			t.Errorf("section = %q, want %q", said, phrase)
 		}

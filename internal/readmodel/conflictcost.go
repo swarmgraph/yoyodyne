@@ -229,7 +229,7 @@ func (f ConflictFiles) says() string {
 	if f.Handbacks == 0 {
 		return "no change was handed back for a conflict"
 	}
-	said := fmt.Sprintf("%s for a conflict, ", count(f.Handbacks, "hand-back"))
+	said := fmt.Sprintf("changes handed back for a conflict %s, ", count(f.Handbacks, "time"))
 	switch {
 	case f.LinesUnknown == f.Handbacks:
 		said += "conflicting lines not known"

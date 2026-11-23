@@ -202,13 +202,14 @@ func (h ConflictHandback) Validate() error {
 // validConflictLines reports a count of conflicting lines that disagrees with
 // itself. Both absent is a record from before the lines were counted.
 func validConflictLines(lines *int, unknown string) error {
-	switch {
-	case lines != nil && (*lines < 1 || unknown != ""):
-		return errors.New("a known count of conflicting lines is at least one and does not also say why it is unknown")
-	case len(unknown) > MaxConflictLinesUnknownBytes:
-		return fmt.Errorf("lines_unknown is %d bytes, which exceeds the %d byte bound", len(unknown), MaxConflictLinesUnknownBytes)
+	var problems []error
+	if lines != nil && (*lines < 1 || unknown != "") {
+		problems = append(problems, errors.New("a known count of conflicting lines is at least one and does not also say why it is unknown"))
 	}
-	return nil
+	if len(unknown) > MaxConflictLinesUnknownBytes {
+		problems = append(problems, fmt.Errorf("lines_unknown is %d bytes, which exceeds the %d byte bound", len(unknown), MaxConflictLinesUnknownBytes))
+	}
+	return errors.Join(problems...)
 }
 
 // SpendConflict is what a line of the cost log says of merge conflicts.
