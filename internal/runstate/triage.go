@@ -260,6 +260,15 @@ type TriageCounters struct {
 	// See SetAsideCarryOutNotes.
 	UndeliverableCarryOutNotes []UndeliverableCarryOutNote `json:"undeliverable_carry_out_notes,omitempty"`
 	UpdatedAt                  time.Time                   `json:"updated_at"`
+	// Replaced is the repair or re-run, still to be carried out, that the
+	// decision just recorded put an end to (Store.RecordTriageDecision). It is
+	// never stored: it is set only on the record that call returns, so whoever
+	// recorded the decision can say that the earlier one will not now happen.
+	// A decision recorded on a different run's stoppage shares nothing but the
+	// run's identifier with it — a wait about a run's publication replaces a
+	// re-run decided about the same run's stoppage — so saying so at the moment
+	// it is recorded is the only point at which the person deciding can notice.
+	Replaced *TriageDecision `json:"-"`
 }
 
 // Validate reports every contract violation in the record at once.
