@@ -623,6 +623,10 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		PersonOnly:     outcome.Action.PersonOnly,
 		OperatorReason: operatorReason,
 		Hand:           outcome.Action.Hand,
+		Credential:     outcome.Action.Credential,
+		// A missing capability is a defect for the Lead Product Manager, so it
+		// is not his list it goes on: OperatorActions reads neither field here.
+		MissingCapability: outcome.Action.MissingCapability,
 	}
 	if err := s.options.Reports.Handle(handling); err != nil {
 		outcome.fail(err)
@@ -642,6 +646,11 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		// what the operator is told and what `yoyo status` names is this record.
 		outcome.applied("recorded that %s, reported at %q by the %s%s, needs the operator's hand; it is named on `yoyo status` and said to him directly until a later handling records the change made%s",
 			subject.ID, subject.Severity, RoleTitle(subject.Role), reportedOn(subject), mappingClause(requests))
+		return
+	}
+	if missing := handling.MissingCapability; missing != nil {
+		outcome.applied("recorded that %s, reported at %q by the %s%s, needs only read access no role has — %s — which is a capability the harness lacks and not the operator's: it is not put to him; admit the defect naming the role and the system, citing %s, unless this reply already does%s",
+			subject.ID, subject.Severity, RoleTitle(subject.Role), reportedOn(subject), missing.Says(), subject.ID, mappingClause(requests))
 		return
 	}
 	if handling.Hand != "" {
@@ -671,6 +680,9 @@ func (s *Session) handlingOperatorReason(action TrackerAction) (ownership.Operat
 		reason = ownership.OperatorReasonOf(*action.PersonOnly)
 	}
 	if err := ownership.CheckOperatorRouting(s.state.Role, reason); err != nil {
+		return "", fmt.Errorf("the handling of %s names the operator and was not recorded: %w", strings.TrimSpace(action.Report), err)
+	}
+	if err := ownership.CheckCredential(reason, action.Credential); err != nil {
 		return "", fmt.Errorf("the handling of %s names the operator and was not recorded: %w", strings.TrimSpace(action.Report), err)
 	}
 	return reason, nil

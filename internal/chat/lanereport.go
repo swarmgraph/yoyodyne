@@ -70,8 +70,11 @@ type laneReportHumanBlock struct {
 	Item   string `json:"item"`
 	What   string `json:"what"`
 	Reason string `json:"reason"`
-	Cites  string `json:"cites"`
-	Since  string `json:"since"`
+	// Credential says which secret or account an entry under "credential"
+	// needs; validation refuses the entry without it.
+	Credential *ownership.Credential `json:"credential"`
+	Cites      string                `json:"cites"`
+	Since      string                `json:"since"`
 }
 
 // LaneReportOutcome is what became of the lane report a reply carried: the
@@ -176,7 +179,7 @@ func decodeLaneReport(payload string) (*runstate.LaneReportContent, error) {
 			continue
 		}
 		content.BlockedOnAHuman = append(content.BlockedOnAHuman, runstate.LaneReportHumanBlock{
-			Item: entry.Item, What: entry.What, Reason: ownership.OperatorReason(entry.Reason), Cites: entry.Cites, Since: since,
+			Item: entry.Item, What: entry.What, Reason: ownership.OperatorReason(entry.Reason), Credential: entry.Credential, Cites: entry.Cites, Since: since,
 		})
 	}
 	// An entry that breaks the contract is refused on its own and the rest of
@@ -331,12 +334,12 @@ You keep one report on your lane. It opens with three lists, ahead of its summar
 Then an executive summary of the lane's progress, what remains, and what is blocking it. The report is pulled rather than pushed — the operator and the other roles read it when they choose — and it is yours alone to write. Rewrite it whole whenever where the lane stands has changed, and on every pass, by ending your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-lane-report
-{"blocked_on_a_human":[{"item":"the work item it is about, where there is one","what":"what the operator must do","reason":"credential","cites":"the id of the report, amendment, or directive his act is recorded on","since":"2026-10-12T16:40:00Z"}],"summary":"where the lane stands, in a few sentences","remaining":["what is still to do"],"blockers":[{"what":"what is blocked","waiting_on":"product-manager","cites":"the id of the request, report, amendment, or exchange you raised about it"}]}
+{"blocked_on_a_human":[{"item":"the work item it is about, where there is one","what":"what the operator must do","reason":"credential","credential":{"needs":"secret|account","what":"the secret or account only a person holds"},"cites":"the id of the report, amendment, or directive his act is recorded on","since":"2026-10-12T16:40:00Z"}],"summary":"where the lane stands, in a few sentences","remaining":["what is still to do"],"blockers":[{"what":"what is blocked","waiting_on":"product-manager","cites":"the id of the request, report, amendment, or exchange you raised about it"}]}
 ` + "```" + `
 
 "summary", "remaining", and "blockers" are required; an empty list says nothing remains or nothing is blocking. "waiting_on" is who has to move: ` + quotedLaneReportMovers() + `. Never the operator: what waits on him goes under "blocked_on_a_human", and a blocker naming him is refused. "cites" is the identifier of a record you already raised about the blocker — a blocker you have asked nobody about is not yet a blocker, so raise it first.
 
-An entry under "blocked_on_a_human" names what the operator must do, its "reason" — one of ` + quotedOperatorReasons() + ` — the waiting record his act is recorded on as "cites", and since when, as a UTC time. "item" may be left out for a question no work item carries. Under the operator's rule of 2026-09-26 only those reasons are his: a decision a role could make is a defect to report, never an entry here. Work you handed to a step only a person can take, such as reading a log only he can open, is listed here as well, and you file it as a defect. An entry with no reason from that list, citing no waiting record, or citing one he has already cleared is refused on its own, the rest of the report is written, and you are told which. The harness carries every entry forward from pass to pass until the act that clears it is recorded on the record it cites, so you never need to write an entry again, and leaving one out does not remove it.
+An entry under "blocked_on_a_human" names what the operator must do, its "reason" — one of ` + quotedOperatorReasons() + ` — the waiting record his act is recorded on as "cites", and since when, as a UTC time. "item" may be left out for a question no work item carries. Under the operator's rule of 2026-09-26 only those reasons are his: a decision a role could make is a defect to report, never an entry here. An entry under "credential" also says which with "credential": {"needs": "secret" or "account", "what": the secret or account only a person holds}, and one without it is refused, because the harness cannot tell that from access a role merely lacks. A check that needs only to read an outside system — a ticket tracker, a service that switches features on and off, another repository — is never his: a role could do it with read access, so it is a capability the harness lacks, and you report it to the Lead Product Manager, naming the role and the system, for her to admit as a defect; an entry saying "needs": "read-access" is refused. Work you handed to a step only a person can take, such as reading a log only he can open, is listed here as well, and you file it as a defect. An entry with no reason from that list, citing no waiting record, or citing one he has already cleared is refused on its own, the rest of the report is written, and you are told which. The harness carries every entry forward from pass to pass until the act that clears it is recorded on the record it cites, so you never need to write an entry again, and leaving one out does not remove it.
 
 The whole report is held to 16 KiB and redacted before it is written, and a block that is malformed, too large, missing a field, or naming anybody else as a mover is refused whole: nothing is written, the report before it stands, and you are told why on your next turn. Never put a secret in it.
 

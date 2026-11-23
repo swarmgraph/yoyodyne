@@ -1518,7 +1518,7 @@ func TestADecisionAboutAnAttemptThatNeverBecameARunNamesTheItemAndNoRun(t *testi
 		{decision: "wait", revisit: true},
 		// A dirty primary checkout is no reason on the operator's closed list, so
 		// this escalation names the one that is: the harness's login there lapsed.
-		{decision: "escalate", extra: `,"operator_reason":"credential"`},
+		{decision: "escalate", extra: `,"operator_reason":"credential","credential":{"needs":"account","what":"the harness's login on the primary checkout"}`},
 	} {
 		t.Run(decided.decision, func(t *testing.T) {
 			t.Parallel()

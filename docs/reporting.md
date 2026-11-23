@@ -1026,7 +1026,17 @@ do. The closed list has seven reasons, and the harness accepts no other:
 
 A handling that names you for anything else is refused, records nothing, and
 names the rung to use instead: a report whose remedy is a role's stays that
-role's, whatever its severity, and an acknowledgement is not a reason. That record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
+role's, whatever its severity, and an acknowledgement is not a reason. A
+handling under `credential` also says which with `"credential"`:
+`{"needs": "secret" or "account", "what": "..."}`, naming the password, token,
+key, or account only you hold; one that says nothing is refused, because the
+harness cannot tell that from access a role merely lacks. A check that needs
+only to read an outside system — a ticket tracker, a service that switches features on and off,
+another repository — is never yours: a role could do it with read access, so
+the Lead Product Manager handles it with
+`"missing_capability": {"role": "...", "system": "..."}` instead, which records
+it as a capability the harness lacks, keeps it off your list, and leaves it
+with her as a defect to admit. That record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
 said to you once, directly, and named on `yoyo status` until a later handling of
 the same report records the change made. A report whose answer is the Lead
 Product Manager's own decision that only your keyboard can carry out — a
@@ -1051,7 +1061,8 @@ target, and the exact physical step. For example:
 ```
 
 The reasons `person_only` permits are `credential`, `repository-setting`,
-and `protected-file`. Name the credential or login, the setting only a person can
+and `protected-file`. Name the credential or login (and give `"credential"`
+beside it, as for any handling under that reason), the setting only a person can
 change, or the file; a protected file must be a provider-refused settings file
 or under `.yoyodyne/roles/`. An ordinary repair or delegated decision has no
 person-only reason. The ownership resolver validates this account before

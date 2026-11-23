@@ -101,6 +101,10 @@ type LaneReportHumanBlock struct {
 	// What is what the operator must do.
 	What   string                   `json:"what"`
 	Reason ownership.OperatorReason `json:"reason"`
+	// Credential says which secret or account an entry under "credential"
+	// needs (ownership.CheckCredential). An entry written before that had to be
+	// said, and carried forward since, carries none.
+	Credential *ownership.Credential `json:"credential,omitempty"`
 	// Cites is the waiting record the operator's act is recorded on: a report,
 	// an amendment, or a directive.
 	Cites string    `json:"cites"`
@@ -141,6 +145,25 @@ func (b LaneReportHumanBlock) validate() error {
 	return errors.Join(problems...)
 }
 
+// validateWritten is validate for an entry a turn has just written, which is
+// also held to saying which secret or account an entry under "credential"
+// needs (ownership.CheckCredential). Only a newly written entry is held to it:
+// KeepValidHumanBlocks runs on a turn's own entries before the store carries
+// earlier ones forward, and reading the history back runs validate alone, so
+// an entry stored before that had to be said still reads and is still carried.
+func (b LaneReportHumanBlock) validateWritten() error {
+	if err := b.validate(); err != nil {
+		return err
+	}
+	if err := ownership.CheckCredential(b.Reason, b.Credential); err != nil {
+		// What no role can do for want of read access is not an entry here: it
+		// reaches the Lead Product Manager as a report naming the missing
+		// capability, for her to admit.
+		return fmt.Errorf("%w, by a report to the Lead Product Manager rather than an entry here", err)
+	}
+	return nil
+}
+
 // LaneReportContent is the report as the role wrote it: the one list it writes
 // of what is blocked on a human, an executive summary, what remains, and what is
 // blocking. The other two opening lists, Completed and Handed off, are derived
@@ -178,7 +201,7 @@ func (c LaneReportContent) KeepValidHumanBlocks() LaneReportContent {
 	seen := map[string]bool{}
 	c.Refused = append([]string{}, c.Refused...)
 	for index, entry := range c.BlockedOnAHuman {
-		if err := entry.validate(); err != nil {
+		if err := entry.validateWritten(); err != nil {
 			c.Refused = append(c.Refused, fmt.Sprintf("blocked_on_a_human[%d] was refused: %s", index, strings.ReplaceAll(err.Error(), "\n", "; ")))
 			continue
 		}
@@ -607,6 +630,11 @@ func (s *LaneReportStore) redact(content LaneReportContent) LaneReportContent {
 			entry.Item = s.redactor.Redact(entry.Item)
 			entry.What = s.redactor.Redact(entry.What)
 			entry.Cites = s.redactor.Redact(entry.Cites)
+			if entry.Credential != nil {
+				credential := *entry.Credential
+				credential.What = s.redactor.Redact(credential.What)
+				entry.Credential = &credential
+			}
 			redacted.BlockedOnAHuman[index] = entry
 		}
 	}

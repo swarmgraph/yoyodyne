@@ -448,6 +448,10 @@ type Ask struct {
 	// OperatorReason is the closed-list reason an ask naming the operator is made
 	// for, and is taken by such an ask and by no other.
 	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
+	// Credential says which secret or account an ask naming the operator under
+	// "credential" needs (ownership.CheckCredential), which the conversation
+	// checks beside the reason.
+	Credential *ownership.Credential `json:"credential,omitempty"`
 	// Question is what is being asked. It is required and it has to ask
 	// something: a statement put through this channel is an opinion posted at
 	// another role, and nobody answers one.
@@ -503,6 +507,9 @@ func (a Ask) Validate() error {
 	}
 	if a.OperatorReason != "" && !a.AsksOperator() {
 		problems = append(problems, errors.New(`"operator_reason" is taken only by an ask naming the operator`))
+	}
+	if a.Credential != nil && !a.AsksOperator() {
+		problems = append(problems, errors.New(`"credential" is taken only by an ask naming the operator`))
 	}
 	if continuing && !ValidID(strings.TrimSpace(a.Exchange)) {
 		problems = append(problems, fmt.Errorf("exchange %q is not an exchange identifier", strings.TrimSpace(a.Exchange)))

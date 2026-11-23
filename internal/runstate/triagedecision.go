@@ -170,6 +170,10 @@ type TriageDecision struct {
 	// OperatorReason is the closed-list reason an escalation to the operator was
 	// made for. An escalation recorded before the list was enforced carries none.
 	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
+	// Credential says which secret or account an escalation to the operator
+	// under "credential" needs (ownership.CheckCredential). One recorded before
+	// that had to be said carries none.
+	Credential *ownership.Credential `json:"credential,omitempty"`
 	// Hand is the capability the harness lacks, on an escalation that hands the
 	// operator's keyboard her own decision rather than a decision of his: a cap
 	// crossing past the ones she may record herself is the case today. It is

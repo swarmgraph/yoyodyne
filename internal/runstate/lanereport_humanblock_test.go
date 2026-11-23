@@ -3,6 +3,8 @@ package runstate
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +13,7 @@ import (
 )
 
 func humanBlock(item, cites string, since time.Time) LaneReportHumanBlock {
-	return LaneReportHumanBlock{Item: item, What: "renew the forge token", Reason: ownership.OperatorCredential, Cites: cites, Since: since}
+	return LaneReportHumanBlock{Item: item, What: "renew the forge token", Reason: ownership.OperatorCredential, Credential: &ownership.Credential{Needs: ownership.CredentialSecret, What: "the forge token"}, Cites: cites, Since: since}
 }
 
 // waitingRecords stands in for the read model's resolution of a citation: each
@@ -112,5 +114,56 @@ func TestABadBlockedOnAHumanEntryIsRefusedAndTheReportStands(t *testing.T) {
 	}
 	if written.Report.Summary != "the lane is moving" {
 		t.Fatalf("the rest of the report was not written: %+v", written.Report)
+	}
+}
+
+// An entry under "credential" stored before an entry had to say which secret or
+// account it needs still reads, and is carried forward by the next write, which
+// succeeds; a turn that writes such an entry now has it refused on its own.
+func TestACredentialEntryStoredBeforeItHadToSayWhichStillReadsAndIsCarried(t *testing.T) {
+	t.Parallel()
+
+	store := newLaneReportTestStore(t)
+	store.UseWaitingRecords(waitingRecords{"report-a": WaitingRecordOpen, "report-b": WaitingRecordOpen}.check)
+	weekAgo := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	first := laneReportVersion("first", 1)
+	first.Report.BlockedOnAHuman = []LaneReportHumanBlock{humanBlock("yoyodyne-ifd.9", "report-a", weekAgo)}
+	if _, err := store.Write(context.Background(), first); err != nil {
+		t.Fatalf("Write(first) error = %v", err)
+	}
+	// Make the stored version what an older build wrote: no credential field.
+	for _, path := range []string{store.ReportPath("factory"), filepath.Join(store.Root(), "factory", "history.jsonl")} {
+		stored, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		bare := strings.ReplaceAll(string(stored), `,"credential":{"needs":"secret","what":"the forge token"}`, "")
+		if bare == string(stored) {
+			t.Fatalf("%s carries no credential field to take out:\n%s", path, stored)
+		}
+		if err := os.WriteFile(path, []byte(bare), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	if history, err := store.History("factory"); err != nil || len(history) != 1 || history[0].Report.BlockedOnAHuman[0].Credential != nil {
+		t.Fatalf("History() = %+v, %v; want the stored version read with its bare entry", history, err)
+	}
+
+	second := laneReportVersion("second", 2)
+	fresh := humanBlock("yoyodyne-ifd.10", "report-b", weekAgo)
+	fresh.Credential = nil
+	second.Report.BlockedOnAHuman = []LaneReportHumanBlock{fresh}
+	written, err := store.Write(context.Background(), second)
+	if err != nil {
+		t.Fatalf("Write(second) error = %v, want it written with the earlier entry carried", err)
+	}
+	if len(written.Report.BlockedOnAHuman) != 1 || written.Report.BlockedOnAHuman[0].Item != "yoyodyne-ifd.9" || !written.Report.BlockedOnAHuman[0].Carried {
+		t.Fatalf("entries = %+v, want only the earlier entry, carried", written.Report.BlockedOnAHuman)
+	}
+	if refused := strings.Join(written.Report.Refused, "\n"); !strings.Contains(refused, "cannot tell a secret or account only a person holds") {
+		t.Fatalf("refused %q, want the newly written bare entry refused", refused)
+	}
+	if history, err := store.History("factory"); err != nil || len(history) != 2 {
+		t.Fatalf("History() = %d versions, %v; want both", len(history), err)
 	}
 }

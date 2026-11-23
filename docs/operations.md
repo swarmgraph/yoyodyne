@@ -1786,7 +1786,10 @@ next `yoyo reconcile` or status reading records that.
   `"needs": "operator"` for a report whose answer is yours for a reason on your
   closed list, named in `"operator_reason"` or by a `person_only` remedy, with
   the reason saying what you have to do. A handling that names you without one
-  is refused and records nothing. One recorded before that was refused may
+  is refused and records nothing. Under `credential` it also says which secret
+  or account only you hold, in `"credential"`; a check that needs only read
+  access to an outside system is recorded as a missing capability for a role
+  instead, a defect for her to admit, and never reaches you. One recorded before that was refused may
   still name you with no reason: it was never yours, so it is not said to you
   in the channel, and `yoyo status` and the dashboard list it under the role
   that handled it, labelled `report to handle again`, as open for that role to
