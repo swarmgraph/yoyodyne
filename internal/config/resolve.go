@@ -341,6 +341,7 @@ func newResolution() *resolution {
 			},
 			Execution: Execution{
 				CIChecks:                   CIChecks{WaitLimit: DefaultCIWaitLimit},
+				BatchPullRequest:           DefaultBatchPullRequest(),
 				MaxConcurrentDevelopers:    1,
 				DocumentLandings:           DefaultDocumentLandings,
 				RepairAttemptsBeforeReplan: 2,
@@ -489,6 +490,10 @@ func newResolution() *resolution {
 			"execution.merge_queue":                                OriginDefault,
 			"execution.ci_checks.enabled":                          OriginDefault,
 			"execution.ci_checks.wait_limit":                       OriginDefault,
+			"execution.batch_pull_request.enabled":                 OriginDefault,
+			"execution.batch_pull_request.min_items":               OriginDefault,
+			"execution.batch_pull_request.max_wait":                OriginDefault,
+			"execution.batch_pull_request.merge_method":            OriginDefault,
 			"triage.stuck_merge_age":                               OriginDefault,
 			"triage.review_rounds_cap":                             OriginDefault,
 			"exchange.max_rounds":                                  OriginDefault,
@@ -581,6 +586,11 @@ func (r *resolution) apply(applied layer) error {
 			if ci.Required != nil {
 				r.config.Execution.CIChecks.Required = append([]string(nil), *ci.Required...)
 				r.origins["execution.ci_checks.required"] = applied.origin
+			}
+		}
+		if batch := execution.BatchPullRequest; batch != nil {
+			if err := batch.applyTo(r, &r.config.Execution.BatchPullRequest, applied.origin); err != nil {
+				return err
 			}
 		}
 		// And the label-to-model mapping, replaced and copied for the same two

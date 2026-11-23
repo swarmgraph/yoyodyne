@@ -442,6 +442,30 @@ execution:
     # local: [make fmtcheck]
     # required: [test]
     wait_limit: 1h
+  # The harness's own batch pull request into the team's branch
+  # (docs/configuration.md#the-batch-pull-request). Off, and with upstream_branch
+  # above unset, nothing of it runs. On, the harness gathers the work landed on
+  # the target branch into one pull request, opens it when min_items items are
+  # waiting or the oldest has waited max_wait (15 minutes to 14 days), and has
+  # the forge merge it once a person approves its head commit. min_items is 1 to
+  # 100. review_window limits when a batch may open or grow and a review request
+  # may go out; automated_reviewer is the forge account of a review tool whose
+  # review is waited for; review_request is a command or an https address told
+  # when a batch is ready for a person; merge_method is merge or squash.
+  batch_pull_request:
+    enabled: false
+    min_items: %d
+    max_wait: %s
+    # review_window:
+    #   time_zone: America/Los_Angeles
+    #   days: [mon, tue, wed, thu, fri]
+    #   from: "09:00"
+    #   to: "17:00"
+    # automated_reviewer: reviewbot[bot]
+    # review_request:
+    #   command: ["/usr/local/bin/tell-reviewers"]
+    #   format: json
+    merge_method: %s
 
 # When work that has stopped moving is looked at, and what looking at it may
 # spend. An approved publication nobody has merged is docketed once it has sat
@@ -563,6 +587,9 @@ approvals:
 		renderScaffoldDuration(effective.Execution.BrakeProbeOverdueAfter),
 		effective.Execution.DeclarativeDelivery,
 		effective.Execution.MergeQueue,
+		effective.Execution.BatchPullRequest.MinItems,
+		renderScaffoldDuration(effective.Execution.BatchPullRequest.MaxWait),
+		effective.Execution.BatchPullRequest.MergeMethodInForce(),
 		renderScaffoldDuration(effective.Triage.StuckMergeAge),
 		effective.Triage.ReviewRoundsCap,
 		effective.Exchange.MaxRounds,

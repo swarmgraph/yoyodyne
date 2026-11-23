@@ -423,11 +423,19 @@ func (r Reconciler) settleTeamPullRequest(ctx context.Context, number int, carri
 			result.Failure = fmt.Sprintf("the forge names no merge commit for pull request #%d; it is read again at the next check", number)
 			return result
 		}
+		if err := r.endBatchRecord(carried[0].TeamMerge.TargetBranch, number, true, pull.MergeCommit); err != nil {
+			result.Failure = err.Error() + "; it is read again at the next check"
+			return result
+		}
 		for _, state := range carried {
 			result.Items = append(result.Items, r.settleTeamPullRequestMerged(ctx, state, number, pull.MergeCommit))
 		}
 	case pull.State == "CLOSED":
 		result.Found = TeamPullRequestClosed
+		if err := r.endBatchRecord(carried[0].TeamMerge.TargetBranch, number, false, ""); err != nil {
+			result.Failure = err.Error() + "; it is read again at the next check"
+			return result
+		}
 		r.settleTeamPullRequestClosed(ctx, number, carried, &result)
 	case pull.State == "OPEN":
 		result.Found = TeamPullRequestOpen
@@ -482,10 +490,14 @@ func (r Reconciler) settleTeamPullRequestMerged(ctx context.Context, recorded ru
 		return item
 	}
 	headline := fmt.Sprintf("The team merged pull request #%d, which carries this item, into %s as %s, so the item is closed.", number, wait.UpstreamBranch, mergeCommit)
+	closingNotes := headline + "\n" + fmt.Sprintf("It landed on %s as %s. Run: %s", wait.TargetBranch, wait.LandingCommit, state.RunID)
+	if _, batch := r.batchPullRequestIs(wait.TargetBranch, number); batch {
+		closingNotes += fmt.Sprintf("\n%s merged as pull request #%d.", batchNotePrefix, number)
+	}
 	err := r.closeOnTeamMerge(ctx, &state, teamMergeClosing{
 		Branch:   wait.UpstreamBranch,
 		Headline: headline,
-		Notes:    headline + "\n" + fmt.Sprintf("It landed on %s as %s. Run: %s", wait.TargetBranch, wait.LandingCommit, state.RunID),
+		Notes:    closingNotes,
 		Reason: fmt.Sprintf("Reviewed by Yoyodyne run %s and landed on %s as %s, which the team merged into %s through pull request #%d as %s",
 			state.RunID, wait.TargetBranch, wait.LandingCommit, strings.TrimSpace(wait.UpstreamBranch), number, mergeCommit),
 		Found: runstate.TeamMergeFound{LandingCommit: wait.LandingCommit, FoundOn: mergeCommit, PullRequest: number, At: r.clock().Now()},

@@ -53,6 +53,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -416,11 +417,16 @@ type Sources struct {
 	// with the team's branch; nil reads none, which is what a project with no
 	// execution.upstream_branch has.
 	TeamBranchUpdates TeamBranchUpdates
-	RestartRequests   RestartRequests
-	LaneReports       LaneReports
-	Passes            Passes
-	Exchanges         Exchanges
-	FirstSeen         FirstSeen
+	// BatchRoute is the batch pull request settings of a project whose route is
+	// on (config.Execution.BatchRouteOn), and nil otherwise, which says nothing
+	// of the route. BatchRecords is where its record is read from.
+	BatchRoute      *config.BatchPullRequest
+	BatchRecords    BatchRecords
+	RestartRequests RestartRequests
+	LaneReports     LaneReports
+	Passes          Passes
+	Exchanges       Exchanges
+	FirstSeen       FirstSeen
 	// PassRequests is the requests made for each instance's pass, so whoever
 	// asked can read what became of one. Optional: a reading without it carries
 	// no instance's requests.
@@ -885,6 +891,12 @@ type Standing struct {
 	WaitingForTeamMerge        []runstate.WaitingForTeamMergeItem `json:"waiting_for_team_merge,omitempty"`
 	WaitingForTeamMergeSays    []string                           `json:"waiting_for_team_merge_says,omitempty"`
 	WaitingForTeamMergeProblem string                             `json:"waiting_for_team_merge_problem,omitempty"`
+	// BatchPullRequestSays is what the harness's own batch pull request into the
+	// team's branch is waiting on, one sentence for each target branch, and
+	// BatchPullRequestProblem is why its record could not be read. Both are empty
+	// with the route off.
+	BatchPullRequestSays    []string `json:"batch_pull_request_says,omitempty"`
+	BatchPullRequestProblem string   `json:"batch_pull_request_problem,omitempty"`
 	// TeamPause is the team pause on the shared remote, as this machine last
 	// fetched it, where the project's team mode is on and the pause is set, and
 	// nil otherwise. While it stands no factory working the repository starts new
@@ -1637,6 +1649,8 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	teamWaits, teamProblem := WaitingForTeamMerge(sources)
 	standing.WaitingForTeamMerge = withTrackerTitles(teamWaits, standing.Titles)
 	standing.WaitingForTeamMergeProblem = teamProblem
+	standing.WaitingForTeamMerge, standing.BatchPullRequestSays, standing.BatchPullRequestProblem =
+		ApplyBatchRoute(sources, standing.WaitingForTeamMerge, standing.ObservedAt)
 	for _, item := range standing.WaitingForTeamMerge {
 		standing.WaitingForTeamMergeSays = append(standing.WaitingForTeamMergeSays, "Waiting for the team's merge: "+item.Says())
 	}

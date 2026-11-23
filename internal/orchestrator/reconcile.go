@@ -323,6 +323,10 @@ type Reconciler struct {
 	// TrackerShare merges the tracker's shared export at each forge check, and
 	// is nil with team mode off (trackershare.go).
 	TrackerShare *TrackerShare
+	// BatchRoute is the harness's own batch pull request: its settings and its
+	// record. Nil with execution.batch_pull_request off or
+	// execution.upstream_branch unset, which runs none of it (batchroute.go).
+	BatchRoute *BatchRoute
 	// RetryAtNextCheck says a write that fails on something a later attempt may
 	// survive is not waited out and asked again here: it fails this pass, as it
 	// stands, and the next pass makes it again. The forge check sets it

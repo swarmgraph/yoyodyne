@@ -697,6 +697,12 @@ type Execution struct {
 	// says nothing keeps the revision it had. `config show` still prints it,
 	// because the YAML form always carries it.
 	CIChecks CIChecks `yaml:"ci_checks" json:"ci_checks,omitzero"`
+	// BatchPullRequest is the harness's own batch pull request into the team's
+	// branch (batchpullrequest.go). It runs only with UpstreamBranch set and
+	// Enabled true; off, which is the default, nothing of it runs, and the block
+	// is left out of the form the configuration revision digests while it holds
+	// only defaults.
+	BatchPullRequest BatchPullRequest `yaml:"batch_pull_request" json:"batch_pull_request,omitzero"`
 }
 
 const (
@@ -1368,6 +1374,7 @@ func (c Config) Validate() error {
 	problems = append(problems, heavyCheckProblems(c)...)
 	problems = append(problems, failingTestProblems(c)...)
 	problems = append(problems, ciCheckProblems(c)...)
+	problems = append(problems, batchPullRequestProblems(c.Execution)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")
