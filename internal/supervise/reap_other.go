@@ -4,3 +4,6 @@ package supervise
 
 // reap has nothing to collect where the supervisor signals nothing.
 func reap(int) (bool, error) { return false, nil }
+
+// collectExited has nothing left to collect there either.
+func collectExited(int) bool { return true }

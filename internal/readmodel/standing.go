@@ -2573,7 +2573,7 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	var held backlog.Holds
 	var heldErr error
 	if sources.Stoppages != nil {
-		held, heldErr = HeldForAPerson(ctx, sources.Stoppages, sources.Decisions, sources.Remains, WaitedOnOf(sources.Tracker))
+		held, heldErr = HeldForAPerson(ctx, sources.Stoppages, sources.Decisions, sources.Remains, sources.waitedOn())
 	}
 	var admitted []beads.WorkItem
 	for _, status := range backlogStatuses {
