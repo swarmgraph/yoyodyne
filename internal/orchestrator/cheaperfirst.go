@@ -11,7 +11,11 @@ package orchestrator
 // that started cheaper moves once to the stronger model at its first failed
 // review or failed checks, before the repair attempt that answers it, and
 // keeps the stronger for the rest of its attempts; the move, its reason and
-// what the run had spent when it moved are recorded on the run.
+// what the run had spent when it moved are recorded on the run. That holds
+// however the repair attempt starts: in the repair loop, or in a run resumed
+// to repair what the merge queue or a person on its pull request handed back
+// (moveResumedRepairToStronger). The model each attempt asked for is recorded
+// beside the move (noteAttemptModel).
 //
 // Three kinds of run are left exactly as they were: one whose item
 // execution.developer_models maps to a model (somebody chose that model for
@@ -24,6 +28,7 @@ package orchestrator
 // is recorded as such, for as long as the setting stays on.
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -119,24 +124,89 @@ func (p Pipeline) settleCheaperFirst(state *runstate.State, eligibility config.C
 // repair saves the run, so the move is on the record before the stronger model
 // is asked for anything.
 func (a *activeRun) moveToStronger(failure string) {
+	a.moveToStrongerFor(failure, a.state.RepairAttempts+1)
+}
+
+// moveResumedRepairToStronger is moveToStronger for a repair attempt the run
+// is resumed into rather than one its repair loop is about to start: a
+// merge-queue hand-back or a decided repair carried out by RepairContinuer,
+// and a round answering changes asked for on its pull request
+// (forgefeedback.go). Each was counted before the run was resumed, so the
+// attempt the stronger model starts on is the one the run has reached. No
+// repair save follows here as it does in the loop, so the move is written with
+// the run store's own narrow update before the developer is invoked, and what
+// it wrote is taken onto the run's copy (setSpendWait says how).
+func (a *activeRun) moveResumedRepairToStronger(ctx context.Context) error {
+	failure, owed := resumedRepairFailure(a.state)
+	if !owed || !a.moveToStrongerFor(failure, a.state.RepairAttempts) {
+		return nil
+	}
+	held := a.state.Revision
+	written, err := a.pipeline.Store.Update(context.WithoutCancel(ctx), a.state.RunID, runstate.MovedToStronger{
+		Record:            *a.state.CheaperFirst,
+		Model:             a.state.DeveloperModel,
+		ModelReason:       a.state.DeveloperModelReason,
+		Effort:            a.state.ProviderEffort,
+		EffortDescription: a.state.ProviderEffortDescription,
+		At:                a.state.CheaperFirst.Move.At,
+	})
+	if err != nil {
+		return fmt.Errorf("record the move to the stronger model before repair attempt %d: %w", a.state.RepairAttempts, err)
+	}
+	if written.Revision == held+1 {
+		a.state.Revision, a.state.UpdatedAt = written.Revision, written.UpdatedAt
+		return nil
+	}
+	a.state = written
+	return nil
+}
+
+// resumedRepairFailure names the failure a resumed repair attempt answers, in
+// the words a move records, where it is one a run that started cheaper moves
+// for: failed checks, the reviewer's findings, or changes a person asked for on
+// the pull request, which is a review that failed. It reads the repair input in
+// the order resumedDeveloperPrompt hands it to the developer, so the move names
+// the failure the attempt is given. A replay conflict, refused paths, a change
+// too large to review and owed evidence are not judgements of the work, and the
+// repair loop does not move for them either.
+func resumedRepairFailure(state runstate.State) (string, bool) {
+	switch {
+	case state.ReplayConflict != nil, state.PathRefusal != nil, state.ReviewBoundRefusal != nil, owesVerification(state):
+		return "", false
+	case state.CheckFailure != nil:
+		// A merge queue's hand-back records what judged the change as the
+		// command: a check, the candidate's review, or the queue's landing.
+		return state.CheckFailure.Command + " failed and the run was handed back for repair", true
+	case len(state.ReviewFindingDetails) > 0:
+		return "its independent review asked for repair", true
+	case state.ForgeFeedback != nil:
+		return fmt.Sprintf("changes were asked for on its pull request #%d", state.ForgeFeedback.PullRequest), true
+	default:
+		return "", false
+	}
+}
+
+// moveToStrongerFor makes the move for the repair attempt numbered attempt,
+// and reports whether it made one.
+func (a *activeRun) moveToStrongerFor(failure string, attempt int) bool {
 	record := a.state.CheaperFirst
 	if record == nil || record.Arm != runstate.CheaperFirstCheaper || record.Move != nil {
-		return
+		return false
 	}
 	if a.routedDeveloper() || a.onAnotherBackend() {
-		return
+		return false
 	}
 	from := a.developerModel()
 	to := strings.TrimSpace(record.StrongerModel)
 	if to == "" || to == from {
-		return
+		return false
 	}
 	move := runstate.ModelMove{
 		At:            a.pipeline.clock().Now(),
 		From:          from,
 		To:            to,
 		Reason:        failure,
-		RepairAttempt: a.state.RepairAttempts + 1,
+		RepairAttempt: attempt,
 	}
 	if spender, ok := a.pipeline.Store.(runSpender); ok {
 		// An event log that cannot price the run leaves the cost unknown rather
@@ -154,6 +224,21 @@ func (a *activeRun) moveToStronger(failure string) {
 	agent := a.pipeline.developer()
 	a.state.ProviderEffort = a.pipeline.Config.InvocationEffort(agent, to)
 	a.state.ProviderEffortDescription = a.pipeline.Config.DescribeInvocationEffort(agent, a.state.ProviderEffort, "", false)
+	return true
+}
+
+// noteAttemptModel records on a trial run which model the developer attempt
+// about to start asks for, so the record says which model every attempt used
+// however it was started. develop calls it once the run's routing is settled,
+// and the record is saved with the attempt.
+func (a *activeRun) noteAttemptModel() {
+	record := a.state.CheaperFirst
+	if record == nil || record.Arm == runstate.CheaperFirstStopped {
+		return
+	}
+	noted := *record
+	noted.Attempts = runstate.NoteAttemptModel(record.Attempts, a.state.RepairAttempts, a.developerModel(), a.pipeline.clock().Now())
+	a.state.CheaperFirst = &noted
 }
 
 // noteFirstReview records the first independent review's decision on an
