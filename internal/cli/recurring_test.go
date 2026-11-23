@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -448,5 +449,32 @@ func TestSweepListingShowsTheHarnessPassStepByStep(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered lacks %q:\n%s", want, rendered)
 		}
+	}
+}
+
+// A revision handed back is unpublished too, so the documents listed for the
+// check against open work include it, once.
+func TestUnpublishedDocumentsIncludeRevisionsHandedBack(t *testing.T) {
+	t.Parallel()
+
+	store, err := runstate.NewConversationStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := runstate.NewConversationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation := runstate.Conversation{SchemaVersion: runstate.ConversationSchemaVersion, ConversationID: id, ProductID: "yoyodyne", RepositoryID: "yoyodyne",
+		Role: domain.RoleArchitect, Agent: "architect", Backend: domain.BackendClaudeCode, StartedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	conversation.HandedBack = []runstate.HandedBackDocument{
+		runstate.HandedBackFrom(runstate.PendingWrite{ID: "document-3.1", Artifact: "design-x", Action: "revise", Answers: []string{"example-5"}, Body: "text"}, "run-1", "returned", time.Now().UTC()),
+	}
+	if err := store.Save(conversation); err != nil {
+		t.Fatalf("Save() = %v", err)
+	}
+	writes, err := unpublishedDocuments{store: store}.Unpublished()
+	if err != nil || len(writes) != 1 || writes[0].ID != "document-3.1" || !slices.Contains(writes[0].Names, "example-5") {
+		t.Fatalf("Unpublished() = %+v, %v, want the handed-back revision with what it names", writes, err)
 	}
 }

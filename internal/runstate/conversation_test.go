@@ -1571,3 +1571,46 @@ func TestARecordOverTheTotalOnWaitingDocumentsStillLoads(t *testing.T) {
 		t.Fatalf("reloaded %d documents, want %d", len(loaded.PendingWrites), MaxPendingWrites)
 	}
 }
+
+// A revision handed back keeps its text, the work items it names and the
+// document it revises, and a record kept before they were still loads, with
+// nothing for the check against open work to read.
+func TestAHandedBackRevisionKeepsWhatItNamesAndAnOldRecordStillLoads(t *testing.T) {
+	t.Parallel()
+
+	written := PendingWrite{ID: "document-4.1", Artifact: "design-x", Turn: 4, Action: "revise", Answers: []string{"example-5"},
+		Body: "This revision also changes what example-7 does.", Reason: "fixes the route"}
+	back := HandedBackFrom(written, "run-1", "returned", time.Unix(100, 0).UTC())
+	if back.Body != written.Body || back.Action != "revise" ||
+		!reflect.DeepEqual(back.Names, []string{"example-5", "example-7"}) || len(back.Revises) != 1 || back.Revises[0].ID != "design-x" {
+		t.Fatalf("handed back = %+v, want the text, both named items and the revised document", back)
+	}
+	if got := back.AsWrite().WithRelations(); !reflect.DeepEqual(got.Names, back.Names) || got.ID != "document-4.1" {
+		t.Fatalf("AsWrite() = %+v, want the revision as an unpublished document", got)
+	}
+	long := written
+	long.Body = strings.Repeat("x", MaxHandedBackBodyBytes*2) + " example-9"
+	cut := HandedBackFrom(long, "run-1", "returned", time.Unix(100, 0).UTC())
+	if len(cut.Body) > MaxHandedBackBodyBytes || !slicesContains(cut.Names, "example-9") {
+		t.Fatalf("a long text kept %d bytes and names %v, want it cut and still naming what the whole named", len(cut.Body), cut.Names)
+	}
+
+	var old HandedBackDocument
+	if err := json.Unmarshal([]byte(`{"id":"document-1.1","artifact":"design-y","turn":1,"reason":"returned","at":"2026-11-01T00:00:00Z"}`), &old); err != nil {
+		t.Fatalf("an old record does not load: %v", err)
+	}
+	conversation := testConversation(t)
+	conversation.HandedBack = []HandedBackDocument{old, back}
+	if err := conversation.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want a conversation with old and new records valid", err)
+	}
+}
+
+func slicesContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}

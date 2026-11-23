@@ -192,10 +192,7 @@ func (s *Session) keepHandedBack(record *writeRecord, delivery runstate.Document
 		reason = "its run ended without landing it and recorded no reason"
 	}
 	kept := s.forgetHandedBack(artifactID)
-	kept = append(kept, runstate.HandedBackDocument{
-		ID: record.pending.ID, Artifact: artifactID, Turn: record.pending.Turn, Written: record.pending.WrittenAt,
-		RunID: delivery.RunID, Reason: reason, At: s.options.clock().Now().UTC(),
-	})
+	kept = append(kept, runstate.HandedBackFrom(record.pending.recorded(), delivery.RunID, reason, s.options.clock().Now().UTC()))
 	for len(kept) > runstate.MaxHandedBackDocuments {
 		kept = slices.Delete(kept, 0, 1)
 	}
