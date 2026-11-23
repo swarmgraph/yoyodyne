@@ -150,6 +150,10 @@ type MergeQueuePromoter struct {
 	// queued once more (forgererun.go). Nil reads nothing, and a dropped merge
 	// is withdrawn as before.
 	Drops ReconcileDrops
+	// GitHubWaits keeps the queue's wait for GitHub where a step of a pass could
+	// not reach it (mergequeuegithubwait.go). Nil keeps none: such a pass still
+	// ends waiting rather than stopping, and each wait counts from its first try.
+	GitHubWaits MergeQueueGitHubWaits
 }
 
 // MergeQueueForgeChecks is the forge access a promotion reads a held merge's
@@ -234,6 +238,10 @@ type MergeQueuePromotion struct {
 	// change given back to its run: a push the remote refused, or a person
 	// handing it back (HandBack). The driver goes on to the next entry.
 	HandedBack *runstate.MergeQueueHandback
+	// GitHubWait is set beside Waiting where a step could not reach GitHub, or
+	// the queue's wait for it has its next try still to come
+	// (mergequeuegithubwait.go). Nothing is handed back or refused for it.
+	GitHubWait *runstate.MergeQueueGitHubWait
 }
 
 func (o MergeQueuePromotion) stopped() bool {
@@ -272,7 +280,10 @@ func (p MergeQueuePromoter) Promote(ctx context.Context, key runstate.MergeQueue
 		}
 		q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
 		q.outcome.Entry = entry
-		err = q.promote(ctx)
+		waiting, err := q.waitingOnGitHub(ctx)
+		if err == nil && !waiting {
+			err = q.settleGitHub(ctx, q.promote(ctx))
+		}
 		if attempt, ok := q.landing.Current(); ok {
 			q.outcome.Attempt = attempt
 			q.outcome.Landed = attempt.Landed != nil
@@ -403,6 +414,9 @@ type queuePromotion struct {
 	entry   runstate.MergeQueueEntry
 	landing runstate.MergeQueueLanding
 	outcome MergeQueuePromotion
+	// gitHubWait is the queue's wait for GitHub on this entry as this call
+	// read or wrote it, and nil where there is none.
+	gitHubWait *runstate.MergeQueueGitHubWait
 }
 
 func (q *queuePromotion) now() time.Time {
@@ -609,7 +623,8 @@ func (q *queuePromotion) forgeQueueQualifies(ctx context.Context) (string, error
 	}
 	observed, err := q.p.Forge.QueueCapabilities(ctx, q.key.TargetBranch)
 	if err != nil {
-		return "", fmt.Errorf("ask the forge what its merge queue for %s establishes: %w", q.key.TargetBranch, err)
+		return "", fmt.Errorf("ask the forge what its merge queue for %s establishes: %w", q.key.TargetBranch,
+			gitHubAway("asking GitHub what its merge queue for "+q.key.TargetBranch+" establishes", err))
 	}
 	selection, err := queuemode.Select(q.key.TargetBranch, observed, q.p.Harness, q.now())
 	if err != nil {
@@ -696,7 +711,8 @@ func (q *queuePromotion) pushCandidate(ctx context.Context) error {
 	attempt := q.attempt()
 	published, exists, err := q.p.Lander.QueueCandidateBranchCommit(ctx, attempt.CandidateBranch)
 	if err != nil {
-		return fmt.Errorf("read where %s stands: %w", attempt.CandidateBranch, err)
+		return fmt.Errorf("read where %s stands: %w", attempt.CandidateBranch,
+			gitHubAway("reading where "+attempt.CandidateBranch+" stands on GitHub", err))
 	}
 	expected := ""
 	if exists {
@@ -711,16 +727,18 @@ func (q *queuePromotion) pushCandidate(ctx context.Context) error {
 		// Whether the push arrived is not known, so it is left unsettled: the
 		// next call looks at the candidate branch first (observe), records the
 		// push made where it arrived, and asks for it again where it did not. A
-		// session stopping for a restart onto a new build ends a push this way.
-		q.outcome.Waiting = fmt.Sprintf("the push of the candidate to %s ended before the remote answered (%v); the next pass looks at whether it arrived and asks for it again if it did not", attempt.CandidateBranch, err)
-		return nil
+		// session stopping for a restart onto a new build ends a push this way,
+		// and so does GitHub not being reachable, which the queue waits out
+		// (mergequeuegithubwait.go).
+		return queueGitHubAway{step: "pushing the candidate to " + attempt.CandidateBranch, cause: err}
 	case errors.Is(err, gitworktree.ErrRemotePushRejected):
 		if err := q.settle(runstate.MergeQueueMutationNotMade, err.Error(), false); err != nil {
 			return err
 		}
 		return q.refusedPush(ctx, err.Error())
 	case err != nil:
-		return fmt.Errorf("publish the candidate on %s: %w", attempt.CandidateBranch, err)
+		return fmt.Errorf("publish the candidate on %s: %w", attempt.CandidateBranch,
+			gitHubAway("pushing the candidate to "+attempt.CandidateBranch, err))
 	}
 	return q.settle(runstate.MergeQueueMutationDone, "", false)
 }
@@ -786,7 +804,8 @@ func (q *queuePromotion) openPullRequest(ctx context.Context) error {
 		Mark:  forgeMark(ctx, q.p.Pipeline.Factory, q.entry.ProductID, q.p.Pipeline.Config.Product.ID),
 	})
 	if err != nil {
-		return fmt.Errorf("open the pull request that carries %s: %w", attempt.CandidateBranch, err)
+		return fmt.Errorf("open the pull request that carries %s: %w", attempt.CandidateBranch,
+			gitHubAway("opening the pull request that carries "+attempt.CandidateBranch, err))
 	}
 	attempt = q.attempt()
 	attempt.PullRequest, attempt.PullRequestURL = opened.Number, opened.URL
@@ -865,7 +884,8 @@ func (q *queuePromotion) mutateTarget(ctx context.Context, mutation runstate.Mer
 	if err != nil {
 		// Whether the forge took the request is not known, so it is left
 		// standing for the next call to ask the forge about.
-		return fmt.Errorf("ask the forge to merge pull request %d: %w", attempt.PullRequest, err)
+		return fmt.Errorf("ask the forge to merge pull request %d: %w", attempt.PullRequest,
+			gitHubAway(fmt.Sprintf("asking GitHub to merge pull request %d", attempt.PullRequest), err))
 	}
 	if result.Queued {
 		return q.settle(runstate.MergeQueueMutationQueued, "", false)
@@ -995,7 +1015,8 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 			return false, q.driftFrom(ctx)
 		}
 		if err != nil {
-			return false, fmt.Errorf("check the remote %s before asking for the merge: %w", q.key.TargetBranch, err)
+			return false, fmt.Errorf("check the remote %s before asking for the merge: %w", q.key.TargetBranch,
+				gitHubAway("checking where "+q.key.TargetBranch+" stands on GitHub before asking for the merge", err))
 		}
 	}
 	return true, nil
@@ -1085,6 +1106,9 @@ func (q *queuePromotion) awaitForge(ctx context.Context) error {
 	attempt := q.attempt()
 	state, err := q.p.Pipeline.Publisher.State(ctx, attempt.CandidateBranch)
 	if err != nil {
+		if away, ok := gitHubAwayOK(fmt.Sprintf("asking GitHub about the merge of pull request %d it holds queued", attempt.PullRequest), err); ok {
+			return away
+		}
 		q.outcome.Waiting = fmt.Sprintf("the forge holds the merge of pull request %d queued, and could not be asked about it now: %v", attempt.PullRequest, err)
 		return nil
 	}
@@ -1295,7 +1319,8 @@ func (q *queuePromotion) confirm(ctx context.Context) error {
 	}
 	state, err := q.p.Pipeline.Publisher.State(ctx, attempt.CandidateBranch)
 	if err != nil {
-		return fmt.Errorf("read pull request %d after its merge: %w", attempt.PullRequest, err)
+		return fmt.Errorf("read pull request %d after its merge: %w", attempt.PullRequest,
+			gitHubAway(fmt.Sprintf("reading pull request %d after its merge", attempt.PullRequest), err))
 	}
 	return q.confirmWith(ctx, state.MergeCommit, state.MergedAt)
 }
@@ -1313,7 +1338,8 @@ func (q *queuePromotion) confirmWith(ctx context.Context, mergeCommit string, me
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("confirm the candidate reached the remote %s: %w", q.key.TargetBranch, err)
+		return fmt.Errorf("confirm the candidate reached the remote %s: %w", q.key.TargetBranch,
+			gitHubAway("confirming the candidate reached "+q.key.TargetBranch+" on GitHub", err))
 	}
 	// The forge's own queue checks and has reviewed a combined commit of its
 	// own making, and that commit — not the head handed to it — is what
@@ -1382,7 +1408,8 @@ func (q *queuePromotion) observe(ctx context.Context, record runstate.MergeQueue
 	case runstate.MergeQueuePushCandidate:
 		published, exists, err := q.p.Lander.QueueCandidateBranchCommit(ctx, attempt.CandidateBranch)
 		if err != nil {
-			return fmt.Errorf("read where %s stands: %w", attempt.CandidateBranch, err)
+			return fmt.Errorf("read where %s stands: %w", attempt.CandidateBranch,
+				gitHubAway("reading whether the push to "+attempt.CandidateBranch+" arrived", err))
 		}
 		switch {
 		case exists && published == attempt.Candidate:
@@ -1397,6 +1424,9 @@ func (q *queuePromotion) observe(ctx context.Context, record runstate.MergeQueue
 		}
 	case runstate.MergeQueueOpenPullRequest:
 		state, err := q.p.Pipeline.Publisher.State(ctx, attempt.CandidateBranch)
+		if away, ok := gitHubAwayOK("reading whether the pull request for "+attempt.CandidateBranch+" was opened", err); ok {
+			return away
+		}
 		if err != nil || state.Number == 0 {
 			// Opening is asked again: the forge opens one request per branch and
 			// finds the one it has, so asking twice opens nothing twice.
@@ -1407,6 +1437,9 @@ func (q *queuePromotion) observe(ctx context.Context, record runstate.MergeQueue
 		result, found = runstate.MergeQueueMutationDone, fmt.Sprintf("pull request %d carries %s", state.Number, attempt.CandidateBranch)
 	case runstate.MergeQueueRequestMerge:
 		state, err := q.p.Pipeline.Publisher.State(ctx, attempt.CandidateBranch)
+		if away, ok := gitHubAwayOK(fmt.Sprintf("asking GitHub whether it merged pull request %d, whose merge was asked for and its answer never recorded", attempt.PullRequest), err); ok {
+			return away
+		}
 		if err != nil {
 			q.outcome.Unresolved = fmt.Sprintf("the merge of pull request %d was asked for and its answer never recorded, and the forge could not be asked what it did: %v", attempt.PullRequest, err)
 			return nil
@@ -1454,11 +1487,25 @@ func (q *queuePromotion) observe(ctx context.Context, record runstate.MergeQueue
 // carries the candidate is not pushed to. Everything else — a merge neither
 // made nor held, a push refused after the local target moved — is kept as it
 // is and reported: deciding what it costs belongs to later work, and asking
-// again here would be deciding it.
+// again here would be deciding it. The exception is a request that went
+// unanswered while the queue was waiting for GitHub on this entry
+// (mergequeuegithubwait.go): GitHub not being reachable is why, so it is asked
+// for again in place.
 func (q *queuePromotion) notMade(ctx context.Context, last runstate.MergeQueueMutationRecord) error {
 	attempt := q.attempt()
 	interrupted := last.Settled.Observed
 	switch {
+	case interrupted && q.gitHubWait != nil && last.Mutation == runstate.MergeQueuePushCandidate:
+		// The queue was waiting for GitHub on this entry, which is why the
+		// request went unanswered: now that GitHub answers and shows it not made,
+		// it is asked for again in place (mergequeuegithubwait.go). A push is a
+		// compare-and-swap, a pull request is opened once per branch, and a merge
+		// names the candidate, so none of them is made twice.
+		return q.pushCandidate(ctx)
+	case interrupted && q.gitHubWait != nil && last.Mutation == runstate.MergeQueueOpenPullRequest:
+		return q.openPullRequest(ctx)
+	case interrupted && q.gitHubWait != nil && last.Mutation == runstate.MergeQueueRequestMerge:
+		return q.mutateTarget(ctx, runstate.MergeQueueRequestMerge)
 	case !interrupted && last.Mutation == runstate.MergeQueuePushCandidate && attempt.Requests(runstate.MergeQueuePushCandidate) == 1:
 		if !attempt.MovedTarget() {
 			return q.setAside(attempt, fmt.Sprintf("the push of the candidate was recorded as not made (%s), which a push cut off before the remote answered also reads as, so it is asked for again",
@@ -1576,7 +1623,8 @@ func (q *queuePromotion) follow(ctx context.Context) error {
 	}
 	catchup, err := q.p.Lander.CatchUpTarget(ctx, q.key.TargetBranch)
 	if err != nil {
-		return fmt.Errorf("move %s onto what the forge landed: %w", q.key.TargetBranch, err)
+		return fmt.Errorf("move %s onto what the forge landed: %w", q.key.TargetBranch,
+			gitHubAway("fetching what GitHub landed on "+q.key.TargetBranch, err))
 	}
 	if catchup.Held != "" {
 		return q.settle(runstate.MergeQueueMutationHeld, catchup.Held, false)

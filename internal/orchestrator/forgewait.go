@@ -46,9 +46,9 @@ package orchestrator
 // the same way, in place and with no lease to give back
 // (gitHubWaitingQueueReader), rather than holding the change from the queue. A
 // read GitHub answered with a refusal is still a hold. The queue's own passes
-// land the change afterwards; how they treat GitHub being away is theirs
-// (mergequeuedriver.go, mergequeuerecovery.go), and the run, which has ended by
-// then, is not what waits.
+// land the change afterwards and wait out GitHub being away on the same paced
+// intervals (mergequeuegithubwait.go); the run, which has ended by then, is not
+// what waits.
 
 import (
 	"context"

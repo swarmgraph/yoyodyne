@@ -372,3 +372,34 @@ func TestTheQueueIsShownInTheOrderItsRulesChoseWithTheFirstEntrysRule(t *testing
 		t.Fatalf("with no choice recorded, first shown is %s by %q, want admission order and no rule", first, standing.MergeQueues[0].FirstRule)
 	}
 }
+
+// A queue whose last pass is waiting for GitHub says so in its label, and its
+// line says what it was doing and when it next tries, in local time with the
+// zone named.
+func TestAQueueWaitingForGitHubSaysSoAndWhenItNextTries(t *testing.T) {
+	t.Parallel()
+
+	key := runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"}
+	entry := fixtureEntry(1, "yoyodyne-ifd.1", "Waiting for GitHub", runstate.MergeQueueHarness)
+	since := time.Date(2026, 11, 13, 14, 4, 0, 0, time.UTC)
+	wait := runstate.MergeQueueGitHubWait{EntryID: entry.EntryID, Wait: runstate.ForgeWait{
+		Step: "asking GitHub to merge pull request 1828", Since: since, Tries: 3, NextTryAt: since.Add(3 * time.Second),
+		Failure: "Connection reset by peer",
+	}}
+	pass := runstate.MergeQueuePass{At: since, Outcome: runstate.MergeQueuePassWaiting, EntryID: entry.EntryID, Says: wait.Says(), GitHubWait: &wait}
+	queues := fixtureQueues{
+		keys:    []runstate.MergeQueueKey{key},
+		entries: map[string][]runstate.MergeQueueEntry{"main": {entry}},
+		pass:    &pass,
+	}
+	rendered := ReadStanding(context.Background(), Sources{MergeQueues: queues}).RenderMergeQueues()
+	for _, line := range []string{
+		"last pass: waiting for GitHub to be reachable again — the merge queue is waiting for GitHub to be reachable again",
+		"asking GitHub to merge pull request 1828",
+		"next try at " + since.Add(3*time.Second).Local().Format("2006-01-02 15:04 MST"),
+	} {
+		if !strings.Contains(rendered, line) {
+			t.Fatalf("rendered queues lack %q:\n%s", line, rendered)
+		}
+	}
+}

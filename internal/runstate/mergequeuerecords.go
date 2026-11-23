@@ -284,6 +284,10 @@ type MergeQueuePass struct {
 	// pass's last choice, where it made one. Only the latest pass keeps it; the
 	// history leaves it out.
 	Order *MergeQueueOrder `json:"order,omitempty"`
+	// GitHubWait is set on a waiting pass that ended because a step could not
+	// reach GitHub (MergeQueueGitHubWait): what it was doing and when the queue
+	// next tries. Only the latest pass keeps it; the history leaves it out.
+	GitHubWait *MergeQueueGitHubWait `json:"github_wait,omitempty"`
 }
 
 // MergeQueueOrder is the waiting entries in the order the queue's rules take
@@ -329,6 +333,11 @@ func (s *MergeQueueStore) RecordPass(ctx context.Context, key MergeQueueKey, pas
 		order.Rule, order.Why = BoundedMergeQueueText(order.Rule), BoundedMergeQueueText(order.Why)
 		pass.Order = &order
 	}
+	if pass.GitHubWait != nil {
+		wait := *pass.GitHubWait
+		wait.Wait = wait.Wait.bounded()
+		pass.GitHubWait = &wait
+	}
 	if err := s.writeSide(ctx, key, mergeQueuePassName, pass); err != nil {
 		return err
 	}
@@ -359,6 +368,7 @@ func (s *MergeQueueStore) recordPassHistory(ctx context.Context, key MergeQueueK
 	}
 	pass.Says = oneline.Bound(pass.Says, historySaysBytes)
 	pass.Order = nil
+	pass.GitHubWait = nil
 	history = append(history, pass)
 	keep := s.passHistory
 	if keep <= 0 {

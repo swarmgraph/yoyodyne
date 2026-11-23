@@ -355,7 +355,10 @@ func (p MergeQueuePromoter) Withdraw(ctx context.Context, key runstate.MergeQueu
 	}
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
 	q.outcome.Entry = entry
-	if err := q.withdraw(ctx, reason); err != nil || !q.outcome.Withdrawn {
+	if waiting, err := q.waitingOnGitHub(ctx); err != nil || waiting {
+		return q.result(), err
+	}
+	if err := q.settleGitHub(ctx, q.withdraw(ctx, reason)); err != nil || !q.outcome.Withdrawn {
 		return q.result(), err
 	}
 	return q.result(), q.release("its queued merge was withdrawn: "+reason, "")
@@ -523,6 +526,18 @@ func (q *queuePromotion) withdrawQueued(ctx context.Context) error {
 	}
 	asked := q.p.Withdrawer.DisableAutoMerge(ctx, w.PullRequest)
 	state, readErr := q.p.Pipeline.Publisher.State(ctx, attempt.CandidateBranch)
+	// GitHub not answering the withdrawal, or the read that confirms it, is
+	// waited out: the withdrawal stands, unsettled, and is asked again on the
+	// next try. It is not added to the answers, which are GitHub's own.
+	// A merge the read finds made is completed whatever the withdrawal met.
+	if landed := readErr == nil && state.Merged; !landed {
+		if away, ok := gitHubAwayOK(fmt.Sprintf("asking GitHub to withdraw the merge of pull request %d", w.PullRequest), asked); ok {
+			return away
+		}
+		if away, ok := gitHubAwayOK(fmt.Sprintf("reading pull request %d to confirm its merge was withdrawn", w.PullRequest), readErr); ok {
+			return away
+		}
+	}
 	switch {
 	case readErr == nil && state.Merged:
 		return q.withdrawalLanded(ctx, state)
@@ -680,7 +695,12 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 		}
 		return recovered, nil
 	}
-	err = q.withdraw(ctx, "generation "+fmt.Sprint(failure.Generation.Number)+" is defective: "+failure.Reason)
+	// A withdrawal that cannot reach GitHub waits for it, as every step of the
+	// queue's landing does (mergequeuegithubwait.go).
+	waiting, err := q.waitingOnGitHub(ctx)
+	if err == nil && !waiting {
+		err = q.settleGitHub(ctx, q.withdraw(ctx, "generation "+fmt.Sprint(failure.Generation.Number)+" is defective: "+failure.Reason))
+	}
 	recovered.Withdrawal = q.result()
 	if err != nil || !q.outcome.Withdrawn {
 		return recovered, err
