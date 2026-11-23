@@ -114,6 +114,36 @@ func TestAPauseAndAFactoryAttemptingNothingAreNotStalls(t *testing.T) {
 	}
 }
 
+// The harness's own passes wake no role, so a resting product whose log holds
+// only them is not stalled, whether they worked or failed; beside a role's
+// failing passes they are neither counted nor hide the stall.
+func TestTheHarnesssOwnPassesAreNeitherAStallNorHideOne(t *testing.T) {
+	t.Parallel()
+	pulled, runs, passes := stalledNight()
+	now := pulled.Add(13 * time.Hour)
+	var own []runstate.Sweep
+	for hour := 1; hour <= 12; hour++ {
+		at := pulled.Add(time.Duration(hour) * time.Hour)
+		own = append(own, runstate.Sweep{
+			Task: "build-cache", StartedAt: at, EndedAt: at.Add(time.Second),
+			Steps:  []runstate.SweepStep{{Name: "build-cache", Outcome: runstate.StepRan, Detail: "within its limit"}},
+			Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "1 step(s) ran, 0 skipped, 0 failed"},
+		}, runstate.Sweep{
+			Task: "maintenance", StartedAt: at, EndedAt: at.Add(time.Second), Problem: "reconcile: refused",
+			Steps: []runstate.SweepStep{{Name: "reconcile", Outcome: runstate.StepFailed, Detail: "refused"}},
+		})
+	}
+	for name, given := range map[string][]runstate.State{"after a pull": runs, "where nothing was ever pulled": nil} {
+		if stall, stalled := FactoryStallOf(given, own, false, 2*time.Hour, now); stalled {
+			t.Fatalf("FactoryStallOf() %s = %+v, want a rest", name, stall)
+		}
+	}
+	stall, stalled := FactoryStallOf(runs, append(own, passes...), false, 2*time.Hour, now)
+	if !stalled || !stall.Since.Equal(pulled) || len(stall.Failures) != 2 {
+		t.Fatalf("FactoryStallOf() beside failing sweeps = %+v, %t, want the stall with only the two roles' passes", stall, stalled)
+	}
+}
+
 // A pass whose turn failed, one missed, and one that answered without an
 // account are none of them a success.
 func TestOnlyAPassThatAnsweredWithAnAccountSucceeded(t *testing.T) {

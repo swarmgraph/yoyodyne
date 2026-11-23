@@ -74,8 +74,8 @@ func WithGoBuildCache(environment []string, workingDirectory string) []string {
 //
 // It goes in the repository's own Git directory rather than the worktree's
 // administrative one, so every run of every worktree compiles against one cache
-// instead of paying for the same packages again; the Go command trims what it
-// has not used, so nothing there grows without bound. Outside the working tree
+// instead of paying for the same packages again; the supervisor holds the folder
+// this names under execution.build_cache_limit_gib (TrimBuildCache). Outside the working tree
 // is the other half of the choice: a cache inside it would be untracked content
 // in somebody's repository, which is a dirty tree to every gate that reads one
 // and unrecognized content to the composition audit.

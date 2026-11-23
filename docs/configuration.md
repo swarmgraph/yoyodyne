@@ -1056,6 +1056,7 @@ Up to three layers produce the effective configuration, later ones winning:
    `execution.landing_check_timeout` (`2h`),
    `execution.redeploy_drain_limit` (`15m`),
    `execution.build_move_interval` (`3h`),
+   `execution.build_cache_limit_gib` (40),
    `execution.factory_stall_after` (`2h`),
    `execution.could_not_run_before_status` (3),
    `execution.usage_window_degraded_percent` (90),
@@ -2901,6 +2902,13 @@ user's home, which a developer run's sandbox does not grant: without the
 redirect the first Go command in a run fails at setup with `operation not
 permitted`, which reads as a broken toolchain. A project whose checks are not Go
 is unaffected by a variable its tools never read.
+
+The harness also holds that folder to a size, `execution.build_cache_limit_gib`
+(40 GiB by default; 5 to 1000). At least once an hour, where the folder is over
+the limit, the files in it are removed oldest last change first until it is at
+80% of it. A file changed in the last two hours is never removed, folders and
+the files standing directly in the cache folder are left, and a link is removed
+as a link. [The maintenance pass](operations.md#the-supervisors-maintenance-pass) says what each trim came to.
 
 `PATH` is the harness's own with the provider CLIs left off it: `claude`,
 `codex`, and the executable every entry under `providers` names in their place.
@@ -9680,6 +9688,7 @@ These are all errors, reported before any work is claimed:
 - an `execution.build_move_interval` under one hour or over twenty-four hours:
   under an hour is a move on nearly every landing again, and over a day leaves
   fixes waiting in a build nobody runs;
+- an `execution.build_cache_limit_gib` under 5 or over 1000;
 - an `execution.factory_stall_after` that is negative, which describes no
   limit anybody could mean; zero reads the two-hour default;
 - an `execution.merge_queue_step_overdue_after` that is negative, which
@@ -9726,7 +9735,8 @@ These are all errors, reported before any work is claimed:
   `12h`, since it is the longest a role goes without a full pass while passes
   with nothing new are skipped;
 - a `recurring_tasks` entry named `maintenance`, which is the name the
-  supervisor's maintenance pass records its passes and paces its cadence under;
+  supervisor's maintenance pass records its passes and paces its cadence under, or named `build-cache` or
+  `build-cache-warning`, which it keeps its trims of the build cache under;
 - a persona path that is absolute, traverses upward, is not Markdown, is missing,
   is empty, or resolves through a symlink to somewhere outside `.yoyodyne`;
 - a `role` that is neither one of the harness's six nor the name of a
@@ -10382,7 +10392,8 @@ pass closes it and files a note saying what cleared it. While it stands,
 A pass counts as successful when it took a turn and the role gave an account
 of it. The operator's pause is never a stall, and neither is a product whose
 recurring tasks are switched off over an empty queue: with no pass attempted
-there is nothing failing to report.
+there is nothing failing to report. The harness's own passes, the maintenance
+pass and the build cache trim, wake no role and are not counted as attempts.
 
 Only a pull or a successful pass that started after the stall began closes
 it. Pausing the harness during a stall, raising the limit past it, or a sweep

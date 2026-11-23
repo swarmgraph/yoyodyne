@@ -207,6 +207,9 @@ func (t RecurringTask) problems(name string, agents map[string]AgentConfig) []st
 	if name == MaintenanceTaskName {
 		problems = append(problems, fmt.Sprintf("recurring task %q is named for the product's maintenance pass, which records its passes under that name; give the task another", name))
 	}
+	if name == BuildCacheTaskName || name == BuildCacheWarningName {
+		problems = append(problems, fmt.Sprintf("recurring task %q is a name the harness keeps its trims of the shared build cache under; give the task another", name))
+	}
 	if !t.Role.Valid() {
 		problems = append(problems, fmt.Sprintf("recurring task %q role %q must be one of %s", name, t.Role, describeRoles()))
 	} else if !roleIsConfigured(agents, t.Role) {

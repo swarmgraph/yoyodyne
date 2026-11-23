@@ -773,9 +773,10 @@ func (p *product) retireMaintenanceJob(ctx context.Context, by string) (said, pr
 
 // residents is the work the supervisor hosts beside its children: rebuilding
 // the product's binary when its branch lands, for a product whose binary is
-// built from its own checkout, the factory stall check, and the periodic
-// maintenance pass where the services section enables it, which is returned as well so the supervisor
-// records it as a part.
+// built from its own checkout, the factory stall check, the trim of the
+// shared build cache, and the periodic maintenance pass where the services
+// section enables it, which is returned as well so the supervisor records it as
+// a part.
 func (p *product) residents(host *supervise.Supervisor, log func(format string, args ...any)) ([]supervise.Resident, *maintain.Pass, error) {
 	var residents []supervise.Resident
 	repository := doctor.RepositoryPath(config.ProjectDirectory(p.resolved.Path), p.resolved.Config.Product.Repository)
@@ -803,13 +804,35 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		residents = append(residents, mainCheck)
 	}
 	maintenance := p.resolved.Config.Services.Maintenance
-	if !maintenance.Enabled {
-		return residents, nil, nil
-	}
 	productID := p.resolved.Config.Product.ID
 	sweeps, err := runstate.NewSweepStore(p.stateRoot, productID)
 	if err != nil {
 		return nil, nil, err
+	}
+	reports, err := runstate.NewReportStore(p.stateRoot, productID)
+	if err != nil {
+		return nil, nil, err
+	}
+	recordFailures := func(ctx context.Context) error {
+		return sweeps.RecordPassFailures(ctx, reports, passFailureAttribution(p.resolved.Config),
+			readmodel.FactoryFlowAgent(programManagerInstances(p.resolved.Config)))
+	}
+	buildCache := &maintain.BuildCache{
+		Repository:     repository,
+		Limit:          p.resolved.Config.Execution.BuildCacheLimitBytes(),
+		Product:        productID,
+		RepositoryID:   string(p.resolved.Config.Product.RepositoryID),
+		Build:          buildinfo.Commit(),
+		Claims:         sweeps,
+		Reports:        reports,
+		InPass:         maintenance.Enabled && maintenance.Every.Duration() <= maintain.BuildCacheEvery,
+		Now:            p.now,
+		Log:            log,
+		RecordFailures: recordFailures,
+	}
+	residents = append(residents, buildCache)
+	if !maintenance.Enabled {
+		return residents, nil, nil
 	}
 	outages, err := runstate.NewProviderOutageStore(p.stateRoot, productID)
 	if err != nil {
@@ -819,35 +842,29 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	if err != nil {
 		return nil, nil, err
 	}
-	reports, err := runstate.NewReportStore(p.stateRoot, productID)
-	if err != nil {
-		return nil, nil, err
-	}
 	runIndex, err := runstate.NewStore(p.stateRoot, productID)
 	if err != nil {
 		return nil, nil, err
 	}
 	pass := &maintain.Pass{
-		RunIndex:   runIndex,
-		Runs:       runIndex,
-		Product:    productID,
-		Every:      maintenance.Every.Duration(),
-		Program:    p.program,
-		Config:     p.resolved.Path,
-		Repository: repository,
-		Environ:    slack.WithoutSecrets(p.environ),
-		Claims:     sweeps,
-		Outages:    outages,
-		Requests:   requests,
-		NoRebuild:  noRebuild,
-		Host:       host,
-		Runner:     p.runner,
-		Now:        p.now,
-		Log:        log,
-		RecordFailures: func(ctx context.Context) error {
-			return sweeps.RecordPassFailures(ctx, reports, passFailureAttribution(p.resolved.Config),
-				readmodel.FactoryFlowAgent(programManagerInstances(p.resolved.Config)))
-		},
+		RunIndex:       runIndex,
+		Runs:           runIndex,
+		Product:        productID,
+		Every:          maintenance.Every.Duration(),
+		Program:        p.program,
+		Config:         p.resolved.Path,
+		Repository:     repository,
+		Environ:        slack.WithoutSecrets(p.environ),
+		Claims:         sweeps,
+		Outages:        outages,
+		Requests:       requests,
+		NoRebuild:      noRebuild,
+		Host:           host,
+		Runner:         p.runner,
+		Now:            p.now,
+		Log:            log,
+		RecordFailures: recordFailures,
+		BuildCache:     buildCache,
 	}
 	// Assigned only where there is one: an interface holding a nil pointer is
 	// not nil, and the pass reads a nil rebuilder as the reason above.

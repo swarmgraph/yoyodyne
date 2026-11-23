@@ -366,6 +366,11 @@ execution:
   # the newest build installed then, skipping any that landed in between. At
   # least one hour and at most twenty-four hours.
   build_move_interval: %s
+  # The size, in GiB, the build cache folder the harness names for every run is
+  # held to. Past it, at least once an hour, the oldest files are removed until
+  # the folder is at 80%% of this; a file changed in the last two hours is never
+  # removed. At least 5 and at most 1000.
+  build_cache_limit_gib: %d
   # No work pulled and no recurring pass succeeding for this long is a factory
   # stall. The supervisor files it as a critical report once when it begins,
   # files a note when passes succeed or work is pulled again, and "yoyo status"
@@ -579,6 +584,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.MainCheckInterval),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
 		renderScaffoldDuration(effective.Execution.BuildMoveInterval),
+		effective.Execution.BuildCacheLimitGiB,
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.CouldNotRunBeforeStatus,
 		effective.Execution.UsageWindowDegradedPercent,

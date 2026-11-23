@@ -132,6 +132,7 @@ func NewSharedPipeline(t *testing.T, repository, worktreeRoot string, store orch
 			WorkPoll:                               config.Duration(60 * time.Second),
 			RedeployDrainLimit:                     config.Duration(15 * time.Minute),
 			BuildMoveInterval:                      config.DefaultBuildMoveInterval,
+			BuildCacheLimitGiB:                     config.DefaultBuildCacheLimitGiB,
 			BlockedRunsBeforeIntakeHold:            3,
 			// What a loaded configuration fills in, and what every run this suite
 			// drives therefore executes: the built-in definition, compiled and
