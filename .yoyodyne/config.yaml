@@ -587,6 +587,10 @@ agents:
     remit:
       version: r1
       path: remits/technical-health.md
+    # 45m turns by Mason's direction of 2026-10-30; 60m messages by the Lead Product Manager's decision of 2026-10-31.
+    time_limits:
+      turn: 45m
+      message: 1h
   development-manager:
     role: development-manager
     backend: claude-code
