@@ -108,9 +108,17 @@ func TestAddingTheNeedsDesignLabelWakesTheArchitectWithTheItemNamed(t *testing.T
 		t.Fatalf("fired = %+v, want one pass of the architect's under %s", fired.Fired, NeedsDesignWakeTask)
 	}
 	message := w.lastMessage(t)
-	for _, want := range []string{"the needs-design label was added", "Newly labelled (1):", "- yoyodyne-ifd.501: Choose the record's owner", "docs/designs/needs-design-gate.md"} {
+	for _, want := range []string{"the needs-design label was added", "Newly labelled (1):", "names the item in the write's `answers` list", "- yoyodyne-ifd.501: Choose the record's owner", "docs/designs/needs-design-gate.md"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("message lacks %q:\n%s", want, message)
+		}
+	}
+	if !strings.Contains(message, "the development manager removes the label, for now") {
+		t.Errorf("message does not say the development manager removes the label:\n%s", message)
+	}
+	for _, dropped := range []string{"Only you take the label off", "design field"} {
+		if strings.Contains(message, dropped) {
+			t.Errorf("message still says %q:\n%s", dropped, message)
 		}
 	}
 	if w.role.agents[0] != "" {

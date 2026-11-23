@@ -240,6 +240,40 @@ func (u QueuedRunCompleted) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// RaisedForDesignCompleted ends a run whose developer raised that its work item
+// waits on the architect's design, once the item is back in the backlog
+// labelled needs-design: it succeeds at what it was for, complete, with nothing
+// integrated, and every pause it was carrying is over. Divergence is what the
+// run's workflow observation has to say about ending there, kept only where the
+// run carries none already. It is refused on a run that has already ended some
+// other way.
+type RaisedForDesignCompleted struct {
+	Divergence string
+	At         time.Time
+}
+
+func (u RaisedForDesignCompleted) apply(state *State) (bool, error) {
+	if state.Status == StatusSucceeded && state.Phase == PhaseComplete && state.StopClass == StopNeedsDesign {
+		return false, nil
+	}
+	if state.Status.Terminal() {
+		return false, fmt.Errorf("run %s has already ended %s, so it does not end again as raised for design", state.RunID, state.Status)
+	}
+	state.ProviderStop = ""
+	state.RedeployStop = nil
+	state.OperatorHeldSince = nil
+	state.StopClass = StopNeedsDesign
+	state.Status = StatusSucceeded
+	state.Phase = PhaseComplete
+	if u.Divergence != "" && state.WorkflowDivergence == "" {
+		state.WorkflowDivergence = u.Divergence
+	}
+	state.UpdatedAt = u.At
+	completed := u.At
+	state.CompletedAt = &completed
+	return true, nil
+}
+
 // MergeQueueEntryLost stops a run that ended waiting on the merge queue and
 // whose entry the queue no longer holds, with nothing landed and nothing handed
 // back to the run: it fails with the reason and the blocker the item was given,
