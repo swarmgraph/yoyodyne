@@ -13,12 +13,14 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/action"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+	"github.com/mason-bryant/yoyodyne/internal/repositoryask"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
@@ -89,6 +91,13 @@ func Default() (action.Registry[Call], error) {
 	search := declaration(capability.RepositorySearch, "yoyodyne-repository", action.ToolRead, "Search the files at a recorded commit.", `Each request gives the action search, a pattern, optionally regexp, optionally a path to search under, and optionally why.`, "the files Git tracks as a recorded commit holds them, optionally under one path; never files someone is editing", "(*Session).performRepositoryReads", action.ToolBounds{RequestsPerReply: repositoryread.MaxRequestsPerReply, RoundsPerMessage: 2, BytesPerRequest: repositoryread.MaxSearchBytes, BytesPerReply: repositoryread.MaxBytesPerReply})
 	search.Capabilities = append(search.Capabilities, capability.RepositoryRead, capability.RepositoryList)
 	actions = append(actions, search)
+	// The reading helper (internal/repositoryask): one question answered by a
+	// session the harness runs on the lightest model. The answer limit shown is
+	// the most any project may set; the project's own limit is at or below it.
+	actions = append(actions, declaration(capability.RepositoryAsk, strings.TrimPrefix(repositoryask.Fence, "```"), action.ToolRead, "Ask the reading helper one question about the repository.",
+		`One block a reply: {"question": "...", "paths": ["optional/path/prefix"], "why": "optional"}. The harness runs one session on the lightest model, handed only the text files Git tracks at the commit this turn reads at under those paths, with no tools, no network and a time limit, and records its cost against you. The answer comes back as paths, line ranges and a little text. It tells you where to look and does not stand for what is there: read a passage yourself before you rule on it.`,
+		"the files Git tracks at a recorded commit, optionally under the paths you name; never files someone is editing, and nothing outside the repository", "(*Session).performRepositoryAsk",
+		action.ToolBounds{RequestsPerReply: 1, RoundsPerMessage: repositoryask.MaxRoundsPerMessage, BytesPerRequest: config.MaxRepositoryAskAnswerBytes, BytesPerReply: config.MaxRepositoryAskAnswerBytes}))
 	inspect, verify := runinspect.InspectDescriptor(), runinspect.VerifyDescriptor()
 	actions = append(actions,
 		action.Action[Call]{Name: string(inspect.ID), Summary: "See one run as it stands: its record, its worker, and what it holds and waits on.", Wraps: "(*Session).performRunReads", Capabilities: []capability.Capability{capability.RunInspect}, Perform: perform, Tool: &inspect},

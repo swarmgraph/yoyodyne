@@ -26,6 +26,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/repositoryask"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -1126,7 +1127,12 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// authority to ask is decided in the chat package's table rather than
 		// here, and a reader nobody may ask is never asked.
 		RepositoryReader: conversationRepositoryReader(parts),
-		LogReader:        logread.Reader{StateRoot: parts.stateRoot, ProductID: parts.config.Product.ID, RedactValues: parts.redactValues},
+		// The reading helper: one question answered by a session the harness
+		// runs on the lightest model, handed the files at the commit HEAD names.
+		// Wired for every role for the reason the reader is; which role may ask
+		// is the bundle's.
+		RepositoryAsk: conversationRepositoryAsk(parts),
+		LogReader:     logread.Reader{StateRoot: parts.stateRoot, ProductID: parts.config.Product.ID, RedactValues: parts.redactValues},
 		// The one MCP call path, through which a role asks the harness to call
 		// a tool on its agent's own configured list. Nil where the project
 		// declares no MCP server, so the role is told nothing about MCP.
@@ -1273,14 +1279,18 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		Remit:           agent.Remit.Text,
 		// The lane the instance's tracker writes are confined to, enforced at the
 		// act in the conversation's authority table.
-		Lane:         agent.Lane,
-		Agent:        name,
-		Provider:     agent.Backend,
-		Providers:    providerRegistry(cfg),
-		Repository:   repository,
-		ProductID:    cfg.Product.ID,
-		RepositoryID: string(cfg.Product.RepositoryID),
-		Briefing:     briefing,
+		Lane:     agent.Lane,
+		Agent:    name,
+		Provider: agent.Backend,
+		// The lightest model of the provider this agent runs on, which is the one
+		// the reading helper's session asks for; empty where the provider names
+		// none, and the helper is then refused for it, saying why.
+		RepositoryAskModel: repositoryAskModel(cfg, agent.Backend),
+		Providers:          providerRegistry(cfg),
+		Repository:         repository,
+		ProductID:          cfg.Product.ID,
+		RepositoryID:       string(cfg.Product.RepositoryID),
+		Briefing:           briefing,
 		// The repository and the tracker are kept reachable so the conversation
 		// can say how old its picture is and take a new one when the operator
 		// asks. The product manager reaches neither: this is the harness's hand,
@@ -1477,6 +1487,27 @@ func conversationRepositoryReader(parts components) repositoryread.Reader {
 		IntentDirectory: parts.config.Product.IntentRepository,
 		RedactValues:    parts.redactValues,
 	}
+}
+
+// conversationRepositoryAsk is the reading helper a conversation asks on a
+// role's behalf, bounded by execution.repository_ask. It reads the primary
+// checkout's committed tree at the commit HEAD names, as the repository reader
+// does, and redacts with the values every provider-facing path uses.
+func conversationRepositoryAsk(parts components) repositoryask.Asker {
+	return repositoryask.Asker{
+		Process:      parts.runner,
+		Directory:    parts.repository,
+		TimeLimit:    parts.config.Execution.RepositoryAsk.Limit(),
+		AnswerBytes:  parts.config.Execution.RepositoryAsk.AnswerLimit(),
+		RedactValues: parts.redactValues,
+	}
+}
+
+// repositoryAskModel is the provider's lightest model, or empty where it names
+// none.
+func repositoryAskModel(cfg config.Config, provider domain.Backend) string {
+	model, _ := cfg.Execution.ModelOfKind(provider, config.ModelKindLightest)
+	return model
 }
 
 // chatTracker is the work-item client a conversation acts through: it reads the

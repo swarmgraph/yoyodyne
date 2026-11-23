@@ -182,6 +182,9 @@ func TestTheProgramManagerHoldsItsDesignsSetExactly(t *testing.T) {
 		// MCP read tools on its own list, given by section 1 of
 		// docs/designs/mcp-tools-through-the-harness.md; never an act tool.
 		"mcp.read",
+		// The reading helper, given by section 7 of
+		// docs/designs/reducing-what-the-factory-costs.md.
+		"repository.ask",
 	}
 	got := slices.Clone(bundle.Holds)
 	slices.Sort(got)
