@@ -583,13 +583,21 @@ findings, failing check and its output, or conflicting paths. The owning role is
 developer or operator is asked to repair it. A revised submission opens a fresh
 run for that content. After three such returned runs for the same document in
 that conversation, automatic publication stops. The owner receives that reason
-and must revise its plan; further submissions are saved as conversation
-events but open no more runs for that document in that conversation, with one
-exception. A revision written against a newer copy of the document on the
+and must revise its plan, and its next revision of the document is kept, unsent,
+for the development manager. Her list and `yoyo status` say which document it is,
+who wrote it, and why it is held. She decides it with the `held_document` action
+in her conversation: `release` starts one reviewed run of that revision, at the
+writer's next message, and `decline` sends nothing. The decision and its reason
+are recorded on the revision, and the writer is told at their next turn. If the
+released run is returned, the next revision is held again. You are not asked, and
+`approve` and `decline` are refused on a held revision. Her decision is refused,
+with nothing recorded, while the writer's conversation is in the middle of a
+turn, and she makes it again later. A new revision replaces the one held and is
+held in its turn, with one exception. A revision written against a newer copy of the document on the
 target branch than the copy the last returned run was written against opens a
 fresh run and starts the count of returned runs again from zero; the run
 records the commit that made each of the two copies. A revision written against
-the same copy is still refused, and the reason says so.
+the same copy is held, and the reason says so.
 
 **A document whose linked documents changed returns to its owner before any
 run.** Before a publishing run starts, a confirmed document is compared with

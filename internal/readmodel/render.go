@@ -508,7 +508,7 @@ func (s Standing) renderPlacedFirst() string {
 // renderDocumentWaits is the confirmed documents waiting for a document landing
 // to free, each with its owning role, said beside the ready work waiting for a
 // developer slot because both are work the harness starts by itself as room
-// frees.
+// frees, and after them the revisions held for the development manager.
 func (s Standing) renderDocumentWaits() string {
 	var rendered strings.Builder
 	listed, further := bound(len(s.DocumentsWaitingForSlot))
@@ -518,6 +518,14 @@ func (s Standing) renderDocumentWaits() string {
 	rendered.WriteString(remainder(further, "waiting document"))
 	if s.DocumentsWaitingProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.DocumentsWaitingProblem)
+	}
+	listedHeld, furtherHeld := bound(len(s.DocumentsHeld))
+	for _, held := range s.DocumentsHeld[:listedHeld] {
+		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, held.Says(), held.Next())
+	}
+	rendered.WriteString(remainder(furtherHeld, "held document"))
+	if s.DocumentsHeldProblem != "" {
+		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.DocumentsHeldProblem)
 	}
 	return rendered.String()
 }

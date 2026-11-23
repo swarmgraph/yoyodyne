@@ -13,7 +13,8 @@ package chat
 //   - its run is going, so the new revision waits behind that run and is sent
 //     once it ends;
 //   - its run ended without landing it, so it is settled as handed back and the
-//     new revision opens a fresh run at once.
+//     new revision opens a fresh run at once, unless the document's publication
+//     has stopped over returned runs (documentreturns.go).
 //
 // Across conversations the same holds by the run store rather than by this
 // conversation's records: a revision is not confirmed while any run of its
@@ -130,10 +131,14 @@ func (p revisionPlace) frees(record *writeRecord) bool {
 func (s *Session) takePlace(place *revisionPlace, newID string) ([]string, error) {
 	var said []string
 	for _, finished := range place.finished {
-		said = append(said, fmt.Sprintf("%s's run %s ended without landing it, so that revision no longer waits and this one opens a fresh run", finished.record.pending.ID, finished.standing.RunID))
 		if err := s.settleDelivery(finished.record, finished.standing.Delivery); err != nil {
 			return said, err
 		}
+		next := "this one opens a fresh run"
+		if s.state.DocumentReturns[strings.TrimSpace(finished.record.pending.Write.ID)] >= runstate.MaxDocumentReturns {
+			next = "automatic publication of the document has stopped, so this one is held for the development manager unless it is written against a newer copy on the target branch"
+		}
+		said = append(said, fmt.Sprintf("%s's run %s ended without landing it, so that revision no longer waits and %s", finished.record.pending.ID, finished.standing.RunID, next))
 	}
 	for _, replaced := range place.replaces {
 		if publication := replaced.pending.Publication; publication != nil {
@@ -166,7 +171,12 @@ func (s *Session) settleDelivery(record *writeRecord, delivery runstate.Document
 		if s.state.DocumentReturns == nil {
 			s.state.DocumentReturns = map[string]int{}
 		}
-		s.state.DocumentReturns[record.pending.Write.ID]++
+		// A released run that is returned leaves the count at the stop, so the
+		// stop applies again at once.
+		released := record.pending.Publication != nil && record.pending.Publication.Released != nil
+		if s.state.DocumentReturns[record.pending.Write.ID] < runstate.MaxDocumentReturns {
+			s.state.DocumentReturns[record.pending.Write.ID]++
+		}
 		if delivery.RunID != "" {
 			if s.state.DocumentLastReturn == nil {
 				s.state.DocumentLastReturn = map[string]string{}
@@ -174,7 +184,11 @@ func (s *Session) settleDelivery(record *writeRecord, delivery runstate.Document
 			s.state.DocumentLastReturn[record.pending.Write.ID] = delivery.RunID
 		}
 		if s.state.DocumentReturns[record.pending.Write.ID] == runstate.MaxDocumentReturns {
-			delivery.Detail += fmt.Sprintf("The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation.\n", s.state.Role.Title(), runstate.MaxDocumentReturns)
+			if released {
+				delivery.Detail += "That was the one run the development manager released, so automatic publication of this document is stopped again: your next revision of it is held for the development manager.\n"
+			} else {
+				delivery.Detail += fmt.Sprintf("The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation. Unless it is written against a newer copy on the target branch, your next revision of it is held for the development manager, who releases it for one run or declines it.\n", s.state.Role.Title(), runstate.MaxDocumentReturns)
+			}
 		}
 	}
 	if !delivery.Landed && !delivery.Passed {
@@ -264,6 +278,12 @@ func (s *Session) waitingReason(record *writeRecord, behind *writeRecord, behind
 	switch {
 	case behind != nil:
 		return fmt.Sprintf("its earlier revision %s is being published in run %s, and this one is sent once that run ends", behind.pending.ID, behindRun)
+	case record.pending.ReturnsHold != nil && record.pending.Publication == nil:
+		hold := record.pending.ReturnsHold
+		if record.releasedReturns() {
+			return "the development manager released it for one run, which starts at the next message"
+		}
+		return fmt.Sprintf("it is held for the development manager since %s: automatic publication stopped after %d returned runs, and %s", hold.HeldAt.Local().Format("Jan 2 15:04 MST"), runstate.MaxDocumentReturns, hold.Why)
 	case record.heldForSending():
 		hold := record.pending.Write.Hold
 		return fmt.Sprintf("you held sending it until %s closes (%s)", strings.TrimSpace(hold.UntilClosed), strings.TrimSpace(hold.Reason))
@@ -384,7 +404,7 @@ func (s *Session) withdrawWrite(id, reason string) (string, error) {
 		for _, back := range s.state.HandedBack {
 			if back.ID == id {
 				s.state.HandedBack = s.forgetHandedBack(back.Artifact)
-				return fmt.Sprintf("withdrawn. It had already been handed back by run %s and was no longer waiting; it is no longer listed among your documents.", back.RunID), nil
+				return fmt.Sprintf("withdrawn. It had already been handed back%s and was no longer waiting; it is no longer listed among your documents.", handedBackBy(back.RunID)), nil
 			}
 		}
 		return "refused. No document of yours with that name is waiting in this conversation; a document another role wrote, or one already settled, is not yours to withdraw.", nil
@@ -439,9 +459,9 @@ func (s *Session) renderWaitingDocuments() string {
 		out.WriteString("None is waiting.\n")
 	}
 	if len(s.state.HandedBack) > 0 {
-		out.WriteString("\nHanded back to you, and no longer waiting; your next revision of each opens a fresh run:\n")
+		out.WriteString("\nHanded back to you, and no longer waiting; your next revision of each opens a fresh run, or is held for the development manager where automatic publication of it has stopped:\n")
 		for _, back := range s.state.HandedBack {
-			fmt.Fprintf(&out, "- %s: %s, %s. Handed back by run %s: %s\n", back.ID, back.Artifact, writtenWhen(back.Written, back.Turn), back.RunID, back.Reason)
+			fmt.Fprintf(&out, "- %s: %s, %s. Handed back%s: %s\n", back.ID, back.Artifact, writtenWhen(back.Written, back.Turn), handedBackBy(back.RunID), back.Reason)
 		}
 	}
 	return out.String() + "\n"

@@ -223,7 +223,9 @@ operator), saves the complete
 candidate, and calls the ordinary delivery pipeline before any prompt, under
 the message's cancellation but not its deadline (`withoutDeadline`). Its
 `PublishDocuments` also resumes saved handoffs and carries failures to the owner,
-with three returns allowed per document per conversation; only a run that
+with three returns allowed per document per conversation, after which
+`documentreturns.go` holds the next revision for the development manager and
+carries out her `held_document` decision; only a run that
 judged the document counts as one, a run that judged nothing is retried by the
 publisher, and `resumeStoppedDocuments` puts back a document an older build
 stopped over such runs. It confirms nothing
@@ -283,6 +285,7 @@ not be paired with its concern instead.
 | `tracker.go` | `TrackerAction`, `extractTrackerActions`, `performTrackerActions`, `applyTrackerAction`, `carryOutTrackerAction`, `TrackerOutcome`, `renderTrackerResults`, refused-block hand-back (`recordRefusedTrackerBlock`) |
 | `role.go` | role authority, `SystemPrompt`, `WithRemit` |
 | `document.go`, `documentpublication.go`, `documentlanded.go` | document writes, policy confirmation, durable publication and returns to the owner; documents found landed by another route, `/landed`, `/drop` |
+| `documentreturns.go` | a revision held after three returned runs, and the development manager's `held_document` action that releases or declines it |
 | `waitingdocuments.go` | one waiting revision per document, eight waiting documents per role, replacing, withdrawing and listing a role's own, and answering every write |
 | `sendinghold.go` | a hold on sending one document, lifted when its named work item closes; the notes a document leaves on the items it answers |
 | `compact.go`, `memory.go` | session compaction and the role's own memory |

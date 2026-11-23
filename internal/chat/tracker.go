@@ -266,6 +266,11 @@ const (
 	// queue stopped at its head held its own fix behind the stop, and only a
 	// person merging by hand let it out. See queuehead.go.
 	actionQueue = "queue"
+	// actionHeldDocument decides a document revision held after its automatic
+	// publication stopped over returned runs: "release" for one reviewed run, or
+	// "decline". Its subject is the revision in its writer's conversation, not an
+	// item. See documentreturns.go.
+	actionHeldDocument = "held_document"
 	// actionTeamConflict is the development manager's decision that a run of one
 	// item resolves the conflict met while the target branch is brought up to
 	// date with the team's branch. It names the item, and the harness records the
@@ -314,6 +319,7 @@ var trackerActionArguments = map[string][]string{
 	actionDirective:    {"directive", "decision", "became"},
 	actionAmendment:    {"amendment", "decision"},
 	actionQueue:        {"entry", "decision"},
+	actionHeldDocument: {"document", "decision"},
 	actionTeamConflict: {},
 	actionGrant:        {"budget"},
 }
@@ -382,6 +388,8 @@ var trackerCapabilities = map[string]capability.Capability{
 	// Releasing a stopped queue entry is deciding what becomes of work that
 	// stopped moving, which is triage's authority and its holder's alone.
 	actionQueue: capability.WorkTriage,
+	// A held document is stopped work too, decided by the same role.
+	actionHeldDocument: capability.WorkTriage,
 	// Deciding which item's run resolves a conflict is deciding what becomes of
 	// stopped work too, and is held by the same role.
 	actionTeamConflict: capability.WorkTriage,
@@ -421,7 +429,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionKeepVersion, actionWithdraw,
-	actionDirective, actionAmendment, actionQueue, actionTeamConflict, actionGrant,
+	actionDirective, actionAmendment, actionQueue, actionHeldDocument, actionTeamConflict, actionGrant,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -544,6 +552,10 @@ type TrackerAction struct {
 	// the status shows it (mqe-...), and is taken by that action and by nothing
 	// else.
 	Entry string `json:"entry,omitempty"`
+	// Document names the held document a "held_document" action decides, as the
+	// development manager's list names it: its conversation, a slash, and the
+	// write. It is taken by that action and by nothing else.
+	Document string `json:"document,omitempty"`
 	// Amendment names the proposed change an "amendment" action decides, by its
 	// whole id or a prefix of it that names exactly one, and is taken by that
 	// action and by nothing else.
@@ -1180,6 +1192,11 @@ func (a TrackerAction) validateSubject() error {
 			return errors.New("amendment does not take an id; it names the proposed change it decides in \"amendment\", and a proposed change is not a work item")
 		}
 		return nil
+	case a.Action == actionHeldDocument:
+		if id != "" {
+			return errors.New("held_document does not take an id; it names the held document it decides in \"document\", and a document is not a work item")
+		}
+		return nil
 	case a.decidesDocument():
 		// A document publication has no work item: the decision names its run and
 		// is recorded there. An id naming the run's own record is accepted, since
@@ -1205,7 +1222,7 @@ func (a TrackerAction) actsOnExistingItem() bool {
 		return false
 	}
 	switch a.Action {
-	case actionCreate, actionSurvey, actionHandle, actionBrake, actionWithdraw, actionDirective, actionAmendment:
+	case actionCreate, actionSurvey, actionHandle, actionBrake, actionWithdraw, actionDirective, actionAmendment, actionHeldDocument:
 		return false
 	default:
 		return true
@@ -1405,6 +1422,8 @@ func (a TrackerAction) validateArguments() []error {
 		}
 	case actionQueue:
 		problems = append(problems, a.queueProblems()...)
+	case actionHeldDocument:
+		problems = append(problems, a.heldDocumentProblems()...)
 	case actionKeepVersion:
 		if !runstate.TrackerVersion(strings.TrimSpace(a.Decision)).Valid() {
 			problems = append(problems, fmt.Errorf("keep_version requires \"decision\", one of %s", strings.Join(runstate.TrackerVersionVocabulary(), ", ")))
@@ -1575,6 +1594,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Entry) != "" {
 		carried = append(carried, "entry")
+	}
+	if strings.TrimSpace(a.Document) != "" {
+		carried = append(carried, "document")
 	}
 	if strings.TrimSpace(a.Became) != "" {
 		carried = append(carried, "became")
@@ -2476,6 +2498,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.decideBrake(outcome)
 	case actionQueue:
 		s.releaseQueueHead(ctx, outcome)
+	case actionHeldDocument:
+		s.decideHeldDocument(ctx, outcome)
 	case actionTeamConflict:
 		s.decideTeamConflict(ctx, outcome)
 	case actionGrant:

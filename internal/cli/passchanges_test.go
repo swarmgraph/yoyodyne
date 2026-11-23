@@ -104,6 +104,12 @@ func TestEachPassChangeReaderMovesOnlyOnItsOwnRecord(t *testing.T) {
 			unrelated: func(r *passChangeRecords) { r.now = r.now.Add(30 * time.Minute) }},
 		{kind: orchestrator.ChangeStops,
 			change: func(r *passChangeRecords) { r.docket = append(r.docket, triage.Entry{Key: "run-2", RunID: "run-2"}) }},
+		{kind: orchestrator.ChangeStops,
+			// A document held for her decision in another role's conversation.
+			change: func(r *passChangeRecords) {
+				r.conversations[1].PendingWrites = []runstate.PendingWrite{{ID: "document-4.1", Artifact: "held-design",
+					ReturnsHold: &runstate.DocumentReturnsHold{Why: "written against the same copy", HeldAt: r.now}}}
+			}},
 		{kind: orchestrator.ChangeHealth,
 			change: func(r *passChangeRecords) { r.conditions = []string{"empty-slot/developer-1"} }},
 	}

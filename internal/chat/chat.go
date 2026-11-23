@@ -354,6 +354,10 @@ type Options struct {
 	// her conversation and no other, and a conversation without one refuses the
 	// release rather than appearing to have made it.
 	QueueHeads QueueHeads
+	// ReturnedDocuments is how the development manager's decision about a
+	// document held after returned runs reaches its writer's conversation
+	// (documentreturns.go). It is wired into her conversation and no other.
+	ReturnedDocuments ReturnedDocuments
 	// TeamConflicts is how the development manager's decision that a run of one
 	// item resolves a conflict in bringing the target branch up to date with the
 	// team's branch is recorded (teamconflict.go). It is wired into her

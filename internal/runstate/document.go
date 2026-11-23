@@ -35,6 +35,9 @@ type DocumentPublication struct {
 	// stopped at MaxDocumentReturns. It says why the count of returned runs began
 	// again at zero for this revision.
 	CountRestarted *DocumentCountRestart `json:"count_restarted,omitempty"`
+	// Released is set on a handoff the development manager released for one run
+	// after automatic publication had stopped at MaxDocumentReturns.
+	Released *DocumentReturnsDecision `json:"released,omitempty"`
 }
 
 // DocumentCountRestart is the reason a document's count of returned runs began
@@ -75,7 +78,8 @@ func (d DocumentPublication) RunIDFor(attempt int) string {
 }
 
 // MaxDocumentReturns is how many runs that judged a document may hand it back
-// to its owner, in one conversation, before automatic publication of it stops.
+// to its owner, in one conversation, before automatic publication of it stops
+// (see DocumentReturnsHold for what happens to the next revision).
 const MaxDocumentReturns = 3
 
 // MaxDocumentAttempts is how many runs one confirmed document is given when
@@ -337,6 +341,14 @@ func (d DocumentPublication) Validate() error {
 	if d.CountRestarted != nil {
 		if err := d.CountRestarted.Validate(); err != nil {
 			return err
+		}
+	}
+	if d.Released != nil {
+		if err := d.Released.Validate(); err != nil {
+			return err
+		}
+		if d.Released.Decision != DocumentReturnsRelease {
+			return errors.New("a released publication must carry a release")
 		}
 	}
 	switch {

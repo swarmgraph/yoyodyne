@@ -492,6 +492,12 @@ func (p *sweepDocketPass) Window() string {
 		}
 		rendered += "\n" + held.Render()
 	}
+	if held := readmodel.RenderHeldDocuments(standing.DocumentsHeld); held != "" {
+		rendered += "\n" + held
+	}
+	if standing.DocumentsHeldProblem != "" {
+		rendered += "\n" + standing.DocumentsHeldProblem + "\n"
+	}
 	return rendered + "\n" + standing.RenderOperatorWaits(now)
 }
 

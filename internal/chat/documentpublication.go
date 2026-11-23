@@ -82,6 +82,15 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		if record.decided {
 			continue
 		}
+		// A revision held after returned runs goes no further until the
+		// development manager decides it.
+		goes, err := s.settleReturnsHold(record)
+		if err != nil {
+			return err
+		}
+		if !goes {
+			continue
+		}
 		// A held document leaves the held allowance only when it is confirmed,
 		// so it is let go only while there is room among the documents waiting
 		// for publication; confirming it beyond that would cut an earlier one
@@ -129,7 +138,7 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 				return err
 			}
 			if !confirmed {
-				if !record.decided {
+				if !record.decided && record.pending.ReturnsHold == nil {
 					record.waitsFor = "it waits for the operator's decision, because its kind's approval setting, or this project's integration setting, asks him"
 				}
 				continue
@@ -319,12 +328,14 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 		return false, s.returnUnconfirmed(record, fmt.Sprintf("Document %s (%s) could not be confirmed: %v. The %s must correct this saved submission in this conversation.\n", record.pending.ID, record.pending.Write.ID, err, s.state.Role.Title()))
 	}
 	if !automatic {
+		record.pending.ReturnsHold = nil
 		return false, s.tellMarkOverruled(record)
 	}
 	// A confirmation saved where nothing can land it would hold the document
 	// out of the operator's reach with no run to settle it, so the integration
 	// setting is decided before anything is confirmed.
 	if !publishes && !(landsDecided && candidate.ProductManagerApproved()) {
+		record.pending.ReturnsHold = nil
 		return false, nil
 	}
 	// The document checks are applied when a document is written
@@ -343,10 +354,11 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 	}
 	var restarted *runstate.DocumentCountRestart
 	compared := false
-	if s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
+	released := record.releasedReturns()
+	if !released && s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
 		// A revision written against a newer copy of the document on the target
 		// branch is not the text the three returns judged, so its count begins
-		// again. One written against the same copy is refused as before.
+		// again. One written against the same copy is held.
 		if judge, ok := s.options.DocumentPublisher.(documentCopyJudge); ok {
 			last := s.state.DocumentLastReturn[candidate.Artifact.ID]
 			if last == "" {
@@ -370,16 +382,18 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 			delete(s.state.DocumentLastReturn, candidate.Artifact.ID)
 		}
 	}
-	if s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
-		record.decided = true
+	if !released && s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
 		which := "the harness could not tell which copy of the document on the target branch the last returned run was written against, so it could not tell whether this revision is against a newer one"
 		if compared {
 			which = "this revision was written against the same copy of the document on the target branch as the last returned run"
 		}
-		return false, s.carryResults(fmt.Sprintf("Document %s (%s) was not published. The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation, and %s. Write it again against the current copy to publish it. No operator decision or developer run is requested.\n", record.pending.ID, candidate.Artifact.Title, s.state.Role.Title(), runstate.MaxDocumentReturns, which))
+		return false, s.holdForReturns(record, which)
 	}
 	record.pending.Publication = s.publicationFor(record, candidate)
 	record.pending.Publication.CountRestarted = restarted
+	if released {
+		record.pending.Publication.Released = record.pending.ReturnsHold.Decision
+	}
 	if err := s.record(); err != nil {
 		return false, err
 	}
