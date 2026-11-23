@@ -44,6 +44,12 @@ func (s *Session) placeFirst(ctx context.Context, outcome *TrackerOutcome) {
 		Priority: target.Priority,
 		Reason:   strings.TrimSpace(outcome.Action.Reason),
 	}
+	moved := target
+	moved.Placement = &placement
+	if refusal := s.raisedOrderRefusal(ctx, target, moved); refusal != "" {
+		outcome.Failure = refusal
+		return
+	}
 	change := beads.WorkItemChange{
 		Placement:   &placement,
 		AppendNotes: s.trackerProvenance(fmt.Sprintf("Placed first among priority %d", target.Priority), outcome.Action.Reason),
@@ -74,6 +80,12 @@ func (s *Session) removePlacement(ctx context.Context, outcome *TrackerOutcome) 
 	placed := target.PlacedFirst()
 	if placed == nil {
 		outcome.Failure = fmt.Sprintf("%s is not placed first among its priority, so there was no placement to remove; nothing was changed", id)
+		return
+	}
+	moved := target
+	moved.Placement = nil
+	if refusal := s.raisedOrderRefusal(ctx, target, moved); refusal != "" {
+		outcome.Failure = refusal
 		return
 	}
 	ended := beads.Placement{}

@@ -64,6 +64,26 @@ func NeedsDesign(labels []string) bool {
 	return false
 }
 
+// RaisedByOperatorLabel marks an item the operator raised on purpose
+// (docs/designs/unmet-goal-review.md, section 6). One harness action puts it on
+// and takes it off, quoting his own words from a turn the record shows is his,
+// and writes the note OperatorRaising renders in the same write. Every other
+// way of writing a label refuses it, and a configured lane may not be named
+// after it, so nothing else can claim who asked for the work or erase that he
+// did.
+const RaisedByOperatorLabel = "raised-by-operator"
+
+// RaisedByOperator reports labels carrying RaisedByOperatorLabel, compared
+// exactly as the tracker stores it.
+func RaisedByOperator(labels []string) bool {
+	for _, label := range labels {
+		if strings.TrimSpace(label) == RaisedByOperatorLabel {
+			return true
+		}
+	}
+	return false
+}
+
 // DeveloperSlot is what one of the configured developer slots prefers. A slot is
 // one unit of execution.max_concurrent_developers — the capacity one developer
 // run takes — and a slot that prefers a label pulls the backlog's ready work

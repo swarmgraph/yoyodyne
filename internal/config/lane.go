@@ -129,6 +129,11 @@ func instanceProblems(name string, agent AgentConfig) []string {
 		if err := domain.ValidateLabel(agent.Lane); err != nil {
 			problems = append(problems, fmt.Sprintf("agent %q lane: %v", name, err))
 		}
+		// The harness puts a lane's label on every item that program manager
+		// files, and this one is written only from the operator's own words.
+		if strings.TrimSpace(agent.Lane) == domain.RaisedByOperatorLabel {
+			problems = append(problems, fmt.Sprintf("agent %q lane is %q, the label that marks an item the operator raised on purpose; name the lane something else", name, domain.RaisedByOperatorLabel))
+		}
 	}
 	problems = append(problems, agent.Remit.problemsAs(name, "remit", MaxRemitBytes)...)
 	problems = append(problems, agent.Triggers.problems(name)...)
