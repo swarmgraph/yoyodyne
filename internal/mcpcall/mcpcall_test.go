@@ -263,6 +263,63 @@ func TestACancelledBatchSaysSo(t *testing.T) {
 	}
 }
 
+func TestACallWhoseContextHasEndedIsNeverSent(t *testing.T) {
+	server, options := commandServer(t)
+	err := batch(context.Background(), server, options, func(session *Session) error {
+		ended, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := session.CallTool(ended, "send", json.RawMessage(`{"text":"must not go"}`)); !errors.Is(err, context.Canceled) {
+			t.Errorf("err = %v, want the cancellation", err)
+		}
+		// A call that is sent afterwards is answered, so anything the ended
+		// call had sent would be in the server's log by now.
+		call(t, session, "echo", `{}`)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(serverFolder(t, options, server), "sent.log")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the server was sent the call whose context had ended (stat sent.log: %v)", err)
+	}
+}
+
+// answeringTransport answers every call, ending the call's context first when
+// it is told to, so the answer and the cancellation are both ready at once.
+type answeringTransport struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (a *answeringTransport) call(_ context.Context, id int64, _ map[string]any) (message, error) {
+	a.calls++
+	if a.cancel != nil {
+		a.cancel()
+	}
+	return message{ID: json.RawMessage(fmt.Sprint(id)), Result: json.RawMessage(`{"content":[]}`)}, nil
+}
+func (a *answeringTransport) notify(context.Context, string, any) error { return nil }
+func (a *answeringTransport) settled(string)                            {}
+func (a *answeringTransport) close() error                              { return nil }
+
+func TestACancellationWinsOverAnAnswerReadyAtTheSameMoment(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	transport := &answeringTransport{cancel: cancel}
+	session := &Session{server: Server{Name: "fake"}, transport: transport}
+	if _, err := session.CallTool(ctx, "echo", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the cancellation over the answer", err)
+	}
+	if transport.calls != 1 {
+		t.Fatalf("transport calls = %d, want the one call sent", transport.calls)
+	}
+	if _, err := session.CallTool(ctx, "echo", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the cancellation", err)
+	}
+	if transport.calls != 1 {
+		t.Errorf("transport calls = %d, want the call after the cancellation never sent", transport.calls)
+	}
+}
+
 func TestAURLServerGetsAFreshSessionForEachbatch(t *testing.T) {
 	fake := newFakeHTTP()
 	server, options := remoteServer(t, fake)
