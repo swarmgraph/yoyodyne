@@ -239,8 +239,10 @@ failing check's log (`lateCIFailureSays`). A refused push ends in
 
 ### Where does a run move from checks to review, and back to the developer?
 `repairLoop`. Each round: `holdForDirective`, `holdForDependency`, then
-`verify`. A `reviewBoundRefusal` (in `reviewbound.go`) ends the run at once
-through `blockOnReviewBound`, because no repair changes the bound. A
+`verify`. A `reviewBoundRefusal` (in `reviewbound.go`) goes back to the
+developer once through `repair` with `reviewBoundRepairPrompt`; a second one on
+the same run, or one that finds the budget spent, ends the run through
+`blockOnReviewBound`. A
 `pathRefusal`, `missingVerification` (in `selfcheck.go`) or `checkFailure` goes
 back to the developer through `repair` with the matching prompt; any other
 `verify` error ends the run. When `verify` passes,

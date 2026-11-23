@@ -527,6 +527,7 @@ func (s State) PutBackToCatchUpWithMergeQueue(conflict ReplayConflict, reason st
 	conflict.Moved = false
 	resumed.CheckFailure = nil
 	resumed.PathRefusal = nil
+	resumed.ReviewBoundRefusal = nil
 	resumed.ChecksPassed = nil
 	resumed.ReplayConflict = &conflict
 	resumed.Reconciliation = &Reconciliation{

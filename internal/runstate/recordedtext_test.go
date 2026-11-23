@@ -219,6 +219,7 @@ var structuredStrings = map[string]string{
 	"landing_checks.filed_work_item":                                                         "the tracker's identifier",
 	"path_refusal.paths[]":                                                                   "repository paths the change touched, bounded in number",
 	"path_refusal.grants[]":                                                                  "paths the work item granted, bounded in number",
+	"review_bound_refusal.files[]":                                                           "a repository path with the size check's own measurements, written by the harness and bounded in number",
 	"verification.probe.outcome":                                                             "an enumeration",
 	"verification.checks[].outcome":                                                          "an enumeration",
 	"refused_amendments[].role":                                                              "a validated role identifier",
