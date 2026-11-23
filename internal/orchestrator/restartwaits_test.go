@@ -965,12 +965,16 @@ func TestARestartKeepsARunWorkingWhileItWaitsForAMergeQueueCheck(t *testing.T) {
 			if pullsPastBound.Add(1) < 5 {
 				return
 			}
+			// The harness's sleep moves its clock without waiting, so these pulls
+			// come back to back, and the run's own goroutine may not have reported
+			// in yet on a loaded machine. It is waited for in real time, as the
+			// first stage waits for the queue's check, rather than looked for once.
 			select {
 			case hosted := <-hostedRun:
 				if hosted.Err() != nil {
 					t.Errorf("the run was stopped while the restart was still waiting on the queue's check: %v", context.Cause(hosted))
 				}
-			default:
+			case <-time.After(10 * time.Second):
 				t.Error("the run never started")
 			}
 			h.mu.Lock()
