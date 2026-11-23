@@ -517,6 +517,19 @@ untracked content in anybody's checkout, and every
 worktree of one repository shares it — so a run's own execution probe and the
 checks the harness then applies to its change compile against one cache rather
 than two. `internal/execution/gocache.go` names that path without creating it.
+
+Sharing one cache saves work only where the cache's entries do not name the
+folder they were compiled in. Go keys a package's entry on its absolute source
+folder unless it is built with `-trimpath`, so without the flag every worktree
+compiles this module's own packages cold and stores them again. The Makefile
+therefore exports `GOFLAGS` with `-trimpath` added to whatever it already
+carried, for every target and every script a target calls. A Go command run
+directly — a focused `go test` while developing — needs the flag too
+(`go test -trimpath ./internal/beads -run TestA`), or it compiles against
+entries nothing else reads. With the flag, source paths in compiled code are
+module paths rather than absolute ones, so a test finds its files from its
+working folder, which Go sets to the package's folder, never from the path
+`runtime.Caller` reports.
 For Codex developers, the adapter creates and explicitly admits only that cache,
 through the confined filesystem writer, and the run's own scratch folder,
 `scratch/<run id>/` in the harness's state directory, which the harness cut

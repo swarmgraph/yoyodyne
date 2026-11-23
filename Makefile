@@ -13,6 +13,16 @@ LDFLAGS := -X main.version=$(VERSION)
 # the README's install section, which says so rather than implying parity.
 PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 
+# Every Go command a target runs, and every script a target calls, compiles with
+# -trimpath. Without it a package's entry in the build cache is keyed on the
+# absolute folder it was compiled in, so each worktree compiles this module's
+# packages cold and stores them again in the cache every worktree shares
+# (docs/designs/shared-build-cache-size.md). The flag is added to whatever
+# GOFLAGS the environment or the command line already carries rather than
+# replacing it, and is exported so the scripts the targets call inherit it.
+override GOFLAGS := $(strip $(filter-out -trimpath,$(GOFLAGS)) -trimpath)
+export GOFLAGS
+
 # How long one package's test binary may run. Go's own figure is ten minutes,
 # and that is a bound on the machine rather than on the change: this repository
 # is checked at the concurrency it develops at -- several runs' suites at once,
