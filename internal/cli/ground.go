@@ -252,7 +252,7 @@ func conversationRunInspector(parts components) chat.RunInspector {
 	if parts.store == nil {
 		return nil
 	}
-	return runinspect.Inspector{Runs: parts.store, Remains: remainsOf(parts), RedactValues: parts.redactValues, Invocations: parts.store.Invocations()}
+	return runinspect.Inspector{Runs: parts.store, Remains: remainsOf(parts), RedactValues: parts.redactValues}
 }
 
 // conversationRunRecoverer is the run.recover hand, or nil where there is no
