@@ -130,6 +130,14 @@ func (r StopRequest) Validate() error {
 // error: an operator who stops a run that has not given up yet means the same
 // thing the second time, and refusing them would make the verb depend on timing
 // they cannot see.
+//
+// Asking again keeps when the stop was first asked for, and takes who asked,
+// why, and the decision it carries out from the newer request. The time is what
+// StopTakesEffectWithin counts from, so a request that replaced it would push
+// the moment the run's step is cut short later each time somebody asked again,
+// and would erase the first request from the only record it has; it is also
+// what a stop answered as late is matched by, so asking again does not turn a
+// stop the run already answered by keeping its change into a fresh one.
 func (s *Store) RecordStop(request StopRequest) error {
 	if request.ProductID != s.productID {
 		return fmt.Errorf("stop product %q does not match store product %q", request.ProductID, s.productID)
@@ -143,6 +151,11 @@ func (s *Store) RecordStop(request StopRequest) error {
 	path, err := s.stopPath(request.RunID)
 	if err != nil {
 		return err
+	}
+	// A request already on file that cannot be read is replaced rather than
+	// refusing the new one: a stop nobody can read stops nothing, and this one can.
+	if earlier, requested, err := s.StopRequested(request.RunID); err == nil && requested && earlier.RequestedAt.Before(request.RequestedAt) {
+		request.RequestedAt = earlier.RequestedAt
 	}
 	temporary, err := os.CreateTemp(s.root, ".stop-*.tmp")
 	if err != nil {
@@ -248,6 +261,33 @@ func (r StopRequest) Pending() string {
 		says += ": " + reason
 	}
 	return says
+}
+
+// StoppingSays is what a surface says of run, which is in flight, while request
+// is on file for it: in place of the phase it last wrote, because a run asked to
+// stop is not doing what that phase names any more. It is empty where the run
+// has ended or already answered request as having arrived late.
+//
+// Past StopTakesEffectWithin the run should have ended, and the words say so
+// plainly — how long ago it was asked and that it is still going — so a stop
+// that is not reaching its run is seen as that rather than read as a run still
+// working on what it was asked to do. A run whose checks have passed on the
+// change it holds keeps that change for its review instead (LateStop), and is
+// said to be doing that rather than to be late.
+func (s State) StoppingSays(request StopRequest, now time.Time) string {
+	if !s.Status.InFlight() || (s.LateStop != nil && s.LateStop.RequestedAt.Equal(request.RequestedAt.UTC())) {
+		return ""
+	}
+	by, asked := request.StoppedBy(), LocalStamp(request.RequestedAt)
+	if passed := s.ChecksPassed; passed != nil && passed.Attempt == s.RepairAttempts {
+		return fmt.Sprintf("asked to stop by %s at %s, after its checks had passed, so the change is kept for its review rather than cancelled", by, asked)
+	}
+	if now.Before(request.TakesEffectBy()) {
+		return fmt.Sprintf("stopping: %s asked it to stop at %s; it ends at its next step, and no later than %s", by, asked, LocalStamp(request.TakesEffectBy()))
+	}
+	waited := int(now.Sub(request.RequestedAt) / time.Minute)
+	return fmt.Sprintf("stopping, overdue: %s asked it to stop at %s, and it is still running %d minutes later, past the %s a stop is given to end a run; the process working on it has not carried the stop out",
+		by, asked, waited, StopBoundSays())
 }
 
 // LateStop is a stop that reached a run only after its checks had passed on the

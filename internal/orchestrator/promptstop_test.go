@@ -147,6 +147,56 @@ func TestAStopCutsALongDeveloperAttemptShortAtItsBound(t *testing.T) {
 	}
 }
 
+// A stop recorded while the developer is working, well inside its bound, is on
+// the run's summary at once, and ends the run at its next step: the boundary
+// before the checks, so neither the checks nor a review are spent on it.
+func TestAStopRecordedWhileDevelopingEndsTheRunAtItsNextBoundary(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	var shownWhileDeveloping *runstate.StopRequest
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		stop := stopWaitedItsBound(request.RunID)
+		stop.RequestedAt = time.Now()
+		if err := store.RecordStop(stop); err != nil {
+			return err
+		}
+		history, err := store.History(runstate.RunQuery{})
+		if err != nil {
+			return err
+		}
+		for _, run := range history.Runs {
+			if run.RunID == request.RunID {
+				shownWhileDeveloping = run.PendingStop
+			}
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if shownWhileDeveloping == nil || shownWhileDeveloping.RequestedBy != "the development manager" {
+		t.Fatalf("pending stop while developing = %#v, want the stop on the run's summary as soon as it was recorded", shownWhileDeveloping)
+	}
+	if err == nil || !strings.Contains(err.Error(), "the development manager stopped this run") {
+		t.Fatalf("Run() error = %v, want the stop reported as what ended the run", err)
+	}
+	if outcome.Status != runstate.StatusCancelled {
+		t.Fatalf("status = %q, want a stopped run recorded as cancelled", outcome.Status)
+	}
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopOperator)
+	if len(outcome.Checks) != 0 || countRoleRequests(provider.Requests, "reviewer") != 0 {
+		t.Fatalf("checks = %d, reviews = %d, want neither spent once the stop was recorded", len(outcome.Checks), countRoleRequests(provider.Requests, "reviewer"))
+	}
+	if countRoleRequests(provider.Requests, "developer") != 1 {
+		t.Fatalf("developer invocations = %d, want the one attempt the stop was recorded in", countRoleRequests(provider.Requests, "developer"))
+	}
+	if outcome.Integration != nil || tracker.Closed {
+		t.Fatalf("a stopped run promoted its work: %#v (closed=%t)", outcome.Integration, tracker.Closed)
+	}
+}
+
 // A stop recorded while the checks run cuts them short at the same bound.
 func TestAStopCutsLongChecksShortAtItsBound(t *testing.T) {
 	t.Parallel()
