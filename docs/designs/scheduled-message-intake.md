@@ -58,6 +58,10 @@ revisions:
       by: architect
       at: 2026-11-23T07:17:27.925776Z
       reason: 'yoyodyne-ifd.435.53: the reader is a session the harness starts outside the six roles, never a role under agents. Its provider and model are set by the operator on each query, in a reader setting taking exactly provider and model. An adapter unable to launch with no tools is refused as its provider at load. The containment test runs this launch on each provider. Written from a read of the whole design at main e687feea; section 1''s example, build piece 4 and the invariant note follow later.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T12:39:14.718513Z
+      reason: Section 1's example still named the reader by a plain name, which section 3 as landed in revision 12 refuses at load; the example now gives the provider and model, a bullet says what reader takes, and the closing paragraph says the model is set on each query and that the pause stops query runs now and readers only with piece 4. Written from a read of the whole design at main 1657765e; nothing else in the section changes.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -124,6 +128,11 @@ approvals:
       by: harness
       at: 2026-11-23T07:17:27.925776Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3620, for document-3620.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-11-23T12:39:14.718513Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3668, for document-3668.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -163,7 +172,7 @@ intake:
       items: messages
       fields: {id: ts, sender: user, text: text, sent_at: ts, link: permalink}
       senders: [U123, U456]
-      reader: message-reader
+      reader: {provider: claude, model: claude-haiku-5-5}
       rules: docs/product/intake/intake-rules.md
       questions: lead-product-manager
       limits: {messages_per_run: 20, messages_per_day: 100, starts_per_day: 5, questions_per_day: 5, text_bytes: 4096}
@@ -178,6 +187,7 @@ intake:
   Any other value is refused when the configuration loads, naming the query and the two values. A `sent_at` that cannot be read in the query's format makes the answer one that does not hold `fields` as declared, which section 9 treats as a failed run. A source that can be asked only for whole days is not offered a format: a window narrower than a day could not be asked for, so the narrowing below would stop at the first busy day. Such a source cannot be used in the first build, like one that cannot be asked for a time window at all. Which format a particular service's search takes is for the first real query (piece 8) to find out from that service; where it takes only dates, that piece stops and asks the architect.
 - **`more_field`** is optional and names a field saying the source held back more than it returned. Where it is set and true, the answer counts as cut.
 - **`items`** and **`fields`** say where the messages and their parts are in the tool's answer, by plain field names. No expression language is added, and no knowledge of any one service is built in.
+- **`reader`** names the provider and the model that read this query's messages, and takes nothing else, as section 3 says. A plain name in its place is refused when the configuration loads.
 - **`rules`** is the path of the query's rules document from the repository root, wherever the project keeps it, as section 6 says.
 - **All of `intake` is the operator's,** as `mcp` is. The typed write of section 6 of portable agent configuration refuses it. A developer's change may not alter it either, and that holds even where a work item grants the path `.yoyodyne/config.yaml` or `.yoyodyne/`: a grant lets a run change other settings in that file, never the `intake` section. The harness reads the `intake` section of the configuration at the run's base commit and in the change, as configuration rather than as lines of text, and refuses the change where the two differ, before any check runs, naming the query or setting that changed. No grant widens this, because a grant is written by a role, and the reason the section is the operator's is that no role may repoint a query or send its questions to him. The operator changes `intake` by editing the file himself.
 
@@ -203,7 +213,7 @@ intake:
 
 Past `messages_per_run` or `messages_per_day`, messages stay recorded and unread, oldest first, and are read on a later run. A decision to start past `starts_per_day` is kept, costs no further provider call, and starts on a later day, oldest first. A message still unread or not yet started after seven days because of these limits ends as ignored with the reason over the daily limit, and one warning a day goes to the Lead Product Manager while any do, because a steady flood must not grow a pile without end. Days under the operator's pause or the intake hold do not count toward the seven. `yoyo status` says how many wait.
 
-The reader's model is chosen in configuration for this one task, and its spend is reported under its own kind, as the goal that spend follows the work requires. The operator's pause, set by `yoyo pause`, stops queries and readers alike, and budgets are committed before any spend.
+The reader's provider and model are set on each query for this one task, as section 3 says, and its spend is reported under its own kind, the message reader, as the goal that spend follows the work requires. The operator's pause, set by `yoyo pause`, stops a query run before it spends anything, which is built; it stops readers too once piece 4 lands, as the note under What is enforced in code says. Budgets are committed before any spend.
 
 ## 2. Each message handled once
 
