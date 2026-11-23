@@ -2844,6 +2844,17 @@ is on the attention line, in the problems list, and in the factory health check
 the managers read, as a `merge-queue-overdue` entry. A change waiting behind the
 head, passed over, or handed back is not marked: the head is what holds it.
 
+So is a change the queue's worker has stopped on the same way on three passes in
+a row or more — the same change, the same reason, and no other pass between —
+however long its step has run. Every pass already tries again, so the same stop
+three times over is trying again having changed nothing. The line names the
+change, its work item by title, the reason in the worker's words, and since when,
+in your local time with the zone named; it is the development manager's to move,
+by finding and clearing what stops it or handing the change back with
+`yoyo queue hand-back`. It is yours instead only where the stop was the forge
+refusing the harness's token, a credential only a person can give, and the line
+says so. The first pass that ends any other way clears it.
+
 ## Landing through a merge queue
 
 With `execution.merge_queue` on, an approved change does not land at the end of
