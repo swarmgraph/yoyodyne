@@ -7545,6 +7545,70 @@ is. Reporting a failure is not itself a failure either — the exit status says
 whether the records could be read, so a script can read this without guarding
 against the answer.
 
+## What each invocation of a run was sent
+
+A developer's instructions are made of parts: the harness's contract, the
+persona, the architectural invariants, the work item and its notes, and for a
+repair the findings it was handed back. Most of them are in the repository, but
+the work item, its notes and the findings are not, and they have usually changed
+by the time anyone looks. So the harness keeps the whole text of every developer
+and reviewer invocation, written before the provider is started, and reads it
+back exactly:
+
+```sh
+./bin/yoyo invocations run-19dc9dff153e1eb89a2470f78f02f240      # each invocation, its settings, its parts and their sizes
+./bin/yoyo invocations run-19dc9dff153e1eb89a2470f78f02f240 2    # the exact text of the second one
+```
+
+An invocation is one start of the provider. A repair, a continuation that starts
+a new provider session, the review of a change, and a second asking of a reviewer
+whose verdict could not be read are each their own, numbered in the order they
+started. The text is printed message by message, each between lines that say its
+size in bytes, so it can be taken out whatever it contains.
+
+A developer's text is kept as named parts: the harness's contract, the persona,
+the architectural invariants, the work item and its notes, and what that
+invocation adds, such as findings a repair is handed. A reviewer's is kept as its
+contract, its persona, the tools note, any skills and instruction files the
+project names, and the message it was sent. Each part says where it came from:
+the harness build, a repository file (with the commit where the harness knows it,
+and the persona's version, which pins its content), or a tracker item and the
+time it was read. The parts the invocations of a run share are stored once. When
+the run inspector shows a run (`run.inspect` in a conversation), it lists each
+invocation with its parts, sizes and origins, and never the text.
+
+What it holds, and does not:
+
+- It holds every message the harness gave the provider, in order, and the
+  settings it was started with: the provider and the version of its program, the
+  model, the effort, the tools allowed, the working directory and the commit it
+  was at.
+- It does not hold what the provider's own program adds by itself, such as its
+  built-in instructions and files it loads from the checkout, like `CLAUDE.md`.
+  The harness cannot see those. The version and commit it records say where to
+  find them, and the command says so each time.
+- It is shown exactly as sent. A secret in it is a fault in what the harness
+  sent, and this makes the fault findable; nothing is removed from the copy.
+- A part that is missing or no longer matches the digest recorded for it is said
+  plainly, and the command exits non-zero without showing text in its place.
+- The merge queue's review of a candidate is kept with the run whose change the
+  candidate carries, as a reviewer invocation at the candidate's commit, so
+  `yoyo invocations <run>` lists it after that run's own reviews.
+- Management conversation turns are not kept this way. A branch review belongs
+  to no run and is not either.
+
+It is kept under `invocations/` in the product's state directory, on this machine
+only, with the same file permissions as the run records. Each distinct part is
+stored once, compressed, under the digest of its content, so the contract and
+persona that many invocations share cost one copy; each invocation has one small
+entry beside them. Nothing is copied into the tracker, Slack or the dashboard,
+and nothing is removed: how much room it takes has not been measured yet, and no
+limit is set before that.
+
+If the record of an invocation cannot be written, the provider is not started.
+The run stops, and says that what it was about to send could not be written down;
+the cause is the machine's, not the work's, so no repair attempt is spent.
+
 ## Watching from a browser: the dashboard
 
 `yoyo dashboard` serves what `yoyo status` reads — [the
