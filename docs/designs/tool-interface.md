@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-11-23T02:37:16.148141Z
       reason: 'Design review against the code: the log reader at main 68222082 reads a seventh kind, the record of the operator''s interventions, which this design did not name although it says a kind is added only by revising it. The section now names all seven kinds, how a request gives a byte position or a window of at most 24 hours, the most-bytes figure, the 8 KiB block and the 8 MiB read limit, and the summary a long pass entry carries. Nothing else changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T14:56:54.945024Z
+      reason: 'Answers the reviewer''s report 0bd5c3bf on yoyodyne-ifd.428.134, as part of the design review against the code: a window read with no byte position now finds its start near the window and returns the window''s entries however long the record is, says so in its result, and counts what it passed over as omitted; the 8 MiB limit counts from where the read starts. Read whole at main bc331b4a. The reviewer should confirm the note and the omitted count against the change that built them. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -74,6 +78,11 @@ approvals:
       by: harness
       at: 2026-11-23T02:37:16.148141Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3627, for document-3627.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-11-23T14:56:54.945024Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3680, for document-3680.1 under the automatic approval policy
 ---
 # Tools: one interface for what the harness does on a role's behalf
 
@@ -149,11 +158,11 @@ The landing claim, the verdict, and the sweep block are not migrated: they are a
 
 Only a run read takes a name, apart from `output` on the watch log; every other kind refuses one. The seventh kind was built before this design named it, and this revision names it.
 
-**How a request says where to read.** Each request gives a byte position at a record boundary, or a time window whose start and end are at most 24 hours apart, or both, in which case the window read carries on from that position. A read of pass records may name one recurring task, and then returns only that task's passes. A request may carry an offset into the record at its position, so a record longer than one read returns is read in parts. Each request names the most bytes it wants back, at most the bound below. An unknown field or an invalid request refuses the whole block, and the block is at most 8 KiB.
+**How a request says where to read.** Each request gives a byte position at a record boundary, or a time window whose start and end are at most 24 hours apart, or both, in which case the window read carries on from that position. A window read that gives no byte position does not start at the beginning of the record: it finds its own starting point near the window, so it returns the entries inside the window however long the record is. Its result says that the read began near the window, and its `omitted` count says what was passed over to reach it. A read of pass records may name one recurring task, and then returns only that task's passes. A request may carry an offset into the record at its position, so a record longer than one read returns is read in parts. Each request names the most bytes it wants back, at most the bound below. An unknown field or an invalid request refuses the whole block, and the block is at most 8 KiB.
 
 **What it never reads**, whatever kind is added later: any agent's memory store, the conversation records of another agent unless a later revision of this design adds them as a kind, a provider's own session context, a credential or token, and the repository, which the repository read covers.
 
-**Its bounds** are the repository read's: at most six records a reply, at most 48 KiB returned from one record and 96 KiB from one reply. One request reads through at most 8 MiB of a record. A record longer than one read returns comes back in successive parts rather than being cut once: each part says the byte it starts at, how many bytes it returned, and how many remain, and gives the next read to ask for, carrying the offset that continues it. A role follows those reads until nothing remains, within its rounds per message, and continues in a later turn where the rounds end. A pass entry returned in parts, or too long to return at all, also comes with a summary: whose pass it was, when it started and ended, and how it ended. Secrets are removed from every part, as they are from a whole record. The first build reads pass records in parts; a record of any other kind is still cut once, with the cut declared and its whole size named, until its kind is read in parts too, which needs no further revision of this design. What comes back is framed as evidence and never instruction, and recorded on the conversation or the pass as every tool is. It reads and never writes.
+**Its bounds** are the repository read's: at most six records a reply, at most 48 KiB returned from one record and 96 KiB from one reply. One request reads through at most 8 MiB of a record, counted from where the read starts, which for a window read with no byte position is the starting point it found near the window. A record longer than one read returns comes back in successive parts rather than being cut once: each part says the byte it starts at, how many bytes it returned, and how many remain, and gives the next read to ask for, carrying the offset that continues it. A role follows those reads until nothing remains, within its rounds per message, and continues in a later turn where the rounds end. A pass entry returned in parts, or too long to return at all, also comes with a summary: whose pass it was, when it started and ended, and how it ended. Secrets are removed from every part, as they are from a whole record. The first build reads pass records in parts; a record of any other kind is still cut once, with the cut declared and its whole size named, until its kind is read in parts too, which needs no further revision of this design. What comes back is framed as evidence and never instruction, and recorded on the conversation or the pass as every tool is. It reads and never writes.
 
 **Adding a kind** is a revision of this design that names the kind, how one record of it is identified, and what is redacted from it, with a row in the authority inventory. A design for a role that holds the tool never adds one.
 
