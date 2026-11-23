@@ -49,6 +49,9 @@ const (
 type Store struct {
 	root      string
 	productID domain.ProductID
+	// stateRoot is the state root the store was made over, which the product's
+	// merge queues are read from (MergeQueueLanding).
+	stateRoot string
 	// sharedSpends is the team's shared record of what each item has spent, handed
 	// to every triage store this store makes. It is nil with team mode off.
 	sharedSpends SharedSpends
@@ -222,6 +225,7 @@ func NewStore(root string, productID domain.ProductID) (*Store, error) {
 	return &Store{
 		root:          filepath.Join(home.ProductDirectory(root, string(productID)), "runs"),
 		productID:     productID,
+		stateRoot:     root,
 		promotionWait: promotionQueueWait,
 		leaseWait:     leaseGrace,
 	}, nil

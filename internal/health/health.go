@@ -226,6 +226,12 @@ const (
 	ClassRecoveryUnknown Classification = "recovery outcome not established"
 	// An item held after a stopped run, for a decision or its carrying out.
 	ClassHeldStoppage Classification = "held after its run stopped"
+	// An item held because its run's approved change is waiting its turn in a
+	// merge queue: nobody owes a decision on it, and the harness moves next.
+	ClassMergeQueueWait Classification = "approved change waiting its turn in the merge queue"
+	// An item held because the merge queue handed its run's approved change back
+	// where no run takes it up: the development manager decides what follows.
+	ClassMergeQueueHandback Classification = "approved change the merge queue handed back for a decision"
 	// A running copy of a part on a build other than the one on disk.
 	ClassOldBuild Classification = "copy on an old build"
 	// A running copy of a part the supervisor does not account for.
@@ -253,7 +259,7 @@ const (
 // Actionable is whether the classification asks a role for a decision or an
 // action. A wait is not: it names what releases it and what revisits it.
 func (c Classification) Actionable() bool {
-	return c != ClassDependencyWait && c != ClassWait && c != ClassKeptCheckout
+	return c != ClassDependencyWait && c != ClassWait && c != ClassMergeQueueWait && c != ClassKeptCheckout
 }
 
 // Identity is what a condition is known by from one observation to the next:

@@ -785,6 +785,14 @@ type Refused struct {
 	// does not list it at all.
 	Status    string `json:"status,omitempty"`
 	ListedFor string `json:"listed_for,omitempty"`
+	// MergeQueued reports an item held for a person whose hold is its run's
+	// approved change still waiting in a merge queue (backlog.Hold.MergeQueued):
+	// nobody owes a decision on it, and the harness moves next.
+	MergeQueued bool `json:"merge_queued,omitempty"`
+	// MergeQueueHandedBack reports an item held for a person whose hold is its
+	// run's approved change handed back by a merge queue for the development
+	// manager to decide (backlog.Hold.MergeQueueHandedBack).
+	MergeQueueHandedBack bool `json:"merge_queue_handed_back,omitempty"`
 }
 
 // WorkItemRef names one admitted work item, by id and title, for a surface that
@@ -2318,6 +2326,8 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 			if kind == backlog.HeldForAPerson {
 				held.HeldSince = entry.AwaitingSince
 				held.RunID = entry.AwaitingRun
+				held.MergeQueued = entry.AwaitingMergeQueue
+				held.MergeQueueHandedBack = entry.MergeQueueHandedBack
 			}
 			refused = append(refused, held)
 			groups.add(entry, kind)
@@ -2728,7 +2738,7 @@ func readAlsoHeld(ctx context.Context, sources Sources, holds backlog.Holds, ref
 			continue
 		}
 		entry := Refused{WorkItemID: item.ID, Title: item.Title, Reason: hold.Reason, Kind: backlog.HeldForAPerson,
-			RunID: strings.TrimSpace(hold.RunID), Status: item.Status}
+			RunID: strings.TrimSpace(hold.RunID), Status: item.Status, MergeQueued: hold.MergeQueued, MergeQueueHandedBack: hold.MergeQueueHandedBack}
 		if listed, admitted := listedAs[item.ID]; admitted {
 			if listed.Kind == backlog.HeldForAPerson {
 				continue
