@@ -32,6 +32,37 @@ type Inspector struct {
 	// RedactValues are removed from everything handed back.
 	RedactValues []string
 	Now          func() time.Time
+	// Invocations is the record of what each developer and reviewer invocation
+	// was sent. It supplies the list shown with a run, never the text; nil shows
+	// no list. *runstate.InvocationStore is one.
+	Invocations InvocationList
+}
+
+// InvocationList is the part of the record of what invocations were sent that an
+// inspection reads.
+type InvocationList interface {
+	List(runID string) ([]runstate.InvocationEntry, error)
+}
+
+// InvocationPartSummary is one part of one message of an invocation: what it is
+// called, how big it is, and where it came from. It carries none of its text.
+type InvocationPartSummary struct {
+	Message string `json:"message"`
+	Name    string `json:"name"`
+	Origin  string `json:"origin"`
+	Bytes   int    `json:"bytes"`
+}
+
+// InvocationSummary is one invocation of the run with its parts, in the order
+// sent. `yoyo invocations <run> <number>` shows the text.
+type InvocationSummary struct {
+	Number  int                     `json:"number"`
+	Role    string                  `json:"role"`
+	Started time.Time               `json:"started"`
+	Backend string                  `json:"backend"`
+	Model   string                  `json:"model,omitempty"`
+	Bytes   int                     `json:"bytes"`
+	Parts   []InvocationPartSummary `json:"parts"`
 }
 
 func (i Inspector) now() time.Time {
@@ -74,6 +105,11 @@ type Inspection struct {
 	Wait             *Wait         `json:"wait,omitempty"`
 	LastContinuation *Continuation `json:"last_continuation,omitempty"`
 	LastRefusal      *Refusal      `json:"last_refusal,omitempty"`
+	// Invocations lists what each developer and reviewer invocation was sent,
+	// by part and size and with no text; InvocationsProblem is why the list could
+	// not be read.
+	Invocations        []InvocationSummary `json:"invocations,omitempty"`
+	InvocationsProblem string              `json:"invocations_problem,omitempty"`
 }
 
 // Reservation is what the run holds that another run could otherwise take: a
@@ -143,7 +179,30 @@ func (i Inspector) Inspect(ctx context.Context, runID string) Inspection {
 	inspection.Wait = WaitOf(state)
 	inspection.LastContinuation = lastContinuation(state)
 	inspection.LastRefusal = lastRefusal(state)
+	inspection.Invocations, inspection.InvocationsProblem = i.invocations(runID)
 	return i.redactInspection(inspection)
+}
+
+// invocations lists what each invocation of the run was sent, without text.
+func (i Inspector) invocations(runID string) ([]InvocationSummary, string) {
+	if i.Invocations == nil {
+		return nil, ""
+	}
+	entries, err := i.Invocations.List(runID)
+	var summaries []InvocationSummary
+	for _, entry := range entries {
+		summary := InvocationSummary{Number: entry.Number, Role: entry.Role, Started: entry.StartedAt, Backend: entry.Backend, Model: entry.Model, Bytes: entry.WholeSize}
+		for _, message := range entry.Messages {
+			for _, part := range message.Parts {
+				summary.Parts = append(summary.Parts, InvocationPartSummary{Message: message.Role, Name: part.Name, Origin: part.Origin, Bytes: part.Size})
+			}
+		}
+		summaries = append(summaries, summary)
+	}
+	if err != nil {
+		return summaries, err.Error()
+	}
+	return summaries, ""
 }
 
 func (i Inspector) redactInspection(inspection Inspection) Inspection {
@@ -152,6 +211,12 @@ func (i Inspector) redactInspection(inspection Inspection) Inspection {
 	inspection.RecordProblem = redactor.Redact(inspection.RecordProblem)
 	inspection.StopReason = redactor.Redact(inspection.StopReason)
 	inspection.LeaseHolderProblem = redactor.Redact(inspection.LeaseHolderProblem)
+	inspection.InvocationsProblem = redactor.Redact(inspection.InvocationsProblem)
+	for index := range inspection.Invocations {
+		for part := range inspection.Invocations[index].Parts {
+			inspection.Invocations[index].Parts[part].Origin = redactor.Redact(inspection.Invocations[index].Parts[part].Origin)
+		}
+	}
 	inspection.Worker.Says = redactor.Redact(inspection.Worker.Says)
 	if inspection.Remains != nil {
 		inspection.Remains.Unchecked = redactor.Redact(inspection.Remains.Unchecked)

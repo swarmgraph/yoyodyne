@@ -549,6 +549,11 @@ type Pipeline struct {
 	// it was launched under and reports what does not match (internal/tooluse).
 	// It only observes; nil reports nothing, which is for a test.
 	ToolUse spend.ToolUseObserver
+	// Invocations keeps what each developer invocation is sent before the
+	// provider starts, so it can be read back exactly (runstate.InvocationStore).
+	// The harness always wires it, and a developer invocation whose record cannot
+	// be written is not started. Nil keeps nothing, which is for a test.
+	Invocations backend.InvocationLog
 	// Docket is where a run that ends on a durable blocker is put in front of the
 	// development manager. It is optional in the same way as the three above: a
 	// stoppage is already recorded on the work item and in this run's own record
@@ -4980,6 +4985,14 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			a.observeDevelopEnded(ctx, committed)
 			return committed
 		}
+		// An attempt that was never started because what it was to be sent could
+		// not be written down first stops the run: the cause is the harness's own
+		// store and not the work, so nothing is reissued and no repair is spent.
+		if backend.IsInvocationNotRecorded(err) {
+			ended := stoppedBy(runstate.StopRecording, err)
+			a.observeDevelopEnded(ctx, ended)
+			return ended
+		}
 		// A provider nobody is logged into or nobody can reach is answered before
 		// anything is counted, because what it asks for is the one wait that spends
 		// nothing: no relaunch, no repair attempt, no blocker. The refused attempt
@@ -5483,6 +5496,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		// provider's sandbox lets it write (prepareScratch).
 		ScratchDirectory: a.scratch,
 		Prompt:           prompt,
+		PromptParts:      a.developerPromptPartsIfRecorded(prompt),
 		SessionID:        sessionID,
 		Model:            model,
 		Effort:           effort,
@@ -5501,6 +5515,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		// on the run's record before the provider can begin work; nil for an
 		// invocation nothing reserved (developerrouting.go).
 		LaunchGate: a.launchGate,
+		Recorder:   a.invocationRecorder(),
 	})
 	// What became of a session that outlived its reply is this attempt's, and
 	// replaces the waiting account the record carried while it lasted. An
