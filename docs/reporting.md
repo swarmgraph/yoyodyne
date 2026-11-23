@@ -444,6 +444,38 @@ $407.19 for retries, $344.10 for review, and $273.42 for management — and 632
 management passes costing $546.46 named no item. 135 invocations ended without
 the provider reporting their cost, so every figure is a floor.
 
+### Weekly cost per closed item and per landed code change
+
+`yoyo status` prints, under the four lines, what this week and last week cost
+and what that came to per work item closed and per code change landed, with the
+same split by role:
+
+```text
+Weekly cost, Monday to Sunday in America/Los_Angeles:
+  This week, from 2026-11-16: $412.30 known spend across 380 provider calls; 9 items closed, $45.81 per item; 7 code changes landed, $58.90 per change; management roles 38% of known spend
+    by role: developer runs $200.00 ($22.22 per closed item, $28.57 per landed change); reviewers $55.00 (...); Lead Product Manager $90.00 (...)
+  Last week, 2026-11-09 to 2026-11-15: ...
+```
+
+`yoyo status --json` carries the current week and the three before it under
+`weekly_cost`. The same figures, for every whole week the range touches, are
+under `weekly_cost` in the reading of what the spend accomplished, printed by
+`yoyo status --spend --from` and listed on the dashboard under **Cost per closed
+item and per landed code change** in **What the spend accomplished**.
+
+The figures attribute nothing. A week's cost is every call in the spend log
+recorded in it, conversations and other records that name no work item
+included, and each figure per item is that cost divided by a count: the items
+the tracker records closed in the week, by their closed time, and the runs that
+ended in the week having landed their change on the target branch, counted as
+the throughput counts a landing. A run that published a document is counted
+beside the code changes and never as one. Each role's figures are the same
+division over that role's spend: developer runs, reviewers, and each management
+role by name, and the management roles' share of the week's known spend is
+stated on its own. Weeks run Monday to Sunday in Pacific time. A call the
+provider never priced makes the week's cost a floor, and a count whose source
+could not be read gives no figure divided by it and is named under `not read`.
+
 ### Every provider spend, one line
 
 Beside all of that there is an append-only cost log, one line per provider

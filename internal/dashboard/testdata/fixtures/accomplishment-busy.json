@@ -43,6 +43,15 @@
   "cost_per_completed_item": 112.38,
   "unnamed_management_usd": 546.46,
   "unnamed_passes": 632,
+  "weekly_cost": {"observed_at": "2026-10-25T16:00:00Z", "zone": "America/Los_Angeles", "weeks": [
+      {"week": "2026-10-12", "from": "2026-10-12", "to": "2026-10-18", "current": false, "cost_usd": 485.19, "calls": 412, "floor": false, "no_item_usd": 120.4, "no_item_calls": 96, "closed": 24, "landed": 21, "published": 2, "cost_per_closed_item": 20.22, "cost_per_landed_change": 23.1, "management_usd": 180.0, "management_share": 0.371, "says": "$485.19 known spend across 412 provider calls; 24 items closed, $20.22 per item; 21 code changes landed, $23.10 per change; 2 documents published, not counted as code changes; management roles 37% of known spend", "roles_says": "developer runs $240.19 ($10.01 per closed item, $11.44 per landed change); reviewers $65.00 ($2.71 per closed item, $3.10 per landed change); Lead Product Manager $180.00 ($7.50 per closed item, $8.57 per landed change)", "roles": [
+        {"role": "developer", "says": "developer runs", "management": false, "cost_usd": 240.19, "calls": 250, "share": 0.495, "per_closed_item": 10.01, "per_landed_change": 11.44},
+        {"role": "reviewer", "says": "reviewers", "management": false, "cost_usd": 65.0, "calls": 70, "share": 0.134, "per_closed_item": 2.71, "per_landed_change": 3.1},
+        {"role": "product-manager", "says": "Lead Product Manager", "management": true, "cost_usd": 180.0, "calls": 92, "share": 0.371, "per_closed_item": 7.5, "per_landed_change": 8.57}]},
+      {"week": "2026-10-19", "from": "2026-10-19", "to": "2026-10-25", "current": true, "cost_usd": 1588.94, "calls": 1301, "unpriced": 3, "floor": true, "no_item_usd": 702.5, "no_item_calls": 640, "closed": 0, "landed": 0, "published": 0, "management_usd": 1100.0, "management_share": 0.692, "says": "at least $1588.94 known spend across 1301 provider calls, 3 of them with no cost reported; no item closed; no code change landed; management roles 69% of known spend", "roles_says": "developer runs $488.94; Lead Product Manager $1100.00", "roles": [
+        {"role": "developer", "says": "developer runs", "management": false, "cost_usd": 488.94, "calls": 600, "unpriced": 3, "share": 0.308},
+        {"role": "product-manager", "says": "Lead Product Manager", "management": true, "cost_usd": 1100.0, "calls": 701, "share": 0.692}]}
+  ]},
   "not_read": ["2 line(s) of the event log of chat-0123 could not be read"],
   "floor": true
 }
