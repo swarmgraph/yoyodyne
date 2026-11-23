@@ -21,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -533,19 +534,25 @@ func TestHandleNamesAReportAndNeverAWorkItem(t *testing.T) {
 	}
 }
 
-// Deciding what becomes of a report is a product decision, so a role that
-// decides nothing about the backlog is refused it — whole, with nothing carried
-// out, like every other authority boundary.
-func TestOnlyTheProductManagerMayRecordWhatBecameOfAReport(t *testing.T) {
+// Deciding what becomes of any report is a product decision, so only the Lead
+// Product Manager holds handling over the whole pile. The architect and the
+// development manager hold it only over the reports addressed to them by name,
+// and the other roles not at all.
+func TestOnlyTheProductManagerMayRecordWhatBecameOfAnyReport(t *testing.T) {
 	t.Parallel()
 
+	addressedOnly := map[domain.AgentRole]bool{domain.RoleArchitect: true, domain.RoleDevelopmentManager: true}
 	for _, role := range ConversationalRoles() {
 		authority, known := AuthorityFor(role)
 		if !known {
 			t.Fatalf("no authority is recorded for %s", role)
 		}
-		if mayHandle := authority.MayAct(actionHandle); mayHandle != (role == domain.RoleProductManager) {
-			t.Fatalf("the %s may act on reports = %v", role, mayHandle)
+		wantHandle := role == domain.RoleProductManager || addressedOnly[role]
+		if mayHandle := authority.MayAct(actionHandle); mayHandle != wantHandle {
+			t.Fatalf("the %s may act on reports = %v, want %v", role, mayHandle, wantHandle)
+		}
+		if scoped := authority.AddressedOnly(actionHandle); scoped != addressedOnly[role] {
+			t.Fatalf("the %s handles only reports addressed to it = %v, want %v", role, scoped, addressedOnly[role])
 		}
 	}
 
@@ -556,8 +563,8 @@ func TestOnlyTheProductManagerMayRecordWhatBecameOfAReport(t *testing.T) {
 	}}}
 	reports := &fakeReports{}
 	options := testOptions(t, provider)
-	options.Role = domain.RoleArchitect
-	options.Agent = string(domain.RoleArchitect)
+	options.Role = domain.RoleDeveloper
+	options.Agent = string(domain.RoleDeveloper)
 	options.Reports = reports
 	options.Tracker = &fakeTracker{}
 	session, err := Open(options)
@@ -571,6 +578,90 @@ func TestOnlyTheProductManagerMayRecordWhatBecameOfAReport(t *testing.T) {
 	}
 	if len(reports.handled) != 0 {
 		t.Fatalf("a refused action still recorded a handling: %#v", reports.handled)
+	}
+}
+
+// A role that handles the reports addressed to it records what became of one
+// from its own conversation, with the requests mapped exactly as the Lead
+// Product Manager's handling maps them, and the handling names that role. The
+// report then leaves the role's list and the Lead Product Manager's pile. A
+// report addressed to another role, or to none, is refused with nothing written,
+// and the unaddressed pile is never delivered to such a role.
+func TestARoleRecordsWhatBecameOfAReportAddressedToIt(t *testing.T) {
+	t.Parallel()
+
+	const (
+		mine      = "report-00000000000000000000000000000011"
+		theirs    = "report-00000000000000000000000000000012"
+		nobodys   = "report-00000000000000000000000000000013"
+		covering  = "yoyodyne-ifd.150"
+		requested = "say which still need a move"
+	)
+	addressed := func(id string, to domain.AgentRole, minute int) report.Report {
+		reported := collectedReport(id, report.SeverityWarning, "a report asking for a move", minute)
+		reported.For = to
+		return reported
+	}
+	reports := &fakeReports{}
+	seedReports(t, reports,
+		addressed(mine, domain.RoleDevelopmentManager, 1),
+		addressed(theirs, domain.RoleArchitect, 2),
+		collectedReport(nobodys, report.SeverityNote, "a report addressed to nobody", 3),
+	)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: trackerReply("Recording what I did.",
+			`{"action":"handle","report":"`+mine+`","requests":[{"request":"`+requested+`","covered_by":"`+covering+`"}],"reason":"answered on the pass; the item covers it"}`,
+			`{"action":"handle","report":"`+theirs+`","reason":"not mine"}`,
+			`{"action":"handle","report":"`+nobodys+`","reason":"not mine either"}`)},
+		{SessionID: "session-1", FinalText: "Recorded."},
+		{SessionID: "session-1", FinalText: "Nothing more."},
+	}}
+	tracker := &fakeTracker{items: map[string]beads.WorkItem{covering: {ID: covering, Title: "say which reports still need a move", Status: "open"}}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleDevelopmentManager
+	options.Agent = string(domain.RoleDevelopmentManager)
+	options.Reports = reports
+	options.Tracker = tracker
+	reply, err := openTestSession(t, options).Send(context.Background(), "deal with what is addressed to you")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if strings.Contains(provider.requests[0].Prompt, reportSectionHeading) {
+		t.Fatalf("the development manager was delivered the whole unhandled pile:\n%s", provider.requests[0].Prompt)
+	}
+	if len(reply.Actions) != 3 {
+		t.Fatalf("actions = %#v, want three handlings", reply.Actions)
+	}
+	if !reply.Actions[0].Applied {
+		t.Fatalf("the handling of a report addressed to the role = %#v, want it recorded", reply.Actions[0])
+	}
+	for i, want := range []string{"addressed to the architect", "addressed to no role"} {
+		got := reply.Actions[i+1]
+		if got.Applied || !strings.Contains(got.Failure, want) {
+			t.Fatalf("handling %d = %#v, want it refused saying %q", i+1, got, want)
+		}
+	}
+	if len(reports.handled) != 1 {
+		t.Fatalf("handlings = %#v, want only the addressed one recorded", reports.handled)
+	}
+	recorded := reports.handled[0]
+	if recorded.ReportID != mine || recorded.Role != domain.RoleDevelopmentManager {
+		t.Fatalf("handling = %#v, want %s recorded under the development manager", recorded, mine)
+	}
+	if len(recorded.Requests) != 1 || recorded.Requests[0].CoveredBy != covering || recorded.Requests[0].Request != requested {
+		t.Fatalf("handling requests = %#v, want the request mapped to %s", recorded.Requests, covering)
+	}
+	if !strings.Contains(recorded.Render(), "by the development-manager") {
+		t.Fatalf("the handling does not name the role that recorded it:\n%s", recorded.Render())
+	}
+	pile, _ := reports.List()
+	for _, waiting := range report.Unhandled(pile, reports.handled) {
+		if waiting.ID == mine {
+			t.Fatalf("%s is still unhandled after the role handled it", mine)
+		}
+	}
+	if left := readmodel.ReportsAddressedTo(readmodel.MoverOf(domain.RoleDevelopmentManager), pile, reports.handled); len(left) != 0 {
+		t.Fatalf("the development manager's list still holds %#v", left)
 	}
 }
 

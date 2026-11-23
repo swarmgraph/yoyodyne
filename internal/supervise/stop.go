@@ -17,6 +17,7 @@ package supervise
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -197,6 +198,10 @@ func gone(pid int, before runstate.ProcessLook) bool {
 	}
 	return false
 }
+
+// errNotCollectable is what reap says of a child of this process that the
+// system does not yet offer to be collected.
+var errNotCollectable = errors.New("the child has not finished exiting, so it cannot be collected yet")
 
 func pause(ctx context.Context) bool {
 	timer := time.NewTimer(stopInterval)

@@ -107,6 +107,11 @@ func bundles() []Bundle {
 				// proposed to the product manager instead.
 				capability.WorkItemRead,
 				capability.ReportFile,
+				// Recording what became of a report addressed to the architect by
+				// name, so one she has answered leaves her own list without the Lead
+				// Product Manager recording it for her. It writes no tracker state of
+				// its own beyond the note a mapped request puts on its covering item.
+				capability.ReportHandleAddressed,
 				capability.RepositoryRead,
 				capability.RepositoryList,
 				capability.ProviderInvoke,
@@ -139,6 +144,11 @@ func bundles() []Bundle {
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
 				capability.ReportFile,
+				// Recording what became of a report addressed to her by name, as the
+				// architect does for hers. The program manager does not hold it: its
+				// design fixes its set, and a report for it is the Lead Product
+				// Manager's to handle.
+				capability.ReportHandleAddressed,
 				capability.WorkItemMutate,
 				capability.RepositoryRead,
 				capability.RepositoryList,
