@@ -63,7 +63,7 @@ func TestRunReadsTheFinalReplyAsTheEndOfTheTurn(t *testing.T) {
 	var waiting []execution.AfterReply
 	var events []execution.Event
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 		AfterReplyWaiting: func(account execution.AfterReply) { waiting = append(waiting, account) },
 		EventSink: func(event execution.Event) error {
 			events = append(events, event)

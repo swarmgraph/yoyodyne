@@ -255,6 +255,7 @@ func (a Adapter) classify(condition Condition, sample Sample) []Problem {
 	result, err := provider.Run(context.Background(), backend.RunRequest{
 		RunID:            conformanceRunID,
 		Role:             role,
+		ScratchDirectory: testScratch,
 		Model:            model,
 		WorkingDirectory: "/worktree",
 		Prompt:           "do the work",

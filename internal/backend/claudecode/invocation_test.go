@@ -54,7 +54,7 @@ func TestWhatIsRecordedForAClaudeCodeInvocationIsWhatTheProviderWasGiven(t *test
 			writeTestFiles(t, repository, map[string]string{"docs/agent-notes.md": "PROJECT_NOTES_BODY\n"})
 			kept := &keptInvocations{}
 			request := backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), RepositoryRoot: repository,
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), RepositoryRoot: repository,
 				Prompt: "do the work\nwith a second line", SystemPrompt: "the role's contract", SessionID: session,
 				Model: "claude-test", Recorder: kept,
 			}
@@ -116,7 +116,7 @@ func TestAClaudeCodeInvocationThatCannotBeRecordedIsNotStarted(t *testing.T) {
 	kept := &keptInvocations{fail: errors.New("the disk is full")}
 	fake := &fakeRunner{results: claudeCompletedTurn()}
 	_, err := (Backend{Runner: &versionAnswering{inner: fake}, Clock: fixedClock{}, ConfigDir: personalClaudeHome(t)}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "do the work", Recorder: kept,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work", Recorder: kept,
 	})
 	if !backendapi.IsInvocationNotRecorded(err) || !strings.Contains(err.Error(), "the disk is full") {
 		t.Fatalf("error = %v, want a refusal to start naming the failed write", err)
@@ -133,7 +133,7 @@ func TestARequestWithNoRecorderStartsNothingExtra(t *testing.T) {
 	fake := &fakeRunner{results: claudeCompletedTurn()}
 	runner := &versionAnswering{inner: fake}
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}, ConfigDir: personalClaudeHome(t)}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "do the work",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work",
 	}); err != nil {
 		t.Fatal(err)
 	}

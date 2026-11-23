@@ -56,7 +56,7 @@ func TestWhatIsRecordedForACodexInvocationIsWhatTheProviderWasGiven(t *testing.T
 			fake := &fakeRunner{results: completedTurn()}
 			runner := &versionAnswering{inner: fake}
 			_, err := (Backend{Runner: runner, ConfigDir: personalHome(t), Context: named}).Run(context.Background(), backend.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: worktree, RepositoryRoot: repository,
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 				Prompt: "do the work\nwith a second line", SystemPrompt: "the role's contract", Model: "gpt-6-astra",
 				SessionID: session, Recorder: kept,
 			})

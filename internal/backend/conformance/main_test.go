@@ -4,7 +4,13 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
+
+// testScratch is a scratch folder cut for the run these tests make, for the
+// tests that are not about it: every developer invocation has to carry one.
+var testScratch string
 
 // TestMain gives these tests an empty user home and no CODEX_HOME, so a Codex
 // invocation they make falls back to an empty Codex home of its own. The Codex
@@ -18,6 +24,9 @@ func TestMain(m *testing.M) {
 	}
 	if err == nil {
 		err = os.Unsetenv("CODEX_HOME")
+	}
+	if err == nil {
+		testScratch, err = execution.PrepareScratchDirectory(home, conformanceRunID)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

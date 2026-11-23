@@ -22,7 +22,7 @@ func TestAPricedEndingIsKeptWhenLaterOutputIsMalformed(t *testing.T) {
 		`{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done","total_cost_usd":3.25,"usage":{"input_tokens":10,"output_tokens":20},"terminal_reason":"completed"}` + "\n" +
 		"{not json\n"
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 	})
 	if err == nil || !strings.Contains(err.Error(), "decode stream event") {
 		t.Fatalf("Run() error = %v, want the unreadable line reported", err)
@@ -50,7 +50,7 @@ func TestAPricedEndingIsKeptWhenAnEventAfterItCannotBeRecorded(t *testing.T) {
 		`{"type":"system","subtype":"status","session_id":"session-1"}` + "\n"
 	terminated := false
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 		EventSink: func(event execution.Event) error {
 			if terminated {
 				return errSinkFull

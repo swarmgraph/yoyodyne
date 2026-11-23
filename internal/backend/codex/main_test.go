@@ -4,7 +4,13 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
+
+// testScratch is a scratch folder cut for the run these tests make, for the
+// tests that are not about it: every developer invocation has to carry one.
+var testScratch string
 
 // TestMain gives every test that names no provider home an empty user home, so
 // the Codex home such a test falls back to is an empty one of its own. An
@@ -18,6 +24,9 @@ func TestMain(m *testing.M) {
 	}
 	if err == nil {
 		err = os.Unsetenv(ProviderHomeVariable)
+	}
+	if err == nil {
+		testScratch, err = execution.PrepareScratchDirectory(home, testRunID)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

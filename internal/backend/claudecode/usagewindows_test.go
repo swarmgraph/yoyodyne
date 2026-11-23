@@ -39,6 +39,7 @@ func runWithUsageWindows(t *testing.T, sink *usageWindowSink, lines ...string) [
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		Model:            "fable",

@@ -30,7 +30,7 @@ func TestTheNoOutputLimitHoldsWhateverTotalIsConfigured(t *testing.T) {
 	for _, total := range []time.Duration{config.MaxProviderCallTimeLimit, config.MaxTurnTimeLimit, config.MinAnswerTimeLimit} {
 		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessStalled, ExitCode: -1}}}
 		result, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
-			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+			RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 			Timeout: total,
 		})
 		if err != nil {

@@ -21,6 +21,7 @@ func runRoleStream(t *testing.T, role domain.AgentRole, stream string) backendap
 	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             role,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: t.TempDir(),
 		Prompt:           "do the work",
 	})

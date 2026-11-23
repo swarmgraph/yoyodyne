@@ -441,6 +441,7 @@ func TestADeclaredDialectReadsTheStreamInsteadOfThisProvidersOwn(t *testing.T) {
 	}).Run(context.Background(), backend.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		EventSink:        func(event execution.Event) error { events = append(events, event); return nil },

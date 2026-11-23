@@ -253,7 +253,7 @@ func TestEachInvocationNamesItsProfileAfresh(t *testing.T) {
 func TestProfileArgsQuoteEveryPathAndGiveEachOnce(t *testing.T) {
 	t.Parallel()
 	odd := `/a "quoted" path\with a backslash`
-	args := append([]string{"exec"}, profileArgs(profileDeveloper, profileDeveloper+"-0123456789abcdef0123456789abcdef", []string{odd, "/plain", odd})...)
+	args := append([]string{"exec"}, profileArgs(profileDeveloper, profileDeveloper+"-0123456789abcdef0123456789abcdef", []string{odd, "/plain", odd}, "")...)
 	if got, want := profileFilesystem(t, args), developerFilesystem(odd, "/plain"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("file system = %q, want %q", got, want)
 	}
@@ -262,7 +262,7 @@ func TestProfileArgsQuoteEveryPathAndGiveEachOnce(t *testing.T) {
 // profileEntry is one file system entry in the `<permission_profile>` the CLI
 // renders into the model's context, which is the CLI's own account of the
 // profile it resolved.
-var profileEntry = regexp.MustCompile(`<entry access="([a-z]+)"><(path|special)>([^<]*)</(?:path|special)></entry>`)
+var profileEntry = regexp.MustCompile(`<entry access="([a-z]+)"(?: escalatable="false")?><(path|special)>([^<]*)</(?:path|special)></entry>`)
 
 // hostileConfig is a config.toml that tries every way codex-cli 0.160.0 was
 // found to read to widen what a role may do: an unrestricted sandbox mode, an
@@ -293,7 +293,10 @@ func resolvedProfile(t *testing.T, binary, home, directory string, args []string
 	t.Helper()
 	// prompt-input takes configuration and features, and nothing that would
 	// reach a provider.
-	var probeArgs []string
+	// The repository's instruction file is left out: the CLI reads it through
+	// its own sandbox where the profile denies a path, and that sandbox cannot
+	// be applied inside a developer run's. It says nothing about the profile.
+	probeArgs := []string{"--config", "project_doc_max_bytes=0"}
 	for index := 1; index < len(args); index++ {
 		switch args[index] {
 		case "--config", "--enable", "--disable":

@@ -138,7 +138,11 @@ func toolPolicy(profile string) backend.ToolPolicy {
 // given now rather than the one it was saved with.
 //
 // Every profile may read the whole machine, as the CLI's sandboxes always did,
-// and has its network switched off. The developer's may also write the
+// and has its network switched off, which refuses connecting to a socket file
+// as it does any other connection. The one exception to reading is denied,
+// which a developer's invocation names and no other does: the harness's services
+// folder, given as a path with the access "deny", which outranks the wider
+// entries it is inside. The developer's may also write the
 // directories it is given, each with protectedNames inside it kept read-only,
 // and the system and user temporary directories, which the `workspace-write`
 // sandbox granted too and which a project's tests write to. The read-only
@@ -146,8 +150,11 @@ func toolPolicy(profile string) backend.ToolPolicy {
 //
 // name is the name the profile is defined and selected under, which
 // profileName makes from the profile.
-func profileArgs(profile, name string, writable []string) []string {
+func profileArgs(profile, name string, writable []string, denied string) []string {
 	entries := []string{tomlString(":root") + `="read"`}
+	if denied != "" {
+		entries = append(entries, tomlString(denied)+`="deny"`)
+	}
 	if profile == profileDeveloper {
 		entries = append(entries, tomlString(":slash_tmp")+`="write"`, tomlString(":tmpdir")+`="write"`)
 		seen := make(map[string]bool)
@@ -490,7 +497,7 @@ func (Backend) Capabilities() backend.Capabilities {
 // its profile would run under whatever it was started with, or none.
 // testdata/cli-help holds the help this was read from, and conformance_test.go
 // checks every invocation against it.
-func invocationArgs(request backend.RunRequest, profile, name string, directories []string) []string {
+func invocationArgs(request backend.RunRequest, profile, name string, directories []string, denied string) []string {
 	args := []string{"exec"}
 	if request.Effort != "" {
 		args = append(args, "--config", "model_reasoning_effort="+fmt.Sprintf("%q", request.Effort))
@@ -504,10 +511,10 @@ func invocationArgs(request backend.RunRequest, profile, name string, directorie
 		// directory is writable.
 		writable := append([]string{request.WorkingDirectory}, directories...)
 		args = append(args, "--config", `approval_policy="never"`)
-		args = append(args, profileArgs(profile, name, writable)...)
+		args = append(args, profileArgs(profile, name, writable, denied)...)
 	}
 	if profile == profileReadOnly {
-		args = append(args, profileArgs(profile, name, nil)...)
+		args = append(args, profileArgs(profile, name, nil, denied)...)
 		args = append(args, readOnlyArgs(request.WorkingDirectory)...)
 	}
 	args = append(args, "--cd", request.WorkingDirectory)
@@ -609,11 +616,19 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
 		}
 	}
+	// A developer's is refused the services folder whichever profile it is held
+	// to: the read-only one reads the whole machine too.
+	denied := ""
+	if request.Role == domain.RoleDeveloper {
+		if denied, err = execution.ServicesDirectoryDeniedTo(request.ScratchDirectory, request.RunID, repository); err != nil {
+			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
+		}
+	}
 	name, err := profileName(profile)
 	if err != nil {
 		return backend.RunResult{}, err
 	}
-	args := invocationArgs(invocation, profile, name, directories)
+	args := invocationArgs(invocation, profile, name, directories, denied)
 
 	// What the role is given beside its prompt is what the project named, plus,
 	// for a developer, the repository's own instruction file the CLI reads from

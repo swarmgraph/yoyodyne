@@ -87,7 +87,7 @@ func TestNoPersonalSkillPluginOrInstructionFileReachesAnyRoleFreshOrResumed(t *t
 			repository, worktree := sandboxRepository(t, true)
 			runner := &homeRunner{fakeRunner: fakeRunner{results: completedTurn()}}
 			result, err := (Backend{Runner: runner, ConfigDir: home}).Run(context.Background(), backend.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: worktree, RepositoryRoot: repository,
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 				Prompt: "do the work", SystemPrompt: "the role's contract", Model: "gpt-6-astra", SessionID: session,
 			})
 			if err != nil {
@@ -162,7 +162,7 @@ func TestAHomeWithNoInstructionFileIsUsedAsItIs(t *testing.T) {
 	repository, worktree := sandboxRepository(t, true)
 	runner := &homeRunner{fakeRunner: fakeRunner{results: completedTurn()}}
 	if _, err := (Backend{Runner: runner, ConfigDir: home}).Run(context.Background(), backend.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, RepositoryRoot: repository,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 		Prompt: "do the work", Model: "gpt-6-astra",
 	}); err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestTheSkillsAndInstructionFilesTheProjectNamesAreLoaded(t *testing.T) {
 			}
 			runner := &homeRunner{fakeRunner: fakeRunner{results: completedTurn()}}
 			result, err := (Backend{Runner: runner, ConfigDir: home, Context: named}).Run(context.Background(), backend.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: worktree, RepositoryRoot: repository,
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 				Prompt: "do the work", SystemPrompt: "the role's contract", Model: "gpt-6-astra", SessionID: session,
 			})
 			if err != nil {
@@ -339,7 +339,7 @@ func TestInstructionKeysInTheAccountsConfigurationAreKeptOut(t *testing.T) {
 		config = string(content)
 	}, fakeRunner: fakeRunner{results: completedTurn()}}
 	if _, err := (Backend{Runner: runner, ConfigDir: home}).Run(context.Background(), backend.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, RepositoryRoot: repository,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 		Prompt: "work", Model: "gpt-6-astra",
 	}); err != nil {
 		t.Fatal(err)
@@ -380,7 +380,7 @@ func TestANamedFileThatCannotBeReadRefusesTheInvocation(t *testing.T) {
 	_, err := (Backend{Runner: runner, ConfigDir: personalHome(t), Context: backend.NamedContext{
 		Skills: []backend.ContextFile{{Path: ".yoyodyne/skills/missing"}},
 	}}).Run(context.Background(), backend.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, RepositoryRoot: repository,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 		Prompt: "do the work", Model: "gpt-6-astra",
 	})
 	if err == nil || !strings.Contains(err.Error(), ".yoyodyne/skills/missing") {
@@ -399,7 +399,7 @@ func TestTheRepositorysOwnInstructionFileIsRecordedForADeveloper(t *testing.T) {
 	}
 	runner := &homeRunner{fakeRunner: fakeRunner{results: completedTurn()}}
 	result, err := (Backend{Runner: runner, ConfigDir: personalHome(t)}).Run(context.Background(), backend.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, RepositoryRoot: repository,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 		Prompt: "do the work", Model: "gpt-6-astra",
 	})
 	if err != nil {
@@ -506,7 +506,7 @@ func TestTheNextTurnResumesTheSessionAFirstTurnStartedUnderAMadeHome(t *testing.
 			runner := &rolloutRunner{}
 			provider := Backend{Runner: runner, ConfigDir: home}
 			request := backend.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: worktree, RepositoryRoot: repository,
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 				Prompt: "first turn", Model: "gpt-6-astra",
 			}
 			first, err := provider.Run(context.Background(), request)

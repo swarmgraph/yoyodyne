@@ -53,8 +53,8 @@ func TestADeveloperSandboxGrantsItsOwnScratchAndNothingElseInTheStateDirectory(t
 		if !decoded.Sandbox.Enabled || decoded.Sandbox.AllowUnsandboxedCommands {
 			t.Fatalf("the developer's sandbox is not on and binding: %s", settings)
 		}
-		if len(decoded.Sandbox.Filesystem) != 1 {
-			t.Fatalf("the developer's sandbox file system settings = %v, want allowWrite alone", decoded.Sandbox.Filesystem)
+		if len(decoded.Sandbox.Filesystem) != 2 || decoded.Sandbox.Filesystem["denyRead"] == nil {
+			t.Fatalf("the developer's sandbox file system settings = %v, want allowWrite and denyRead alone", decoded.Sandbox.Filesystem)
 		}
 		if got := sandboxWrites(t, settings); !slices.Equal(got, []string{scratch}) {
 			t.Fatalf("the developer's sandbox may write %q, want only its scratch folder %q", got, scratch)

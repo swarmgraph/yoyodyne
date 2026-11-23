@@ -18,7 +18,7 @@ func TestEveryRolePassesOnlyConfiguredCodexEffortOnFreshAndResumedInvocations(t 
 				repository, worktree := sandboxRepository(t, true)
 				runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: lines(`{"type":"turn.completed"}`)}}}
 				result, err := (Backend{Runner: runner}).Run(context.Background(), backend.RunRequest{
-					RunID: testRunID, Role: role, WorkingDirectory: worktree, RepositoryRoot: repository,
+					RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 					Prompt: "do the work", Model: "gpt-6-astra", Effort: effort, SessionID: session,
 				})
 				if err != nil {
