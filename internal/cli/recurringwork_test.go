@@ -189,6 +189,19 @@ func (n *notedTracker) Update(_ context.Context, id string, change beads.WorkIte
 	return beads.WorkItem{ID: id}, nil
 }
 
+func (n *notedTracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
+	return beads.WorkItem{ID: id, Notes: "plain", FramedNotes: beads.FrameNote("plain")}, nil
+}
+
+// A pass reads the item's notes with their append boundaries.
+func TestThePassedOverNoteReaderReadsTheRecordedNotes(t *testing.T) {
+	t.Parallel()
+	notes, err := (trackerNotes{tracker: &notedTracker{}}).ItemNotes(context.Background(), "item-p0")
+	if err != nil || notes != beads.FrameNote("plain") {
+		t.Errorf("notes = %q (%v), want the framed notes", notes, err)
+	}
+}
+
 // The note is appended, never written over the item's notes.
 func TestThePassedOverNoteIsAppended(t *testing.T) {
 	t.Parallel()

@@ -1237,9 +1237,14 @@ the note fits the rules either way. One names a field the note does not write
 itself, where that field could come: `Worktree:` inside the failure of a note
 that records no worktree. The other copies a check result exactly, inside a
 failure followed only by the checks, since a note can carry any number of
-checks. Either ends the failure there. These extracts are outside the notes' byte bound; captured check
-output, diffs, older decisions and other details can still be cut, and the read
-says so.
+checks. Either ends the failure there. These extracts have a byte bound of
+their own, 12 KiB, apart from the notes' bound. Where the extracts do not fit
+it, the newest are kept and the oldest cut first, and the read says how many
+extracts were cut and how many bytes they held, so the newest notes always fit
+within the read's 32 KiB. Captured check output, diffs, older decisions and
+other details can still be cut, and the read says so. The continuous end of the
+notes starts on a whole note wherever the notes record where each note begins;
+only a newest note larger than the space is itself cut.
 A later report mapping or recovery follow-up cannot displace those records.
 The extracts quote what the notes record: a follow-up asking whether a repair
 ran does not establish execution, and omitted evidence is unread rather than
@@ -1254,9 +1259,9 @@ work item a developer or reviewer is given, and every other place the harness
 shows notes show them as the prose that was written. `bd show` and the tracker
 export in `.beads/issues.jsonl` read the store directly, and show the line.
 Older notes have no
-recorded append boundaries: the read retains all matching excerpts from that
-history and says their order cannot establish separate writes or which decision
-was latest. It does not let a matching sentence silently replace an earlier
+recorded append boundaries: the read quotes the matching excerpts from that
+history within the extracts' bound, and says their order cannot establish
+separate writes or which decision was latest. It does not let a matching sentence silently replace an earlier
 record.
 
 ## Directives, and the work they pause
