@@ -6406,15 +6406,21 @@ has the rule.
   it.
 
 A `document-approval` entry is a document a role wrote in a conversation that
-waits for your approval: which document, whether it is new or a revision,
-which role wrote it in which conversation, and since when. A document stating
+has not been confirmed yet: which document, whether it is new or a revision,
+which role wrote it in which conversation, and since when. One the harness
+confirms by itself — under its kind's approval setting, or as the Lead Product
+Manager's change consistent with intent — is listed under **Waiting on the
+harness** as `document waiting to be published`. It needs nobody's approval,
+names no command, and leaves the line once it is sent to be published. Every
+other entry waits for your approval. One of those stating
 the product's intent — the brief, the goals and non-goals, the operating
 rules — is under **Waiting on the operator**, for a change of fundamental
 intent. Any other document waits on you only because the project's approval
 setting for its kind asks for a person, which is no reason on the operator's
 closed list, so it stays its owning role's and is listed under **A role's
 decision that needs your hand** — the architect's, for a design — naming
-`yoyodyne-ifd.433.21` as the item whose landing ends the need. Either way the entry names the command that decides
+`yoyodyne-ifd.433.21` as the item whose landing ends the need. For either of
+those that wait for you, the entry names the command that decides
 it, `yoyo agent chat <agent> --message "approve document-<turn>.<n>"` or
 `"decline document-<turn>.<n> <reason>"` (`yoyo chat` for the Lead Product
 Manager), and it leaves the line once you have: an approved document is
@@ -6480,7 +6486,7 @@ they are not the labels a person reads:
 | `check-could-not-run` | check not running |
 | `heavy-check-kept` | check place kept |
 | `blocked-on-a-human` | blocked on a human |
-| `document-approval` | document waiting for approval |
+| `document-approval` | document waiting for approval, or document waiting to be published where the harness confirms it by itself |
 | `unreadable-run` | unreadable run |
 | `merge-queue-overdue` | merge queue not moving |
 | `concern` | question waiting for your answer |
@@ -6562,7 +6568,7 @@ your hand**, never under **Yours to decide**.
 | `untraced-pass` | the role whose pass it was |
 | `capacity-degraded` | nobody's |
 | `blocked-on-a-human` | yours for the closed-list reason the program manager gave; otherwise the Lead Product Manager's to correct |
-| `document-approval` | yours for a document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
+| `document-approval` | the harness for a document it confirms by itself under its kind's approval setting, or as the Lead Product Manager's change consistent with intent, until it sends it to be published, labelled `document waiting to be published`; yours for any other document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
 | `concern` | yours (`fundamental-intent`), whichever role raised it |
 
 A role records a decision that needs your hand with `hand` in place of a
