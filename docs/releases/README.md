@@ -34,7 +34,7 @@ after. The harness's cut reads the commit from the notes on `main` and refuses
 notes that name none, or one `main` does not hold
 ([cutting a decided release](../operations.md#cutting-a-decided-release)).
 The tagged commit's tree has no notes, or an earlier draft that names another
-commit, so the release workflow reads them from `main` and publishes them as the page's text, taking them only where
+commit or none, so the release workflow reads them from `main` and publishes them as the page's text, taking them only where
 they name the tagged commit. To see the body a page will carry, from a
 checkout that has fetched `main`:
 
@@ -56,8 +56,9 @@ gh release edit v0.7.0 --notes-file body.md
 [`v0.7.0.md`](v0.7.0.md) is listed through a commit, but not yet in the words
 the cut reads, so nothing is tagged from it. An earlier draft of it has been on
 `main` since November 20, 2026, so every commit on `main` from then on holds a
-copy naming some older commit, and until `scripts/release-body.sh` was corrected
-to pass over such a copy it published that one in place of the notes on `main`.
+copy that names some older commit or none, and until `scripts/release-body.sh` was corrected
+to pass over such a copy where the notes on `main` name the tagged commit, it
+published that copy in place of them.
 A tag at a commit from before the correction would publish the old draft. The
 notes therefore name their commit only once there is one that has the
 correction: the release item's next run names such a commit, adds what landed

@@ -858,7 +858,8 @@ publishes from, so the archives that ship are built by the workflow from the
 tagged commit. The archives the gate builds in the cut's worktree only prove
 the build works, and they are removed with the worktree. The release page's
 text is the notes: the tagged commit's tree has none, or an earlier draft that
-names another commit, so the workflow reads them from `main` with [`scripts/release-body.sh`](../scripts/release-body.sh),
+names another commit or none, so the workflow reads them from `main` with
+[`scripts/release-body.sh`](../scripts/release-body.sh),
 and takes them only where they name the tagged commit.
 
 What it will not do:

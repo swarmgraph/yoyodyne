@@ -1362,11 +1362,11 @@ byte, and covers what a tag with no notes file publishes.
 
 A release is tagged at the commit its notes name, and the notes land on `main`
 after it, so the tagged commit's own tree has no notes, or an earlier draft that
-names another commit. The script then
+names another commit or none. The script then
 reads them from the branch `RELEASE_NOTES_FROM` names — the workflow sets it to
 the repository's default branch, and it is `origin/main` otherwise — and takes
 them only where they
 say "up to and including commit `<sha>`" of the very commit the tag names.
 Notes there that name another commit, or none, publish the install preamble
-alone, saying why on stderr, or the tree's earlier draft, with a warning, where
-there is one.
+alone, saying why on stderr, or the tree's own notes where it has some, with a
+warning where those name a different commit.

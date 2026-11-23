@@ -432,7 +432,14 @@ contains "$(cat "$composed" 2>/dev/null || true)" "Earlier draft" "a draft nothi
 contains "$output" "published as they stand" "with a warning that it names another commit"
 printf '# v0.4.0\n\n- **No commit named**\n' > "$project/docs/releases/v0.4.0.md"
 output="$( ( cd "$project" && RELEASE_NOTES_FROM=later-main bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )" || true
-contains "$(cat "$composed" 2>/dev/null || true)" "No commit named" "notes in the tree that name no commit stay the tag's own"
+body="$(cat "$composed" 2>/dev/null || true)"
+contains "$body" "Landed later" "notes on the default branch that name the tag replace a tree's draft that names no commit"
+missing "$body" "No commit named" "and none of that draft is published"
+for branch in other-main no-such-branch; do
+  output="$( ( cd "$project" && RELEASE_NOTES_FROM="$branch" bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )" || fail "release-body.sh failed for notes naming no commit against $branch -- got: $output"
+  contains "$(cat "$composed" 2>/dev/null || true)" "No commit named" "notes in the tree that name no commit are kept where $branch has none that name the tag"
+  missing "$output" "published as they stand" "with no warning about them"
+done
 rm -f "$project/docs/releases/v0.4.0.md"
 
 notes_on untagged-main v0.5.0 "$tagged"
