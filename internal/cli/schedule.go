@@ -868,6 +868,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// pull puts a stoppage to her, and the pull carries out what she decided
 		// about it, with nobody typing a verb between them.
 		CarryOut: carryOutFrom(parts),
+		// Repairs decided from feedback on tracked pull requests are taken in the
+		// scheduler's own order, ahead of fresh work.
+		FeedbackRepairs: feedbackRepairerFrom(parts),
 		// The tree an item's stated prerequisites are read against, and where an
 		// item that does not meet them is routed. The tree is the primary checkout
 		// rather than a worktree, because what the check is about is what a run cut

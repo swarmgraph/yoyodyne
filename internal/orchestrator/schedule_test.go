@@ -3964,6 +3964,9 @@ type scheduleHarness struct {
 	// run stands in for the pipeline. The default completes the item; a test
 	// that cares about a refusal or a failure replaces it.
 	run func(*scheduleHarness, string) (Outcome, error)
+	// feedbackRepairs is where a pull finds the repairs decided from feedback on
+	// tracked pull requests; none by default.
+	feedbackRepairs ScheduleFeedbackRepairs
 	// stoppages is the harness's own record of work it stopped and nobody has
 	// decided about, which is what separates a blocked status somebody has to
 	// release from one whose blockers have all closed. A pull is wired with one
@@ -4264,6 +4267,7 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		docket = h.triage
 	}
 	claims := h.claims
+	feedbackRepairs := h.feedbackRepairs
 	if h.audit != nil {
 		claims = h
 	}
@@ -4273,7 +4277,7 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		Stoppages: stoppages, Decisions: decisions,
 		Environment: h,
 		Capacity:    capacity, Slots: slots, Start: h.start, Escalations: escalations,
-		Tree: tree, Triage: docket, Recurring: recurring, CarryOut: carryOut, Holds: holds,
+		Tree: tree, Triage: docket, Recurring: recurring, CarryOut: carryOut, Holds: holds, FeedbackRepairs: feedbackRepairs,
 		Claims: claims, Landings: h.landings, TeamClaims: h.teamClaims,
 		// A minute is the shipped interval, and no test spends one: the sleep is
 		// the harness's own, so this is only what a watching pull is validated
