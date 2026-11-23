@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,17 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
+
+// otherProcess is pid, or the number after it where pid is this test process's
+// own: StoreHolder.Says names the test process "(this one)", so a holder a test
+// means to be another process must not share its number, which on a busy
+// machine it can.
+func otherProcess(pid int) int {
+	if pid == os.Getpid() {
+		return pid + 1
+	}
+	return pid
+}
 
 // fixedHolders is a finder that answers what it is told, remembering the paths
 // it was asked about.
@@ -36,10 +48,11 @@ func TestACallStoppedAtItsLimitNamesWhatHeldTheStore(t *testing.T) {
 	storeAt(t, filepath.Join(project, ".beads"), "metadata.json", "embeddeddolt/")
 	since := time.Date(2026, 10, 16, 5, 41, 25, 0, time.Local)
 	var asked []string
+	holder := otherProcess(4242)
 	client := Client{
 		Runner:       &fakeRunner{results: []execution.ProcessResult{timedOutCall()}},
 		Dir:          project,
-		Holders:      fixedHolders{holders: []StoreHolder{{PID: 4242, Command: "bd export -o .beads/issues.jsonl", Since: since}}, asked: &asked},
+		Holders:      fixedHolders{holders: []StoreHolder{{PID: holder, Command: "bd export -o .beads/issues.jsonl", Since: since}}, asked: &asked},
 		listingPause: func(context.Context, time.Duration) bool { return false },
 	}
 
@@ -49,7 +62,7 @@ func TestACallStoppedAtItsLimitNamesWhatHeldTheStore(t *testing.T) {
 	}
 	for _, want := range []string{
 		"bd show failed with status timed_out and exit code -1: reading work item yoyodyne-7my",
-		"at the " + DefaultTimeout.String() + " limit each tracker call is given; when it was stopped, the tracker's store was held open by process 4242 (bd export -o .beads/issues.jsonl), running since " + since.Format("2006-01-02 15:04:05 MST"),
+		"at the " + DefaultTimeout.String() + " limit each tracker call is given; when it was stopped, the tracker's store was held open by process " + strconv.Itoa(holder) + " (bd export -o .beads/issues.jsonl), running since " + since.Format("2006-01-02 15:04:05 MST"),
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Show() error = %q, want it to say %q", err, want)
@@ -132,9 +145,10 @@ func TestAWriteThatWaitedOutItsLockNamesTheHolder(t *testing.T) {
 	defer release()
 
 	var asked []string
-	queued := Client{Dir: project, Timeout: 100 * time.Millisecond, Holders: fixedHolders{holders: []StoreHolder{{PID: 4242, Command: "yoyo work --watch"}}, asked: &asked}}
+	holder := otherProcess(4242)
+	queued := Client{Dir: project, Timeout: 100 * time.Millisecond, Holders: fixedHolders{holders: []StoreHolder{{PID: holder, Command: "yoyo work --watch"}}, asked: &asked}}
 	_, err = queued.lockItem(ctx, "yoyodyne-1")
-	if err == nil || !strings.Contains(err.Error(), "when it was stopped, the write lock for yoyodyne-1 was held open by process 4242 (yoyo work --watch)") {
+	if err == nil || !strings.Contains(err.Error(), "when it was stopped, the write lock for yoyodyne-1 was held open by process "+strconv.Itoa(holder)+" (yoyo work --watch)") {
 		t.Fatalf("lockItem() error = %v, want it to name what held the lock", err)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
