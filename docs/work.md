@@ -2919,7 +2919,14 @@ What can happen to a queued change instead:
   the forge for the merge, which happens only once the entry reaches the head
   of the queue, so waiting behind other entries never counts toward it. The
   merge is withdrawn, and once the forge confirms it is withdrawn the change is
-  handed back to its run, kept, for the development manager to decide on. The
+  handed back to its run, kept. Neither says anything about the change, so the
+  run keeps the item and is stopped at its promotion with its approval, its
+  passed checks and its approved commit standing, and the harness takes it up
+  again from that commit by itself in the next free developer slot, ahead of
+  fresh work: the kept commit is admitted to the queue again, and its new
+  candidate is checked and reviewed on the target as it then stands. No repair
+  attempt and no fresh run is spent, and the scheduler starts no fresh run of
+  the item meanwhile unless the development manager decides a re-run. The
   withdrawal says how long the forge held the merge and how long the entry was
   in the queue before that.
 - **The candidate's reviewer answers with no verdict that can be read.** The

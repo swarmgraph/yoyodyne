@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/queuemode"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -98,7 +99,7 @@ func (p MergeQueuePromoter) Transfer(ctx context.Context, key runstate.MergeQueu
 			return refuse("what the %s queue was asked for is not confirmed withdrawn (%s)", modeName(entry.Mode),
 				nonEmpty(q.outcome.Unresolved, nonEmpty(q.outcome.Refusal, nonEmpty(q.outcome.Waiting, "no answer was recorded"))))
 		}
-		if err := q.release("its queued merge was withdrawn: "+reason, mode); err != nil {
+		if err := q.release("its queued merge was withdrawn: "+reason, mode, ownership.MoverHarness); err != nil {
 			return runstate.MergeQueueEntry{}, err
 		}
 	}

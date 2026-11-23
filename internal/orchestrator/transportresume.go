@@ -1,7 +1,11 @@
 package orchestrator
 
 // The harness resuming, by itself, an approved change the tracker, the forge or
-// the network stopped by not answering.
+// the network stopped by not answering, or that the merge queue let go for
+// something that says nothing about the change (runstate.CauseMergeQueueReleased,
+// resumesFromKeptCommit in mergequeuerecovery.go). The rest of this comment is
+// about the first; the second is resumed through the same path, and its
+// resumed promotion admits the kept commit to the queue again.
 //
 // The operating rules say a dropped connection is waited out and that only a
 // person or a bound on the work ends a run. An approved change whose promotion
@@ -121,7 +125,7 @@ func (h HarnessResumedIntegrations) Refuse(ctx context.Context, runID, why strin
 	if h.Items == nil || strings.TrimSpace(state.WorkItemID) == "" {
 		return nil
 	}
-	note := fmt.Sprintf("The harness stopped trying to resume the approved change of run %s by itself, because its try met something other than the tracker, the forge, or the network not answering: %s. The stop is the development manager's to decide now, and `yoyo triage resume %s` still resumes it at no cost once that is settled.",
+	note := fmt.Sprintf("The harness stopped trying to resume the approved change of run %s by itself, because its try met something it does not wait out: %s. The stop is the development manager's to decide now, and `yoyo triage resume %s` still resumes it at no cost once that is settled.",
 		runID, strings.TrimSpace(why), runID)
 	if _, err := h.Items.RecordOutcome(ctx, state.WorkItemID, singleLine(note, runstate.MaxBlockerBytes)); err != nil {
 		return fmt.Errorf("note on %s why the harness stopped resuming run %s: %w", state.WorkItemID, runID, err)
