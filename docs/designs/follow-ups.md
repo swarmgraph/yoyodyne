@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-10-26T23:02:00.569465Z
       reason: 'Answers the last part of report-a7df0a29: this section said no Slack message went out on October 23 and 24, but the diagnosis shows the license step was posted and sent to the operator once and never repeated. Only that sentence changes. Read whole at main c2a456dc.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T17:40:41.963945Z
+      reason: The last copy claimed to list everything built and left out parts that exist, as the independent review found. This says the list is not complete, adds the closed list of checks, the registry kind, recording a result only when it changes, telling whoever waits, and release of a hold when its follow-up is closed, and marks which points come from the review. Read at main e78f63e889a3.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-10-26T23:02:00.569465Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1818, for document-1818.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-23T17:40:41.963945Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3719, for document-3719.1 under the automatic approval policy
 ---
 # Follow-ups: every wait has an owner, a check the harness runs, and two deadlines
 
@@ -247,6 +256,21 @@ These are the pieces; turning them into work items is the development manager's.
 8. **The role contracts and personas** say that a wait is recorded as a follow-up and that a sentence in a note is not one.
 
 Piece 1 comes first. Pieces 2, 3 and 6 depend on it. Piece 4 depends on 2. Pieces 5 and 7 depend on 3 and 4. Piece 8 can go with 3. Where piece 3 meets a special path that [fewer lifecycle states](fewer-lifecycle-states.md) removes, such as the brake's decision on every pass, it writes the follow-up and leaves the removal to that design's piece, which depends on it.
+
+### What was found built
+
+This is what was found built in the code read at main e78f63e889a3. It is not a complete list: a part of this design it does not mention may or may not exist, and whoever turns a piece into work reads the code first and does not ask for finished work again. The files read were `internal/followup/followup.go` and `check.go`, `runner.go` and `tell.go` in `internal/followup/checkrun`, `internal/orchestrator/followups.go`, `internal/cli/passchanges.go`, and the part of `internal/cli/schedule.go` that puts the check runner together. The points marked as from the review were found by the independent review of this section and were not read again.
+
+- **The record** (piece 1): every field the decision above names, the refusal of a record that is not whole, and the rule that the operator owns a follow-up only for a reason on his closed list and never one that he or his assistant recorded. A follow-up ends only by its check passing, or by its owner, whoever waits, or the operator closing it with a reason.
+- **The closed list of checks** (piece 1): all sixteen, each with the arguments it takes. A name off the list is refused, and so is one that reads as a command.
+- **The store and the registry** (piece 1): follow-ups are kept in the state directory. From the review: the registry has the kind `follow-up` and its rule.
+- **The check runner** (piece 2): the watch session runs it once on every poll. It runs each open follow-up's check that is due, one at a time, records a result only when it changes, and ends a follow-up whose check passed. The two intervals are the defaults above, fixed in the code; `follow_ups.check_interval` and `follow_ups.command_check_interval` are not read.
+- **What can be run** (piece 2): two of the sixteen checks have anything to run them, the environment check and the command check. Any other is recorded as one that could not be run. No command check can be declared in the configuration, so one that is named is recorded the same way. From the review: the three environment checks the harness supplies exist.
+- **Telling whoever waits** (piece 2): a passed check files a report addressed to the role that waits, which is put in front of its next pass. An operator who waits is not told this way; he is told in the channel where a hold is released.
+- **Two holds** (pieces 2 and 3): a hold over checks the machine could not start, where the harness recognises the cause, and a lapsed provider login, each write a follow-up carrying the environment check. When that check passes the session releases the hold, and says so on the watch log that `yoyo status` reads and in the channel. The hold over checks that could not start is also released when its follow-up is closed with a reason. Nothing releases the login hold when its follow-up is closed that way. From the review: both follow-ups carry the priority 0 deadlines.
+- **Reading the deadlines** (piece 4): the check made before a scheduled pass counts an open follow-up as a change once its first deadline passes and again once its second does, for the role that owns it. It starts no pass for the owner's manager, and none for a follow-up the operator owns. That check is the only reader of the deadlines in the files read. They name no escalation to the manager, no bug filed on a lapse, and no list that shows what a late follow-up costs.
+
+Until piece 4 has landed, a passed deadline does not bring every wait back as this design says. So no piece removes a way a wait is brought back today, such as the trial run of the hold on new work or the stopped run's return to the development manager's list, before piece 4 lands.
 
 ## What a reviewer can check
 
