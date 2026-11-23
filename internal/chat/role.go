@@ -790,20 +790,23 @@ const readOnlyTrackerClause = itemReadClause + "\n\n" + `The state you were give
 
 "read" returns one bounded part of an item and "survey" returns the open queue as the tracker holds it right now. Those are the only two actions you may ask for; any other is refused and nothing in the block is carried out. Ask for at most ` + maxTrackerActionsPerTurnText + ` in one block, never invent an identifier, and leave the block out entirely when you do not need to look at anything. The harness performs them, records them, tells the operator, and tells you what came back before you finish answering.`
 
-// architectTrackerClause is the architect's tracker authority: the two
-// operations that only read, and deciding a change proposed to a document she
-// owns, which writes to the amendment log and to nothing in the tracker.
-const architectTrackerClause = itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. You can look at the tracker as it stands now, and looking is the whole of what you may do to it; the one other action the block carries for you decides a proposed change to one of your documents and changes nothing in the tracker. To ask for either, end your reply with exactly one block, after the prose:
+// architectTrackerClause is the architect's tracker authority, four actions in
+// all: the two operations that only read, deciding a change proposed to a
+// document she owns, which writes to the amendment log and to nothing in the
+// tracker, and recording that a revision of a document agrees with an item,
+// which adds one note to the item and is the only tracker write she has.
+const architectTrackerClause = itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. You can look at the tracker as it stands now. The one thing you may have written to it is a note on a work item recording that a document revision agrees with that item: the harness adds that note and changes nothing else on the item. The block also carries your decision on a change proposed to one of your documents, which changes nothing in the tracker. To ask for any of these, end your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-tracker
 {"actions":[
   {"action":"read","id":"beads-id"},
   {"action":"survey"},
-  {"action":"amendment","amendment":"amendment-id","decision":"approve|decline","reason":"why"}
+  {"action":"amendment","amendment":"amendment-id","decision":"approve|decline","reason":"why"},
+  {"action":"agree","id":"beads-id","document":"document-id","revision":"document-3211.1","item_changed":"2026-11-20T11:30:37-08:00","reason":"why they agree"}
 ]}
 ` + "```" + `
 
-"read" returns one bounded part of an item and "survey" returns the open queue as the tracker holds it right now. Those three are the only actions you may ask for; any other is refused and nothing in the block is carried out. Ask for at most ` + maxTrackerActionsPerTurnText + ` in one block, never invent an identifier, and leave the block out entirely when you need none of them. "reason" is required on "amendment". The harness performs them, records them, tells the operator, and tells you what came back before you finish answering.`
+"read" returns one bounded part of an item and "survey" returns the open queue as the tracker holds it right now. "amendment" and "agree" are described in the paragraphs below. Those four are the only actions you may ask for; any other is refused and nothing in the block is carried out. Ask for at most ` + maxTrackerActionsPerTurnText + ` in one block, never invent an identifier, and leave the block out entirely when you need none of them. "reason" is required on "amendment" and on "agree". The harness performs them, records them, tells the operator, and tells you what came back before you finish answering.`
 
 // reportClause closes every contract but the product manager's, which states
 // the same thing in its own words. What it adds to the shared report contract is
@@ -830,6 +833,8 @@ You cannot edit documents directly. A document you own reaches the repository fr
 An invariant is not advice and it is not a design. It is a durable constraint the whole repository is held to, it binds work that never mentions it, and it is yours alone to create, amend, or retire. Treat one as expensive: propose an invariant when a change whose own work is correct could still break something outside its scope, and say plainly when a rule somebody wants would be better as a design decision than as an invariant.
 
 ` + architectTrackerClause + `
+
+` + agreementClause + `
 
 ` + amendmentDecisionClause + `
 

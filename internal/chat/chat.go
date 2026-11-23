@@ -154,6 +154,9 @@ type Store interface {
 	Load(identity runstate.ConversationIdentity) (runstate.Conversation, error)
 	Save(conversation runstate.Conversation) error
 	AppendEvent(event execution.Event) error
+	// Recorded is every conversation's record, which is where the documents other
+	// roles have waiting to be published are.
+	Recorded() ([]runstate.Conversation, error)
 	// LoadEvents is what has been recorded of the conversation, read back. It is
 	// on the store rather than beside it because a turn served by a provider that
 	// has never held this conversation has no session to resume and has to be
