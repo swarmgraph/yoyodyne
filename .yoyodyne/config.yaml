@@ -121,6 +121,11 @@ execution:
   # slot are done, this goes to one slot with no preference ("When the last cost
   # item is done, please remove its dev slot as well").
   max_concurrent_developers: 2  # both slots prefer cost
+  # Temporarily one hour, at the operator's direction of 2026-11-22 ("Revert
+  # it + 1h move"), so the scheduler takes up the build that reverts the
+  # invocation store, which stopped every merge-queue review, without waiting
+  # out three hours. The three-hour default comes back once the queue moves.
+  build_move_interval: 1h
   # docs/configuration.md, "A developer slot that prefers a label", explains
   # what a preference does and does not change: it selects what a slot pulls
   # first, and never what it may do.
