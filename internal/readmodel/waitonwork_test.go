@@ -3,6 +3,7 @@ package readmodel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,13 @@ func (t trackerOf) Show(_ context.Context, id string) (beads.WorkItem, error) {
 		return beads.WorkItem{}, errors.New("bd show " + id + ": database is locked")
 	}
 	return item, nil
+}
+
+// unansweredTracker is a tracker whose every show was killed at its bound.
+type unansweredTracker struct{}
+
+func (unansweredTracker) Show(context.Context, string) (beads.WorkItem, error) {
+	return beads.WorkItem{}, fmt.Errorf("bd show: %w", beads.ErrUnanswered)
 }
 
 // A wait on named work ends when that work closes, and nothing has to record
@@ -131,6 +139,13 @@ func TestAWaitOnNamedWorkEndsWhenTheTrackerHoldsItClosed(t *testing.T) {
 		}
 		if strings.Contains(reason, "once it is closed the stoppage is back on her docket") {
 			t.Fatalf("held for %q, want it not saying the stoppage still waits", reason)
+		}
+	})
+	t.Run("unanswered", func(t *testing.T) {
+		t.Parallel()
+		reason, _ := hold(t, unansweredTracker{})
+		if !strings.Contains(reason, "whether "+waitsOn+" is closed could not be read (the tracker did not answer in time)") {
+			t.Fatalf("held for %q, want it saying plainly that the tracker did not answer", reason)
 		}
 	})
 	t.Run("not wired", func(t *testing.T) {

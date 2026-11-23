@@ -100,6 +100,54 @@ func readWaitsAhead(ctx context.Context, held map[string]backlog.Hold, waited Wa
 	return reads
 }
 
+// waitedOn is the reading of waited work a standing's holds ask (endWaits): the
+// tracker the sources were given, with each call bounded by the sources'
+// tracker time limit. A standing hands its listings a shared tracker
+// (sharedlisting.go), which answers listings and cannot show one item, so the
+// tracker underneath it is what is asked; were it not, every surface built on a
+// standing, the factory health check among them, would say of every wait that
+// nothing could ask whether its work had closed.
+func (s Sources) waitedOn() WaitedOn {
+	var tracker any = s.Tracker
+	if shared, ok := s.Tracker.(*sharedTracker); ok {
+		tracker = shared.tracker
+	}
+	waited := WaitedOnOf(tracker)
+	if waited == nil {
+		return nil
+	}
+	bounded := boundedWaitedOn{waited: waited, bound: s.bounded}
+	if many, ok := waited.(WaitedOnMany); ok {
+		return boundedWaitedOnMany{boundedWaitedOn: bounded, many: many}
+	}
+	return bounded
+}
+
+// boundedWaitedOn shows one item under a bound of its own for each call.
+type boundedWaitedOn struct {
+	waited WaitedOn
+	bound  func(context.Context) (context.Context, context.CancelFunc)
+}
+
+func (b boundedWaitedOn) Show(ctx context.Context, id string) (beads.WorkItem, error) {
+	bounded, cancel := b.bound(ctx)
+	defer cancel()
+	return b.waited.Show(bounded, id)
+}
+
+// boundedWaitedOnMany is boundedWaitedOn over a tracker that reads several
+// items in one call, which keeps that call (readWaitsAhead).
+type boundedWaitedOnMany struct {
+	boundedWaitedOn
+	many WaitedOnMany
+}
+
+func (b boundedWaitedOnMany) ShowMany(ctx context.Context, ids []string) (map[string]beads.WorkItem, error) {
+	bounded, cancel := b.bound(ctx)
+	defer cancel()
+	return b.many.ShowMany(bounded, ids)
+}
+
 // The pull and the conversations read the holds through beads.Client; were it
 // to stop reading several items at once, endWaits would go back to a read for
 // each item without anything failing, so the build says so instead.

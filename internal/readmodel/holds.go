@@ -60,6 +60,7 @@ package readmodel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -432,6 +433,17 @@ func waitUnread(waitsOn, problem string) string {
 		waitsOn, waitsOn, problem)
 }
 
+// unshown is why the tracker could not say whether waited work is closed, in
+// the words waitUnread puts in brackets. A tracker that did not answer within
+// its time limit is said so plainly, since the error a process killed at its
+// bound carries reads as the machinery rather than the tracker.
+func unshown(err error) string {
+	if beads.Unanswered(err) || errors.Is(err, context.DeadlineExceeded) {
+		return "the tracker did not answer in time"
+	}
+	return fmt.Sprintf("the tracker could not show it: %v", err)
+}
+
 // endWaits asks the tracker, once for each work item named, whether the work a
 // standing wait is on has closed, and rewrites the hold's closing clause to say
 // what it found. Nothing records the wait's end for this to read: a wait on
@@ -483,9 +495,9 @@ func endWaits(ctx context.Context, held map[string]backlog.Hold, waited WaitedOn
 		} else if waited == nil {
 			found.problem = "nothing was wired to read the tracker"
 		} else if ahead.failed != nil {
-			found.problem = fmt.Sprintf("the tracker could not show it: %v", ahead.failed)
+			found.problem = unshown(ahead.failed)
 		} else if item, err := waited.Show(ctx, waitsOn); err != nil {
-			found.problem = fmt.Sprintf("the tracker could not show it: %v", err)
+			found.problem = unshown(err)
 		} else if strings.TrimSpace(item.Status) == "closed" {
 			found.closed, found.closedAt = true, item.ClosedAt
 		}

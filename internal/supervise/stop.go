@@ -179,8 +179,11 @@ func (f *forcing) end(ctx context.Context, stopped Stopped, before runstate.Proc
 // gone reports whether the process asked to stop has left: nothing has its
 // number, another process does, or it has exited — collected here where this
 // process is its parent, and left to its own parent otherwise, since an exited
-// process runs nothing. A platform that cannot be asked has only the lease's
-// answer, which has already been given.
+// process runs nothing. Where this process is its parent it is gone only once
+// collected (collectExited), so a child the kernel would not hand over yet is
+// asked about again rather than left in the process table for good. A platform
+// that cannot be asked has only the lease's answer, which has already been
+// given.
 func gone(pid int, before runstate.ProcessLook) bool {
 	look, err := lookProcess(pid)
 	if err != nil || !look.Exists {
@@ -190,8 +193,7 @@ func gone(pid int, before runstate.ProcessLook) bool {
 		return true
 	}
 	if look.Exited {
-		_, _ = collect(pid)
-		return true
+		return collectExited(pid)
 	}
 	return false
 }
