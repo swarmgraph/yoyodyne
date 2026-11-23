@@ -125,6 +125,11 @@ const (
 	// the conversation is the ID; the registry names the mover from which of
 	// those it is (CapacityStand).
 	KindCapacityBlocked Kind = "capacity-blocked"
+	// KindMergeQueueOverdue is a merge queue entry whose current step has run
+	// past the project's bound, or whose merge GitHub will not make by itself,
+	// which every approved change behind it waits on. The entry is the ID and
+	// its work item the WorkItemID.
+	KindMergeQueueOverdue Kind = "merge-queue-overdue"
 )
 
 // CapacityStand is where one run or conversation stands against the
@@ -194,6 +199,7 @@ func AttentionKinds() []Kind {
 		KindDocumentApproval,
 		KindUnreadableRun,
 		KindCapacityBlocked,
+		KindMergeQueueOverdue,
 	}
 }
 

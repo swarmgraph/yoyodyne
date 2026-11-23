@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -211,6 +212,36 @@ type QueueEntryStanding struct {
 	// Landed is the commit a confirmed landing put on the target.
 	Landed     string `json:"landed,omitempty"`
 	Supersedes string `json:"supersedes,omitempty"`
+	// Step is what the queue is doing with the entry now, in ordinary words,
+	// and StepSince when that step began; both are empty for an entry the
+	// queue is done with, and StepSince where no record says when it began
+	// (mergequeuesteps.go).
+	Step      string     `json:"step,omitempty"`
+	StepSince *time.Time `json:"step_since,omitempty"`
+	// Overdue is set where the entry is a problem: its step has run past the
+	// bound, or GitHub will not make its merge by itself.
+	Overdue *QueueEntryOverdue `json:"overdue,omitempty"`
+
+	// What the steps around this entry are read from, and never shown: when
+	// it left the queue, when its newest candidate was built, and the rule that
+	// chose that candidate; and why GitHub will not make its merge, where it
+	// will not.
+	left           time.Time
+	built          time.Time
+	selection      *runstate.MergeQueueSelection
+	forgeWontMerge string
+}
+
+// StepSays is the entry's step and since when, as every surface prints it,
+// and empty for an entry with no step.
+func (e QueueEntryStanding) StepSays() string {
+	switch {
+	case e.Step == "":
+		return ""
+	case e.StepSince == nil:
+		return e.Step + ", since a moment no record keeps"
+	}
+	return e.Step + ", since " + localMoment(*e.StepSince)
 }
 
 // Finished reports an entry the queue is done with.
@@ -252,8 +283,17 @@ type MergeQueueStanding struct {
 // recentlyFinishedShown bounds the finished entries a queue shows.
 const recentlyFinishedShown = 3
 
-// ReadMergeQueues is every queue the product has, and what could not be read.
+// ReadMergeQueues is every queue the product has, and what could not be read,
+// with no entry judged against the bound on its step.
 func ReadMergeQueues(queues MergeQueues) ([]MergeQueueStanding, string) {
+	return ReadMergeQueuesAt(queues, time.Time{}, 0)
+}
+
+// ReadMergeQueuesAt is every queue the product has as of now, with each entry
+// whose step has run past overdueAfter, or whose merge GitHub will not make by
+// itself, marked as a problem. A zero overdueAfter takes
+// DefaultMergeQueueStepOverdueAfter, and a zero now marks nothing.
+func ReadMergeQueuesAt(queues MergeQueues, now time.Time, overdueAfter time.Duration) ([]MergeQueueStanding, string) {
 	if queues == nil {
 		return nil, ""
 	}
@@ -266,7 +306,7 @@ func ReadMergeQueues(queues MergeQueues) ([]MergeQueueStanding, string) {
 		problems = append(problems, fmt.Sprintf("the merge queues could not all be listed: %v", err))
 	}
 	for _, key := range keys {
-		standing, problem := readMergeQueue(queues, key)
+		standing, problem := readMergeQueue(queues, key, now, overdueAfter)
 		standings = append(standings, standing)
 		if problem != "" {
 			problems = append(problems, problem)
@@ -275,7 +315,7 @@ func ReadMergeQueues(queues MergeQueues) ([]MergeQueueStanding, string) {
 	return standings, strings.Join(problems, "; ")
 }
 
-func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey) (MergeQueueStanding, string) {
+func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey, now time.Time, overdueAfter time.Duration) (MergeQueueStanding, string) {
 	standing := MergeQueueStanding{Repository: key.Repository, TargetBranch: key.TargetBranch}
 	var problems []string
 	if refusal, found, err := queues.Refusal(key); err != nil {
@@ -294,11 +334,15 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey) (MergeQueueS
 		return standing, strings.Join(problems, "; ")
 	}
 	var open, finished []QueueEntryStanding
+	var left time.Time
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
 		read, problem := readQueueEntry(queues, key, entry)
 		read.Label, read.ModeLabel = read.State.Label(), modeWords(read.Mode)
 		if problem != "" {
 			problems = append(problems, problem)
+		}
+		if read.left.After(left) {
+			left = read.left
 		}
 		if read.Finished() {
 			finished = append(finished, read)
@@ -312,6 +356,8 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey) (MergeQueueS
 			standing.FirstEntry, standing.FirstRule, standing.FirstWhy = open[0].EntryID, pass.Order.Rule, pass.Order.Why
 		}
 	}
+	placeTheHead(open, left, standing)
+	overdueSteps(&standing, open, now, overdueAfter)
 	standing.Open, standing.Finished = len(open), len(finished)
 	if len(finished) > recentlyFinishedShown {
 		finished = finished[len(finished)-recentlyFinishedShown:]
@@ -357,17 +403,22 @@ func readQueueEntry(queues MergeQueues, key runstate.MergeQueueKey, entry runsta
 	}
 	if landed && placedByLanding(&read, landing) {
 		if read.State != QueueEntryForgeHolds {
+			setStep(&read, entry, landing, nil, nil)
 			return read, ""
 		}
 		// What GitHub last said the merge it holds is waiting on, or that it
 		// could not be asked, is said beside it.
 		reading, found, err := queues.ForgeReading(key, entry.EntryID)
 		if err != nil {
+			setStep(&read, entry, landing, nil, nil)
 			return read, fmt.Sprintf("what GitHub last said about %s could not be read: %v", entry.EntryID, err)
 		}
 		if attempt, _ := landing.Current(); found && reading.PullRequest == attempt.PullRequest {
 			read.Why += "; " + reading.Says()
+			setStep(&read, entry, landing, nil, &reading)
+			return read, ""
 		}
+		setStep(&read, entry, landing, nil, nil)
 		return read, ""
 	}
 	generations, err := queues.Generations(key, entry.EntryID)
@@ -376,6 +427,7 @@ func readQueueEntry(queues MergeQueues, key runstate.MergeQueueKey, entry runsta
 		return read, fmt.Sprintf("the candidates of %s could not be read: %v", entry.EntryID, err)
 	}
 	placeByCandidate(&read, generations)
+	setStep(&read, entry, landing, generations, nil)
 	return read, ""
 }
 
@@ -519,6 +571,12 @@ func (s Standing) RenderMergeQueues() string {
 		}
 		for _, entry := range queue.Entries {
 			fmt.Fprintf(&rendered, "  %d. %s %s — %s, in %s — %s\n", entry.Place, entry.WorkItemID, entry.Title, entry.Label, entry.ModeLabel, entry.Why)
+			if step := entry.StepSays(); step != "" {
+				fmt.Fprintf(&rendered, "     now: %s\n", step)
+			}
+			if entry.Overdue != nil {
+				fmt.Fprintf(&rendered, "     PROBLEM, the development manager's to move: %s\n", entry.Overdue.Says())
+			}
 		}
 	}
 	if s.MergeQueuesProblem != "" {

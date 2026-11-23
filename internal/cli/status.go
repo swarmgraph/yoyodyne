@@ -784,6 +784,7 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.Slots = cfg.Execution.DeveloperSlots
 	sources.BrakeProbeOverdueAfter = cfg.Execution.BrakeProbeOverdueAfter.Duration()
 	sources.SchedulingWaitProblemAfter = cfg.Execution.SchedulingWaitProblemAfter.Duration()
+	sources.MergeQueueStepOverdueAfter = cfg.Execution.MergeQueueStepOverdueAfter.Duration()
 	sources.MaxWaitingPullRequests = cfg.Execution.MaxWaitingPullRequests
 	sources.TeamPause = standingTeamPause(resolved)
 	// What each agent asks for and may be served by instead, read against the

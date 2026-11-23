@@ -74,6 +74,7 @@ const (
 	AttentionDocumentApproval  = ownership.KindDocumentApproval
 	AttentionUnreadableRun     = ownership.KindUnreadableRun
 	AttentionCapacityBlocked   = ownership.KindCapacityBlocked
+	AttentionMergeQueueOverdue = ownership.KindMergeQueueOverdue
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -133,6 +134,7 @@ func (a Attention) Label() string {
 		AttentionDocumentApproval:  "document waiting for approval",
 		AttentionUnreadableRun:     "unreadable run",
 		AttentionCapacityBlocked:   "held on provider capacity",
+		AttentionMergeQueueOverdue: "merge queue not moving",
 	}[a.Kind]
 }
 
@@ -333,6 +335,10 @@ type Attention struct {
 	// KeptHeavyCheck is the place and the permit holding it, on an
 	// AttentionKeptHeavyCheck entry; the permit is the ID.
 	KeptHeavyCheck *KeptHeavyCheck `json:"kept_heavy_check,omitempty"`
+	// QueueOverdue is the merge queue entry, its step and since when, and
+	// what it waits on, on an AttentionMergeQueueOverdue entry; the entry is
+	// the ID.
+	QueueOverdue *QueueEntryOverdue `json:"merge_queue_overdue,omitempty"`
 	// LaneHumanBlock is the program manager's entry and the instance that wrote
 	// it, on an AttentionLaneHumanBlock entry.
 	LaneHumanBlock *LaneHumanBlock `json:"blocked_on_a_human,omitempty"`
@@ -770,6 +776,10 @@ func (a Attention) What() string {
 		if a.KeptHeavyCheck != nil {
 			return a.KeptHeavyCheck.Says()
 		}
+	case AttentionMergeQueueOverdue:
+		if a.QueueOverdue != nil {
+			return a.QueueOverdue.Says()
+		}
 	case AttentionLaneHumanBlock:
 		if a.LaneHumanBlock != nil {
 			return a.LaneHumanBlock.Says()
@@ -972,6 +982,8 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — " + runstate.ForgeCertificateRemedy
 	case AttentionUnrunCheck:
 		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
+	case AttentionMergeQueueOverdue:
+		return a.Mover.Possessive() + " — the queue lands its entries in order, so nothing behind this one lands until it moves; find what holds it, then `yoyo queue retry " + a.ID + " --reason <why>` takes it up again on the same checked and reviewed candidate, or `yoyo queue hand-back " + a.ID + " --reason <why>` sends it back to its run so the entries behind it go on, and either can be done from her conversation as well"
 	case AttentionKeptHeavyCheck:
 		return a.Mover.Possessive() + " — the place is given back by itself once the last of those processes goes; if it is a hang, `yoyo heavy-checks release " + a.ID + " --by <name> --reason <why>` gives it back now and records who and why"
 	case AttentionLaneHumanBlock:

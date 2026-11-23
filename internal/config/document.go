@@ -196,6 +196,9 @@ type executionDocument struct {
 	// existed, which leaves it off: a layer that does not supply it integrates
 	// approved work the way runs always have.
 	MergeQueue *bool `yaml:"merge_queue"`
+	// MergeQueueStepOverdueAfter is absent from every file written before it
+	// existed, which leaves the default of two hours.
+	MergeQueueStepOverdueAfter *Duration `yaml:"merge_queue_step_overdue_after"`
 	// CIChecks is absent from every file written before checks on CI existed,
 	// which leaves it off. Each key inherits on its own, except that the two
 	// lists replace an inherited list wholesale, as the check lists do.
