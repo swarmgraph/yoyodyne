@@ -585,6 +585,12 @@ type Trigger struct {
 	// it. Optional: a trigger wired without it hands the pass nothing to audit.
 	// See closedwork.go.
 	ClosedWork RecurringClosedWork
+	// WaitingWork is the latest release tag, the open release items with what
+	// each waits on, and the open priority 0 work, read for the first turn of
+	// every pass of a recurring task of the Lead Product Manager's; each item
+	// past seven days is one her account must act on or explain. Optional: a
+	// trigger wired without it hands her none of it. See overdue.go.
+	WaitingWork RecurringWaitingWork
 	// Unpublished and OpenWork are the documents written and not yet published
 	// and the tracker's items, from which every pass of the architect's and of the
 	// Lead Product Manager's is handed the overlaps nobody has answered. Optional:
@@ -1350,6 +1356,17 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		}
 		message = section + "\n" + message
 	}
+	// The releases and priority 0 work waiting over seven days, in the first
+	// turn's message for the same reason; the pass's account is held to them.
+	var overdue *overdueCheck
+	if t.WaitingWork != nil && task.Role == domain.RoleProductManager && f.agent == "" {
+		section, check, problem := t.waitingWorkSection(ctx)
+		overdue = check
+		if problem != "" {
+			problems = append(problems, problem)
+		}
+		message = section + "\n" + message
+	}
 	// The unpublished documents that overlap an open item, for the architect and
 	// the Lead Product Manager, in the first turn's message for the same reason.
 	if documentOverlapRoles(task.Role, f.agent) {
@@ -1385,6 +1402,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		// account must hold.
 		if turn > 0 {
 			message += "\n\n" + closingContract(f, len(delivered) > 0)
+			if overdue.any() {
+				message += "\n\n" + sweep.OverdueContract()
+			}
 		}
 		if t.ConversationWork != nil && f.agent == "" {
 			work, err := t.ConversationWork.Read(ctx, task.Role)
@@ -1616,6 +1636,12 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 					message = back
 					continue
 				}
+				if back, deferred := overdue.sendBack(actedOn, merged); back != "" {
+					limit = max(limit, turn+2)
+					problems = append(problems, overdueSentBackProblem(name, turn+1, deferred))
+					message = back
+					continue
+				}
 				break
 			}
 			// The account said complete, and a critical it was shown is still
@@ -1639,6 +1665,12 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			if back := streak.sendBack(actedOn, heldForSending, merged); back != "" {
 				limit++
 				problems = append(problems, sentBackProblem(name, turn+1, streak.item))
+				message = back
+				continue
+			}
+			if back, deferred := overdue.sendBack(actedOn, merged); back != "" {
+				limit++
+				problems = append(problems, overdueSentBackProblem(name, turn+1, deferred))
 				message = back
 				continue
 			}
@@ -1729,6 +1761,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// first in its order where it did not take that one.
 	recorded.Delivered = judgeDelivered(delivered, actedOn, heldForSending, merged)
 	problems = append(problems, streak.record(&recorded, name))
+	problems = append(problems, overdue.record(name, actedOn, merged))
 	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, &recorded, earlier))
 	problems = append(problems, t.noteSettled(ctx, pass, recorded))
 	// Bounded, because the record's own bound on this prose refuses a record that

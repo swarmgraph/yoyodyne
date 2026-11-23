@@ -585,6 +585,10 @@ type Result struct {
 	// nothing outside the role holding them, and what it did about each. Empty
 	// on every pass told of none.
 	Settled []Settled `json:"settled,omitempty"`
+	// Overdue are the releases and priority 0 items the pass was told have
+	// waited more than seven days, and what it did about each (overdue.go).
+	// Empty on every pass told of none.
+	Overdue []Overdue `json:"overdue,omitempty"`
 }
 
 // HeldItem reports whether the account says the item's finished document is
@@ -678,6 +682,14 @@ func (r Result) Validate() error {
 			problems = append(problems, fmt.Errorf("settled[%d]: %w", i, err))
 		}
 	}
+	if len(r.Overdue) > MaxPassLeft {
+		problems = append(problems, fmt.Errorf("%d overdue items in one pass, limit is %d", len(r.Overdue), MaxPassLeft))
+	}
+	for i, overdue := range r.Overdue {
+		if err := overdue.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("overdue[%d]: %w", i, err))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
 	}
@@ -723,6 +735,9 @@ func (r Result) validateTurn() error {
 	}
 	if len(r.Settled) > MaxLeft {
 		problems = append(problems, fmt.Errorf("%d settled items in one turn, limit is %d", len(r.Settled), MaxLeft))
+	}
+	if len(r.Overdue) > MaxLeft {
+		problems = append(problems, fmt.Errorf("%d overdue items in one turn, limit is %d", len(r.Overdue), MaxLeft))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
@@ -800,9 +815,14 @@ func (r Result) Merge(next Result) Result {
 	if len(settled) > MaxPassLeft {
 		settled = settled[len(settled)-MaxPassLeft:]
 	}
+	overdue := append(append([]Overdue(nil), r.Overdue...), next.Overdue...)
+	if len(overdue) > MaxPassLeft {
+		overdue = overdue[len(overdue)-MaxPassLeft:]
+	}
 	merged.Left = left
 	merged.Held = held
 	merged.Settled = settled
+	merged.Overdue = overdue
 	merged.Summary = noteDropped(merged.Summary, dropped)
 	return merged
 }
@@ -963,10 +983,10 @@ func Contract() string {
 // settled decision must carry among them.
 var accountShape = []string{
 	Fence,
-	`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"],"settled":[{"item":"beads-id already decided or asked about","decision":"what was decided","assumptions":["what the decision took to be true"],"question":"or the one question already asked","asked_of":"who it was put to"}]}`,
+	`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"],"settled":[{"item":"beads-id already decided or asked about","decision":"what was decided","assumptions":["what the decision took to be true"],"question":"or the one question already asked","asked_of":"who it was put to"}],"overdue":[{"item":"beads-id waiting over seven days","act":"the act already taken, or explained","reason":"what was done and why"}]}`,
 	"```",
-	"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, left only for waiting work it did not take, and settled only for an item it already decided or asked about.",
-	`Every entry needs its fields: "status" and "summary" always; each finding its "issue" and "disposition"; each recommendation its "proposal", "verdict" and "reason", and "into" only on a merge; each audit its "item", at least one of "goals", and "finding", and a broken one its "detail" and exactly one of "correction" or "deferred"; each left item its "item" and "reason"; each settled item its "item" and either a "decision" with at least one entry in "assumptions" and no "asked_of", or a "question" with "asked_of" and no "assumptions".`,
+	"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, left only for waiting work it did not take, settled only for an item it already decided or asked about, and overdue only for an item it was told has waited more than seven days.",
+	`Every entry needs its fields: "status" and "summary" always; each finding its "issue" and "disposition"; each recommendation its "proposal", "verdict" and "reason", and "into" only on a merge; each audit its "item", at least one of "goals", and "finding", and a broken one its "detail" and exactly one of "correction" or "deferred"; each left item its "item" and "reason"; each settled item its "item" and either a "decision" with at least one entry in "assumptions" and no "asked_of", or a "question" with "asked_of" and no "assumptions"; each overdue item its "item", "act" and "reason".`,
 }
 
 // ReportRequest recovers an account without asking the role to do its work again.
