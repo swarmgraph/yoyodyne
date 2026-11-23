@@ -101,6 +101,14 @@ type Hold struct {
 	// stoppages awaiting a decision for as long as that work is unfinished: she
 	// has decided, and what moves next is that work landing.
 	WaitsOn string
+	// WaitsOnParking reports a decision already recorded that waits for its item
+	// to be unparked rather than on the harness: the harness found the item parked
+	// by somebody other than the run the decision answers, and starts nothing
+	// until it is released. The hold stays so a released item is not pulled fresh
+	// beside the decision, and Decided stays true because the harness carries the
+	// decision out once the item is released; while the item is parked, Order
+	// reads the wait as the parking's rather than as a carry-out the harness owes.
+	WaitsOnParking bool
 }
 
 // Holds is the admitted work somebody has to release before anything pulls it,
@@ -360,6 +368,12 @@ type Entry struct {
 	// are one queue entry apiece and different people to go to, which is the
 	// distinction a single "held for a person" hid for days.
 	AwaitingCarryOut bool `json:"awaiting_carry_out,omitempty"`
+	// AwaitingUnparking reports a held item whose recorded decision waits for
+	// the item to be unparked (Hold.WaitsOnParking) while it is still parked. It
+	// is never true beside AwaitingCarryOut: the next mover is whoever parked the
+	// item, not the harness. Once the item is unparked the decision is the
+	// harness's to carry out again, and AwaitingCarryOut says so instead.
+	AwaitingUnparking bool `json:"awaiting_unparking,omitempty"`
 	// AwaitingWork is the work item the development manager decided to wait on
 	// for the stoppage holding this item, where her decision named one, and is
 	// empty otherwise. Like AwaitingCarryOut it is a fact about the wait. Whether
@@ -522,6 +536,10 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 		// release, and is the thing that would still refuse it once the parent's
 		// change landed.
 		landing := false
+		// A decision waiting on the item's parking is the parking's while the item
+		// is parked; a released item's decision is the harness's again, whatever
+		// the last pass found.
+		unparking := holding.WaitsOnParking && item.Parking.Parked()
 		if awaiting == "" {
 			awaiting, landing = held.substrate(item, unfinished)
 		}
@@ -556,11 +574,12 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			// Only ever true beside a reason: a decision recorded about an item
 			// nothing is holding says nothing about why it is not being pulled, and
 			// carrying it here would put an item on the held count that no hold is on.
-			AwaitingCarryOut: awaiting != "" && holding.Decided && !landing,
-			AwaitingWork:     awaitingWork(awaiting, holding, landing),
-			AwaitingLanding:  landing,
-			AwaitingSince:    since,
-			AwaitingRun:      awaitingRun(awaiting, holding, landing),
+			AwaitingCarryOut:  awaiting != "" && holding.Decided && !landing && !unparking,
+			AwaitingUnparking: awaiting != "" && unparking && !landing,
+			AwaitingWork:      awaitingWork(awaiting, holding, landing),
+			AwaitingLanding:   landing,
+			AwaitingSince:     since,
+			AwaitingRun:       awaitingRun(awaiting, holding, landing),
 			// An item whose execution is not a developer run is never the next thing
 			// to pull, however clear the dependency answer about it is, and neither is
 			// one somebody parked or one somebody is holding. All three are a

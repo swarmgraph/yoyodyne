@@ -790,6 +790,11 @@ type Refused struct {
 	// does not list it at all.
 	Status    string `json:"status,omitempty"`
 	ListedFor string `json:"listed_for,omitempty"`
+	// AwaitingUnparking is the reason the item is parked, where its hold is a
+	// recorded decision that waits for the parking to be released
+	// (backlog.Hold.WaitsOnParking). Empty for every other entry, a parked item
+	// nobody has decided about included.
+	AwaitingUnparking string `json:"awaiting_unparking,omitempty"`
 }
 
 // WorkItemRef names one admitted work item, by id and title, for a surface that
@@ -2754,6 +2759,9 @@ func readAlsoHeld(ctx context.Context, sources Sources, holds backlog.Holds, ref
 				continue
 			}
 			entry.ListedFor = listed.Reason
+		}
+		if hold.WaitsOnParking {
+			entry.AwaitingUnparking = item.Parking.Reason()
 		}
 		if !hold.Since.IsZero() {
 			since := hold.Since
