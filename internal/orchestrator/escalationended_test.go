@@ -103,7 +103,7 @@ func TestTheSweepEndsAnEscalationWhoseItemWasParked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recorded() error = %v", err)
 	}
-	if standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil); len(standing) != 0 {
+	if standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil, readmodel.StepRecheck{}); len(standing) != 0 {
 		t.Fatalf("EscalatedOperatorActions() = %#v, want the ended escalation named nowhere", standing)
 	}
 }
@@ -237,8 +237,83 @@ func TestTheSweepMovesAnEscalationWithoutAReasonToTheDevelopmentManager(t *testi
 	if err != nil {
 		t.Fatalf("Recorded() error = %v", err)
 	}
-	standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil)
+	standing, _ := readmodel.EscalatedOperatorActions(states, decisions, nil, nil, readmodel.StepRecheck{})
 	if len(standing) != 1 || standing[0].RunID != reasoned.RunID {
 		t.Fatalf("EscalatedOperatorActions() = %#v, want only the escalation with a closed-list reason still the operator's", standing)
+	}
+}
+
+// An escalation that gives a reason from the closed list but whose step no
+// longer holds — here, the hold of his own it names has been lifted — is ended
+// by the sweep, which tells its item why, puts the stoppage back on the
+// development manager's docket, and records the hand-back without claiming the
+// escalation gave no reason.
+func TestTheSweepMovesAnEscalationWhoseStepFailsToTheDevelopmentManager(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 18, 17, 0, 0, 0, time.UTC)
+	stopped := now.Add(-2 * time.Hour)
+	store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewStore() error = %v", err)
+	}
+	run := runstate.State{
+		SchemaVersion: runstate.StateSchemaVersion, RunID: "run-517a1b2c3d4e5f60718293a4b5c6d7e8",
+		ProductID: "yoyodyne", RepositoryID: "yoyodyne", WorkItemID: "yoyodyne-ifd.517", WorkItemTitle: "Stopped work",
+		Backend: domain.BackendClaudeCode, Status: runstate.StatusFailed,
+		StartedAt: stopped.Add(-time.Hour), UpdatedAt: stopped, CompletedAt: &stopped,
+		Blocker: "Yoyodyne stopped this item: it waits on new work being let through.",
+	}
+	if err := store.Create(run); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewDocketStore() error = %v", err)
+	}
+	entry := stoppedEntry(run)
+	if _, err := docket.RecordOnce(entry); err != nil {
+		t.Fatalf("RecordOnce() error = %v", err)
+	}
+	if _, err := docket.Close(triage.Closure{
+		SchemaVersion: triage.ClosureSchemaVersion, Key: entry.Key, ProductID: entry.ProductID,
+		RunID: run.RunID, WorkItemID: run.WorkItemID, Decision: runstate.TriageDecisionEscalate,
+		Reason: "the run waits on the operator lifting his hold on new work", DecidedBy: "the development manager, in chat-dm",
+		ClosedAt: stopped.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	decisions := decidedItems{"yoyodyne-ifd.517": runstate.TriageCounters{Decisions: []runstate.TriageDecision{{
+		Decision: runstate.TriageDecisionEscalate, RunID: run.RunID,
+		Reason:    "the run waits on the operator lifting his hold on new work",
+		DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 7, DecidedAt: stopped.Add(time.Hour),
+		OperatorReason: ownership.OperatorOwnHold,
+	}}}}
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-ifd.517", Title: "Stopped work", Status: "blocked"}}
+	reconciler := Reconciler{
+		Tracker: tracker,
+		Store:   store,
+		Docket:  &Docketer{Docket: docket, Decisions: decisions},
+		OwnHold: func() (bool, error) { return false, nil },
+		Clock:   fixedClock{at: now},
+	}
+
+	ended, err := reconciler.EndEscalations(context.Background())
+	if err != nil || len(ended) != 1 || ended[0].RunID != run.RunID || ended[0].Failure != "" {
+		t.Fatalf("EndEscalations() = %#v, %v, want the escalation moved", ended, err)
+	}
+	if len(tracker.NoteRecords) != 1 || !strings.Contains(tracker.NoteRecords[0], "failed its check while it waited") ||
+		!strings.Contains(tracker.NoteRecords[0], "none stands now") {
+		t.Fatalf("notes = %q, want the item told which check failed", tracker.NoteRecords)
+	}
+	entries, err := docket.List()
+	if err != nil {
+		t.Fatalf("docket.List() error = %v", err)
+	}
+	if len(entries) != 1 || !entries[0].Undecided(now) || entries[0].Closed == nil || entries[0].Closed.Decision != triage.EscalationReturnedDecision {
+		t.Fatalf("entries = %#v, want the stoppage undecided again under the closure handing it back", entries)
+	}
+	if strings.Contains(entries[0].Closed.DecidedBy, "no reason") || !strings.Contains(entries[0].Closed.Reason, "none stands now") {
+		t.Fatalf("closure = %#v, want it to give the failed check as the cause and not claim there was no reason", entries[0].Closed)
 	}
 }

@@ -47,6 +47,7 @@ func TestAProductPassHandlingRequiresAPermittedPersonOnlyRemedy(t *testing.T) {
 			}}
 			options := testOptions(t, provider)
 			options.Reports, options.Tracker = reports, &fakeTracker{}
+			writeRepositoryFile(t, options.Repository, ".claude/settings.json")
 			session, err := Open(options)
 			if err != nil {
 				t.Fatal(err)
@@ -359,6 +360,7 @@ func TestHandlingAReportAsNeedingTheOperatorIsRecordedAsAFinding(t *testing.T) {
 	options := testOptions(t, provider)
 	options.Reports = reports
 	options.Tracker = &fakeTracker{}
+	writeRepositoryFile(t, options.Repository, ".claude/settings.json")
 	session, err := Open(options)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)

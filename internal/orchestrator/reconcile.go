@@ -207,7 +207,11 @@ type Reconciler struct {
 	// on every target it finds converged. Optional: a sweep wired without it
 	// converges exactly as it did and lifts nothing.
 	Divergences ReconcileDivergences
-	Clock       execution.Clock
+	// OwnHold says whether a hold or pause the operator placed himself stands,
+	// read when an escalation to him that names his own hold is checked again
+	// (EndEscalations). Optional: a sweep wired without it does not check that.
+	OwnHold func() (bool, error)
+	Clock   execution.Clock
 	// Landings files the report on a merge of a run's pull request that is not
 	// the revision the run's review judged (mergequeueconfirm.go). The zero
 	// value has nowhere to keep one; a sweep wired without it checks nothing.

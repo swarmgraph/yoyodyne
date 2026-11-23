@@ -25,7 +25,7 @@ func handEntries(t *testing.T) (operator Attention, hands []Attention) {
 		ReportID: reported.ID, Role: domain.RoleProductManager, RunID: "chat-pm", RecordedAt: stopped,
 		Reason: "set checks.race to the narrowed line in .yoyodyne/config.yaml", Hand: ownership.HandOperationalConfiguration,
 	}
-	configured := OperatorActions([]report.Report{reported}, []report.Handling{handled})
+	configured := OperatorActions([]report.Report{reported}, []report.Handling{handled}, StepRecheck{})
 	if len(configured) != 1 || configured[0].Hand != ownership.HandOperationalConfiguration || configured[0].DecidedBy != domain.RoleProductManager {
 		t.Fatalf("OperatorActions() = %#v, want the handling as the Lead Product Manager's decision needing a hand", configured)
 	}
@@ -197,7 +197,7 @@ func TestAnEscalatedCapRaiseWaitsOnTheLeadProductManagerAndLeavesTheOperatorsLin
 		DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 3, DecidedAt: stopped.Add(time.Hour),
 		Hand: ownership.HandCapCrossing,
 	}}}}
-	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil)
+	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil, StepRecheck{})
 	if problem != "" || len(ended) != 0 || len(standing) != 1 {
 		t.Fatalf("Escalations() = %#v, %#v, %q, want the escalation standing and not sent back for giving no reason", standing, ended, problem)
 	}
