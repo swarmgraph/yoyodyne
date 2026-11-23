@@ -2415,7 +2415,7 @@ func (s *State) recordedTexts() []recordedText {
 			unstated("document.retried.decided_by", "document.retried.decided_by", &d.Retried.DecidedBy, MaxRecordedTextBytes)
 		}
 		if d.Released != nil {
-			nested("document.released.reason", "document.released.reason", &d.Released.Reason, MaxHandedBackReasonBytes)
+			unstated("document.released.reason", "document.released.reason", &d.Released.Reason, MaxHandedBackReasonBytes)
 			unstated("document.released.decided_by", "document.released.decided_by", &d.Released.DecidedBy, MaxRecordedTextBytes)
 		}
 		nested("document.candidate.content", "document.candidate.content", &d.Candidate.Content, artifact.MaxFileBytes)
