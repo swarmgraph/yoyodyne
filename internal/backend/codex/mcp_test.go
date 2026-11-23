@@ -216,10 +216,12 @@ func (r *listingRunner) Run(ctx context.Context, command execution.Command, obse
 // wait for is killed when it exits, and on a loaded machine that can happen
 // before the script has written its record, so the control would see one
 // server or none. Each server is therefore marked `required`, which makes the
-// CLI wait for it to answer the MCP `initialize` request, and the script
-// writes its record before it answers. The servers' start-up timeout is set
-// past `go test`'s own -timeout, so load never reaches it and a server that
-// never answers is reported by that timeout's dump instead.
+// CLI wait for every one of them to finish starting, and the script records
+// that it started and then exits without speaking MCP at all (only
+// internal/mcpcall speaks it). The CLI sees each exit only after the record is
+// written, and then fails the session naming the required servers that did
+// not start, so the control's CLI is expected to fail. The servers' start-up
+// timeout is set past `go test`'s own -timeout, so load never reaches it.
 func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 	t.Parallel()
 
@@ -238,7 +240,7 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 			home, servers := t.TempDir(), t.TempDir()
 			server := func(name string) string {
 				script := filepath.Join(servers, name+".sh")
-				body := "#!/bin/sh\necho started >> " + shellQuote(filepath.Join(servers, name+".started")) + "\n" + recordingServer
+				body := "#!/bin/sh\necho started >> " + shellQuote(filepath.Join(servers, name+".started")) + "\n"
 				if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 					t.Fatal(err)
 				}
@@ -290,18 +292,16 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 			}
 			// The control goes first: where the CLI starts no server even
 			// without the adapter's setting, as inside a sandbox that will not
-			// let it spawn one, nothing here can be shown either way. A
-			// required server that cannot be spawned makes the CLI fail, so
-			// that case is a failed CLI with no server recorded.
+			// let it spawn one, nothing here can be shown either way. The
+			// CLI fails here whether or not it spawned them, because every
+			// required server exits before finishing starting, so what it
+			// started is read from the records alone.
 			control, missing, err, output := started(withoutMCPServersSetting(runner.turn.Args))
 			if len(control) == 0 {
 				t.Skipf("the installed CLI started no MCP server even without the adapter's setting, as in a sandbox that refuses it, so what the setting stops cannot be seen here (codex debug prompt-input: %v)\n%s", err, output)
 			}
-			if err != nil {
-				t.Fatalf("codex debug prompt-input without the adapter's setting: %v\n%s", err, output)
-			}
 			if len(missing) != 0 {
-				t.Fatalf("without the adapter's setting the CLI exited having started %q, and the %q server never recorded starting, so this check shows nothing about the files it reads", control, missing)
+				t.Fatalf("without the adapter's setting the CLI exited having started %q, and the %q server never recorded starting, so this check shows nothing about the files it reads (codex debug prompt-input: %v)\n%s", control, missing, err, output)
 			}
 			names, _, err, output := started(runner.turn.Args)
 			if err != nil {
@@ -317,7 +317,7 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 // openSession opens the session the turn's configuration describes, as
 // `codex debug prompt-input`, in the turn's directory and environment, and
 // returns once the CLI has exited. Opening it starts its MCP servers, waiting
-// for each one marked `required` to answer `initialize`; it reaches no
+// for each one marked `required` to finish starting or to exit; it reaches no
 // provider.
 func openSession(binary string, turn execution.Command, args []string) ([]byte, error) {
 	probe := []string{"debug", "prompt-input"}
@@ -335,30 +335,6 @@ func openSession(binary string, turn execution.Command, args []string) ([]byte, 
 	command.Env = turn.Env
 	return command.CombinedOutput()
 }
-
-// recordingServer is the rest of each test server's script, after the line
-// that records it started: the least of MCP over stdio that lets the CLI
-// finish starting it. It answers every request, read as one JSON object to a
-// line, with the request's own id: `initialize` with the protocol version the
-// CLI asked for, `tools/list` with no tools, and anything else with an empty
-// result. The id is read from the part of the line before "params", so an
-// "id" inside the parameters is never taken for it; a notification carries no
-// id and gets no answer.
-const recordingServer = `while IFS= read -r line; do
-  head=$(printf '%s\n' "$line" | sed 's/"params".*//')
-  id=$(printf '%s\n' "$head" | sed -n 's/.*"id":\([^,}]*\).*/\1/p')
-  [ -n "$id" ] || continue
-  case "$head" in
-  *'"initialize"'*)
-    version=$(printf '%s\n' "$line" | sed -n 's/.*"protocolVersion":\("[^"]*"\).*/\1/p')
-    [ -n "$version" ] || version='"2025-06-18"'
-    result='{"protocolVersion":'"$version"',"capabilities":{"tools":{}},"serverInfo":{"name":"recorder","version":"1"}}' ;;
-  *'"tools/list"'*) result='{"tools":[]}' ;;
-  *) result='{}' ;;
-  esac
-  printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$id" "$result"
-done
-`
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
