@@ -831,6 +831,10 @@ type Pull struct {
 	// decision recorded at any hour is fired at the next interval rather than at
 	// the next time somebody looks.
 	CarryOut ScheduleCarryOut
+	// FeedbackRepairs is where the repairs decided from feedback on tracked pull
+	// requests are found and carried out, in the scheduler's own order. Optional:
+	// a pull wired without it leaves them to the forge check.
+	FeedbackRepairs ScheduleFeedbackRepairs
 	// Tree is the repository an item's stated prerequisites are read against, and
 	// Triage is where an item that does not meet them is routed. Both optional;
 	// see ScheduleTree and ScheduleTriage. They are re-read at every pull like
@@ -3644,6 +3648,23 @@ pulling:
 			} else {
 				schedule.ContinuationProblem = ""
 			}
+		}
+
+		// A repair decided from feedback on a pull request is taken into a free slot
+		// here, ahead of the queue below, as the decisions on a kept change above
+		// are: it builds on a change a run already wrote, so by the operator's
+		// standing rule it goes ahead of fresh work of any priority. Its run has
+		// not begun when it is fired, so the pull waits to hear that it has and
+		// gives the slot back to the next repair, or the queue, where it has not.
+		if !paused && !held && !declining {
+			s.carryOutFeedbackRepairs(ctx, &schedule, pull, feedbackRepairSlots{
+				free: &free, running: &running, filled: &filledByCarryOut, fired: &firedCarryOuts,
+				occupied: occupied, uncounted: uncounted, mine: mine,
+			}, remember, func(index int) context.Context {
+				runCtx, cancel := hostedContext(session.dispatching(ctx, schedule.Started[index].WorkItemID), index, landings)
+				hosted[index] = cancel
+				return runCtx
+			}, deliver)
 		}
 
 		// probing is this pull starting the brake's probe run under the hold: one
@@ -8801,11 +8822,14 @@ func (s *Started) record(done completed) {
 	var capacity runstate.CapacityError
 	var existing ExistingRunError
 	var behind DocumentBehindError
+	var notStarted feedbackRepairNotStarted
 	var note PauseNoteError
 	var design NeedsDesignError
 	switch {
 	case done.outcome.Paused && errors.As(done.err, &note):
 		s.NoteProblem = done.err.Error()
+	case errors.As(done.err, &notStarted):
+		s.Declined = notStarted.Error()
 	case errors.As(done.err, &design):
 		s.Declined = done.err.Error()
 		s.heldForDesign = true
@@ -9715,4 +9739,88 @@ func nextBuildMove(last time.Time, every time.Duration) time.Time {
 // holds new work back while the session restarts.
 func buildMoveDue(last time.Time, every time.Duration, now time.Time) bool {
 	return !now.Before(nextBuildMove(last, every))
+}
+
+// feedbackRepairNotStarted is what a repair decided from feedback came back
+// with when its run never began, which the pull records as the work going to
+// somebody else rather than as a run that failed.
+type feedbackRepairNotStarted struct{ why string }
+
+func (e feedbackRepairNotStarted) Error() string { return e.why }
+
+// feedbackRepairSlots is the pull's own accounting of its slots, which a repair
+// decided from feedback takes from and gives back to.
+type feedbackRepairSlots struct {
+	free, running, filled, fired *int
+	occupied                     map[string]runstate.State
+	uncounted                    map[string]bool
+	mine                         map[string]int
+}
+
+// carryOutFeedbackRepairs fires each repair decided from feedback on a tracked
+// pull request into a free slot, one at a time, waiting for each to say its run
+// has begun before the next takes a slot. One that came back without a run gives
+// its slot back. A failure to read is said beside the pass rather than stopping it.
+func (s Scheduler) carryOutFeedbackRepairs(ctx context.Context, schedule *Schedule, pull Pull, slots feedbackRepairSlots,
+	remember func(string, int), hostedContextFor func(int) context.Context, deliver func(completed)) {
+	if pull.FeedbackRepairs == nil || *slots.free < 1 {
+		return
+	}
+	tasks, err := pull.FeedbackRepairs.Owed(ctx)
+	if err != nil {
+		schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem,
+			fmt.Sprintf("the repairs decided from feedback on pull requests could not be read in full, so one may be waiting that nothing here started: %v", err))
+	}
+	for _, task := range tasks {
+		if *slots.free < 1 {
+			return
+		}
+		if s.Limit > 0 && s.Limit-len(schedule.Started) <= 0 {
+			return
+		}
+		if _, taken := slots.occupied[task.WorkItemID]; taken {
+			continue
+		}
+		if _, started := slots.mine[task.WorkItemID]; started {
+			continue
+		}
+		index := len(schedule.Started)
+		schedule.Started = append(schedule.Started, Started{
+			WorkItemID: task.WorkItemID,
+			Reason:     fmt.Sprintf("a repair decided from feedback %s on pull request #%d: it builds on a change a run already wrote, so it takes a freed developer slot ahead of fresh work", task.FeedbackID, task.PullRequest),
+		})
+		slots.occupied[task.WorkItemID] = runstate.State{WorkItemID: task.WorkItemID}
+		remember(task.WorkItemID, index)
+		*slots.running++
+		*slots.free--
+		*slots.filled++
+		*slots.fired++
+		signal := newCarryOutSignal(CarryOutTask{WorkItemID: task.WorkItemID, RunID: task.RunID}, true)
+		runCtx := withCarryOutBegun(hostedContextFor(index), signal.begun)
+		go func(task FeedbackRepairTask) {
+			carried := pull.FeedbackRepairs.CarryTask(runCtx, task)
+			var outcome Outcome
+			if carried.Outcome != nil {
+				outcome = *carried.Outcome
+			}
+			var runErr error
+			switch {
+			case carried.Failure != "":
+				runErr = errors.New(carried.Failure)
+			case !carried.Started:
+				runErr = feedbackRepairNotStarted{why: "the repair decided from feedback did not start: " + carried.Waiting}
+			}
+			signal.returned(CarriedOut{Carried: carried.Started})
+			deliver(completed{index: index, outcome: outcome, err: runErr})
+		}(task)
+		unstarted, _ := awaitCarryOutStarts(ctx, []*carryOutSignal{signal}, s.carryOutStartWait())
+		if len(unstarted) == 0 {
+			continue
+		}
+		*slots.free++
+		*slots.filled--
+		*slots.fired--
+		delete(slots.occupied, task.WorkItemID)
+		delete(slots.uncounted, task.WorkItemID)
+	}
 }
