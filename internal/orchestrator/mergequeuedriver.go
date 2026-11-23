@@ -366,8 +366,7 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			// check GitHub reports failed (mergequeueforgewait.go), or one it has held
 			// queued past the limit on a queued merge's wait, is withdrawn and
 			// the entry released, so it stops standing at the head of the queue;
-			// the next step hands the change back to its run, kept, for the
-			// development manager.
+			// the next step hands the change back to its run, kept.
 			var why string
 			switch {
 			case promoted.Dropped:
@@ -390,7 +389,15 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			default:
 				why = d.heldTooLongReason(promoted)
 			}
-			withdrawn, err := d.Promoter.Withdraw(ctx, key, promoted.Entry.EntryID, why)
+			// Only a candidate whose checks failed may be the change's own failure,
+			// so only that release is the development manager's to decide on; every
+			// other one says nothing about the change, and its run resumes from its
+			// kept commit by itself (resumesFromKeptCommit).
+			withdraw := d.Promoter.Withdraw
+			if promoted.ChecksFailed != "" || promoted.RequiredFailed != "" {
+				withdraw = d.Promoter.WithdrawFailedChecks
+			}
+			withdrawn, err := withdraw(ctx, key, promoted.Entry.EntryID, why)
 			switch {
 			case passOver(err):
 				continue
