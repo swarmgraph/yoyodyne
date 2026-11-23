@@ -940,8 +940,13 @@ Manager's: work to admit, a proposal to put to you, a concern to raise, or
 nothing at all — a report that asks for nothing is handled by saying so. It
 records the decision with a `handle` action, the same bounded, recorded mechanism
 it acts on the queue through, and that record is the only thing that takes a
-report out of the pile. A report it read and did not handle comes back to the
-next conversation. No other role has the action.
+report out of the pile. A report it read and did not handle is not listed again
+on that conversation's ordinary turns; it comes back at the start of the
+conversation's next recurring pass, and to any new conversation. Each turn's
+closing lines count the reports the conversation has not been shown yet apart
+from those it was shown and left undecided, and name the second kind, so a
+pass is told it has more only when its next turn will carry some. No other
+role has the action.
 
 What is recorded is a second file beside the pile rather than a change to it. The
 report stays exactly as its author wrote it — that is what makes the pile evidence
