@@ -70,6 +70,9 @@ type ForgeCheck struct {
 	// TeamFeedback is what was said on each tracked pull request into the team's
 	// branch, and what the check did about it.
 	TeamFeedback []TeamFeedbackSettlement `json:"team_feedback"`
+	// BatchNotes is what the check did to say each waiting item's batch state on
+	// its notes, and empty with the batch route off.
+	BatchNotes []BatchNoteSettlement `json:"batch_notes,omitempty"`
 	// Tracker is what merging the shared tracker export found and did, and nil
 	// with team mode off. TrackerFailure is why it could not finish, which the
 	// next check tries again.
@@ -111,6 +114,11 @@ func (c ForgeCheck) Failures() int {
 			failures++
 		}
 	}
+	for _, settled := range c.BatchNotes {
+		if settled.Failure != "" {
+			failures++
+		}
+	}
 	if c.TrackerFailure != "" {
 		failures++
 	}
@@ -124,10 +132,11 @@ func (c ForgeCheck) Failures() int {
 func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 	r.RetryAtNextCheck = true
 	var check ForgeCheck
-	var mergeErr, requestErr, teamErr, feedbackErr, teamFeedbackErr error
+	var mergeErr, requestErr, teamErr, feedbackErr, teamFeedbackErr, batchErr error
 	check.PersonMerges, mergeErr = r.SettlePersonMerges(ctx)
 	check.TeamPullRequests, requestErr = r.SettleTeamPullRequests(ctx)
 	check.TeamMerges, teamErr = r.SettleTeamMerges(ctx)
+	check.BatchNotes, batchErr = r.NoteBatchStates(ctx)
 	check.Feedback, feedbackErr = r.TakeUpFeedback(ctx)
 	check.TeamFeedback, teamFeedbackErr = r.TakeUpTeamFeedback(ctx)
 	if r.TrackerShare != nil {
@@ -139,5 +148,5 @@ func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 			check.TrackerFailure = err.Error()
 		}
 	}
-	return check, errors.Join(mergeErr, requestErr, teamErr, feedbackErr, teamFeedbackErr)
+	return check, errors.Join(mergeErr, requestErr, teamErr, batchErr, feedbackErr, teamFeedbackErr)
 }

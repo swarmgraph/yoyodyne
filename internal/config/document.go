@@ -205,6 +205,9 @@ type executionDocument struct {
 	// which leaves it off. Each key inherits on its own, except that the two
 	// lists replace an inherited list wholesale, as the check lists do.
 	CIChecks *ciChecksDocument `yaml:"ci_checks"`
+	// BatchPullRequest is absent from every file written before the batch route
+	// existed, which leaves it off.
+	BatchPullRequest *batchPullRequestDocument `yaml:"batch_pull_request"`
 }
 
 type cheaperFirstDocument struct {

@@ -658,6 +658,12 @@ var standingWarningAgeSeconds = 5 * 60;
     var list = document.getElementById("team-merge");
     var said = standing && standing.waiting_for_team_merge_says ? standing.waiting_for_team_merge_says : [];
     var problem = standing && standing.waiting_for_team_merge_problem ? standing.waiting_for_team_merge_problem : "";
+    if (standing && standing.batch_pull_request_problem) {
+      said = said.concat([standing.batch_pull_request_problem]);
+    }
+    if (standing && standing.batch_pull_request_says) {
+      said = said.concat(standing.batch_pull_request_says);
+    }
     if (standing && standing.records_not_shared_problem) {
       said = said.concat([standing.records_not_shared_problem]);
     }

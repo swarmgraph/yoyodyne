@@ -1,0 +1,24 @@
+# AN EXAMPLE TO COPY AND ADAPT. Yoyodyne never loads this file.
+#
+# It turns on the harness's own batch pull request: work landed on the target
+# branch is gathered into one pull request into the team's branch, opened and
+# grown by the harness only on weekdays in office hours, held back for a review
+# tool's review, and merged by the forge once a person has approved it.
+# docs/configuration.md#the-batch-pull-request explains each setting.
+execution:
+  upstream_branch: main
+  batch_pull_request:
+    enabled: true
+    min_items: 5          # items landed since the last batch that open or grow one (1 to 100)
+    max_wait: 24h         # the oldest unpublished item waits this long, then a smaller batch goes (15m to 336h)
+    review_window:        # unset means any time; at least one hour a week
+      time_zone: America/Los_Angeles
+      days: [mon, tue, wed, thu, fri]
+      from: "09:00"
+      to: "17:00"
+    automated_reviewer: reviewbot[bot]   # unset waits for no review tool
+    review_request:       # unset sends none; use command or url, not both
+      command: ["/usr/local/bin/tell-reviewers", "--channel", "reviews"]
+      # url: https://hooks.example.com/yoyodyne/review
+      format: json        # json or text
+    merge_method: merge   # merge or squash
