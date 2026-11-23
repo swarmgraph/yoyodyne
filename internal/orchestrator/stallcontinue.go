@@ -256,6 +256,7 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 		}
 		return result, fmt.Errorf("record the continuation on run %s, whose item has already been put back and told why: %w", prior.RunID, err)
 	}
+	carryOutBegun(ctx)
 	result.Continued = true
 	if err := c.closeEntry(entry, result.Reason); err != nil {
 		result.RecordProblem = fmt.Sprintf("the docket entry for this stoppage could not be closed, so it still reads as a stoppage although the run is going again: %v", err)

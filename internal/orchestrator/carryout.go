@@ -1288,6 +1288,7 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 		return c.stopped(ctx, task, carried, gate, waiting,
 			fmt.Sprintf("the fresh run met %s where it would have started", pauseMet(*result.PausedBeforeStarting)), clears), Outcome{}, nil
 	case !result.Started:
+		runErr = c.refusedOnClosedItem(ctx, task, runErr)
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
 			carried.Cause = carryOutCause(runErr)
 			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
@@ -1297,7 +1298,7 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 		}
 		gate, clears := carryOutGate(runErr)
 		carried.Cause = carryOutCause(runErr)
-		carried.ReleasedHold = carried.Cause != "" && result.Preserved.Disposition == runstate.PreservedGone
+		carried.ReleasedHold = carried.Cause != "" && carried.Cause != triage.CarryOutItemClosed && result.Preserved.Disposition == runstate.PreservedGone
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
 	}
 	carried.Carried = true
@@ -1332,6 +1333,7 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, true, refusalText(runErr),
 			checkoutNotReadyClears+"; nothing was spent, so the item keeps its grant"), Outcome{}, nil
 	case !result.Continued:
+		runErr = c.refusedOnClosedItem(ctx, task, runErr)
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
 			carried.Cause = carryOutCause(runErr)
 			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
@@ -1530,6 +1532,12 @@ func carryOutGate(err error) (gate, clears string) {
 		return runstate.TriageGateHarness, "somebody looking at the harness: it neither started the run nor said why"
 	case carryOutCause(err) == triage.CarryOutWorktreeGone, carryOutCause(err) == triage.CarryOutBranchGone:
 		return runstate.TriageGatePreservedWork, "the development manager recording a re-run, which starts a fresh run from whatever is left of the preserved change and from the target branch where nothing is, or escalating what became of the preserved change"
+	case carryOutCause(err) == triage.CarryOutItemClosed:
+		return runstate.TriageGateWorkItem,
+			"the Lead Product Manager reopening the item, where its work is still wanted, and the development manager then recording a decision again; where it is not wanted, the development manager recording a wait or an escalation about the run takes the refused one's place"
+	case carryOutCause(err) == triage.CarryOutRunGone:
+		return runstate.TriageGateHarness,
+			"the development manager recording the decision against a run of the item the harness still holds a record of, or an escalation"
 	case errors.Is(err, ErrRecordedBackendUnavailable):
 		return runstate.TriageGateHarness,
 			"the development manager recording a re-run, which starts the item again on the backend the developer is configured for now; a repair has to carry on the developer's session, and only the backend that opened it can. The refused repair spent nothing"

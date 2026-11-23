@@ -1207,10 +1207,12 @@ type Started struct {
 	// began is when this session made the start, which a decision passed over
 	// because of a start still before its reservation is told (occupiedWhy).
 	began time.Time
-	// slotless marks a decided recovery the pull fired with no developer slot
-	// free, only so that its own capacity check records the full harness. It
-	// was given no slot, so it is never counted against one until its run is
-	// on record (slotlessStarts).
+	// slotless marks a start that holds no developer slot: a task that came
+	// back without starting a run, or had not said whether it began by the
+	// pull's bound, whose slot the pull took back; or a decided recovery the
+	// pull fired with no slot free, only so that its own capacity check records
+	// the full harness. It is never counted against a slot until its run is on
+	// record (slotlessStarts).
 	slotless bool
 	// onRecord is the run a pull last saw on record over this start's item,
 	// and countCorrected the run this session last said it had over-counted
@@ -3559,7 +3561,7 @@ pulling:
 			hosted[index] = cancel
 			var signal *carryOutSignal
 			if signalled && (tookSlot || slotBound) {
-				signal = newCarryOutSignal(task, tookSlot)
+				signal = newCarryOutSignal(task, index, tookSlot)
 				runCtx = withCarryOutBegun(runCtx, signal.begun)
 			}
 			go func(task CarryOutTask) {
@@ -3570,6 +3572,38 @@ pulling:
 				deliver(completed{index: index, outcome: outcome, err: err, carriedOut: &carried})
 			}(task)
 			return signal
+		}
+		// giveBack takes back the slot a fired decision took that came back
+		// without starting a run. It holds none, so the queue's slot reading and
+		// every later pull must not count one for it, and it is kept only so its
+		// item is not started beside it.
+		giveBack := func(signal *carryOutSignal) {
+			if signal.tookSlot {
+				free++
+				filledByCarryOut--
+				delete(firedAhead, signal.task.RunID)
+				schedule.Started[signal.index].slotless = true
+			}
+			id := signal.task.WorkItemID
+			if state, placed := occupied[id]; placed && state.RunID == "" {
+				delete(occupied, id)
+				delete(uncounted, id)
+				waitingRuns[id] = state
+			}
+		}
+		// giveBackUnheard takes back the slot of one that has not said whether it
+		// began. Its item keeps its place, since a run of it may yet begin.
+		giveBackUnheard := func(signal *carryOutSignal) {
+			if !signal.tookSlot {
+				return
+			}
+			free++
+			filledByCarryOut--
+			delete(firedAhead, signal.task.RunID)
+			schedule.Started[signal.index].slotless = true
+			if state, placed := occupied[signal.task.WorkItemID]; placed && state.RunID == "" {
+				uncounted[signal.task.WorkItemID] = true
+			}
 		}
 		// The decisions are fired in rounds. The pull waits for each decided
 		// recovery it fired into a free slot, or fired while a decision behind it
@@ -3587,31 +3621,24 @@ pulling:
 			var signals []*carryOutSignal
 			for _, task := range tasks {
 				attempted[task.RunID] = true
-				if signal := fireCarryOut(task, waits && decidedRecovery(task.Decision)); signal != nil {
+				if signal := fireCarryOut(task, waits); signal != nil {
 					signals = append(signals, signal)
 				}
 			}
 			if len(signals) == 0 {
 				break
 			}
-			unstarted, full := awaitCarryOutStarts(ctx, signals, s.carryOutStartWait())
+			unstarted, silent, full := awaitCarryOutStarts(ctx, signals, s.carryOutStartWait())
 			unstartedCarryOuts += len(unstarted)
 			for _, signal := range unstarted {
-				if signal.tookSlot {
-					free++
-					filledByCarryOut--
-					delete(firedAhead, signal.task.RunID)
-				}
-				// It holds no slot, so the queue's slot reading must not count one
-				// for it; it is kept only so its item is not started beside it.
-				id := signal.task.WorkItemID
-				if state, placed := occupied[id]; placed && state.RunID == "" {
-					delete(occupied, id)
-					delete(uncounted, id)
-					waitingRuns[id] = state
-				}
+				giveBack(signal)
 			}
-			if len(unstarted) == 0 || full {
+			for _, signal := range silent {
+				giveBackUnheard(signal)
+			}
+			// Another round after one that outlasted the bound would keep the queue
+			// waiting on the same slow tracker.
+			if len(unstarted) == 0 || len(silent) > 0 || full {
 				break
 			}
 			if s.Limit > 0 {
@@ -4103,22 +4130,47 @@ pulling:
 		// matches or beats — or, with any, reached the end of the queue with the
 		// slot still empty. The highest-priority decision goes first, and the
 		// docket's order between two at one priority.
+		//
+		// One that comes back without starting a run gives the slot to the next,
+		// and where none is left the walk goes on and fills it from the queue. One
+		// refused for a full harness, or not heard from in time, ends the offering
+		// of slots to decisions for this pull.
+		offering := true
 		firePending := func(priority int, any bool) (string, bool) {
-			chosen := -1
-			for index, pending := range pendingCarryOuts {
-				if (any || pending.priority <= priority) && (chosen < 0 || pending.priority < pendingCarryOuts[chosen].priority) {
-					chosen = index
+			for offering {
+				chosen := -1
+				for index, pending := range pendingCarryOuts {
+					if (any || pending.priority <= priority) && (chosen < 0 || pending.priority < pendingCarryOuts[chosen].priority) {
+						chosen = index
+					}
 				}
+				if chosen < 0 {
+					return "", false
+				}
+				task := pendingCarryOuts[chosen].task
+				pendingCarryOuts = append(pendingCarryOuts[:chosen:chosen], pendingCarryOuts[chosen+1:]...)
+				carried := carrying
+				if signal := fireCarryOut(task, waits); signal != nil {
+					unstarted, silent, full := awaitCarryOutStarts(ctx, []*carryOutSignal{signal}, s.carryOutStartWait())
+					if len(unstarted) > 0 {
+						giveBack(signal)
+						carrying, offering = carried, !full
+						if s.Limit > 0 && schedule.Chosen() >= s.Limit {
+							offering = false
+						}
+						continue
+					}
+					if len(silent) > 0 {
+						giveBackUnheard(signal)
+						offering = false
+						continue
+					}
+				}
+				flight.take(read.items[task.WorkItemID], "")
+				firedInWalk++
+				return task.WorkItemID, true
 			}
-			if chosen < 0 {
-				return "", false
-			}
-			task := pendingCarryOuts[chosen].task
-			pendingCarryOuts = append(pendingCarryOuts[:chosen:chosen], pendingCarryOuts[chosen+1:]...)
-			fireCarryOut(task, false)
-			flight.take(read.items[task.WorkItemID], "")
-			firedInWalk++
-			return task.WorkItemID, true
+			return "", false
 		}
 
 		// racedNow is the entries this pull found racing work in flight. The
@@ -9074,8 +9126,10 @@ func stalledStarts(occupied map[string]runstate.State, mine map[string]int, star
 	return set
 }
 
-// slotlessStarts is the session's own starts with no run on record that were
-// fired with no developer slot free (Started.slotless). A pull with no slot
+// slotlessStarts is the session's own starts with no run on record that hold no
+// developer slot (Started.slotless): one whose carry-out came back without a run
+// or went unheard past the pull's bound gave its slot back, and the others were
+// fired with no slot free. A pull with no slot
 // free still fires a decided recovery so that its capacity check records the
 // full harness; that start holds no slot, and counting one for it while it
 // waits on the tracker kept the next pull full as well, which fired the next
@@ -9879,7 +9933,7 @@ func (s Scheduler) carryOutFeedbackRepairs(ctx context.Context, schedule *Schedu
 		*slots.free--
 		*slots.filled++
 		*slots.fired++
-		signal := newCarryOutSignal(CarryOutTask{WorkItemID: task.WorkItemID, RunID: task.RunID}, true)
+		signal := newCarryOutSignal(CarryOutTask{WorkItemID: task.WorkItemID, RunID: task.RunID}, index, true)
 		runCtx := withCarryOutBegun(hostedContextFor(index), signal.begun)
 		go func(task FeedbackRepairTask) {
 			carried := pull.FeedbackRepairs.CarryTask(runCtx, task)
@@ -9897,12 +9951,19 @@ func (s Scheduler) carryOutFeedbackRepairs(ctx context.Context, schedule *Schedu
 			signal.returned(CarriedOut{Carried: carried.Started})
 			deliver(completed{index: index, outcome: outcome, err: runErr})
 		}(task)
-		unstarted, _ := awaitCarryOutStarts(ctx, []*carryOutSignal{signal}, s.carryOutStartWait())
-		if len(unstarted) == 0 {
+		unstarted, silent, _ := awaitCarryOutStarts(ctx, []*carryOutSignal{signal}, s.carryOutStartWait())
+		if len(unstarted) == 0 && len(silent) == 0 {
 			continue
 		}
 		*slots.free++
 		*slots.filled--
+		schedule.Started[index].slotless = true
+		if len(silent) > 0 {
+			// Its run may yet begin, so its item keeps its place and only the slot
+			// goes back; nothing more is tried on a tracker this slow.
+			slots.uncounted[task.WorkItemID] = true
+			return
+		}
 		*slots.fired--
 		delete(slots.occupied, task.WorkItemID)
 		delete(slots.uncounted, task.WorkItemID)

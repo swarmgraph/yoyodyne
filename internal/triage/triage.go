@@ -1234,6 +1234,15 @@ const (
 	// re-run of the item, which makes a new candidate, or parking it is what
 	// remains.
 	CarryOutCheckRerunsSpent CarryOutCause = "check-reruns-spent"
+	// CarryOutItemClosed is a re-run or a repair decided on an item that was
+	// already closed, whether finished or retired, with no record that settles the
+	// run's work. Unlike CarryOutNoLongerApplies it is a refusal somebody answers:
+	// the decision was made past the close, so it is put to the development
+	// manager once with the reason.
+	CarryOutItemClosed CarryOutCause = "item-closed"
+	// CarryOutRunGone is a decision naming a run whose record no longer exists,
+	// so there is nothing left for a re-run or a repair to start from.
+	CarryOutRunGone CarryOutCause = "run-gone"
 )
 
 // CarryOutCauses is the closed list the record and the inventory share.
@@ -1241,7 +1250,7 @@ func CarryOutCauses() []CarryOutCause {
 	return []CarryOutCause{CarryOutWorktreeGone, CarryOutBranchGone, CarryOutHeadMoved,
 		CarryOutDecisionSuperseded, CarryOutDecisionMissing, CarryOutStoppageMissing,
 		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable, CarryOutNoLongerApplies, CarryOutMergeDropped,
-		CarryOutCheckRerunsSpent}
+		CarryOutCheckRerunsSpent, CarryOutItemClosed, CarryOutRunGone}
 }
 
 func (c CarryOutCause) Valid() bool {
