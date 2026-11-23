@@ -1377,6 +1377,20 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			}
 		}
 	}
+	// A condition refusing every new run start opens the summary, in the read
+	// model's line, ahead of the answers; with none standing the line is hidden.
+	stopped := html.UnescapeString(page("summary-stopped"))
+	line := "No new run can start: uncommitted changes in the primary checkout (.yoyodyne/config.yaml); commit or stash to release (since 17:48 PDT)"
+	at, answers := strings.Index(stopped, line), strings.Index(stopped, `id="summary-answers"`)
+	if at < 0 || answers < 0 || at > answers {
+		t.Errorf("the summary-stopped render does not open its summary with the stop (line at %d, answers at %d)", at, answers)
+	}
+	if !strings.Contains(stopped, "waiting on the harness") {
+		t.Error("the summary-stopped render does not say who can clear the stop")
+	}
+	if !strings.Contains(page("busy"), `id="summary-stopped" class="summary-stopped" role="alert" hidden>`) || strings.Contains(page("busy"), "No new run can start") {
+		t.Error("the busy render shows a stop of every run start that its summary does not carry")
+	}
 	if strings.Contains(page("held"), "the harness pulls next") {
 		t.Errorf("the held render offers items the harness pulls next under a banner saying it is choosing nothing")
 	}

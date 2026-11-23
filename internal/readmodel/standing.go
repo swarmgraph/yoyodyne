@@ -974,6 +974,12 @@ type Standing struct {
 	WaitingProblem string                      `json:"waiting_problem,omitempty"`
 
 	NotStartable []Refused `json:"not_startable"`
+	// StartsStopped is the condition that refuses every new run start, with who
+	// can clear it, while one stands, and nil otherwise (Stall.StopsEveryStart).
+	// It is carried whether or not any admitted work is ready behind it, because
+	// a machine refusing runs over an empty queue still refuses the next item
+	// admitted and every item the operator names.
+	StartsStopped *StartsStopped `json:"starts_stopped,omitempty"`
 	// AlsoHeld is every other item the harness holds after a stopped run:
 	// held, not closed, carried by no run in flight, and not listed in
 	// NotStartable as held, whatever its tracker status or assignee. Oldest
@@ -1237,6 +1243,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	refused, waits, queue, stall, notStartableProblem := readNotStartable(ctx, sources, switches, running, now)
 	standing.NotStartable = refused
+	standing.StartsStopped = waits.startsStopped
 	standing.AlsoHeld = waits.alsoHeld
 	standing.Admitted = len(queue.Entries)
 	standing.AwaitingDecision = waits.awaitingDecision
@@ -2255,6 +2262,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 		unfinished[id] = true
 	}
 	waits.unfinished = unfinished
+	waits.startsStopped = startsStoppedBy(stopped, held)
 	groups := newWaitGroups(stopped, held)
 	groups.unfinished = unfinished
 	// A full machine refuses nothing. Every developer slot being taken is the
@@ -2394,6 +2402,9 @@ type heldWork struct {
 	// saw, in the same order, for the same reason.
 	startable []WorkItemRef
 	admitted  []WorkItemRef
+	// startsStopped is the pass-level stall where it refuses every new run
+	// start, kept before the stall is dropped for having held no item back.
+	startsStopped *StartsStopped
 	// carryOutsRefused and carryOutsUnattempted are the held items' recorded
 	// decisions the harness has not carried out, by what became of them.
 	carryOutsRefused     int

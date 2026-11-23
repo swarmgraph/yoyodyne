@@ -3283,6 +3283,11 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     section("summary", "ready");
     document.getElementById("summary-since").textContent = "Counted " + summary.since_says + ", in this machine's local time.";
+    // A condition refusing every new run start is said ahead of the answers,
+    // in the model's own line, and the line goes when the condition clears.
+    var stopped = document.getElementById("summary-stopped");
+    stopped.textContent = summary.starts_stopped ? summary.starts_stopped.line : "";
+    setHidden(stopped, !summary.starts_stopped);
     var answers = document.getElementById("summary-answers");
     clear(answers);
     [summary.landed, summary.published, summary.moving, summary.blocked, summary.failures, summary.decisions, summary.cost].forEach(function (answer, at) {

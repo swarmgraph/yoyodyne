@@ -364,6 +364,25 @@
       "decide": "closed"
     }
   },
+  "summary-stopped": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "factory": "ready",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "summary-refused": {
     "page": "ready",
     "sections": {

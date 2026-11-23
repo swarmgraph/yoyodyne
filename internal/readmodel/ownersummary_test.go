@@ -1,6 +1,7 @@
 package readmodel
 
 import (
+	"context"
 	"regexp"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
@@ -319,5 +321,111 @@ func TestTheThroughputMarksADocumentsLanding(t *testing.T) {
 	}
 	if got := documentTitle(runstate.State{}); got != "" {
 		t.Fatalf("a code change is named as a document: %q", got)
+	}
+}
+
+// dirtyCheckout is the refusal the watch records when the primary checkout has
+// uncommitted changes in it, in blockedReason's words.
+const dirtyCheckout = "runs cannot start: uncommitted changes in the primary checkout (.yoyodyne/config.yaml); commit or stash to release"
+
+// A primary checkout with uncommitted changes refuses every new run start, and
+// the summary opens with it — the cause, since when, and who can clear it —
+// ahead of every answer, whether or not any admitted work is ready behind it.
+// Once the watch session is choosing work again the line is gone.
+func TestADirtyPrimaryCheckoutOpensTheSummaryUntilItClears(t *testing.T) {
+	t.Parallel()
+	blockedAt := moment.Add(-12 * time.Minute)
+	for _, test := range []struct {
+		name  string
+		ready bool
+	}{{"over an empty queue", false}, {"over ready work", true}} {
+		sources := quietSources()
+		sources.Sessions = fakeSessions{transitions: []runstate.WatchTransition{
+			{SessionID: "watch-1", State: runstate.WatchBlocked, At: blockedAt, Reason: dirtyCheckout},
+		}}
+		if test.ready {
+			sources.Tracker = statusTracker{fakeTracker{
+				byStatus: map[string][]beads.WorkItem{"open": {{ID: "item-1", Status: "open"}}},
+				ready:    []beads.WorkItem{{ID: "item-1"}},
+			}}
+		}
+		standing := ReadStanding(context.Background(), sources)
+		if standing.StartsStopped == nil || standing.StartsStopped.Stall.Reason != ReasonSessionBlocked {
+			t.Fatalf("%s: starts stopped = %+v, want the dirty checkout", test.name, standing.StartsStopped)
+		}
+		summary := Summarize(SummaryInputs{Standing: &standing, Now: moment})
+		stop := summary.StartsStopped
+		if stop == nil {
+			t.Fatalf("%s: the summary does not say that no run can start", test.name)
+		}
+		if want := "No new run can start: uncommitted changes in the primary checkout (.yoyodyne/config.yaml); commit or stash to release"; stop.Says != want {
+			t.Fatalf("%s: says %q, want %q", test.name, stop.Says, want)
+		}
+		if stop.WaitingOn != "the harness" || stop.Next == "" || stop.LatestSays != "since "+summaryMoment(blockedAt, moment) {
+			t.Fatalf("%s: stop = %+v, want who clears it, what happens next, and since when", test.name, stop)
+		}
+		rendered := summary.Render(false)
+		if first, _, _ := strings.Cut(rendered, "\n"); first != stop.Line {
+			t.Fatalf("%s: the summary opens with %q, want the stop first:\n%s", test.name, first, rendered)
+		}
+		if summary.Quiet != "" {
+			t.Fatalf("%s: a summary that says no run can start is said to be quiet: %q", test.name, summary.Quiet)
+		}
+		// The harness is who the registry gives it to, so it is not listed as
+		// a decision of the owner's.
+		for _, entry := range summary.Decisions.Entries {
+			if strings.HasPrefix(entry.Says, "No new run can start") {
+				t.Fatalf("%s: a stop the harness owns is listed among the owner's decisions: %+v", test.name, entry)
+			}
+		}
+		checker, err := terms.ReadTextChecker("../..")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if findings := checker.Find(rendered); len(findings) > 0 {
+			t.Fatalf("%s: the summary fails the terms check: %+v\n%s", test.name, findings, rendered)
+		}
+
+		sources.Sessions = fakeSessions{transitions: []runstate.WatchTransition{
+			{SessionID: "watch-1", State: runstate.WatchBlocked, At: blockedAt, Reason: dirtyCheckout},
+			{SessionID: "watch-1", State: runstate.WatchWatching, At: moment.Add(-time.Minute)},
+		}}
+		cleared := ReadStanding(context.Background(), sources)
+		if cleared.StartsStopped != nil {
+			t.Fatalf("%s: a cleared checkout still stops starts: %+v", test.name, cleared.StartsStopped)
+		}
+		after := Summarize(SummaryInputs{Standing: &cleared, Now: moment})
+		if after.StartsStopped != nil || strings.Contains(after.Render(false), "No new run can start") {
+			t.Fatalf("%s: the line stayed after the checkout cleared:\n%s", test.name, after.Render(false))
+		}
+	}
+}
+
+// A stop only the operator can clear is listed among his decisions as well as
+// opening the summary, once: where the attention line already carries it in
+// its own right, as the operator's hold on everything, it is not added again.
+func TestAStopOnlyTheOperatorCanClearIsAmongHisDecisions(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.OperatorHolds = fakeOperatorHolds{hold: runstate.OperatorHold{HeldAt: moment.Add(-time.Hour)}, held: true}
+	standing := ReadStanding(context.Background(), sources)
+	summary := Summarize(SummaryInputs{Standing: &standing, Now: moment})
+	if summary.StartsStopped == nil || !strings.HasPrefix(summary.StartsStopped.WaitingOn, "you") {
+		t.Fatalf("starts stopped = %+v, want the operator's hold, waiting on him", summary.StartsStopped)
+	}
+	if len(summary.Decisions.Entries) != 1 {
+		t.Fatalf("decisions = %+v, want the hold said once", summary.Decisions.Entries)
+	}
+
+	// A stop of his that nothing else on the attention line names is added.
+	away := Stall{Reason: ReasonProviderAway, Says: "the provider is not authenticated", Since: moment.Add(-time.Hour)}
+	bare := Standing{ObservedAt: moment, Running: []RunningRun{}, NotStartable: []Refused{},
+		StartsStopped: startsStoppedBy(away, switches{})}
+	added := Summarize(SummaryInputs{Standing: &bare, Now: moment})
+	if added.Decisions.Says != "1 thing only you can do" || !strings.HasPrefix(added.Decisions.Entries[0].Says, "No new run can start: the provider is not authenticated") {
+		t.Fatalf("decisions = %+v, want the stop listed as his", added.Decisions)
+	}
+	if !strings.HasPrefix(added.Decisions.Entries[0].WaitingOn, "you, because it is") {
+		t.Fatalf("the stop says it waits on %q", added.Decisions.Entries[0].WaitingOn)
 	}
 }
