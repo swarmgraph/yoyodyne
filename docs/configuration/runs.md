@@ -241,6 +241,34 @@ On the network, a developer's sandbox permits this much and no more:
   Codex developer's own checks, and is judged by the harness's run of the
   checks afterwards, which no developer sandbox confines.
 
+No developer run reaches a service the harness runs for itself
+([the ruling](../decisions/developer-runs-and-local-services.md)). Every socket
+file such a service listens on, and every password or token one checks, is kept
+in one folder, `services/` in the harness's state directory, which the harness
+makes with access for its owner only. A developer's sandbox refuses it, on a
+first launch and a resume alike:
+
+- **Claude Code.** The folder is in `sandbox.filesystem.denyRead`, which covers
+  commands, and in `Read` deny rules under `permissions`, which cover the file
+  tools the sandbox does not confine. Commands may connect to no socket file at
+  all: none is allowed, and `sandbox.network.allowAllUnixSockets` is passed as
+  false. The repository's settings cannot open the folder: a worktree whose
+  `.claude/settings.json` sets `sandbox.filesystem.allowRead`,
+  `sandbox.filesystem.disabled`, `sandbox.network.allowUnixSockets`, or
+  `sandbox.excludedCommands` is refused before the CLI starts, and the check
+  made before a developer is dispatched refuses any other source of settings
+  that changes the sandbox.
+- **Codex.** The folder has the access `deny` in the developer's permission
+  profile, and in the read-only one where a role definition holds a developer to
+  that. The profile's network is off, which refuses connecting to a socket file
+  too.
+
+The folder is found from the run's own scratch folder, beside which it sits. A
+developer invocation with no scratch folder is refused, and so is one whose
+state directory's path holds a quote, a backslash, or one of `*?[]{}()`, which
+sandbox rules give a meaning to, and one whose `services/` is a link or can be
+opened by anyone but its owner (`chmod 700` puts that right).
+
 Local binding changes nothing a developer may write: the Claude Code setting
 names no path, and the Codex profile grants none.
 
@@ -282,14 +310,14 @@ is added to it. What those files say about `sandbox_mode` or
 
 | | `yoyodyne-developer` | `yoyodyne-read-only` |
 | --- | --- | --- |
-| Read | every file on the machine | every file on the machine |
+| Read | every file on the machine but the harness's `services/` folder | every file on the machine, less `services/` where it holds a developer |
 | Write | the worktree, the shared cache, this run's own scratch folder in the harness's state directory, and the system and user temporary directories | nothing |
 | Kept read-only inside each writable directory | `.git`, `.agents`, `.codex`, `.aws` | — |
 | Network | off | off |
 | Approvals | never asked; anything the profile refuses stays refused | never asked |
 
 That is what the CLI's `workspace-write` and `read-only` sandboxes granted
-before the move, entry for entry: asked without a provider call, 0.160.0
+before the move, entry for entry, with `services/` refused since: asked without a provider call, 0.160.0
 resolves each profile to the same policy on files as those sandboxes resolved
 to. The temporary directories stay writable because a project's tests write to
 them, as they did under `workspace-write`. A read-only role is additionally
@@ -334,6 +362,7 @@ below uses paths with spaces and no double quotes.
 The following regression launches the real CLI with a local scripted Responses
 server, saves a native session, resumes it with different cache, scratch, and
 worktree paths, and resumes that same session under reviewer restrictions.
+The developer's turns also have to be refused a file in `services/`.
 It requires successful Go compilation and scratch log writes, denied writes to
 unrelated and previously granted paths, and read-only restrictions after
 restoring a writable session. It checks the CLI's command event or unified shell

@@ -29,6 +29,7 @@ func runRoleStream(t *testing.T, role domain.AgentRole, lines ...string) backend
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             role,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: t.TempDir(),
 		Prompt:           "work",
 		RedactValues:     []string{"secret-token-value"},

@@ -27,6 +27,7 @@ func TestAnInvocationIsMadeInItsAccountsProviderHome(t *testing.T) {
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		AccountAlias:     "second",
@@ -71,6 +72,7 @@ func TestARequestsAccountOverridesTheOneTheBackendWasBuiltFor(t *testing.T) {
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}, ConfigDir: "/state/accounts/first"}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		AccountConfigDir: "/state/accounts/second",
@@ -93,6 +95,7 @@ func TestAnInvocationUnderNoNamedAccountNamesNoProviderHome(t *testing.T) {
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: t.TempDir(),
 		Prompt:           "implement the task",
 	}); err != nil {

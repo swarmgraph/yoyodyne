@@ -59,6 +59,7 @@ func TestNoRoleSessionIsAssembledInPlanMode(t *testing.T) {
 			request := backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             role,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: "/worktree",
 				Prompt:           "the harness's framing and the evidence",
 				SystemPrompt:     "the role contract",
@@ -150,6 +151,7 @@ func TestARequestedPostureNarrowsAndNeverWidens(t *testing.T) {
 	request := backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		Posture:          backendapi.PostureReadOnly,
 		WorkingDirectory: "/worktree",
 		Prompt:           "the change to make",

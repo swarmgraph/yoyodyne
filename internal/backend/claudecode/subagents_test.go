@@ -23,7 +23,7 @@ func runDeveloper(t *testing.T, subagents *backendapi.SubagentRequest) execution
 	t.Helper()
 	runner := &fakeRunner{results: claudeCompletedTurn()}
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(),
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(),
 		Prompt: "do the work", Model: "opus", Subagents: subagents,
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -271,9 +271,9 @@ func TestRunRefusesSubagentsItCannotGive(t *testing.T) {
 		request backendapi.RunRequest
 	}{
 		{"a reviewer", backendapi.RunRequest{Role: domain.RoleReviewer, Subagents: &backendapi.SubagentRequest{Model: "sonnet"}}},
-		{"a developer held read-only", backendapi.RunRequest{Role: domain.RoleDeveloper, Posture: backendapi.PostureReadOnly, Subagents: &backendapi.SubagentRequest{Model: "sonnet"}}},
-		{"no model", backendapi.RunRequest{Role: domain.RoleDeveloper, Subagents: &backendapi.SubagentRequest{}}},
-		{"a caller's own rule", backendapi.RunRequest{Role: domain.RoleDeveloper, AllowedTools: []string{"Read", "Agent"}}},
+		{"a developer held read-only", backendapi.RunRequest{Role: domain.RoleDeveloper, ScratchDirectory: testScratch, Posture: backendapi.PostureReadOnly, Subagents: &backendapi.SubagentRequest{Model: "sonnet"}}},
+		{"no model", backendapi.RunRequest{Role: domain.RoleDeveloper, ScratchDirectory: testScratch, Subagents: &backendapi.SubagentRequest{}}},
+		{"a caller's own rule", backendapi.RunRequest{Role: domain.RoleDeveloper, ScratchDirectory: testScratch, AllowedTools: []string{"Read", "Agent"}}},
 	} {
 		request := test.request
 		request.RunID, request.WorkingDirectory, request.Prompt = testRunID, t.TempDir(), "do the work"
@@ -311,7 +311,7 @@ func TestRunRecordsEachSubagentCallAndTheUsageOfEachModel(t *testing.T) {
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
 	var events []execution.Event
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "do the work",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work",
 		Subagents: &backendapi.SubagentRequest{Model: "sonnet"},
 		EventSink: func(event execution.Event) error { events = append(events, event); return nil },
 	})
@@ -361,7 +361,7 @@ func TestATerminalWithoutModelUsageLeavesTheSplitUnknown(t *testing.T) {
 		`{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done","total_cost_usd":1.5}`,
 	}, "\n") + "\n"}}}
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "do the work",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work",
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -391,7 +391,7 @@ func TestALimitOnTheSubagentsModelAloneStopsThemAndNotTheRun(t *testing.T) {
 	run := func(kind string, subagents *backendapi.SubagentRequest) backendapi.RunResult {
 		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream(kind)}}}
 		result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "do the work",
+			RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work",
 			Model: "opus", Subagents: subagents,
 		})
 		if err != nil {

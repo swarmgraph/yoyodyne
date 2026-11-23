@@ -91,6 +91,10 @@ func TestTheCommandShowsExactlyWhatTheProviderWasGiven(t *testing.T) {
 	stand := &providerStandIn{}
 	provider := claudecode.Backend{Runner: stand, ConfigDir: t.TempDir()}
 	tricky := "a first message with ----- markers -----\nand a line break, ünïcode, and a trailing newline\n"
+	scratch, err := execution.PrepareScratchDirectory(t.TempDir(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, call := range []struct {
 		role    domain.AgentRole
 		prompt  string
@@ -103,7 +107,7 @@ func TestTheCommandShowsExactlyWhatTheProviderWasGiven(t *testing.T) {
 		{domain.RoleDeveloper, "repair: the findings, as they stood then", "", "session-1"},
 	} {
 		request := backend.RunRequest{
-			RunID: runID, Role: call.role, WorkingDirectory: t.TempDir(), Prompt: call.prompt, SystemPrompt: call.system,
+			RunID: runID, Role: call.role, ScratchDirectory: scratch, WorkingDirectory: t.TempDir(), Prompt: call.prompt, SystemPrompt: call.system,
 			SessionID: call.session, Model: "claude-test",
 			Recorder: log.Recorder(runID, call.role, "abc123", time.Now),
 		}

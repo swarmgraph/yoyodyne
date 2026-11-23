@@ -111,7 +111,11 @@ func (b Backend) CheckSubagentLaunch(ctx context.Context, directory, runID strin
 		}
 	}
 
-	name, definition, rules, base, err := subagentLaunch(runID, subagents, developerTools, developerSettings)
+	developer, err := checkedDeveloperSettings(directory)
+	if err != nil {
+		return backend.LaunchSettingsCheck{}, err
+	}
+	name, definition, rules, base, err := subagentLaunch(runID, subagents, developerTools, developer)
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, err
 	}

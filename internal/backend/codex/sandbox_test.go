@@ -51,6 +51,9 @@ func sandboxRepositoryNamed(t *testing.T, linked bool, name string) (repository,
 
 func sandboxCommand(t *testing.T, repository, worktree, scratch, session string, role domain.AgentRole) execution.Command {
 	t.Helper()
+	if scratch == "" && role == domain.RoleDeveloper {
+		scratch = testScratch
+	}
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded,
 		Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
@@ -80,8 +83,10 @@ func TestDeveloperSandboxGrantsTheDeclaredCacheAndScratchOnEveryTurn(t *testing.
 		for _, session := range []string{"", "session-one"} {
 			command := sandboxCommand(t, repository, worktree, scratch, session, domain.RoleDeveloper)
 			got := profileFilesystem(t, command.Args)
-			if want := developerFilesystem(worktree, cache, scratch); !reflect.DeepEqual(got, want) {
-				t.Fatalf("developer file system = %q, want only the worktree, the declared cache and scratch, and the temporary directories: %q", got, want)
+			want := developerFilesystem(worktree, cache, scratch)
+			want[servicesBeside(scratch)] = "deny"
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("developer file system = %q, want the services folder denied and only the worktree, the declared cache and scratch, and the temporary directories: %q", got, want)
 			}
 			// The scratch folder is the one place in the state directory the run
 			// may write: nothing else there, nor the state directory itself, is a
@@ -139,7 +144,7 @@ func TestDeveloperSandboxRefusesAnEscapingWorktreeBeforeLaunchOrResume(t *testin
 	for _, session := range []string{"", "session-one"} {
 		runner := &fakeRunner{}
 		_, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+			RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree,
 			RepositoryRoot: repository, Prompt: "do the work", SessionID: session,
 		})
 		if err == nil || !strings.Contains(err.Error(), "not inside the repository") || len(runner.commands) != 0 {
@@ -190,4 +195,62 @@ func TestDeveloperSandboxRefusesAnyScratchButTheRunsOwnFolder(t *testing.T) {
 			}
 		}
 	}
+}
+
+// servicesBeside is the services folder of the state directory a run's scratch
+// folder was cut in.
+func servicesBeside(scratch string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(scratch)), "services")
+}
+
+// A developer is refused the services folder on every turn, under its own
+// profile or held read-only by its role definition, and the network is off under
+// both, which refuses connecting to a socket file in it.
+func TestEveryCodexDeveloperIsRefusedTheServicesFolder(t *testing.T) {
+	t.Parallel()
+	repository, worktree := sandboxRepository(t, true)
+	scratch, err := execution.PrepareScratchDirectory(t.TempDir(), testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, posture := range []backendapi.Posture{backendapi.PostureWorktreeWrite, backendapi.PostureReadOnly} {
+		for _, session := range []string{"", "session-one"} {
+			runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded,
+				Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
+			request := backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: domain.RoleDeveloper, Posture: posture,
+				WorkingDirectory: worktree, RepositoryRoot: repository, ScratchDirectory: scratch, Prompt: "do the work", SessionID: session}
+			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			args := runner.commands[0].Args
+			if got := profileFilesystem(t, args)[servicesBeside(scratch)]; got != "deny" {
+				t.Errorf("%s (session %q): access to the services folder = %q, want it denied", posture, session, got)
+			}
+			if off := "permissions." + profileNameArgument(t, args) + ".network.enabled=false"; !strings.Contains(strings.Join(args, " "), off) {
+				t.Errorf("%s (session %q): the network is not off: %q", posture, session, args)
+			}
+
+			refused := &fakeRunner{}
+			request.ScratchDirectory = ""
+			if _, err := (Backend{Runner: refused}).Run(context.Background(), request); err == nil || len(refused.commands) != 0 {
+				t.Errorf("%s (session %q): Run() with no scratch = %v, commands = %v, want a refusal", posture, session, err, refused.commands)
+			}
+		}
+	}
+	if info, err := os.Stat(servicesBeside(scratch)); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("services folder = %v, %v; want it made for its owner only", info, err)
+	}
+}
+
+// developerFilesystemArgument is the whole file system argument of a developer
+// given these writable folders and the test scratch's services folder denied.
+func developerFilesystemArgument(writable ...string) string {
+	table := `{":root"="read",` + tomlString(servicesBeside(testScratch)) + `="deny",":slash_tmp"="write",":tmpdir"="write"`
+	for _, root := range writable {
+		table += "," + tomlString(root) + `="write"`
+		for _, name := range []string{".git", ".agents", ".codex", ".aws"} {
+			table += "," + tomlString(root+"/"+name) + `="read"`
+		}
+	}
+	return "permissions.yoyodyne-developer.filesystem=" + table + "}"
 }

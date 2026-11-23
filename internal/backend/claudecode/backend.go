@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -87,40 +89,94 @@ const defaultAfterReplyTimeout = 5 * time.Minute
 // instead of failing with "bind: operation not permitted". It lets Bash bind a
 // local port, accept connections on it, and connect to localhost; every other
 // outbound connection still goes through the CLI's filtering proxy. It names no
-// domain, no Unix socket, and no write path, so which hosts a run may reach and
-// what it may write are unchanged. docs/configuration/runs.md says what each
+// domain and no write path, so which hosts a run may reach and what it may write
+// are unchanged. No socket file may be connected to either: the CLI refuses
+// them all unless one is allowed, and allowAllUnixSockets is given as false so
+// the repository's own settings, which these outrank, cannot turn that off. docs/configuration/runs.md says what each
 // provider's developer sandbox permits on the network.
 const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,` +
-	`"network":{"allowLocalBinding":true}},` +
+	`"network":{"allowLocalBinding":true,"allowAllUnixSockets":false}},` +
 	`"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"yoyo goals guard"}]}]}}`
 
-// developerSettingsFor is developerSettings with the run's own scratch folder,
-// in the harness's state directory, as the sandbox's one write grant beyond
+// developerSettingsFor is developerSettings for one run: its own scratch folder
+// granted for writing, and the harness's services folder refused.
+//
+// The scratch folder, in the harness's state directory, is the sandbox's one write grant beyond
 // what Claude Code grants a session itself: its working directory, its
 // temporary directory, and the repository's Git directory. It is given as
 // `sandbox.filesystem.allowWrite`, which names folders the sandbox adds to
 // those and nothing wider, so nothing else in the state directory -- another
 // run's scratch, the run records, any other store -- is writable
-// (docs/decisions/developer-run-scratch-outside-git.md). Empty is a run the
-// harness cut no scratch folder for, and grants none.
+// (docs/decisions/developer-run-scratch-outside-git.md).
 //
-// The folder is confirmed to be the one cut for this run before it is granted
+// The services folder, beside it, is refused to every tool: to Bash by the
+// sandbox's `filesystem.denyRead`, and to Read, Glob and Grep, which the sandbox
+// does not confine, by a deny rule, which no allow rule outranks. Connecting to
+// a socket file in it is refused with every other socket file.
+// reopensServices says what stands against the repository's own settings.
+//
+// The scratch folder is confirmed to be the one cut for this run before it is granted
 // (execution.ConfirmScratchDirectory); one that is not is refused with the
 // reason, and the run does not start, rather than the grant being widened or
 // dropped.
 func developerSettingsFor(scratch, runID, repositoryRoot string) (string, error) {
-	if scratch == "" {
-		return developerSettings, nil
+	services, err := execution.ServicesDirectoryDeniedTo(scratch, runID, repositoryRoot)
+	if err != nil {
+		return "", fmt.Errorf("confine the developer's sandbox to its scratch directory: %w", err)
 	}
-	if err := execution.ConfirmScratchDirectory(scratch, runID, repositoryRoot); err != nil {
-		return "", fmt.Errorf("give the developer's sandbox its scratch directory: %w", err)
-	}
-	return withSandboxWrite(developerSettings, scratch)
+	return withSandboxFolders(developerSettings, scratch, services)
 }
 
-// withSandboxWrite is settings with directory as the sandbox's
-// `filesystem.allowWrite`, the one write grant it carries.
-func withSandboxWrite(settings, directory string) (string, error) {
+// reopensServices refuses a worktree whose checked-in settings would open what
+// developerSettingsFor refuses. A developer reads that file, and the CLI merges
+// its lists into the ones passed: allowRead and allowUnixSockets let a path back
+// in, and an excluded command runs outside the sandbox altogether. A list passed
+// cannot take an entry out of another, so the run is refused instead.
+// CheckLaunchSettings refuses the same of whatever settings apply in the
+// checkout; this is for the worktree, which may hold a different file.
+func reopensServices(directory string) error {
+	path := filepath.Join(directory, ".claude", "settings.json")
+	content, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read the settings a developer's worktree carries: %w", err)
+	}
+	var settings struct {
+		Sandbox struct {
+			ExcludedCommands []json.RawMessage `json:"excludedCommands"`
+			Filesystem       struct {
+				Disabled  bool              `json:"disabled"`
+				AllowRead []json.RawMessage `json:"allowRead"`
+			} `json:"filesystem"`
+			Network struct {
+				AllowUnixSockets []json.RawMessage `json:"allowUnixSockets"`
+			} `json:"network"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal(content, &settings); err != nil {
+		return fmt.Errorf("read the settings a developer's worktree carries in %s: %w", path, err)
+	}
+	for _, opened := range []struct {
+		key string
+		set bool
+	}{
+		{"sandbox.filesystem.allowRead", len(settings.Sandbox.Filesystem.AllowRead) > 0},
+		{"sandbox.filesystem.disabled", settings.Sandbox.Filesystem.Disabled},
+		{"sandbox.network.allowUnixSockets", len(settings.Sandbox.Network.AllowUnixSockets) > 0},
+		{"sandbox.excludedCommands", len(settings.Sandbox.ExcludedCommands) > 0},
+	} {
+		if opened.set {
+			return fmt.Errorf("%s sets %s, which could open the harness's %s folder to a developer run, so the run is not started", path, opened.key, execution.ServicesDirectoryName)
+		}
+	}
+	return nil
+}
+
+// withSandboxFolders is settings with writable as the sandbox's one added
+// write grant and refused as a folder no tool may read.
+func withSandboxFolders(settings, writable, refused string) (string, error) {
 	decoded := map[string]any{}
 	if err := json.Unmarshal([]byte(settings), &decoded); err != nil {
 		return "", fmt.Errorf("decode the settings a developer is given: %w", err)
@@ -129,7 +185,9 @@ func withSandboxWrite(settings, directory string) (string, error) {
 	if !ok {
 		return "", errors.New("the settings a developer is given carry no sandbox to grant a scratch directory in")
 	}
-	sandbox["filesystem"] = map[string]any{"allowWrite": []string{directory}}
+	sandbox["filesystem"] = map[string]any{"allowWrite": []string{writable}, "denyRead": []string{refused}}
+	// A path rule reads a leading `//` as an absolute path.
+	decoded["permissions"] = map[string]any{"deny": []string{"Read(/" + refused + ")", "Read(/" + refused + "/**)"}}
 	encoded, err := json.Marshal(decoded)
 	if err != nil {
 		return "", fmt.Errorf("encode the settings a developer is given: %w", err)
@@ -869,6 +927,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 			repository = request.WorkingDirectory
 		}
 		if baseSettings, err = developerSettingsFor(request.ScratchDirectory, request.RunID, repository); err != nil {
+			return backend.RunResult{}, err
+		}
+		if err := reopensServices(request.WorkingDirectory); err != nil {
 			return backend.RunResult{}, err
 		}
 		var repositoryInstructions []backend.LoadedItem

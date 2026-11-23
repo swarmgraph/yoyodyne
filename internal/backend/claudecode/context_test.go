@@ -112,7 +112,7 @@ func TestNoPersonalSettingsMemorySkillsConnectorsOrInstructionFilesReachAnyRoleF
 			runner := &fakeRunner{results: claudeCompletedTurn()}
 			var started []string
 			request := backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: worktree,
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree,
 				Prompt: "do the work", SystemPrompt: "the role's contract", SessionID: session,
 				EventSink: func(event execution.Event) error {
 					if event.Type == execution.EventRunStarted {
@@ -206,7 +206,7 @@ func TestTheHarnessEnvironmentCannotTurnMemoryOrConnectorsBackOn(t *testing.T) {
 	t.Setenv("ENABLE_CLAUDEAI_MCP_SERVERS", "true")
 	runner := &fakeRunner{results: claudeCompletedTurn()}
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "do the work",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestTheSkillsAndInstructionFilesTheProjectNamesAreGivenToAClaudeCodeRole(t 
 			})
 			worktree := t.TempDir()
 			request := backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: worktree, RepositoryRoot: repository,
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree, RepositoryRoot: repository,
 				Prompt: "do the work", SystemPrompt: "the role's contract", SessionID: session,
 			}
 			if role != domain.RoleDeveloper {
@@ -301,7 +301,7 @@ func TestANamedFileThatCannotBeReadRefusesTheClaudeCodeInvocation(t *testing.T) 
 	t.Parallel()
 	runner := &fakeRunner{results: claudeCompletedTurn()}
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}, Context: backendapi.NamedContext{Instructions: []backendapi.ContextFile{{Path: "/nowhere/notes.md"}}}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "do the work",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work",
 	})
 	if err == nil || !strings.Contains(err.Error(), "/nowhere/notes.md") || len(runner.commands) != 0 {
 		t.Fatalf("err = %v, commands = %d", err, len(runner.commands))
@@ -320,7 +320,7 @@ func TestADeveloperRunNamesWhatItReadsFromItsOwnRepository(t *testing.T) {
 	})
 	runner := &fakeRunner{results: claudeCompletedTurn()}
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, Prompt: "do the work",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree, Prompt: "do the work",
 	})
 	if err != nil {
 		t.Fatal(err)

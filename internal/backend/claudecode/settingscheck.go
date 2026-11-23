@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -138,13 +139,7 @@ func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (bac
 		}
 	}
 
-	// A developer is launched with its scratch directory as the sandbox's one
-	// added write grant (developerSettingsFor), so the check is launched with one
-	// too, or a CLI that rejected the key would drop every developer's settings
-	// with this check still passing. The directory the check runs in stands in
-	// for it: it is writable as the working directory already, so the grant
-	// widens nothing, and it exists, which a sandbox may require of a grant.
-	launched, err := withSandboxWrite(developerSettings, directory)
+	launched, err := checkedDeveloperSettings(directory)
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, err
 	}
@@ -183,6 +178,17 @@ func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (bac
 	check.NotInForce = append(check.NotInForce, judgeGuard(answers[hooksQuestion])...)
 	check.NotInForce = append(check.NotInForce, judgeSandbox(answers[sandboxQuestion])...)
 	return check, nil
+}
+
+// checkedDeveloperSettings is developerSettingsFor with folders that stand in
+// for a run's own, so a check is launched with every key a developer is, or a
+// CLI that rejected one would drop every developer's settings with the check
+// still passing. The directory the check runs in stands in for the scratch
+// folder: it is writable as the working directory already, so the grant widens
+// nothing, and it exists, which a sandbox may require of a grant. A folder
+// inside it stands in for the services folder.
+func checkedDeveloperSettings(directory string) (string, error) {
+	return withSandboxFolders(developerSettings, directory, filepath.Join(directory, execution.ServicesDirectoryName))
 }
 
 // settingsCheckArgs is the developer's launch with its questions in place of a
@@ -276,8 +282,8 @@ func unanswered(given answer, what string) (string, bool) {
 // A settings file it rejected is said first and in its own words, because it
 // is the cause of everything else that did not take. Then each key passed is
 // looked for in the merged settings with the value it was passed, except
-// claudeMdExcludes, which other sources may add to, so each pattern passed has
-// to be among those merged. The hooks are left to judgeGuard, which reads the
+// claudeMdExcludes and the permission rules, which other sources may add to, so
+// each pattern or deny rule passed has to be among those merged. The hooks are left to judgeGuard, which reads the
 // hooks the CLI will actually run.
 func judgeSettings(given answer, passed map[string]any) []string {
 	if missing, failed := unanswered(given, "which settings it applied"); failed {
@@ -314,12 +320,24 @@ func judgeSettings(given answer, passed map[string]any) []string {
 }
 
 // appliedAsPassed reports a passed setting the merged settings carry as
-// passed. claudeMdExcludes is the one list another source may extend, so it is
-// held to containing every pattern passed rather than to equality.
+// passed. claudeMdExcludes and the deny rules are lists another source may
+// extend, so each is held to containing every entry passed rather than to
+// equality: the repository may carry permission rules of its own, and none of
+// them outranks a deny rule.
 func appliedAsPassed(key string, passed, applied any) bool {
+	if key == "permissions" {
+		wanted, _ := passed.(map[string]any)
+		have, _ := applied.(map[string]any)
+		return containsAll(wanted["deny"], have["deny"])
+	}
 	if key != "claudeMdExcludes" {
 		return reflect.DeepEqual(passed, applied)
 	}
+	return containsAll(passed, applied)
+}
+
+// containsAll reports a list that holds every entry of another.
+func containsAll(passed, applied any) bool {
 	wanted, _ := passed.([]any)
 	have, _ := applied.([]any)
 	for _, pattern := range wanted {
@@ -336,6 +354,8 @@ func describeSetting(key string) string {
 	switch key {
 	case "sandbox":
 		return "the sandbox that confines a developer's shell to its worktree"
+	case "permissions":
+		return "keeps a developer's file tools out of the harness's services folder"
 	case "autoMemoryEnabled":
 		return "keeps the operator's memory out"
 	case "disableClaudeAiConnectors":

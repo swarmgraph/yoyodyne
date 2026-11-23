@@ -69,6 +69,7 @@ func TestTheInstalledCLIKnowsEveryFlagThisBackendPasses(t *testing.T) {
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             role,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: "/worktree",
 				Prompt:           "do the work",
 				SystemPrompt:     "the contract",
@@ -118,6 +119,7 @@ func TestLocalConformance(t *testing.T) {
 	result, err := provider.Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: t.TempDir(),
 		Prompt:           "Reply with exactly: ok",
 		AllowedTools:     []string{},
@@ -181,6 +183,7 @@ func TestLocalConformanceARunReadsAnAbsolutePathOutsideItsWorktree(t *testing.T)
 	result, err := provider.Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: fixture.worktree,
 		// Every tool a developer run is granted except the shell, so the read has
 		// to go through the grant this pins rather than through a `cat` the
@@ -221,6 +224,7 @@ func TestLocalConformanceARunWritesInsideItsRepositorysGitDirectory(t *testing.T
 	result, err := provider.Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: fixture.worktree,
 		// The shell alone, because the write this pins is one a subprocess makes:
 		// the Go command creating its own cache, not a tool call.
@@ -274,6 +278,7 @@ func TestLocalConformanceADeveloperCannotWriteTheInstallCache(t *testing.T) {
 	result, err := provider.Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: fixture.worktree,
 		AllowedTools:     []string{"Bash"},
 		Prompt: "Run this exact command with Bash, once, and nothing else: " + command + "\n" +

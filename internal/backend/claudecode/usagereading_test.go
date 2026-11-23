@@ -16,6 +16,7 @@ func runUsageStream(t *testing.T, stream string) backendapi.RunResult {
 	result, _ := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "do the work",
 		EventSink:        func(execution.Event) error { return nil },

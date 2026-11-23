@@ -98,7 +98,7 @@ func TestADevelopersTurnTurnsOffEveryServerTheCLIListsForIt(t *testing.T) {
 				Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}},
 		}
 		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+			RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree,
 			RepositoryRoot: repository, Prompt: "do the work", SessionID: session,
 		}); err != nil {
 			t.Fatal(err)
@@ -139,7 +139,7 @@ func TestADeveloperTurnIsRefusedWhenTheServersCannotBeListed(t *testing.T) {
 		"failed":     &failingListingRunner{},
 	} {
 		_, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+			RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree,
 			RepositoryRoot: repository, Prompt: "do the work",
 		})
 		if err == nil || !strings.Contains(err.Error(), "MCP servers") {
@@ -263,7 +263,7 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 
 			runner := &listingRunner{}
 			if _, err := (Backend{Binary: binary, Runner: runner, ConfigDir: home}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-				RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+				RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree,
 				RepositoryRoot: repository, Prompt: "do the work", SessionID: session,
 			}); err != nil {
 				t.Fatal(err)

@@ -321,6 +321,7 @@ func TestNoRoleOnAnyProviderIsLaunchedWithAnMCPServerOrItsCredentials(t *testing
 				request := backend.RunRequest{
 					RunID:            conformanceRunID,
 					Role:             each.role,
+					ScratchDirectory: testScratch,
 					Posture:          each.posture,
 					Model:            modelFor(descriptor),
 					WorkingDirectory: c.worktree,
@@ -733,7 +734,7 @@ func TestAnMCPCallInAProvidersStreamFilesTheCriticalReport(t *testing.T) {
 						t.Fatalf("this build cannot construct the %s adapter", descriptor.ID)
 					}
 					request := backend.RunRequest{
-						RunID: conformanceRunID, Role: role, Model: modelFor(descriptor),
+						RunID: conformanceRunID, Role: role, ScratchDirectory: testScratch, Model: modelFor(descriptor),
 						WorkingDirectory: repository, RepositoryRoot: repository, Prompt: "do the work",
 					}
 					result, err := provider.Run(context.Background(), request)

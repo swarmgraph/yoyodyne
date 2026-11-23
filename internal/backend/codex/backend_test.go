@@ -228,6 +228,7 @@ func TestAnInvocationIsGivenAnExplicitEnvironmentWithoutTheSlackTokens(t *testin
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: t.TempDir(),
 		Prompt:           "implement the task",
 	}); err != nil {
@@ -272,6 +273,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		EventSink: func(event execution.Event) error {
@@ -334,7 +336,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--config", `approval_policy="never"`,
 		"--config", `default_permissions="yoyodyne-developer"`,
-		"--config", `permissions.yoyodyne-developer.filesystem={":root"="read",":slash_tmp"="write",":tmpdir"="write","/worktree"="write","/worktree/.git"="read","/worktree/.agents"="read","/worktree/.codex"="read","/worktree/.aws"="read"}`,
+		"--config", developerFilesystemArgument("/worktree", testScratch),
 		"--config", "permissions.yoyodyne-developer.network.enabled=false",
 		"--cd", "/worktree", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
 	if !reflect.DeepEqual(withProfileNamesFixed(runner.commands[0].Args), wantArgs) {
@@ -410,7 +412,7 @@ func TestTheProfileIsWhatTheRolesPostureRequires(t *testing.T) {
 		if role == domain.RoleDeveloper {
 			want = profileDeveloper
 		}
-		got, err := profileFor(backendapi.RunRequest{Role: role})
+		got, err := profileFor(backendapi.RunRequest{Role: role, ScratchDirectory: testScratch})
 		if err != nil || got != want {
 			t.Errorf("profileFor(%q) = (%q, %v), want %q", role, got, err, want)
 		}
@@ -424,7 +426,7 @@ func TestTheProfileIsWhatTheRolesPostureRequires(t *testing.T) {
 // read-only sandbox, and no request can ask for more than its role has.
 func TestARequestedPostureNarrowsTheSandboxAndNeverWidensIt(t *testing.T) {
 	t.Parallel()
-	got, err := profileFor(backendapi.RunRequest{Role: domain.RoleDeveloper, Posture: backendapi.PostureReadOnly})
+	got, err := profileFor(backendapi.RunRequest{Role: domain.RoleDeveloper, ScratchDirectory: testScratch, Posture: backendapi.PostureReadOnly})
 	if err != nil || got != profileReadOnly {
 		t.Fatalf("narrowed developer = (%q, %v), want the read-only profile", got, err)
 	}
@@ -459,14 +461,14 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 			// set than the profile gives would otherwise get a wider one and be
 			// told nothing.
 			name:    "a tool list this provider cannot scope",
-			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, AllowedTools: []string{"Read"}},
+			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, ScratchDirectory: testScratch, AllowedTools: []string{"Read"}},
 			wanted:  "cannot be granted a tool list",
 		},
 		{
 			// Codex offers no sub-agents, so a request for them is refused out loud
 			// rather than served without them and nobody told.
 			name:    "sub-agents this provider does not offer",
-			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, Subagents: &backendapi.SubagentRequest{Model: "gpt-6.1-sol"}},
+			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, ScratchDirectory: testScratch, Subagents: &backendapi.SubagentRequest{Model: "gpt-6.1-sol"}},
 			wanted:  "cannot be given sub-agents: Codex does not offer them",
 		},
 	} {
@@ -499,7 +501,7 @@ func TestRunReadOnlyRolesOnFreshAndResumedInvocations(t *testing.T) {
 			t.Run(string(role)+"/"+session, func(t *testing.T) {
 				t.Parallel()
 				runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
-				_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "inspect and advise", SessionID: session})
+				_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "inspect and advise", SessionID: session})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -545,6 +547,7 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "carry on",
 		SessionID:        "session-1",
@@ -558,7 +561,7 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--config", `approval_policy="never"`,
 		"--config", `default_permissions="yoyodyne-developer"`,
-		"--config", `permissions.yoyodyne-developer.filesystem={":root"="read",":slash_tmp"="write",":tmpdir"="write","/worktree"="write","/worktree/.git"="read","/worktree/.agents"="read","/worktree/.codex"="read","/worktree/.aws"="read"}`,
+		"--config", developerFilesystemArgument("/worktree", testScratch),
 		"--config", "permissions.yoyodyne-developer.network.enabled=false",
 		"--cd", "/worktree", "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
 	if !reflect.DeepEqual(withProfileNamesFixed(runner.commands[0].Args), wantArgs) {
@@ -599,6 +602,7 @@ func TestAnInvocationIsMadeUnderTheAccountItWasGiven(t *testing.T) {
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}, ConfigDir: test.onValue}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 				RunID:            testRunID,
 				Role:             domain.RoleDeveloper,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: worktree,
 				Prompt:           "implement",
 				AccountConfigDir: test.onRequest,
@@ -628,6 +632,7 @@ func TestTheRolesContractReachesTheProvider(t *testing.T) {
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		SystemPrompt:     "you are the developer",
@@ -673,6 +678,7 @@ func TestRunFailsWhenNoTerminalArrives(t *testing.T) {
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	})
@@ -704,6 +710,7 @@ func TestAStreamThisAdapterCannotReadNamesTheVersionAndTheFirstUnknownEvent(t *t
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	})
@@ -735,6 +742,7 @@ func TestAnUnreadableStreamIsReportedWhenTheVersionIsNot(t *testing.T) {
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	})
@@ -781,6 +789,7 @@ func runProcessFailure(t *testing.T, stream, stderr string) (backendapi.RunResul
 	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		EventSink: func(event execution.Event) error {
@@ -947,6 +956,7 @@ func TestACutLineIsRecordedAsAnAnomalyAndTheStreamCarriesOn(t *testing.T) {
 	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		EventSink:        func(event execution.Event) error { events = append(events, event); return nil },
@@ -997,6 +1007,7 @@ func TestRunRedactsWhatTheProviderEchoesBack(t *testing.T) {
 	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		RedactValues:     []string{"sk-secret-value"},
@@ -1053,6 +1064,7 @@ func TestADeclaredProviderIsRecordedUnderItsOwnName(t *testing.T) {
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}, Provider: "my-harness", Binary: "my-harness"}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	})
@@ -1083,6 +1095,7 @@ func runStream(t *testing.T, role domain.AgentRole, stream string) (backendapi.R
 	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             role,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "do the work",
 		EventSink:        func(event execution.Event) error { events = append(events, event); return nil },
@@ -1213,6 +1226,7 @@ func TestRunRefusesAnUnacceptedEffortLevel(t *testing.T) {
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "go",
 		Model:            "gpt-6.1-sol",
@@ -1351,7 +1365,7 @@ func TestRunStartsTheProviderBehindTheRequestsLaunchGate(t *testing.T) {
 	}}}
 	gate := &execution.LaunchGate{}
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "implement the task", LaunchGate: gate,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "implement the task", LaunchGate: gate,
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -1375,6 +1389,7 @@ func TestRunRedactsTheProviderOutputBySecretShape(t *testing.T) {
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	}); err != nil {
