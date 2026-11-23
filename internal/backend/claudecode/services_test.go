@@ -265,8 +265,15 @@ func seatbeltProfile(settings servicesSettings) string {
 // server is asked about. Elsewhere only the server is asked about too.
 func TestAServerOnAPortTheSystemChoosesAnswersUnderADevelopersSettings(t *testing.T) {
 	t.Parallel()
-	// A socket file's path has to be short, which a test's own directory is not.
-	state, err := os.MkdirTemp("", "yy")
+	insideADeveloperRun := os.Getenv(execution.AgentRoleVariable) == string(domain.RoleDeveloper)
+	sandboxed := runtime.GOOS == "darwin" && !insideADeveloperRun
+	// A socket file's path has to be short, which a test's own directory, or a
+	// temporary directory a check was given, may not be.
+	parent := ""
+	if sandboxed {
+		parent = "/tmp"
+	}
+	state, err := os.MkdirTemp(parent, "yy")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,9 +307,8 @@ func TestAServerOnAPortTheSystemChoosesAnswersUnderADevelopersSettings(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	insideADeveloperRun := os.Getenv(execution.AgentRoleVariable) == string(domain.RoleDeveloper)
 
-	if runtime.GOOS == "darwin" && !insideADeveloperRun {
+	if sandboxed {
 		listener, err := net.Listen("unix", filepath.Join(services, "s"))
 		if err != nil {
 			t.Fatal(err)

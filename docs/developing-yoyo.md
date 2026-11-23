@@ -89,6 +89,8 @@ is the arrangement.
 
 `make test-macos` runs the tests only macOS exercises (the keychain, launchd,
 and file system, process and terminal handling) in the packages that hold them.
+It also runs the two tests that reproduce the developer sandbox under
+`sandbox-exec`, in `internal/beads` and `internal/backend/claudecode`.
 This repository turns on `execution.ci_checks`, so a run's short local check is
 `make fmtcheck`, `make vet`, `make build` and `make test-macos`, and GitHub's
 required checks cover the rest; CI runs on Ubuntu and cannot stand in for these.

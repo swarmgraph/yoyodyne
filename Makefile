@@ -275,8 +275,9 @@ race: cachecheck
 # process and terminal handling that behave differently there. CI runs on
 # Ubuntu and cannot stand in for them (docs/designs/checks-on-ci.md), so with
 # execution.ci_checks on, this target is part of every run's short local check.
-# It runs the packages that hold macOS-only code whole, and the one test in
-# internal/beads that reproduces the developer sandbox under sandbox-exec. On
+# It runs the packages that hold macOS-only code whole, and the two tests, in
+# internal/beads and internal/backend/claudecode, that reproduce the developer
+# sandbox under sandbox-exec. A failure of any of the three fails the target. On
 # any other system there is nothing to run, and it says so and passes.
 MACOS_TEST_PACKAGES = ./internal/console ./internal/mcpcredential ./internal/maintenancejob ./internal/supervise ./internal/execution ./internal/gitworktree ./internal/runstate
 
@@ -291,7 +292,8 @@ test-macos: cachecheck
 	fi; \
 	echo "$(GO) test -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES)"; \
 	$(GO) test -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES) || exit 1; \
-	$(GO) test -timeout $(TEST_TIMEOUT) -run TestTheOperatingSystemProbeTriesTheConnectionUnderTheDeveloperSandbox ./internal/beads
+	$(GO) test -timeout $(TEST_TIMEOUT) -run TestTheOperatingSystemProbeTriesTheConnectionUnderTheDeveloperSandbox ./internal/beads || exit 1; \
+	$(GO) test -timeout $(TEST_TIMEOUT) -run TestAServerOnAPortTheSystemChoosesAnswersUnderADevelopersSettings ./internal/backend/claudecode
 
 vet: cachecheck
 	$(GO) vet ./...
