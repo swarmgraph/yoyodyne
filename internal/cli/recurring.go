@@ -76,8 +76,9 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Roles:              roleConversation{configPath: configPath, stderr: stderr, config: parts.config},
 		MissingReportLimit: parts.config.Execution.MissingReportLimit(),
 		ConversationWork: sweepConversationWork{
-			items:      withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
-			repository: parts.repository,
+			items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
+			roots: documentRoots(parts.config.Product, parts.repository),
+			homes: documentHomes(parts.config.Product),
 		},
 		// Where the note goes on an item first in a pass's order that the pass
 		// did not take, so the item itself says it was passed over.
@@ -296,9 +297,26 @@ type sweepConversationWork struct {
 	items interface {
 		List(ctx context.Context, status string) ([]beads.WorkItem, error)
 	}
-	// repository is where the documents a waiting item cites are read from, for
+	// roots is where the documents a waiting item cites are read from, and homes
+	// the directories in them the project files its governed documents in, for
 	// the snapshot of a ruling that stands (orchestrator/standingrulings.go).
-	repository string
+	roots []string
+	homes []string
+}
+
+// documentRoots is where an item's cited documents may be: the project's
+// repository, and the repository its governed documents are kept in where that
+// is another one.
+func documentRoots(product config.Product, repository string) []string {
+	roots := []string{repository}
+	if intent := product.IntentRoot(repository); intent != repository {
+		roots = append(roots, intent)
+	}
+	return roots
+}
+
+func documentHomes(product config.Product) []string {
+	return []string{product.Specifications, product.Designs, product.Decisions, product.Invariants}
 }
 
 // Read is the section a pass's turn carries and the items it names, in the
@@ -340,21 +358,29 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole, 
 	return reading, nil
 }
 
-// citedContents is the documents an item cites by file, as they stand in the
-// repository: each path with a digest of its content, or with "missing"
-// or "unreadable" where it cannot be read, so a document that appears, changes,
-// or goes away changes the digest.
+// citedContents is the documents an item cites by file, as they stand in every
+// root: each path with a digest of its content in each, or "missing" where a
+// root has none, so a document that appears, changes, or goes away changes what
+// is recorded; and orchestrator.UnreadableDocument where one could not be read.
 func (w sweepConversationWork) citedContents(item beads.WorkItem) map[string]string {
 	cited := map[string]string{}
-	for _, path := range orchestrator.CitedDocuments(item) {
-		content, err := os.ReadFile(filepath.Join(w.repository, filepath.FromSlash(path)))
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			cited[path] = "missing"
-		case err != nil:
-			cited[path] = "unreadable"
-		default:
-			cited[path] = orchestrator.DigestLines([]string{string(content)})
+	for _, path := range orchestrator.CitedDocuments(item, w.homes...) {
+		var found []string
+		unreadable := false
+		for _, root := range w.roots {
+			content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+				found = append(found, "missing")
+			case err != nil:
+				unreadable = true
+			default:
+				found = append(found, orchestrator.DigestLines([]string{string(content)}))
+			}
+		}
+		cited[path] = strings.Join(found, " ")
+		if unreadable {
+			cited[path] = orchestrator.UnreadableDocument
 		}
 	}
 	return cited

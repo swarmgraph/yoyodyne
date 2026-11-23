@@ -344,6 +344,9 @@ func TestTheWriteContractStatesTheBoundsItIsHeldTo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Filing() error = %v", err)
 	}
+	if !strings.Contains(contract, "at most 8 waiting documents. One written beyond that is not refused: the harness keeps it, counted with the documents held for sending, at most 4 of both together") {
+		t.Errorf("the contract does not say a document beyond the waiting limit is kept:\n%s", contract)
+	}
 	intent := WriteContract(domain.RoleProductManager, product)
 	if !strings.Contains(intent, `"kind":"brief","title":"one line","supports":["upstream-artifact-id"],"directory":"`+config.DefaultSpecifications+`"`) {
 		t.Fatalf("the product manager's example does not file a brief in %s: %s", config.DefaultSpecifications, intent)

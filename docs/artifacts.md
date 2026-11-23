@@ -551,7 +551,7 @@ A revision is the same action, carrying the document whole, which may be up to
 returns (48 KiB) in parts, naming `"offset"` for the next one. The documents one role keeps waiting
 also share 512 KiB of the conversation's record, counting a confirmed document
 twice, because it is stored as written and as confirmed; a document that would
-take them past it is refused with the reason, as a ninth document is. A revision that
+take them past it is refused with the reason, and is not kept until there is room. A revision that
 names a `section`, by its heading as the document writes it, carries only the
 new text under that heading, its subsections included; the harness reads the
 rest of the document from the copy in the project's checkout when it confirms

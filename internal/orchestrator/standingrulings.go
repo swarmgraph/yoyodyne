@@ -44,6 +44,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -75,17 +77,31 @@ func (s StandingRulings) Holds(now runstate.RulingSnapshot) bool {
 	return recorded && before.Digest != "" && before.Digest == now.Digest
 }
 
-var citedDocumentPath = regexp.MustCompile(`docs/[A-Za-z0-9_./-]+\.md`)
+// UnreadableDocument stands for the content of a cited document that is there
+// and could not be read. It is always a change, so a ruling on an item citing
+// one never stands.
+const UnreadableDocument = "unreadable"
 
-// CitedDocuments is the repository documents an item cites by file, in its
-// description, design, acceptance criteria and notes, each once and sorted. A
-// path that climbs out of the directory it names is not one.
-func CitedDocuments(item beads.WorkItem) []string {
+// CitedDocuments is the documents an item cites by file, in its description,
+// design, acceptance criteria and notes, each once and sorted: Markdown under
+// docs, or under one of homes, the directories the project files its governed
+// documents in. A path that climbs out of the directory it names is not one.
+func CitedDocuments(item beads.WorkItem, homes ...string) []string {
 	text := strings.Join([]string{item.Description, item.Design, item.AcceptanceCriteria, beads.PlainNotes(item.RecordedNotes())}, "\n")
 	var paths []string
-	for _, path := range citedDocumentPath.FindAllString(text, -1) {
-		if !strings.Contains(path, "..") && !slices.Contains(paths, path) {
-			paths = append(paths, path)
+	for _, home := range append([]string{"docs"}, homes...) {
+		if strings.TrimSpace(home) == "" {
+			continue
+		}
+		// A home of "." is the whole repository, whose documents carry no prefix.
+		prefix := ""
+		if home = path.Clean(filepath.ToSlash(strings.TrimSpace(home))); home != "." {
+			prefix = regexp.QuoteMeta(home) + "/"
+		}
+		for _, found := range regexp.MustCompile(prefix+`[A-Za-z0-9_./-]+\.md`).FindAllString(text, -1) {
+			if !strings.Contains(found, "..") && !slices.Contains(paths, found) {
+				paths = append(paths, found)
+			}
 		}
 	}
 	slices.Sort(paths)
@@ -162,7 +178,8 @@ func passNoteOf(text string, role domain.AgentRole) bool {
 }
 
 // WaitingState is one waiting item as a reading of the waiting work found it:
-// its snapshot where its newest note is the role's ruling, and the parts a later
+// its snapshot, whether its newest note is the role's ruling with every document
+// it cites readable, and the parts a later
 // reading in the same pass is compared with.
 type WaitingState struct {
 	Snapshot runstate.RulingSnapshot
@@ -177,8 +194,8 @@ type WaitingState struct {
 // (CitedDocuments) with what it holds now, read by the caller.
 func WaitingStateOf(item beads.WorkItem, role domain.AgentRole, cited map[string]string) WaitingState {
 	lines := make([]string, 0, len(cited))
-	for path, holds := range cited {
-		lines = append(lines, path+"|"+holds)
+	for name, holds := range cited {
+		lines = append(lines, name+"|"+holds)
 	}
 	slices.Sort(lines)
 	state := WaitingState{
@@ -194,6 +211,11 @@ func WaitingStateOf(item beads.WorkItem, role domain.AgentRole, cited map[string
 		}
 	}
 	state.Snapshot, state.Ruled = RulingSnapshotOf(item, role, DigestLines(lines))
+	for _, holds := range cited {
+		if holds == UnreadableDocument {
+			state.Ruled = false
+		}
+	}
 	state.Snapshot.ID = item.ID
 	return state
 }
@@ -212,8 +234,8 @@ func (now WaitingState) changedSince(handed WaitingState, role domain.AgentRole)
 	if now.text != handed.text || len(now.notes) < len(handed.notes) || !slices.Equal(now.notes[:len(handed.notes)], handed.notes) {
 		return true
 	}
-	for path, held := range handed.cited {
-		if now.cited[path] != held {
+	for name, held := range handed.cited {
+		if now.cited[name] != held {
 			return true
 		}
 	}

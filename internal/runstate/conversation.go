@@ -742,7 +742,7 @@ func (w PendingWrite) Held() bool {
 // file. So the documents a conversation keeps are also bounded together, by
 // the bytes the record stores for them (MaxPendingWriteStoredBytes, counted by
 // PendingWriteStoredBytes); a document that would take the total past it is
-// refused with the reason, as a ninth document is. The total is checked where a
+// refused with the reason rather than kept until there is room. The total is checked where a
 // document is added and not when a record is validated, so a record written
 // before it existed, which the file limit already allowed, still loads and saves.
 //
@@ -757,7 +757,7 @@ func (w PendingWrite) Held() bool {
 // carry no publication candidate, so each costs the record its body alone.
 const (
 	MaxPendingWrites     = artifact.MaxWaitingDocuments
-	MaxHeldWrites        = 4
+	MaxHeldWrites        = artifact.MaxHeldDocuments
 	MaxPendingWriteBytes = 128 << 10
 	// MaxPendingWriteStoredBytes is the room the record gives every document it
 	// keeps together, a little over half of the megabyte the record may take, so

@@ -6822,7 +6822,9 @@ under the line and in `conversation_passes_problem`.
 The architect's pass is not handed an item whose ruling stands: its newest note
 is the note her document left on it, and nothing about it has changed since the
 pass that dealt with it — no new note, edit, priority, label or status change, no
-change to a document it cites by file, and no report naming it. Her own notes
+change to a document it cites by file (under `docs` or the directories the
+project files its documents in, in its companion intent repository too where it
+has one), every one of those documents can be read, and no report naming it. Her own notes
 from earlier passes do not count as new. A changed item is handed to every pass
 until one deals with it: a pass that only leaves it, and a change that arrives
 while a pass runs, never make the ruling stand again. The pass's message tells her which

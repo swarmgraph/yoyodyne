@@ -94,6 +94,10 @@ func TestCitedDocumentsAreTheRepositoryFilesTheItemNames(t *testing.T) {
 		Description: "Rests on docs/designs/b.md and docs/designs/a.md#section, and docs/designs/a.md again.",
 		Design:      "Not docs/../etc/passwd.md.",
 	}
+	elsewhere := beads.WorkItem{Description: "Rests on architecture/rulings/c.md, not other/d.md."}
+	if got := CitedDocuments(elsewhere, "./architecture/rulings/"); len(got) != 1 || got[0] != "architecture/rulings/c.md" {
+		t.Fatalf("CitedDocuments() under a configured directory = %v", got)
+	}
 	got := CitedDocuments(item)
 	if len(got) != 2 || got[0] != "docs/designs/a.md" || got[1] != "docs/designs/b.md" {
 		t.Fatalf("CitedDocuments() = %v", got)
