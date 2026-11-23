@@ -70,6 +70,10 @@ revisions:
       by: architect
       at: 2026-11-21T11:36:59.86487Z
       reason: 'Follows revision 14, which added stale build to the list of kinds under One registry, one resolver: the sentence under the table promising that addition is now false and is dropped. The table is copied exactly; nothing else in the section changes. Written against main at 485dc5bb.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T13:25:24.148891Z
+      reason: 'Answers the reviewer''s report-af1282f0 and the developer''s report-bc97796a on the ownership label build (yoyodyne-75sv): new runs refused because the main checkout holds uncommitted changes were owned by the harness, which can only try again. The stall row now gives them to the Lead Product Manager to classify, as the stale build row already does for a build move stopped the same way. Nothing else in the section changes. Written against main at 5a72871a.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -146,6 +150,11 @@ approvals:
       by: harness
       at: 2026-11-21T11:36:59.86487Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3317, for document-3317.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 16
+      by: harness
+      at: 2026-11-23T13:25:24.148891Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3670, for document-3670.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -225,7 +234,7 @@ her pass, and she files it against the registry.
 | degraded service, failing task | the harness or the supervisor; the task's role where the task failed on its own work; the operator only where the remedy is a credential, reason `credential` |
 | hold | the operator for a hold or pause he placed, reason `own-hold`; the development manager for the brake's hold on new work, and the Lead Product Manager once the development manager escalates it, with the operator told; the harness for its own pause on new work for lack of provider capacity, which it lifts at the provider's reset or after a successful check of the provider |
 | outage, provider's usage limit | nobody, since a provider outage or a provider's usage limit lifts on the provider's clock; the operator for an expired login, reason `credential`, and for a provider's program that cannot be found on the machine the harness runs on, reason `install` |
-| stall | the harness for a stalled queue, shown as a degraded service once the harness has left it down; for a run whose AI session went silent, the harness the first time and the development manager after that |
+| stall | the harness for a stalled queue, shown as a degraded service once the harness has left it down; for a run whose AI session went silent, the harness the first time and the development manager after that; for new runs refused because uncommitted changes in the main checkout stop them, the Lead Product Manager, to classify the changes as the stale build row says, and never the harness, whose only move is to try again: changes a harness process left behind she files as a defect for the development manager to clear, and changes the operator is making by hand she tells him about in her reply and her pass; never the operator as owner |
 | stale build | a watch session or supervisor still running an older build than the one main holds: the harness while the session or the supervisor moves itself onto the new build; the development manager when that move is stuck, or when the build of main fails so there is nothing to move onto; the Lead Product Manager when uncommitted changes in the main checkout stop the move, to classify them; the harness when no supervisor is running; never the operator (yoyodyne-ifd.431.13) |
 | stoppage | the development manager |
 | escalation | the role it names; the operator only when it carries a reason from the closed list |
