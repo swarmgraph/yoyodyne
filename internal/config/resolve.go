@@ -619,6 +619,7 @@ func (r *resolution) apply(applied layer) error {
 		if reviewers := execution.ReviewerModels; reviewers != nil {
 			setValue(r.origins, "execution.reviewer_models.documents", reviewers.Documents, &r.config.Execution.ReviewerModels.Documents, applied.origin)
 			setValue(r.origins, "execution.reviewer_models.code", reviewers.Code, &r.config.Execution.ReviewerModels.Code, applied.origin)
+			setValue(r.origins, "execution.reviewer_models.compare_documents", reviewers.CompareDocuments, &r.config.Execution.ReviewerModels.CompareDocuments, applied.origin)
 		}
 		// The declarative path carries a harness default like the values above it,
 		// because it is what a run does rather than something a project opts into.

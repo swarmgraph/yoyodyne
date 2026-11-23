@@ -265,9 +265,13 @@ type Sources struct {
 	// CheaperFirst is execution.developer_cheaper_first, read for the trial of
 	// starting developers on the cheaper model (modeltrial.go). The zero value
 	// is the setting off with the default run count.
-	CheaperFirst  config.DeveloperCheaperFirst
-	Conversations Conversations
-	Tracker       Tracker
+	CheaperFirst config.DeveloperCheaperFirst
+	// CompareDocumentReviews is execution.reviewer_models.compare_documents,
+	// read for the listing of document reviews made on both models
+	// (reviewcomparison.go).
+	CompareDocumentReviews bool
+	Conversations          Conversations
+	Tracker                Tracker
 	// TrackerPrefixes are the tracker's id prefixes as the configuration names
 	// them — the product's id — so a reference is still recognised, and marked
 	// as unreadable, when the tracker could not be listed. A listing adds the
