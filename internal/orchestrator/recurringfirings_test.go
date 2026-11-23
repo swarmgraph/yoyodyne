@@ -627,6 +627,13 @@ func TestADuePassStartsBesideAnotherWhileThePullIsSlow(t *testing.T) {
 		case <-time.After(30 * time.Second):
 			t.Errorf("the architect's pass was not woken while the pull was keeping its reasons")
 		}
+		// Her pass starts on its own goroutine, which a busy machine may not have
+		// run yet; it is held at its first turn, so once woken it stays there.
+		select {
+		case <-roles.woke[domain.RoleDevelopmentManager]:
+		case <-time.After(30 * time.Second):
+			t.Errorf("the development manager's pass was not woken")
+		}
 		if got := roles.turnsOf(domain.RoleDevelopmentManager); got != 1 {
 			t.Errorf("the development manager's pass is on turn %d, want it still running beside the architect's", got)
 		}
