@@ -546,6 +546,37 @@ func deliveryWeekPeriods(now time.Time, zone *time.Location) []DeliveryPeriod {
 	return periods
 }
 
+// listEveryItem lists every item in the tracker, closed included, for a
+// reading that counts from it: out of the product's one shared reading of the
+// tracker where the tracker can answer a status reading and the shared reading
+// is wired, and from the tracker itself otherwise.
+//
+// A listing kept in place of a failed one is not used: every figure read from
+// it would be presented as current, and a reading only says which sources it
+// could not read. So it is reported as the failure it is, with when the last
+// good listing was taken (sharedlisting.go).
+func listEveryItem(ctx context.Context, source DeliveryTracker, readings TrackerReadings, timeout time.Duration, now func() time.Time) ([]beads.WorkItem, error) {
+	listCtx, cancel := ctx, context.CancelFunc(func() {})
+	if timeout > 0 {
+		listCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	tracker := source
+	var shared *sharedTracker
+	if whole, ok := source.(Tracker); ok && readings != nil {
+		var sharing Sources
+		sharing, shared = Sources{Tracker: whole, TrackerReadings: readings, TrackerTimeout: timeout, Now: now}.sharing()
+		tracker = sharing.Tracker
+	}
+	items, err := tracker.List(listCtx, "")
+	cancel()
+	shared.finish()
+	if failure, takenAt, kept := shared.keptEvery(); err == nil && kept {
+		err = fmt.Errorf("its latest listing of every item failed: %s; its last good listing, taken %s, is not used for these measures",
+			failure, localMoment(takenAt))
+	}
+	return items, err
+}
+
 // readDeliverySources reads every source once.
 func readDeliverySources(ctx context.Context, sources DeliverySources, since time.Time) deliveryRead {
 	read := deliveryRead{items: map[string]beads.WorkItem{}, usage: map[string][]runstate.Spend{}, reverts: map[string][]gitworktree.Revert{}}
@@ -553,29 +584,7 @@ func readDeliverySources(ctx context.Context, sources DeliverySources, since tim
 	if sources.Tracker == nil {
 		read.trackerErr = absent(sourceTracker, sources.TrackerProblem)
 	} else {
-		listCtx, cancel := ctx, context.CancelFunc(func() {})
-		if sources.TrackerTimeout > 0 {
-			listCtx, cancel = context.WithTimeout(ctx, sources.TrackerTimeout)
-		}
-		tracker := DeliveryTracker(sources.Tracker)
-		var shared *sharedTracker
-		if whole, ok := sources.Tracker.(Tracker); ok && sources.TrackerReadings != nil {
-			var sharing Sources
-			sharing, shared = Sources{Tracker: whole, TrackerReadings: sources.TrackerReadings, TrackerTimeout: sources.TrackerTimeout, Now: sources.Now}.sharing()
-			tracker = sharing.Tracker
-		}
-		items, err := tracker.List(listCtx, "")
-		cancel()
-		shared.finish()
-		// A listing kept in place of a failed one is not used here: every
-		// measure read from the tracker would be presented as current, and the
-		// delivery page says only which sources could not be read and that the
-		// measures read from them say so. So it is reported as the failure it
-		// is, with when the last good listing was taken (sharedlisting.go).
-		if failure, takenAt, kept := shared.keptEvery(); err == nil && kept {
-			err = fmt.Errorf("its latest listing of every item failed: %s; its last good listing, taken %s, is not used for these measures",
-				failure, localMoment(takenAt))
-		}
+		items, err := listEveryItem(ctx, sources.Tracker, sources.TrackerReadings, sources.TrackerTimeout, sources.Now)
 		if err != nil {
 			read.trackerErr = fmt.Sprintf("%s could not be read: %v", sourceTracker, err)
 		} else {

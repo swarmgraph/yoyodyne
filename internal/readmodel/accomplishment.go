@@ -60,6 +60,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -159,6 +160,13 @@ type AccomplishmentSources struct {
 	RunsProblem          string
 	Conversations        AccomplishmentConversations
 	ConversationsProblem string
+	// Tracker is listed once, closed items included, for the weekly cost
+	// figures' count of items closed (weeklycost.go); TrackerReadings is the
+	// product's shared reading it is listed out of where set.
+	Tracker         DeliveryTracker
+	TrackerProblem  string
+	TrackerTimeout  time.Duration
+	TrackerReadings TrackerReadings
 	// Zone is the zone days and weeks are counted in. Nil is DeliveryZoneName.
 	Zone *time.Location
 	// Now stamps the reading and anchors the default range. It defaults to the
@@ -304,6 +312,11 @@ type Accomplishment struct {
 	// many passes that was.
 	UnnamedManagementUSD float64 `json:"unnamed_management_usd"`
 	UnnamedPasses        int     `json:"unnamed_passes"`
+	// WeeklyCost is the weekly cost figures for every whole week the range
+	// touches: each week's known spend, its cost per item closed and per code
+	// change landed, and the same by role (weeklycost.go). It is read from the
+	// spend log and the run records this reading already holds, and the tracker.
+	WeeklyCost WeeklyCost `json:"weekly_cost"`
 	// NotRead names every source that could not be read whole, and Floor says
 	// the figures are a lower bound because of it.
 	NotRead []string `json:"not_read,omitempty"`
@@ -459,6 +472,15 @@ func ReadAccomplishment(ctx context.Context, sources AccomplishmentSources, span
 		reading.Weeks = append(reading.Weeks, week)
 	}
 
+	trackerProblem := ""
+	var items []beads.WorkItem
+	if sources.Tracker == nil {
+		trackerProblem = absent(sourceTracker, sources.TrackerProblem)
+	} else if items, err = listEveryItem(ctx, sources.Tracker, sources.TrackerReadings, sources.TrackerTimeout, sources.Now); err != nil {
+		trackerProblem = fmt.Sprintf("%s could not be read: %v", sourceTracker, err)
+	}
+	reading.WeeklyCost = weeklyCost(lines, runs, read.runsProblem, items, trackerProblem, weekStart(from), weekStart(to.AddDate(0, 0, -1)).AddDate(0, 0, 7), now, zone)
+
 	reading.NotRead = read.notRead
 	reading.Floor = len(read.notRead) > 0 || reading.Unpriced > 0
 	return reading
@@ -500,6 +522,9 @@ func weekStart(day time.Time) time.Time {
 // accomplishmentRead carries what could not be read across the reading.
 type accomplishmentRead struct {
 	notRead []string
+	// runsProblem is why the run records could not be read, and empty where
+	// they were.
+	runsProblem string
 }
 
 func (r *accomplishmentRead) missing(format string, args ...any) {
@@ -523,12 +548,14 @@ func (r *accomplishmentRead) passes(sources AccomplishmentSources) []runstate.Sw
 
 func (r *accomplishmentRead) runs(sources AccomplishmentSources) []runstate.State {
 	if sources.Runs == nil {
-		r.missing("%s, so no item is known to have progressed or completed", absent("the run records", sources.RunsProblem))
+		r.runsProblem = absent("the run records", sources.RunsProblem)
+		r.missing("%s, so no item is known to have progressed or completed", r.runsProblem)
 		return nil
 	}
 	recorded, err := sources.Runs.Recorded()
 	if err != nil {
-		r.missing("the run records could not be read: %v", err)
+		r.runsProblem = fmt.Sprintf("the run records could not be read: %v", err)
+		r.missing("%s", r.runsProblem)
 		return nil
 	}
 	return recorded
