@@ -42,7 +42,12 @@ type DocumentApproval struct {
 	// own kind on a creation, and the kind recorded with a revision. It is
 	// empty where neither was kept.
 	DocumentKind string `json:"document_kind,omitempty"`
-	Turn         int    `json:"turn"`
+	// HarnessConfirms is a document the harness confirms by itself — under its
+	// kind's automatic approval setting, or as the Lead Product Manager's change
+	// consistent with intent — and has not confirmed yet. It waits on nobody's
+	// decision, only on the harness reaching it.
+	HarnessConfirms bool `json:"harness_confirms,omitempty"`
+	Turn            int  `json:"turn"`
 	// WrittenAt is when the role wrote it, absent on a record kept before the
 	// moment was.
 	WrittenAt time.Time `json:"written_at,omitzero"`
@@ -71,8 +76,12 @@ func (d DocumentApproval) Says() string {
 	if !d.WrittenAt.IsZero() {
 		since = "since " + localMoment(d.WrittenAt)
 	}
-	return fmt.Sprintf("document %s, %s written by the %s in conversation %s, waits for the operator's approval, %s",
-		d.WriteID, what, d.Owner.Title(), d.ConversationID, since)
+	waits := "waits for the operator's approval"
+	if d.HarnessConfirms {
+		waits = "waits for the harness to confirm it and send it to be published, which needs nobody's approval"
+	}
+	return fmt.Sprintf("document %s, %s written by the %s in conversation %s, %s, %s",
+		d.WriteID, what, d.Owner.Title(), d.ConversationID, waits, since)
 }
 
 // reach is the command that reaches the conversation the document waits in.
@@ -98,6 +107,9 @@ func (d DocumentApproval) approveCommand() string {
 
 // whose is whose move the waiting document is and what settles it.
 func (d DocumentApproval) whose(mover Mover) string {
+	if d.HarnessConfirms {
+		return mover.Possessive() + " — the project's approval setting lets the harness confirm this document itself, which it does at the next message in conversation " + d.ConversationID + ", or once an earlier revision of " + d.Document + " has finished publishing; nobody has to approve it, and it leaves this line once it is sent"
+	}
 	if mover.IsOperator() {
 		return mover.Possessive() + " — it states the product's intent, and a change to it is his to approve; " + d.command() + ", and it leaves this line once he has"
 	}
@@ -126,6 +138,14 @@ func readDocuments(sources Sources) documentReading {
 	return documentReading{attention: attention, problem: problem}
 }
 
+// DocumentConfirmations says whether the harness confirms one waiting document
+// by itself. It is satisfied by the artifact store and the project's approval
+// and integration settings, asked through chat.HarnessConfirms, which asks the
+// question the conversation asks before it confirms the document.
+type DocumentConfirmations interface {
+	HarnessConfirms(role domain.AgentRole, conversationID string, write runstate.PendingWrite) (bool, error)
+}
+
 // readDocumentApprovals is every document waiting for the operator's approval,
 // across every recorded conversation, longest waiting first. A document the
 // conversation keeps is waiting on him unless a reviewed run is carrying it,
@@ -134,6 +154,13 @@ func readDocuments(sources Sources) documentReading {
 // behind another copy of the same document still publishing, a wait that ends
 // by itself and is nobody's decision (runstate.PendingWrite.AwaitsDecision;
 // chat.Session.Writes reads the same three the same way).
+//
+// A document not yet confirmed otherwise waits for the conversation's next
+// message before the harness confirms it or puts it to the operator. One the
+// harness confirms by itself is listed as the harness's, so it is never shown
+// as his decision. Where the answer cannot be had — no DocumentConfirmations,
+// or the store cannot read the document — it is listed as his, as it was
+// before the question was asked.
 func readDocumentApprovals(sources Sources) ([]Attention, string) {
 	if sources.Conversations == nil {
 		return nil, ""
@@ -152,13 +179,19 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 			if !write.AwaitsDecision() {
 				continue
 			}
+			harness := false
+			if sources.DocumentConfirmations != nil {
+				if confirms, err := sources.DocumentConfirmations.HarnessConfirms(conversation.Role, conversation.ConversationID, write); err == nil {
+					harness = confirms
+				}
+			}
 			waiting = append(waiting, DocumentApproval{
 				WriteID: write.ID, ConversationID: conversation.ConversationID, Agent: agent, Owner: conversation.Role,
 				Action: write.Action, Document: strings.TrimSpace(write.Artifact), Kind: write.Kind,
 				Title: strings.TrimSpace(write.Title), Directory: strings.TrimSpace(write.Directory),
 				Reason: strings.TrimSpace(write.Reason), Body: write.Body, ProductIntent: productIntent(conversation.Role, write),
-				DocumentKind: documentKind(write),
-				Turn:         write.Turn, WrittenAt: write.WrittenAt,
+				DocumentKind:    documentKind(write),
+				HarnessConfirms: harness, Turn: write.Turn, WrittenAt: write.WrittenAt,
 			})
 		}
 	}

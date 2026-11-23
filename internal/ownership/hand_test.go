@@ -122,6 +122,13 @@ func TestAHandIsCarriedOnlyWhereTheHarnessLacksTheCapability(t *testing.T) {
 	if !answer.Owner.IsOperator() || answer.Hand != nil {
 		t.Errorf("a document stating the product's intent resolves to %+v, want the operator's with no hand", answer)
 	}
+	// A document the harness confirms by itself is nobody's decision, whatever
+	// its kind: it is the harness's, with no hand.
+	for _, record := range []Record{{Role: domain.RoleArchitect, HarnessConfirms: true}, {Role: domain.RoleProductManager, FundamentalIntent: true, HarnessConfirms: true}} {
+		if answer := Resolve(KindDocumentApproval, record); answer.Owner != MoverHarness || answer.Hand != nil {
+			t.Errorf("a document the harness confirms (%+v) resolves to %+v, want the harness's with no hand", record, answer)
+		}
+	}
 	// A hand naming a gap nobody recorded is no hand: the finding goes back as
 	// one naming the operator for no reason.
 	answer = Resolve(KindOperatorAction, Record{FromReport: true, Hand: "a-gap-nobody-named"})

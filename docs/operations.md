@@ -6422,7 +6422,7 @@ they are not the labels a person reads:
 | `check-could-not-run` | check not running |
 | `heavy-check-kept` | check place kept |
 | `blocked-on-a-human` | blocked on a human |
-| `document-approval` | document waiting for approval |
+| `document-approval` | document waiting for approval, or document waiting to be published where the harness confirms it by itself |
 | `unreadable-run` | unreadable run |
 | `merge-queue-overdue` | merge queue not moving |
 
@@ -6458,7 +6458,7 @@ your hand**, never under **Yours to decide**.
 | `untraced-pass` | the role whose pass it was |
 | `capacity-degraded` | nobody's |
 | `blocked-on-a-human` | yours for the closed-list reason the program manager gave; otherwise the Lead Product Manager's to correct |
-| `document-approval` | yours for a document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
+| `document-approval` | the harness for a document it confirms by itself under its kind's approval setting, or as the Lead Product Manager's change consistent with intent, until it sends it to be published, labelled `document waiting to be published`; yours for any other document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
 
 A role records a decision that needs your hand with `hand` in place of a
 reason of yours: the Lead Product Manager's report handling with
