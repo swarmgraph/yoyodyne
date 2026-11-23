@@ -337,9 +337,17 @@ func (s *Session) CallTool(ctx context.Context, name string, arguments json.RawM
 	return result, nil
 }
 
+// request sends one request and returns its answer. A request whose context
+// has already ended is never sent, and a context that has ended by the time
+// the answer is in hand wins over the answer: a transport waiting on both can
+// take either when both are ready, and a caller that cancelled is told so
+// every time rather than only when the transport happened to notice.
 func (s *Session) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if s.closed {
 		return nil, fmt.Errorf("%w: mcp server %q", ErrClosed, s.server.Name)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("mcp server %q was not asked %s, because the call had already ended: %w", s.server.Name, method, err)
 	}
 	s.nextID++
 	message := map[string]any{"jsonrpc": "2.0", "id": s.nextID, "method": method}
@@ -349,6 +357,9 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 	answer, err := s.transport.call(ctx, s.nextID, message)
 	if err != nil {
 		return nil, s.scrub(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("mcp server %q answered %s after the call had ended: %w", s.server.Name, method, err)
 	}
 	if answer.Error != nil {
 		return nil, s.scrub(fmt.Errorf("%w: %w: mcp server %q answered %s with error %d: %s", ErrFailed, errAnswered, s.server.Name, method, answer.Error.Code, oneLine(answer.Error.Message)))
