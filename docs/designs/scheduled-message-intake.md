@@ -50,6 +50,10 @@ revisions:
       by: architect
       at: 2026-11-21T18:01:21.856581Z
       reason: 'report-a84223d8: a work item''s grant of .yoyodyne/config.yaml could let a developer''s change rewrite the intake section, which section 1 says is the operator''s. Section 1 now says a grant never reaches intake: the harness compares that section at the run''s base and in the change and refuses a difference, and the section names who builds it. Written from a read of the whole section at main 06c1e5248; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T00:20:08.848783Z
+      reason: 'Resends this section after the reviewer refused document-3611.1. The operator''s pause already stops query runs: piece 3 built and tested it. So it stays in the built list, and the note on what is not yet built names only the daily limits, the limit on reader starts and the pause stopping readers, all with piece 4. Written from main 4d17c257d; nothing else in the section changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -106,6 +110,11 @@ approvals:
       by: harness
       at: 2026-11-21T18:01:21.856581Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3335, for document-3335.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 11
+      by: harness
+      at: 2026-11-23T00:20:08.848783Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3613, for document-3613.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -405,7 +414,15 @@ Pieces 5 and 6 can go side by side.
 - No item is admitted from a rule while the intake hold or the brake is on.
 - A role's write cannot change `intake`.
 - A question names the operator only under `questions: person`, with the reason `human-gate`.
-- The daily limits, the limit on starts of the reader, and the operator's pause.
+- The operator's pause stops a query run before it spends anything. This is built with piece 3, the query run, and tested.
+
+**Not yet in the code.** Three things this design enforces in code are not built yet. Each comes with piece 4, the message reader, which the build pieces above give them to:
+
+- the daily limits under `limits`: the configuration reads them, and nothing yet holds a run or a day to them;
+- the limit of three starts of the reader for one message;
+- the operator's pause stopping readers. Query runs already stop under it, as above.
+
+Until piece 4 lands no reader runs, so nothing yet spends against these limits.
 
 Left to role instructions: the reader's judgment, and not copying message text further than the fix needs.
 
