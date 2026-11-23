@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-11-15T04:41:59.938525Z
       reason: Records the November 11 ruling on which limits held in code stay there and which a project sets inside bounds held in Go, checked against the per-agent time limits work that has since landed, the per-agent counts and reviewer copy items, and the run stops guide at eaa9f53c.
+    - action: amended
+      by: architect
+      at: 2026-11-23T22:42:32.115257Z
+      reason: 'Adds the rule the reviewer''s size limits decision set on November 23: the work item context and the reviewer''s diff limit come to at most 512 KiB together. The work item context row, the entry for the reviewer''s copy limits (yoyodyne-ifd.429.116) and build piece 5 now say it, so whoever builds the configurable context size also refuses the pair. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-15T04:41:59.938525Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2766, for document-2766.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-23T22:42:32.115257Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3754, for document-3754.1 under the automatic approval policy
 ---
 # Which limits stay in code and which a project sets
 
@@ -62,7 +71,7 @@ These need no new work:
 
 | Limit | Today | Setting | Bounds | Why these bounds |
 | --- | --- | --- | --- | --- |
-| Work item context | 256 KiB | `execution.work_item_context_kib` | 128 to 512 KiB | Below 128 KiB an item's design and notes stop fitting. Above 512 KiB the opening context crowds out the developer's room to work. |
+| Work item context | 256 KiB | `execution.work_item_context_kib` | 128 to 512 KiB, and at most 512 KiB together with the reviewer's diff limit, as [the reviewer's size limits](review-size-limits.md) says | Below 128 KiB an item's design and notes stop fitting. Above 512 KiB the opening context crowds out the developer's room to work. The limit on the two together leaves 256 KiB of the reviewer's copy for every other part. |
 | Tracker command time | 120 seconds | `execution.tracker_command_timeout` | 30 seconds to 10 minutes | Below 30 seconds an ordinary listing fails on a large store. Above ten minutes a command that hangs holds a pass or a pull too long. The retries around it stay in code. |
 | Local Git command time, before scaling for load | 30 seconds | `execution.git_command_timeout` | 10 seconds to 5 minutes | Scaling for load, the time added per file and per commit, and the three retries of a replay stay in code and apply to the value set. |
 | Push time | 5 minutes | `execution.push_timeout` | 1 to 30 minutes | A large first push needs more than a minute. A push still running after half an hour has failed. |
@@ -98,7 +107,7 @@ These need no new work:
 
 - **Per-agent time limits (yoyodyne-hv1w), landed:** the developer's call, the reviewer's invocation, and each conversation role's turn, message, Slack turn, exchange answer and side thread. Provider silence joins those settings here.
 - **Per-agent counts (yoyodyne-aexm):** tool rounds per message, actions per reply, the Lead Product Manager's sweep caps, side threads, and the needs-design wake. Counts in it that bound a safety rule keep that rule whole, as that item already requires.
-- **The reviewer's copy limits (yoyodyne-ifd.429.116):** the 256 KiB diff, 64 KiB per file and 200 files. The 768 KiB total stays fixed.
+- **The reviewer's copy limits (yoyodyne-ifd.429.116):** the 256 KiB diff, 64 KiB per file and 200 files. The 768 KiB total stays fixed. That work also adds the rule that the diff limit and the work item context come to at most 512 KiB together, counting the work item context as its fixed 256 KiB until build piece 5 lands.
 
 ## Limits nobody has listed yet
 
@@ -121,6 +130,6 @@ The run stops guide is the only list of these limits, and nobody has searched th
 2. The dead claim, the parked run grace, the promotion lease wait and the transport recovery window are set the same way. The window refuses any value below two hours.
 3. Provider silence is read from each agent's time limits in both adapters. It is refused when it is not shorter than that agent's call limit.
 4. The code search above. It adds every limit it finds to the run stops guide, classified by this rule.
-5. Work item context size is read from configuration. A test measures the largest work item context this repository has sent against the lower bound.
+5. Work item context size is read from configuration. The work item context and the reviewer's diff limit are refused past 512 KiB together, when either is written and when the configuration loads, naming both values and the 512 KiB; the rule reads the configured size in place of the fixed 256 KiB. A test measures the largest work item context this repository has sent against the lower bound.
 
 Each piece updates the run stops guide row it changes, from fixed in code to its setting, and the configuration guide entry giving the key, its default and its bounds. Tests cover the default, a set value, and the refusal at each bound.
