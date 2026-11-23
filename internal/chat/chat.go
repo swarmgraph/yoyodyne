@@ -40,6 +40,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/repositoryask"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/runinspect"
@@ -439,7 +440,13 @@ type Options struct {
 	// refuses the block plainly and says so in the turn, rather than leaving the
 	// role to advise from its briefing believing it had looked.
 	RepositoryReader RepositoryReader
-	LogReader        LogReader
+	// RepositoryAsk is the reading helper a role asks one question of
+	// (repositoryask.go), and RepositoryAskModel the lightest model of the
+	// provider this conversation runs on, empty where it names none. Either
+	// unset refuses the block plainly and says why.
+	RepositoryAsk      RepositoryAsker
+	RepositoryAskModel string
+	LogReader          LogReader
 	// MCP is the one MCP call path, through which a role asks the harness to
 	// call a tool on its agent's own configured list. Nil, or an agent whose
 	// list is empty, tells the role nothing about MCP and refuses the block.
@@ -1142,7 +1149,10 @@ type Reply struct {
 	// research is: a read already happened and is recorded, and what a reply's
 	// advice rests on is something the operator reading it is owed.
 	RepositoryReads []RepositoryRound `json:"repository_reads,omitempty"`
-	LogReads        []LogRound        `json:"log_reads,omitempty"`
+	// RepositoryAsks are what the reading helper was asked in this reply, and
+	// what each ask came to.
+	RepositoryAsks []repositoryask.Answer `json:"repository_asks,omitempty"`
+	LogReads       []LogRound             `json:"log_reads,omitempty"`
 	// MCPCalls is what each round of MCP calls came to: names, outcomes and
 	// sizes, never the arguments or the results.
 	MCPCalls    []MCPRound    `json:"mcp_calls,omitempty"`
@@ -1706,6 +1716,8 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// repositoryRounds counts the rounds that read the repository, its own budget
 	// for the same reason.
 	repositoryRounds := 0
+	// repositoryAskRounds counts the reading helper's sessions this message.
+	repositoryAskRounds := 0
 	documentHandedBack := false
 	concernHandedBack := false
 	logRounds := 0
@@ -2048,6 +2060,21 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				}
 			} else {
 				undelivered += repositoryread.Render(results, s.repositoryFraming())
+			}
+		}
+		// One question for the reading helper, answered by a session of the
+		// harness's own (repositoryask.go). It is a paid call, so it is taken
+		// only on the message budget's leave.
+		if parsed.RepositoryAsk != nil {
+			s.activity.doing(phaseRepositoryAsk)
+			wasSpent := repositoryAskRounds >= repositoryask.MaxRoundsPerMessage
+			answer := s.performRepositoryAsk(ctx, *parsed.RepositoryAsk, &repositoryAskRounds, budget.Decide(messageSpent(), s.options.MessageBudget).Permission)
+			reply.RepositoryAsks = append(reply.RepositoryAsks, answer)
+			noteToolLimit(&spent, toolRepositoryAsk, repositoryAskRounds, repositoryask.MaxRoundsPerMessage)
+			if answer.Problem != "" && wasSpent {
+				refusedPastLimit = true
+			} else {
+				undelivered += repositoryask.Render(answer, s.repositoryAskFraming())
 			}
 		}
 		if len(parsed.LogReads) > 0 {
@@ -3256,9 +3283,12 @@ type parsedReply struct {
 	Evaluation *evaluation.Entry
 	// Reads are the repository paths this reply asked the harness to read or list
 	// at a recorded commit. Most replies name none.
-	Reads    []repositoryread.Request
-	LogReads []logread.Request
-	RunReads []runinspect.Request
+	Reads []repositoryread.Request
+	// RepositoryAsk is the one question this reply asked the reading helper,
+	// where it asked one.
+	RepositoryAsk *repositoryask.Request
+	LogReads      []logread.Request
+	RunReads      []runinspect.Request
 	// HealthReads are the health observations and follows a reply asks for.
 	HealthReads []health.Request
 	// Recoveries are the run.recover requests a reply makes.
@@ -3380,6 +3410,15 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	} else {
 		prose = next
 	}
+	// The reading helper's block is taken out before the repository block is
+	// looked for; neither fence is a prefix of the other, so the order changes
+	// nothing a reply means.
+	next, repositoryAsk, err := repositoryask.Extract(prose)
+	if err != nil {
+		refuse(blockRepositoryAsk, repositoryask.Fence, fmt.Errorf("reading helper block refused: %w", err))
+	} else {
+		prose = next
+	}
 	next, reads, err := repositoryread.Extract(prose)
 	if err != nil {
 		refuse(blockRepositoryRead, repositoryread.Fence, &RepositoryError{Err: err})
@@ -3473,6 +3512,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Queries = queries
 	parsed.Evaluation = evaluated
 	parsed.Reads = reads
+	parsed.RepositoryAsk = repositoryAsk
 	parsed.LogReads = logs
 	parsed.RunReads = runReads
 	parsed.HealthReads = healthReads
@@ -4196,6 +4236,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// reply that rests on a file is one the operator should be able to hold
 		// against the commit the file was read at.
 		s.harnessBlock(screen, func(w io.Writer) { s.reportRepositoryReads(w, reply) })
+		s.harnessBlock(screen, func(w io.Writer) { s.reportRepositoryAsks(w, reply) })
 		s.harnessBlock(screen, func(w io.Writer) { s.reportLogReads(w, reply) })
 		s.harnessBlock(screen, func(w io.Writer) { s.reportMCPCalls(w, reply) })
 		s.harnessBlock(screen, func(w io.Writer) { s.reportRunReads(w, reply) })

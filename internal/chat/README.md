@@ -101,7 +101,10 @@ loops: `takeTurn` → `splitReply` → `collectReply` → `authorize` (`role.go`
 `verifyProposalGoals` / `verifyProposalConditions` /
 `verifyProposalReferences` → `recordProposals` → `admit` →
 `performTrackerActions` (`tracker.go`, at most `maxTrackerRounds`) →
-`performResearch` → `performRepositoryReads` → `performLogReads` →
+`performResearch` → `performRepositoryReads` → `performRepositoryAsk`
+(`repositoryask.go`: one question for the reading helper, a session the
+harness runs on the lightest model through this conversation's meter) →
+`performLogReads` →
 `performMCPCalls` (`mcp.go`: MCP calls through `internal/mcpcall`, each
 recorded as `tool.requested` then `tool.performed` or `tool.refused`) →
 `performRunReads` / `performHealthReads` (`tool.go`, `runinspect.go`,

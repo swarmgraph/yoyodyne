@@ -188,6 +188,8 @@ type executionDocument struct {
 	HighRiskLabels *[]string `yaml:"high_risk_labels"`
 	// ReviewerModels inherits key by key (reviewermodels.go).
 	ReviewerModels *reviewerModelsDocument `yaml:"reviewer_models"`
+	// RepositoryAsk inherits key by key.
+	RepositoryAsk *repositoryAskDocument `yaml:"repository_ask"`
 	// DeclarativeDelivery is absent from every file written before it existed and
 	// from every file whose project is content with the default. A layer that does
 	// not supply it leaves the harness default in force, which is the declarative

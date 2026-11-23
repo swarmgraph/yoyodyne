@@ -103,7 +103,12 @@ type Authority struct {
 	// of the named read rather than instead of it, and only by the roles whose
 	// bundles name repository.search.
 	RepositorySearch bool
-	LogReads         bool
+	// RepositoryAsk is whether this role may ask the reading helper one
+	// question about the repository, which the harness answers with a session
+	// of its own on the lightest model. Only the roles whose bundles name
+	// repository.ask hold it.
+	RepositoryAsk bool
+	LogReads      bool
 	// MCPCalls is whether this role may ask the harness for MCP calls at all:
 	// whether it holds mcp.read or mcp.act. Which tools it may name is its
 	// agent's own configured list, which the call path checks call by call.
@@ -261,6 +266,7 @@ func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capabi
 		Evaluations:      has(capability.EvaluationRecord),
 		RepositoryReads:  has(capability.RepositoryRead) && has(capability.RepositoryList),
 		RepositorySearch: has(capability.RepositoryRead) && has(capability.RepositoryList) && has(capability.RepositorySearch),
+		RepositoryAsk:    has(capability.RepositoryAsk),
 		LogReads:         has(capability.LogRead),
 		ReadModel:        has(capability.ReadModelRead),
 		MCPCalls:         has(capability.MCPRead) || has(capability.MCPAct),
@@ -427,6 +433,9 @@ func (s *Session) authorize(parsed parsedReply) error {
 			Refused: "the repository to be searched",
 			Reason:  "this role holds no repository.search grant, and names the paths it wants read instead",
 		}
+	}
+	if parsed.RepositoryAsk != nil && !authority.RepositoryAsk {
+		return blockRefusal(authority, blockRepositoryAsk)
 	}
 	if parsed.MCPCarried && !authority.MCPCalls {
 		return &AuthorityError{Role: authority.Role, Refused: "an MCP call to be made", Reason: "this role holds neither the mcp.read nor the mcp.act grant"}
