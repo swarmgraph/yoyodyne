@@ -72,16 +72,29 @@ func (i Intent) Valid() bool {
 
 // directingItemPattern is the shape of a tracker identifier a reason opens with
 // — `yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager` —
-// the same convention a conversation's landing is recognized by. It has to carry
-// a digit somewhere, because every tracker identifier does and a hyphenated
-// word does not: a reason opening "re-worded for clarity" or "follow-up: ..."
-// names no item, and reading it as one would keep an approval standing on a
-// record nobody can follow to a decision. A quote or
-// bracket ahead of it is skipped because the reason is YAML, and one with a colon
-// in it is written quoted. The shape is what is checked, not that the tracker
-// holds the item: this package does not read the tracker, and the reason is the
-// record a person follows to it.
+// the same convention a conversation's landing is recognized by. A hyphenated
+// word has the same outline, and a reason opening "re-worded for clarity" or
+// "follow-up: ..." names no item; reading it as one would keep an approval
+// standing on a record nobody can follow to a decision. So an identifier
+// carrying a digit is read as one wherever it ends, and one with no digit only
+// where it has the tracker's own shape and is set apart the way a reason sets
+// off the item it opens with (digitFreeItemPattern). A quote or bracket ahead
+// of it is skipped because the reason is YAML, and one with a colon in it is
+// written quoted. The shape is what is checked, not that the tracker holds the
+// item: this package does not read the tracker, and the reason is the record a
+// person follows to it.
 var directingItemPattern = regexp.MustCompile(`^["'(\[]*[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+(?:\.[0-9]+)*(?:$|[\s:,;)\]"'])`)
+
+// digitFreeItemPattern is a tracker identifier whose hash happens to hold no
+// digit, such as yoyodyne-utbi: a lower-case prefix, one hyphen, a hash of three
+// to eight lower-case letters, and then a colon, a spaced dash, or the bracket
+// that closes one it opened with. The tracker draws its hash from letters and
+// digits, so about a quarter of four-letter hashes hold no digit, and a
+// revision directed by one of them is as traceable as any other. What it still
+// refuses is ordinary prose: a hyphenated word followed by more words
+// ("re-worded for clarity"), one quoted on its own, and a second part shorter
+// than any hash ("follow-up: ...").
+var digitFreeItemPattern = regexp.MustCompile(`^["']?[(\[]?[a-z][a-z0-9]{1,}-[a-z]{3,8}(?::|\s+[-–—]\s|[)\]])`)
 
 // DirectingItem returns the work item identifier a revision's reason opens with,
 // and whether it opens with one.
@@ -97,7 +110,7 @@ func DirectingItem(reason string) (string, bool) {
 	if end >= 0 {
 		trimmed = trimmed[:end]
 	}
-	if !strings.ContainsAny(trimmed, "0123456789") {
+	if !strings.ContainsAny(trimmed, "0123456789") && !digitFreeItemPattern.MatchString(strings.TrimSpace(reason)) {
 		return "", false
 	}
 	return trimmed, true

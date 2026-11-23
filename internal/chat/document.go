@@ -42,6 +42,13 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
+// documentKinds is the part of the document store that says what kind a
+// recorded document is, so a revision, which names no kind, is recorded with
+// the kind of the document it changes. It is satisfied by artifact.Store.
+type documentKinds interface {
+	KindOf(id string) (artifact.Kind, bool)
+}
+
 // Documents is the narrow capability a conversation writes a canonical document
 // through. It is satisfied by artifact.Store, and it is deliberately a list of
 // named operations rather than a filesystem: the only writes a conversation can
@@ -100,6 +107,11 @@ type PendingWrite struct {
 	RevisedPath string                        `json:"revised_path,omitempty"`
 	Write       artifact.Write                `json:"write"`
 	Publication *runstate.DocumentPublication `json:"publication,omitempty"`
+	// DocumentKind and WaitsBehind are what runstate.PendingWrite records of
+	// them: the kind of the document a revision changes, and the copy of the
+	// document ahead of it that the harness holds it back behind.
+	DocumentKind string `json:"document_kind,omitempty"`
+	WaitsBehind  string `json:"waits_behind,omitempty"`
 }
 
 // writeRecord is one written document and whether confirmation and delivery finished
@@ -250,7 +262,9 @@ func (s *Session) Writes() []PendingWrite {
 	for _, record := range s.writes {
 		// A document held for sending is its owner's to release, not the
 		// operator's to decide, until the work item its hold names closes.
-		if !record.decided && record.pending.Publication == nil && !record.heldForSending() {
+		// Nor is one the harness holds back behind another copy of itself still
+		// publishing: that wait ends by itself, and nobody is asked to end it.
+		if !record.decided && record.pending.Publication == nil && !record.heldForSending() && record.pending.WaitsBehind == "" {
 			pending = append(pending, record.pending)
 		}
 	}
@@ -447,6 +461,11 @@ func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]Pendi
 			// document by identifier, and the confirmed copy gives the path later.
 			if path, err := s.options.Documents.WritePath(write); err == nil {
 				record.pending.RevisedPath = path
+			}
+			if kinds, ok := s.options.Documents.(documentKinds); ok {
+				if kind, found := kinds.KindOf(write.ID); found {
+					record.pending.DocumentKind = string(kind)
+				}
 			}
 		}
 		// What the new revision frees is settled first, so the revision it
@@ -996,6 +1015,8 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		// the one written.
 		EstablishedBy: p.Write.EstablishedBy,
 		Scope:         p.Write.Scope,
+		DocumentKind:  p.DocumentKind,
+		WaitsBehind:   p.WaitsBehind,
 	}.RecordRevisedPath(p.RevisedPath)
 }
 
@@ -1011,6 +1032,8 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 		Turn:           recorded.Turn,
 		WrittenAt:      recorded.WrittenAt,
 		RevisedPath:    revisedPath(recorded),
+		DocumentKind:   recorded.DocumentKind,
+		WaitsBehind:    recorded.WaitsBehind,
 		Write: artifact.Write{
 			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),

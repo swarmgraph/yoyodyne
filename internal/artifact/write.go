@@ -631,6 +631,20 @@ func (s Store) CheckWrite(role domain.AgentRole, write Write) error {
 	return nil
 }
 
+// KindOf is the kind of the recorded document an id names, and whether one
+// is recorded under it. A store that cannot be read names none.
+func (s Store) KindOf(id string) (Kind, bool) {
+	set, err := s.Load()
+	if err != nil {
+		return "", false
+	}
+	found, ok := set.Find(strings.TrimSpace(id))
+	if !ok {
+		return "", false
+	}
+	return found.Kind, true
+}
+
 // WritePath is the repository-relative file a write lands in: the file a
 // creation names in its directory, or the file the document a revision names
 // is already read from. It is what the document is checked as before it is

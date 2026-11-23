@@ -8498,7 +8498,14 @@ mover is you, opened into the records they carry. Today there are two kinds:
   kind's approval setting asks for a person stays on the line as its owning
   role's, and is not on the page's list; a document confirmed for publication
   or held for sending is not waiting on anybody's approval, so it is on
-  neither.
+  neither. Nor is a revision the harness holds back while another copy of the
+  same document is still being published: it is confirmed, or put to you,
+  once that copy lands or is handed back, and a revision the Lead Product
+  Manager marked consistent with intent is then approved as hers. Where one of
+  the product's documents does wait for you, the entry's reason names the
+  document — "a change to the operating rules that the Lead Product Manager
+  could not approve as consistent with intent, so it waits for the operator to
+  decide" — rather than calling every one a change to the fundamental goals.
 - **A change proposed to a document**, where the line names you: a change to
   the brief or the goals that changes their intent or does not say. It is
   decided by `yoyo amendment approve` and `decline`, and where its owner

@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/documentcheck"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -104,7 +105,8 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			// One revision of a document is published at a time: a newer one
 			// waits until the run of the one ahead of it ends, which an earlier
 			// pass of this loop may just have settled.
-			if behind, _ := s.waitingBehind(record); behind != nil {
+			if behind, run := s.waitingBehind(record); behind != nil {
+				record.pending.WaitsBehind = waitsBehindSays(fmt.Sprintf("its earlier revision %s is being published in run %s", behind.pending.ID, run))
 				continue
 			}
 			// The same holds across conversations: while a copy of this document
@@ -118,6 +120,9 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			if held {
 				continue
 			}
+			// Nothing holds it back any more, so it is confirmed or put to the
+			// operator now, and either says where it stands.
+			record.pending.WaitsBehind = ""
 			_, landsDecided := s.approvedDocumentRoute()
 			confirmed, err := s.confirmDocument(record, publisher.PublishesDocuments(), landsDecided)
 			if err != nil {
@@ -267,12 +272,24 @@ func (s *Session) holdBehindPublishingCopy(record *writeRecord, publisher Docume
 		return false, nil
 	}
 	said := ahead.Says()
+	// The wait is recorded on the document as well as told to its owner, so
+	// nothing that reads the saved record lists it as waiting for the operator.
+	record.pending.WaitsBehind = waitsBehindSays(said)
 	if record.waitsFor == said {
 		return true, nil
 	}
 	record.waitsFor = said
 	return true, s.carryResults(fmt.Sprintf("Document %s (%s) is recorded and not yet confirmed: %s. It is confirmed and sent once that copy lands or is handed back, as a revision of what is then on the target branch; it does not need writing again.\n",
 		record.pending.ID, strings.TrimSpace(record.pending.Write.ID), said))
+}
+
+// waitsBehindSays is what a document records of the copy ahead of it, within
+// the bound the record holds it to.
+func waitsBehindSays(said string) string {
+	if said = oneline.Fold(strings.TrimSpace(said), runstate.MaxHandedBackReasonBytes); said == "" {
+		return "another copy of the document is still being published"
+	}
+	return said
 }
 
 // documentWaitingForSlot is what a document's last offer is remembered as while

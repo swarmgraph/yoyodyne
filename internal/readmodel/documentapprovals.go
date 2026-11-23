@@ -38,7 +38,11 @@ type DocumentApproval struct {
 	// ProductIntent is a document stating the product's intent: the brief, the
 	// goals and non-goals, and the operating rules.
 	ProductIntent bool `json:"product_intent,omitempty"`
-	Turn          int  `json:"turn"`
+	// DocumentKind is the kind of the document the write changes: the write's
+	// own kind on a creation, and the kind recorded with a revision. It is
+	// empty where neither was kept.
+	DocumentKind string `json:"document_kind,omitempty"`
+	Turn         int    `json:"turn"`
 	// WrittenAt is when the role wrote it, absent on a record kept before the
 	// moment was.
 	WrittenAt time.Time `json:"written_at,omitzero"`
@@ -125,9 +129,11 @@ func readDocuments(sources Sources) documentReading {
 // readDocumentApprovals is every document waiting for the operator's approval,
 // across every recorded conversation, longest waiting first. A document the
 // conversation keeps is waiting on him unless a reviewed run is carrying it,
-// which is the harness's, or its owner has held it for sending, which is the
-// owner's until the item its hold names closes (chat.Session.Writes reads the
-// same two the same way).
+// which is the harness's, its owner has held it for sending, which is the
+// owner's until the item its hold names closes, or the harness holds it back
+// behind another copy of the same document still publishing, a wait that ends
+// by itself and is nobody's decision (runstate.PendingWrite.AwaitsDecision;
+// chat.Session.Writes reads the same three the same way).
 func readDocumentApprovals(sources Sources) ([]Attention, string) {
 	if sources.Conversations == nil {
 		return nil, ""
@@ -143,7 +149,7 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 			agent = string(conversation.Role)
 		}
 		for _, write := range conversation.PendingWrites {
-			if write.Publication != nil || write.Held() {
+			if !write.AwaitsDecision() {
 				continue
 			}
 			waiting = append(waiting, DocumentApproval{
@@ -151,7 +157,8 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 				Action: write.Action, Document: strings.TrimSpace(write.Artifact), Kind: write.Kind,
 				Title: strings.TrimSpace(write.Title), Directory: strings.TrimSpace(write.Directory),
 				Reason: strings.TrimSpace(write.Reason), Body: write.Body, ProductIntent: productIntent(conversation.Role, write),
-				Turn: write.Turn, WrittenAt: write.WrittenAt,
+				DocumentKind: documentKind(write),
+				Turn:         write.Turn, WrittenAt: write.WrittenAt,
 			})
 		}
 	}
@@ -174,12 +181,21 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 	return attention, ""
 }
 
+// documentKind is the kind of the document a write changes, as far as its
+// record says.
+func documentKind(write runstate.PendingWrite) string {
+	if kind := strings.TrimSpace(write.Kind); kind != "" {
+		return kind
+	}
+	return strings.TrimSpace(write.DocumentKind)
+}
+
 // productIntent reports a write of the product's intent. A role files a
 // document only in its kind's home, so the kind decides; a revision may name
 // none, and then it is the product's intent where the role that wrote it is
 // the one that owns the brief, since that role owns no other kind.
 func productIntent(role domain.AgentRole, write runstate.PendingWrite) bool {
-	if kind := strings.TrimSpace(write.Kind); kind != "" {
+	if kind := documentKind(write); kind != "" {
 		return artifact.IntentKind(artifact.Kind(kind))
 	}
 	owner, known := artifact.Owner(artifact.KindBrief)
