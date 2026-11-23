@@ -8882,6 +8882,7 @@ func (s *Started) record(done completed) {
 	var notStarted feedbackRepairNotStarted
 	var note PauseNoteError
 	var design NeedsDesignError
+	var kept KeptApprovalError
 	switch {
 	case done.outcome.Paused && errors.As(done.err, &note):
 		s.NoteProblem = done.err.Error()
@@ -8902,6 +8903,10 @@ func (s *Started) record(done completed) {
 			capacity.Active, capacity.Limit)
 	case errors.As(done.err, &existing):
 		s.Declined = fmt.Sprintf("another process is already running %s as %s", existing.State.WorkItemID, existing.State.RunID)
+	case errors.As(done.err, &kept):
+		// The item is held by the run that kept its approved change, which is
+		// resumed rather than replaced; nothing failed in turning the start down.
+		s.Declined = kept.Error()
 	case errors.As(done.err, &behind):
 		s.Declined = behind.Error()
 	case teamClaimDeclined(done.err):

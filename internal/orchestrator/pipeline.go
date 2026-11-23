@@ -1487,6 +1487,11 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	if err := p.refuseSubstitutedHandback(workItemID); err != nil {
 		return Outcome{}, err
 	}
+	// The same holds for an item whose last run kept an approved change short of
+	// its promotion: what it is owed is that change resumed, not a fresh run.
+	if err := p.refuseFreshOverKeptApproval(workItemID); err != nil {
+		return Outcome{}, err
+	}
 	if err := validateReadyItem(p.releaseTeamMerged(ctx, item, ""), workItemID); err != nil {
 		return Outcome{}, err
 	}
@@ -2774,20 +2779,90 @@ func (p Pipeline) refuseSubstitutedHandback(workItemID string) error {
 	if !owedARepair(latest) {
 		return nil
 	}
-	claimed, err := p.Store.Reruns().Claimed(workItemID)
-	if err != nil {
-		return fmt.Errorf("read the re-runs triage has claimed of %s: %w", workItemID, err)
-	}
-	for _, rerun := range claimed {
-		if rerun.PriorRunID == latest.RunID {
-			return nil
-		}
+	if rerun, err := p.rerunClaimed(latest); err != nil || rerun {
+		return err
 	}
 	return SubstitutedHandbackError{
 		WorkItemID:   workItemID,
 		RunID:        latest.RunID,
 		Branch:       latest.Branch,
 		WorktreePath: latest.WorktreePath,
+	}
+}
+
+// rerunClaimed reports a re-run triage claimed against the stopped run, which
+// is the development manager deciding the work is to be done again.
+func (p Pipeline) rerunClaimed(stopped runstate.State) (bool, error) {
+	claimed, err := p.Store.Reruns().Claimed(stopped.WorkItemID)
+	if err != nil {
+		return false, fmt.Errorf("read the re-runs triage has claimed of %s: %w", stopped.WorkItemID, err)
+	}
+	for _, rerun := range claimed {
+		if rerun.PriorRunID == stopped.RunID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ErrKeptApprovalSubstituted is what a fresh run refused for standing in place
+// of an approved change its item's last run kept unwraps to.
+var ErrKeptApprovalSubstituted = errors.New("a fresh run would start over on an approved change that is kept to be resumed")
+
+// KeptApprovalError refuses a fresh run of an item whose last run stopped with
+// its change approved and kept short of its promotion. Nothing was reserved,
+// claimed, or created.
+type KeptApprovalError struct {
+	WorkItemID string
+	RunID      string
+	Branch     string
+	Commit     string
+	// Harness says the harness resumes the stopped run by itself, so nobody is
+	// asked to.
+	Harness bool
+}
+
+func (e KeptApprovalError) Error() string {
+	next := fmt.Sprintf("`yoyo triage resume %s` resumes it at no cost, and `yoyo triage rerun %s` is what starts a fresh run deliberately", e.RunID, e.RunID)
+	if e.Harness {
+		next = fmt.Sprintf("the harness resumes it by itself in the next free developer slot, ahead of fresh work, and `yoyo triage rerun %s` is what starts a fresh run deliberately", e.RunID)
+	}
+	return fmt.Sprintf("run %s of %s stopped with its change approved and kept on %s at %s, short of landing, so what the item is owed is that run resumed at its promotion rather than a fresh run started from nothing; no run was reserved and no worktree was created: %s",
+		e.RunID, e.WorkItemID, e.Branch, shortCommit(e.Commit), next)
+}
+
+func (e KeptApprovalError) Unwrap() error { return ErrKeptApprovalSubstituted }
+
+// refuseFreshOverKeptApproval refuses to start a fresh run of an item whose
+// last run stopped with an approved change it can still be resumed with
+// (runstate.State.ResumableIntegration): the run that kept the change holds the
+// item until it is resumed or the development manager decides otherwise. A
+// re-run she decided against that run is her deciding otherwise, and passes.
+//
+// It is what keeps a merge queue hand-back from being followed by a fresh pull
+// of the same item: the change the queue let go is approved and kept, and
+// rebuilding it from the target spends a developer, checks and a review on work
+// already done (resumesFromKeptCommit in mergequeuerecovery.go).
+func (p Pipeline) refuseFreshOverKeptApproval(workItemID string) error {
+	latest, err := p.Store.Latest(workItemID)
+	if errors.Is(err, runstate.ErrNoRecordedRun) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read the last run of %s, to tell a fresh run from an approved change kept to be resumed: %w", workItemID, err)
+	}
+	if !latest.ResumableIntegration() {
+		return nil
+	}
+	if rerun, err := p.rerunClaimed(latest); err != nil || rerun {
+		return err
+	}
+	return KeptApprovalError{
+		WorkItemID: workItemID,
+		RunID:      latest.RunID,
+		Branch:     latest.Branch,
+		Commit:     latest.HarnessCommit,
+		Harness:    latest.HarnessResumesIntegration(),
 	}
 }
 
