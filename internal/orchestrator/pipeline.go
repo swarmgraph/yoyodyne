@@ -10254,7 +10254,9 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	}
 	account := a.account()
 	attribution := a.spendAttribution(domain.RoleReviewer, runstate.SpendPhaseReview)
-	reviewer, configured := p.Reviewer, p.reviewer().Model
+	// The model is chosen by kind of change, documents or code
+	// (reviewermodel.go).
+	reviewer, configured := p.reviewerForChange(isDocumentReview(a.state))
 	var launchGate *execution.LaunchGate
 	// A review of a project that enables reviewer fallback is made on the
 	// reviewer's own endpoint, under that endpoint's account, as one recorded

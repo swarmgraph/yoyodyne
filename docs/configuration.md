@@ -4852,8 +4852,10 @@ costs is read off the same surfaces as before — a mapped run simply says
 
 **The reviewer's model is not reachable from here.** There is no key in this
 block that could name it, deliberately: which tools a reviewer may use is a safety
-property rather than a spend decision, and an independent verdict bought more
-cheaply is the one saving that costs the gate its meaning. The
+property rather than a spend decision, and a reviewer's model follows the kind
+of change it reviews rather than the labels on an item. That has a setting of
+its own, [`reviewer_models`](#the-reviewers-model-by-kind-of-change), which
+never lets a review of code be made below the stronger model. The
 [account pool and the failover rules](#serving-a-turn-from-a-permitted-alternate-model)
 apply to a mapped run unchanged, and so does everything else — a run on a
 mapped model is claimed, developed, checked, reviewed, and promoted exactly as
@@ -4943,6 +4945,48 @@ no cheaper model.
 
 These are new keys: a part of the product still running a build from before
 them refuses a file that carries them until it moves onto a newer build.
+
+### The reviewer's model by kind of change
+
+[Reducing what the factory costs](designs/reducing-what-the-factory-costs.md),
+sections 5 and 8. The development manager's to set:
+
+```yaml
+execution:
+  reviewer_models:
+    documents: stronger   # stronger (the default) or cheaper
+    code: stronger        # stronger only, which is the default
+```
+
+**What it does.** A run that publishes a document is reviewed on the model
+kind `documents` names; every other run, which is a change to code, is
+reviewed on the kind `code` names. The same applies when a change is reviewed
+again in the merge queue. The stronger kind is the reviewer agent's own
+configured model, so a project that states nothing reviews exactly as before.
+The cheaper kind is what [`model_kinds`](#developers-that-start-on-the-cheaper-model)
+names for the reviewer's provider: `sonnet` on Claude Code by default. A review
+made on a reviewer [endpoint pair](#what-a-review-does-with-the-reviewers-pair) keeps the
+endpoint's model. The model a review ran on is recorded on the run, as it
+always was.
+
+Only the model changes. The reviewer is still the reviewer role, under its own
+contract and persona, and never the role that wrote the change.
+
+**What the file refuses at load.** `code` set to anything but `stronger`,
+because a review of code is never made below the stronger model; `documents`
+set to anything but `stronger` or `cheaper`, because nothing has compared the
+lightest model with the stronger reviewer; and `documents: cheaper` while a
+reviewer agent's provider names no cheaper model.
+
+**Before this repository turns it on.** The design moves document reviews to
+the cheaper model only after at least 30 document publications have been
+reviewed on both models and the cheaper reviewer refused what the stronger
+refused. Nothing in the harness yet runs that comparison, so this repository
+keeps both kinds on the stronger model.
+
+`reviewer_models` is a new key: a part of the product still running a build
+from before it refuses a file that carries it until it moves onto a newer
+build.
 
 ### Saying why ready work has not started
 
