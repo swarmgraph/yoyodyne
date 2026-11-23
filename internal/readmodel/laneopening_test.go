@@ -63,7 +63,7 @@ func TestALaneReportsThreeOpeningListsReachEverySurfaceAndTheBlockerIsCarried(t 
 			t.Fatalf("Write(%s, %d) error = %v", agent, turn, err)
 		}
 	}
-	entry := runstate.LaneReportHumanBlock{Item: "yoyodyne-ifd.9", What: "renew the forge token in the keychain", Reason: ownership.OperatorCredential, Cites: tokenReport, Since: moment.Add(-5 * time.Hour)}
+	entry := runstate.LaneReportHumanBlock{Item: "yoyodyne-ifd.9", What: "renew the forge token in the keychain", Reason: ownership.OperatorCredential, Credential: &ownership.Credential{Needs: ownership.CredentialSecret, What: "the forge token"}, Cites: tokenReport, Since: moment.Add(-5 * time.Hour)}
 	write("factory-pgm", 1, []runstate.LaneReportHumanBlock{entry})
 	write("writing-pgm", 2, []runstate.LaneReportHumanBlock{entry})
 

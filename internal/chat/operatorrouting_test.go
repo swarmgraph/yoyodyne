@@ -188,7 +188,7 @@ func TestAHandlingNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 	}{
 		{name: "no reason", extra: `,"needs":"operator"`},
 		{name: "a protected file", extra: `,"needs":"operator","operator_reason":"protected-file"`, applied: true, reason: ownership.OperatorProtectedFile},
-		{name: "a person-only remedy", extra: `,"needs":"operator","person_only":{"reason":"credential","target":"the forge login","step":"log in to the forge again"}`, applied: true, reason: ownership.OperatorCredential},
+		{name: "a person-only remedy", extra: `,"needs":"operator","person_only":{"reason":"credential","target":"the forge login","step":"log in to the forge again"},"credential":{"needs":"account","what":"the forge login"}`, applied: true, reason: ownership.OperatorCredential},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
@@ -312,10 +312,14 @@ func TestAnAskNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 		// A scheduled pass's reply is read by nobody, so an ask with no report
 		// carrying it would reach no person; it is refused rather than said to
 		// have been put to him.
-		{name: "the architect for a credential with no report", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`, noReport: true},
-		{name: "the architect for a credential, with a report addressed to a role", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`,
+		{name: "the architect for a credential with no report", role: domain.RoleArchitect, extra: `,"operator_reason":"credential","credential":{"needs":"account","what":"the forge login"}`, noReport: true},
+		{name: "the architect for a credential, with a report addressed to a role", role: domain.RoleArchitect, extra: `,"operator_reason":"credential","credential":{"needs":"account","what":"the forge login"}`,
 			report: `{"severity":"warning","for":"development-manager","message":"the forge login has lapsed."}`, noReport: true},
-		{name: "the architect for a credential", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`, report: carried, put: true},
+		{name: "the architect for a credential", role: domain.RoleArchitect, extra: `,"operator_reason":"credential","credential":{"needs":"account","what":"the forge login"}`, report: carried, put: true},
+		// Read access a role lacks is not his, and a credential naming nothing
+		// cannot be told from it, so both go up the asking role's rung.
+		{name: "the architect for read access", role: domain.RoleArchitect, extra: `,"operator_reason":"credential","credential":{"needs":"read-access","what":"the project's ticket tracker"}`, report: carried},
+		{name: "the architect for a credential naming nothing", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`, report: carried},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()

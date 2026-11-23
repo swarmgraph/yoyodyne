@@ -311,6 +311,15 @@ func askRefused(cause error) string {
 // refusedAskSays is a refused ask in ordinary words, for the operator and for
 // the record of a pass.
 func refusedAskSays(asker domain.AgentRole, ask exchange.Ask) string {
+	if ask.AsksOperator() && ask.OperatorReason.Valid() && ownership.CheckCredential(ask.OperatorReason, ask.Credential) != nil {
+		if ask.OperatorReason != ownership.OperatorCredential {
+			return fmt.Sprintf("the %s asked the operator a question for %q with a \"credential\" field, which only a question under \"credential\" takes, so the question was handed back and the rest of that reply was carried out", RoleTitle(asker), ask.OperatorReason)
+		}
+		if ask.Credential != nil && ask.Credential.Needs == ownership.CredentialReadAccess {
+			return fmt.Sprintf("the %s asked the operator for read access to %s, which a role could be given and is not his, so the question was handed back with the rung to use instead (%s) and the rest of that reply was carried out", RoleTitle(asker), strings.TrimSpace(ask.Credential.What), ownership.Rung(asker))
+		}
+		return fmt.Sprintf("the %s asked the operator a question under \"credential\" without naming a secret or account only a person holds, which cannot be told from read access a role lacks, so the question was handed back with the rung to use instead (%s) and the rest of that reply was carried out", RoleTitle(asker), ownership.Rung(asker))
+	}
 	if ask.AsksOperator() && ask.OperatorReason.Valid() {
 		return fmt.Sprintf("the %s asked the operator a question with no report at warning or above to carry it to him, so the question was handed back and the rest of that reply was carried out", RoleTitle(asker))
 	}
@@ -375,6 +384,15 @@ func refuseUnauthorizedAsk(authority Authority, parsed parsedReply) error {
 				Role:    authority.Role,
 				Refused: "a question put to the operator",
 				Reason:  err.Error(),
+			}
+		}
+		// Read access a role lacks is a capability the harness lacks, never his.
+		if err := ownership.CheckCredential(parsed.Ask.OperatorReason, parsed.Ask.Credential); err != nil {
+			return &AuthorityError{
+				Role:    authority.Role,
+				Refused: "a question put to the operator",
+				// The rung comes first: the hand-back is cut to one bounded line.
+				Reason: ownership.Rung(authority.Role) + ", because " + err.Error(),
 			}
 		}
 		if !reportsAskOfOperator(parsed) {
