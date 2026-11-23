@@ -565,6 +565,23 @@ type HandedBackDocument struct {
 	RunID    string    `json:"run_id,omitempty"`
 	Reason   string    `json:"reason"`
 	At       time.Time `json:"at"`
+	// Action, Body, Names and Revises are what the revision was: "create" or
+	// "revise", its text (cut to MaxHandedBackBodyBytes), the work items it
+	// names, and the document it revises. They are kept so a revision handed back
+	// is still checked against open work like any unpublished document. A record
+	// kept before they were has none of them, and is listed against nothing.
+	Action  string        `json:"action,omitempty"`
+	Body    string        `json:"body,omitempty"`
+	Names   []string      `json:"names,omitempty"`
+	Revises []DocumentRef `json:"revises,omitempty"`
+}
+
+// AsWrite is the handed-back revision as the unpublished document it still is,
+// carrying what it names and revises, for the check of unpublished documents
+// against open work.
+func (h HandedBackDocument) AsWrite() PendingWrite {
+	return PendingWrite{ID: h.ID, Artifact: h.Artifact, Turn: h.Turn, WrittenAt: h.Written,
+		Action: h.Action, Body: h.Body, Names: h.Names, Revises: h.Revises}
 }
 
 // MaxHandedBackDocuments bounds the revisions handed back a conversation keeps
@@ -573,7 +590,24 @@ type HandedBackDocument struct {
 const (
 	MaxHandedBackDocuments   = 8
 	MaxHandedBackReasonBytes = 2 << 10
+	// MaxHandedBackBodyBytes bounds the text each handed-back revision keeps, so
+	// the eight together stay well inside the record's own limit. What the
+	// revision names is worked out from the whole text before it is cut.
+	MaxHandedBackBodyBytes = 24 << 10
 )
+
+// HandedBackFrom is the record kept of a revision handed back: the write as the
+// conversation recorded it, with what it names and revises worked out from the
+// whole of it, and its text cut to MaxHandedBackBodyBytes.
+func HandedBackFrom(write PendingWrite, runID, reason string, at time.Time) HandedBackDocument {
+	write = write.WithRelations()
+	return HandedBackDocument{
+		ID: write.ID, Artifact: strings.TrimSpace(write.Artifact), Turn: write.Turn, Written: write.WrittenAt,
+		RunID: runID, Reason: reason, At: at,
+		Action: write.Action, Body: FitText(write.Body, MaxHandedBackBodyBytes, ""),
+		Names: write.Names, Revises: write.Revises,
+	}
+}
 
 // HandedBackReason is the reason a revision handed back is kept with: the run's
 // account folded onto one line and fitted to MaxHandedBackReasonBytes by
@@ -1029,6 +1063,10 @@ func (c Conversation) Validate() error {
 	for i, back := range c.HandedBack {
 		if strings.TrimSpace(back.ID) == "" || strings.TrimSpace(back.Artifact) == "" {
 			problems = append(problems, fmt.Errorf("handed_back[%d] does not name its document", i))
+		}
+		if len(back.Body) > MaxHandedBackBodyBytes {
+			problems = append(problems, fmt.Errorf("handed_back[%d] text is %d bytes, limit is %d",
+				i, len(back.Body), MaxHandedBackBodyBytes))
 		}
 		if len(back.Reason) > MaxHandedBackReasonBytes {
 			problems = append(problems, fmt.Errorf("handed_back[%d] reason is %d bytes, limit is %d",

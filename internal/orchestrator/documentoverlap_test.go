@@ -224,3 +224,22 @@ func slicesHas(kinds []PassChangeKind, kind PassChangeKind) bool {
 	}
 	return false
 }
+
+// A revision its publishing run handed back is listed against an open item it
+// names, as any unpublished document is, until it is answered.
+func TestAHandedBackRevisionNamingAnOpenItemIsListed(t *testing.T) {
+	t.Parallel()
+
+	back := runstate.HandedBackFrom(runstate.PendingWrite{ID: "document-9.1", Artifact: "design-x", Action: "create", Answers: []string{"example-5"}, WrittenAt: overlapWritten},
+		"run-1", "returned", overlapWritten.Add(time.Hour))
+	item := overlapItem(overlapWritten.Add(-time.Hour), beads.FrameNote("Decision: keep the old route."))
+	found := FindDocumentOverlaps([]runstate.PendingWrite{back.AsWrite()}, []beads.WorkItem{item}, nil)
+	if len(found) != 1 || found[0].Revision != "document-9.1" || found[0].Item.ID != "example-5" {
+		t.Fatalf("overlaps = %+v, want the handed-back revision listed against example-5", found)
+	}
+	// Without what it names, as a record kept before that was, nothing is listed.
+	old := runstate.HandedBackDocument{ID: "document-9.1", Artifact: "design-x"}
+	if found := FindDocumentOverlaps([]runstate.PendingWrite{old.AsWrite()}, []beads.WorkItem{item}, nil); len(found) != 0 {
+		t.Fatalf("an old record listed %+v", found)
+	}
+}
