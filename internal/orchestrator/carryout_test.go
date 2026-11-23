@@ -1617,7 +1617,7 @@ func TestASettledEntryWhoseCarryOutAGateStoppedIsAQuestionAgain(t *testing.T) {
 
 	// The harness tries to carry the decision out after it was made, and the
 	// item's own state refuses it.
-	harness.item.Status = "closed"
+	harness.item.Status = "deferred"
 	refusing := harness.carryOutAt(time.Minute)
 	if _, _, err := refusing.Carry(context.Background(), theOneOutstanding(t, refusing)); err != nil {
 		t.Fatalf("Carry() error = %v", err)

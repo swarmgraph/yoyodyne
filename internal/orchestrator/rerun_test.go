@@ -731,7 +731,7 @@ func TestARerunOfAnItemNoRunCanStartOnIsRefusedAndSpendsNothing(t *testing.T) {
 		{
 			name: "the item is closed",
 			item: beads.WorkItem{ID: docketedItem, Status: "closed"},
-			want: `status is "closed", want open or blocked`,
+			want: "is closed, so there is no open work",
 		},
 		{
 			name: "something the item depends on is not done",

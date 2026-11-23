@@ -969,7 +969,7 @@ func (r Rerunner) itemCanBeRun(ctx context.Context, workItemID string) (beads.Wo
 		return beads.WorkItem{}, fmt.Errorf("read the work item the stoppage is about: %w", err)
 	}
 	if item.ID == workItemID && item.Status == closedStatus {
-		return beads.WorkItem{}, itemClosed(workItemID)
+		return beads.WorkItem{}, fmt.Errorf("%w, so the stoppage keeps its re-run", itemClosed(workItemID))
 	}
 	statuses := startableStatuses
 	if item.Status == claimedItemStatus {
