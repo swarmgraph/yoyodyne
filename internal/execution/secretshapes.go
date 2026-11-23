@@ -111,6 +111,8 @@ func ordinaryWord(value string) bool {
 // its line. Taking a backslash alone would leave it before the marker, and
 // `\[` is not a JSON escape. Skipping escaped line breaks also means a value on
 // the line after its name is still found and removed.
+//
+// The shapes recognized by a prefix alone begin where shapeStart says.
 var secretShapes = []secretShape{
 	// An authorization header, in any of the forms a client prints one: HTTP,
 	// JSON, a JavaScript object, or an environment-style assignment. The scheme
@@ -141,21 +143,32 @@ var secretShapes = []secretShape{
 	// refresh tokens (sk-ant-oat01-, sk-ant-ort01-), and session keys
 	// (sk-ant-sid01-). OpenAI keys: sk-, sk-proj-, sk-svcacct-.
 	{
-		pattern: regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`),
-		keep:    redactedMarker,
+		pattern: regexp.MustCompile(shapeStart + `sk-[A-Za-z0-9_-]{20,}`),
+		keep:    "${1}" + redactedMarker,
 	},
 	// A JSON web token, which is what a ChatGPT login's access and id tokens
 	// are: three base64url parts, the first two of them JSON objects.
 	{
-		pattern: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
-		keep:    redactedMarker,
+		pattern: regexp.MustCompile(shapeStart + `eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
+		keep:    "${1}" + redactedMarker,
 	},
 	// GitHub tokens, which a session's own tools can print.
 	{
-		pattern: regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})`),
-		keep:    redactedMarker,
+		pattern: regexp.MustCompile(shapeStart + `(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})`),
+		keep:    "${1}" + redactedMarker,
 	},
 }
+
+// shapeStart is where a shape recognized by its prefix alone — a provider key,
+// a JSON web token, a GitHub token — may begin: the start of the text, a
+// character that cannot be part of a word, or an escaped line break or tab
+// (\n, \r, \t). A word boundary alone is not enough: on a raw stream line a
+// secret that begins a line of the text follows the letter of the escape, as
+// in `\nsk-…`, where there is no boundary. It is the first group of each such
+// pattern and is kept in front of the marker, so the escape survives whole and
+// the line is still JSON. A word that merely ends in n, r, or t right before
+// the prefix is not an escape and does not start one.
+const shapeStart = `(^|[^A-Za-z0-9_]|\\[nrt])`
 
 // redactSecretShapes replaces every secret recognized by its shape.
 func redactSecretShapes(value string) string {
