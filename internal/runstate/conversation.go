@@ -165,6 +165,13 @@ type Conversation struct {
 	// it did and did not — so it travels the same way rather than in a field of its
 	// own.
 	PendingTrackerResults string `json:"pending_tracker_results,omitempty"`
+	// Told counts the handoffs the harness has added to PendingTrackerResults
+	// from outside the agent's own turns (tell), and only ever rises. The rest of
+	// that text is the results of the agent's own actions, which every pass that
+	// writes a lane report or a memory note leaves behind, so the check before a
+	// scheduled pass reads this count rather than the text: a handoff moves it,
+	// and the agent's own results do not (internal/cli/passchanges.go).
+	Told uint64 `json:"told,omitempty"`
 	// PassCarriedForward is the account the last recurring turn of this
 	// conversation gave, as its reply's prose, and PassCarriedForwardFrom the
 	// pass that gave it. Every recurring turn starts a provider session of its
@@ -2273,6 +2280,7 @@ func (s *ConversationStore) tell(identity ConversationIdentity, text string) err
 		told = "[the first " + strconv.Itoa(cut) + " bytes are cut; treat them as unread rather than absent]\n\n" + told[cut:]
 	}
 	current.PendingTrackerResults = told
+	current.Told++
 	return s.Save(current)
 }
 
