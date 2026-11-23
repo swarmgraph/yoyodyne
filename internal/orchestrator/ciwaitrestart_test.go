@@ -223,3 +223,79 @@ func TestARunKeepingSlotTwosPairTakesTheFirstFreedSlotBeforeNewWork(t *testing.T
 		}
 	}
 }
+
+// The slot a continuation takes is counted from the moment the session starts
+// it, not from when its dispatch takes the slot back: until then the run's
+// record still says it waits on GitHub's checks, which holds no slot. Here the
+// continuation's dispatch is held until two more pulls have been made, as a
+// loaded machine can hold it, and the fresh item still does not take the slot
+// it is about to fill.
+func TestAContinuationNotYetInItsSlotKeepsTheSlotFromNewWork(t *testing.T) {
+	t.Parallel()
+
+	const (
+		id     = "yoyodyne-ifd.429.127.2"
+		holder = "yoyodyne-ifd.428.181"
+		ending = "yoyodyne-ifd.432.25.15"
+	)
+	fresh := beads.WorkItem{ID: "yoyodyne-ifd.431.13", Title: "warn about a stale build", Status: "open", Priority: 0}
+	harness := newScheduleHarness(fresh)
+	harness.capacity = 2
+	harness.poll = 5 * time.Millisecond
+	pushed := harness.now.Add(-2 * time.Hour)
+	waiting := inSlot(waitingOnGitHub(id, "run-e63fbad1", pushed), 2, pushed)
+	waiting.CIWait.WaitLimitSeconds = int64(time.Hour / time.Second)
+	harness.inFlight[id] = waiting
+	harness.inFlight[holder] = inSlot(runstate.State{RunID: "run-a15c973e", WorkItemID: holder,
+		Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping}, 2, pushed)
+	harness.inFlight[ending] = runstate.State{RunID: "run-380d6f6a", WorkItemID: ending, Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping,
+		Routing: &runstate.RunRouting{Version: 2, Slot: &runstate.RoutedSlot{Number: 1, Origin: runstate.RoutingClaimed, RecordedAt: pushed}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	harness.onPull = func(h *scheduleHarness, pulls int) {
+		if pulls == 3 {
+			h.mu.Lock()
+			delete(h.inFlight, ending)
+			h.mu.Unlock()
+		}
+		if slices.Contains(h.pullOrder(), fresh.ID) || pulls > 40 {
+			cancel()
+		}
+	}
+	harness.onSleep = func(*scheduleHarness, int) bool { return ctx.Err() == nil }
+	pullsMade := func() int {
+		harness.mu.Lock()
+		defer harness.mu.Unlock()
+		return harness.pulls
+	}
+	heldThrough := 0
+	var heldMu sync.Mutex
+	open := func(ctx context.Context) (Pull, error) {
+		pull, err := harness.open(ctx)
+		pull.CIWaits = decidedGitHub{}
+		pull.Continuations = waitingContinuations{}
+		start := pull.Start
+		pull.Start = func(ctx context.Context, workItemID string, selection runstate.Selection) (Outcome, error) {
+			if workItemID == id {
+				from := pullsMade()
+				for end := time.Now().Add(5 * time.Second); pullsMade() < from+2 && time.Now().Before(end); time.Sleep(time.Millisecond) {
+				}
+				heldMu.Lock()
+				heldThrough = pullsMade() - from
+				heldMu.Unlock()
+			}
+			return start(ctx, workItemID, selection)
+		}
+		return pull, err
+	}
+	Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: &recordedSessions{}}.Schedule(ctx)
+
+	order := harness.pullOrder()
+	continued, started := slices.Index(order, id), slices.Index(order, fresh.ID)
+	if continued < 0 || (started >= 0 && started < continued) {
+		heldMu.Lock()
+		defer heldMu.Unlock()
+		t.Fatalf("starts = %v with the continuation held through %d pulls, want the continuation's slot kept from the fresh item", order, heldThrough)
+	}
+}

@@ -164,8 +164,18 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		var previous [1]byte
 		if _, err := file.ReadAt(previous[:], start-1); err != nil || previous[0] != '\n' {
 			result.Problem = "cursor is not at a record boundary"
+			if end, found := entryEnd(file, start); found && end < info.Size() {
+				result.Problem += fmt.Sprintf("; the next record starts at byte %d", end)
+			}
 			return result
 		}
+	}
+	windowed := !request.Since.IsZero()
+	if windowed && start == 0 && !single && info.Size() > MaxScanBytes {
+		// A window read with nowhere to carry on from finds its own start, so a
+		// window near the end of a record many reads long is reached in one read.
+		start = windowStart(file, info.Size(), request.Since.Add(-lateEntryAllowance))
+		result.NextCursor = start
 	}
 	if _, err := file.Seek(start, io.SeekStart); err != nil {
 		result.Problem = "record cursor could not be read"
@@ -177,6 +187,9 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		return result
 	}
 	scanCut := len(data) > MaxScanBytes
+	// scannedToEnd is whether this read's scan reached the record's end, so
+	// nothing after what it scanned can still be in its window.
+	scannedToEnd := !scanCut && start+int64(len(data)) >= info.Size()
 	if scanCut {
 		end := MaxScanBytes
 		for end > 0 && !utf8.RuneStart(data[end]) {
@@ -213,14 +226,38 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		entries = bytes.SplitAfter(data, []byte{'\n'})
 	}
 	limit := min(request.MaxBytes, remaining)
-	windowed := !request.Since.IsZero()
 	offset := start
 	// stopped is set when the read ends before the end of what it scanned, and
 	// nextOffset is where in the record at the next cursor the next read starts.
 	stopped := false
 	nextOffset := int64(0)
+	// A window read goes on through what it scanned after it stops returning
+	// entries, counting the window's entries it left out. windowOver is set at
+	// the first entry too late to leave any later one in the window, and
+	// countCut when an entry it could not read a time from ended the count.
+	windowEnd := request.Until.Add(lateEntryAllowance)
+	windowOver, countCut := false, false
+	returned, omitted := 0, 0
 	for _, entry := range entries {
 		if len(entry) == 0 {
+			continue
+		}
+		if stopped {
+			if !windowed {
+				break
+			}
+			at, err := recordTime(entry)
+			if err != nil {
+				countCut = true
+				break
+			}
+			if !at.Before(windowEnd) {
+				windowOver = true
+				break
+			}
+			if !at.Before(request.Since) && at.Before(request.Until) && (request.Task == "" || recordTask(entry) == request.Task) {
+				omitted++
+			}
 			continue
 		}
 		atCursor := offset == start
@@ -229,6 +266,10 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 			at, err := recordTime(entry)
 			if err != nil {
 				return refuse(result, "record has no readable timestamp; use a cursor")
+			}
+			if !at.Before(windowEnd) && !(atCursor && request.Offset > 0) {
+				windowOver = true
+				break
 			}
 			skip = at.Before(request.Since) || !at.Before(request.Until)
 		}
@@ -259,6 +300,7 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 			result.Content += piece
 			offset += int64(len(entry))
 			result.NextCursor = offset
+			returned++
 			if partStart > 0 {
 				// The last part of a record read in parts is returned alone.
 				result.Part = &Part{Start: partStart}
@@ -266,7 +308,6 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 					result.Summary = summarizePass([]byte(content), redactor)
 				}
 				stopped = true
-				break
 			}
 			continue
 		}
@@ -274,7 +315,8 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		result.Truncated = true
 		if result.Content != "" {
 			// Whole records only after the first; this one starts the next read.
-			break
+			omitted++
+			continue
 		}
 		if request.Record == "pass" {
 			result.Summary = summarizePass([]byte(content), redactor)
@@ -295,7 +337,7 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 				result.Bytes = 0
 				return result
 			}
-			break
+			continue
 		}
 		// One record longer than this read returns comes back in parts. Each
 		// part ends at the start of a character, which is where the next begins.
@@ -303,10 +345,16 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		result.Content = piece
 		nextOffset = partStart + int64(len(piece))
 		result.Part = &Part{Start: partStart, Remaining: int64(len(content)) - nextOffset}
-		break
 	}
+	// Once the window is over, whatever the scan left unread is outside it.
+	scanCut = scanCut && !windowOver
 	result.Truncated = result.Truncated || scanCut
 	result.Bytes = len(result.Content)
+	if windowed {
+		reached := windowOver || (scannedToEnd && !countCut)
+		result.Omitted = omitted
+		result.Note = windowNote(request, reached, stopped, returned, omitted, start, limit)
+	}
 	if (stopped && result.NextCursor < result.Size) || scanCut || nextOffset > 0 {
 		next := request
 		cursor := result.NextCursor
@@ -315,6 +363,90 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		result.Next = &next
 	}
 	return result
+}
+
+// lateEntryAllowance is how far out of time order an entry may sit in a
+// record. A pass entry is appended when its pass ends but stamped with when it
+// started, so a long pass is written after shorter ones that started later; on
+// this repository's own record the furthest out of order was about seven
+// hours. A window read starts looking this long before its window and stops
+// looking this long after it.
+const lateEntryAllowance = MaxWindow
+
+// windowStart is a record boundary to start a window read at: the last one the
+// search found whose entry is older than target, or zero. Records are appended
+// in close to time order, so halving the record finds it in a few dozen small
+// reads rather than a scan from the start. The search stops early, at an
+// earlier and so safer start, wherever an entry has no readable time.
+func windowStart(file *os.File, size int64, target time.Time) int64 {
+	const closeEnough = 64 << 10
+	low, high := int64(0), size
+	for high-low > closeEnough {
+		middle := low + (high-low)/2
+		boundary, found := entryEnd(file, middle-1)
+		if !found || boundary >= high {
+			high = middle
+			continue
+		}
+		end, found := entryEnd(file, boundary)
+		if !found || end-boundary > MaxScanBytes {
+			return low
+		}
+		entry := make([]byte, end-boundary)
+		if _, err := file.ReadAt(entry, boundary); err != nil {
+			return low
+		}
+		at, err := recordTime(entry)
+		if err != nil {
+			return low
+		}
+		if at.Before(target) {
+			low = boundary
+		} else {
+			high = boundary
+		}
+	}
+	return low
+}
+
+// windowNote says in words what a window read found, so a read that returned
+// nothing says whether the window was empty or the read never reached it, and
+// a read cut short says how much of the window it left out.
+func windowNote(request Request, reached, stopped bool, returned, omitted int, start int64, limit int) string {
+	entries := "entries"
+	if request.Task != "" {
+		entries = request.Task + " entries"
+	}
+	switch {
+	case stopped && reached && omitted > 0:
+		return fmt.Sprintf("%s in the window %s left out, because this read returns at most %d bytes; ask for the read in next to get the rest", count(omitted, "more "+entries), were(omitted), limit)
+	case stopped && !reached:
+		return fmt.Sprintf("at least %s in the window %s left out, because this read returns at most %d bytes and stopped before the end of the window; ask for the read in next to get the rest", count(omitted, "more "+entries), were(omitted), limit)
+	case stopped:
+		return ""
+	case returned == 0 && reached:
+		return fmt.Sprintf("the window held no %s", entries)
+	case returned == 0:
+		return fmt.Sprintf("this read went through %d bytes of the record from byte %d without reaching the end of the window, so it cannot yet say whether the window holds %s; ask for the read in next", MaxScanBytes, start, entries)
+	case !reached:
+		return fmt.Sprintf("this read went through %d bytes of the record without reaching the end of the window, so more %s in it may follow; ask for the read in next", MaxScanBytes, entries)
+	}
+	return ""
+}
+
+// count is "1 more entry" or "3 more entries", from a plural noun.
+func count(n int, plural string) string {
+	if n == 1 {
+		return "1 " + strings.TrimSuffix(plural, "ies") + "y"
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
+func were(n int) string {
+	if n == 1 {
+		return "was"
+	}
+	return "were"
 }
 
 func refuse(result Result, problem string) Result {
