@@ -17,7 +17,7 @@ package orchestrator
 // watching, and a pass that finds the lease taken does nothing. A pass ends on
 // its own: when the queue has nothing waiting, when what is left waits on
 // something outside the harness — the operator's pause, a provider, a merge the
-// forge holds — or when it stops on something a person or the development
+// forge holds, GitHub not being reachable (mergequeuegithubwait.go) — or when it stops on something a person or the development
 // manager has to look at. It is bounded in steps as well, and the next pass
 // carries on from the records.
 //
@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -217,6 +218,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 	// in time. It holds no entry up, and a pass that would otherwise end with
 	// nothing to do ends waiting on it instead, so it goes round again soon.
 	unrecorded := ""
+	// gitHubWait is the queue's wait for GitHub where a step of this pass could
+	// not reach it (mergequeuegithubwait.go); the pass ends waiting with it.
+	var gitHubWait *runstate.MergeQueueGitHubWait
 	done := func(outcome runstate.MergeQueuePassOutcome, entry runstate.MergeQueueEntry, says string) runstate.MergeQueuePass {
 		if outcome == runstate.MergeQueuePassStopped && ctx.Err() != nil {
 			outcome, says = runstate.MergeQueuePassWaiting, cutShortSays(ctx, says)
@@ -245,7 +249,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		if len(retried) > 0 {
 			says = fmt.Sprintf("%s; %s", says, strings.Join(retried, "; "))
 		}
-		return runstate.MergeQueuePass{Outcome: outcome, EntryID: entry.EntryID, WorkItemID: entry.WorkItemID, Says: says}
+		pass := runstate.MergeQueuePass{Outcome: outcome, EntryID: entry.EntryID, WorkItemID: entry.WorkItemID, Says: says}
+		if outcome == runstate.MergeQueuePassWaiting {
+			pass.GitHubWait = gitHubWait
+		}
+		return pass
 	}
 	stopped := func(entry runstate.MergeQueueEntry, err error) runstate.MergeQueuePass {
 		if errors.Is(err, ErrMergeQueueWorkerBusy) {
@@ -282,6 +290,12 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		}
 		if err != nil {
 			return stopped(recovered.Entry, err)
+		}
+		if wait := recovered.Withdrawal.GitHubWait; wait != nil {
+			// Withdrawing a defective candidate's merge could not reach GitHub:
+			// the pass waits, and the next takes the withdrawal up.
+			gitHubWait = wait
+			return done(runstate.MergeQueuePassWaiting, recovered.Entry, recovered.Withdrawal.Waiting)
 		}
 		if recovered.Handback != nil {
 			if recovered.Handback.Continuation == runstate.MergeQueueLandedOutside {
@@ -322,6 +336,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		// moved under that entry, which is when it is built again.
 		underWay := promoted.Attempt.Number != 0 && promoted.Attempt.SetAside == nil
 		switch {
+		case promoted.GitHubWait != nil:
+			// A step could not reach GitHub, or the next try is not due yet: the
+			// entry keeps its place and the pass waits (mergequeuegithubwait.go).
+			gitHubWait = promoted.GitHubWait
+			return done(runstate.MergeQueuePassWaiting, promoted.Entry, promoted.Waiting)
 		case promoted.Landed && promoted.Completed:
 			landed++
 			if promoted.Untidied != "" {
@@ -371,6 +390,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 				return stopped(promoted.Entry, err)
 			case withdrawn.Withdrawn || withdrawn.Landed:
 				continue
+			case withdrawn.GitHubWait != nil:
+				gitHubWait = withdrawn.GitHubWait
+				return done(runstate.MergeQueuePassWaiting, promoted.Entry, withdrawn.Waiting)
 			}
 			return done(runstate.MergeQueuePassStopped, promoted.Entry, nonEmpty(withdrawn.Unresolved, withdrawn.Refusal, withdrawn.Waiting, "the merge could not be withdrawn"))
 		case promoted.Waiting != "":
@@ -613,7 +635,7 @@ func (m *mergeQueuePasses) work(ctx context.Context, queues ScheduleMergeQueues,
 		if pass.Outcome != runstate.MergeQueuePassWaiting {
 			return pass
 		}
-		timer := time.NewTimer(again)
+		timer := time.NewTimer(nextPassIn(pass, again))
 		select {
 		case <-timer.C:
 		case <-m.settled:
@@ -624,6 +646,18 @@ func (m *mergeQueuePasses) work(ctx context.Context, queues ScheduleMergeQueues,
 			return pass
 		}
 	}
+}
+
+// nextPassIn is how long a pass that ended waiting waits before the next: until
+// the next try of a wait for GitHub, on that wait's paced intervals
+// (mergequeuegithubwait.go), and otherwise again. It is never less than a
+// second, so a clock read differently by the pass cannot make the loop spin, and
+// never more than the longest paced interval.
+func nextPassIn(pass runstate.MergeQueuePass, again time.Duration) time.Duration {
+	if pass.GitHubWait == nil {
+		return again
+	}
+	return min(max(time.Until(pass.GitHubWait.Wait.NextTryAt), time.Second), recovery.MaxInterval)
 }
 
 // stopForRestart is a session past its drain bound closing its queue passes to
