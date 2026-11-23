@@ -213,6 +213,7 @@ var registry = map[Kind]Rule{
 	KindDocumentApproval:  documentApprovalRule,
 	KindUnreadableRun:     unreadableRunRule,
 	KindCapacityBlocked:   capacityBlockedRule,
+	KindMergeQueueOverdue: mergeQueueOverdueRule,
 	KindStoppage:          stoppageRule,
 	KindFollowUp:          followUpRule,
 	KindEmptySlot:         emptySlotRule,
@@ -683,6 +684,15 @@ func unreadableRunRule(Record) (Answer, bool) {
 
 func keptHeavyCheckRule(Record) (Answer, bool) {
 	return owned(MoverDevelopmentManager, "give the place back if it is a hang", "yoyo heavy-checks release")
+}
+
+// mergeQueueOverdueRule is a merge queue entry stuck at one step. Whether the
+// step is a hang to clear or something to let finish, and whether the entry is
+// taken up again or handed back so the entries behind it go on, is a judgement
+// about run reliability, which is the development manager's, and both are
+// commands she has. Nothing about it is on the operator's closed list.
+func mergeQueueOverdueRule(Record) (Answer, bool) {
+	return owned(MoverDevelopmentManager, "find what holds the entry, then take it up again or hand it back so the entries behind it go on", "yoyo queue retry|hand-back")
 }
 
 func laneHumanBlockRule(r Record) (Answer, bool) {

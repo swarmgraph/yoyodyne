@@ -2108,7 +2108,8 @@ records as they stand when it is taken: the runs in flight and whether a process
 is behind each, the work held after a stopped run, the finished runs whose
 checkout the harness kept, the factory problems
 `yoyo status` lists, the supervisor's record of the services, what each running
-copy of a service recorded as it started, and the pass records. It hands back
+copy of a service recorded as it started, the merge queues' records, and the
+pass records. It hands back
 an identifier and the time it was taken; every one of those sources, with
 whether it was read whole; each read failure; and every condition it found,
 those needing a decision or an action first, then the legitimate waits, then
@@ -2129,7 +2130,17 @@ on disk; the search path the copy was started with and, for the scheduler and
 the Slack sink, whether each provider command the configured agents launch is
 found on it; and the configuration file the copy names, with whether it exists.
 A copy on an old build, a copy beside the supervisor's, a provider command not
-found, and a missing configuration file are each a condition. So is each
+found, and a missing configuration file are each a condition.
+
+It lists every entry each merge queue has not finished with, up to twenty, in
+the order the queue works them, counting any past that: its place, its work
+item, where it stands, what the queue is doing with it now (a named check, its
+review, landing, waiting on GitHub), and the time that step began, in UTC and
+in the machine's zone. An entry whose step has run past
+`execution.merge_queue_step_overdue_after`, or whose merge GitHub will not make
+by itself because a required check ended without passing, is marked, and is a
+condition as well: a factory problem the development manager owns, saying what
+the entry waits on and the commands that take it up again or hand it back. So is each
 maintenance pass failure since your last pass that no finding has carried to a
 role yet; the ones a finding carries are listed as delivered.
 

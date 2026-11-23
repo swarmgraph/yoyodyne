@@ -511,6 +511,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		Capacity:                   resolved.Config.Execution.MaxConcurrentDevelopers,
 		Slots:                      resolved.Config.Execution.DeveloperSlots,
 		SchedulingWaitProblemAfter: resolved.Config.Execution.SchedulingWaitProblemAfter.Duration(),
+		MergeQueueStepOverdueAfter: resolved.Config.Execution.MergeQueueStepOverdueAfter.Duration(),
 		MaxWaitingPullRequests:     resolved.Config.Execution.MaxWaitingPullRequests,
 		TeamPause:                  standingTeamPause(resolved),
 		TrackerTimeout:             chatTrackerTimeout,

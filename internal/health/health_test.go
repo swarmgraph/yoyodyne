@@ -972,3 +972,50 @@ func TestTheSummaryDoesNotCountAKeptCheckoutAsAWait(t *testing.T) {
 		t.Fatalf("says = %q, want the kept checkout named apart from the waits", observation.Says)
 	}
 }
+
+// Every entry a merge queue has not finished with is in the observation, in
+// the order it is worked, with its place, its step, and the time that step
+// began in this machine's zone; an entry past its bound is also an actionable
+// condition the development manager owns, saying what it waits on; and an
+// entry the queue is done with is left out.
+func TestEveryMergeQueueEntryIsShownWithItsStepAndAStuckOneIsAProblem(t *testing.T) {
+	t.Parallel()
+
+	observer, _ := whole(t)
+	running, admitted := observedAt.Add(-3*time.Hour), observedAt.Add(-5*time.Hour)
+	queues := []readmodel.MergeQueueStanding{{Repository: "yoyodyne", TargetBranch: "main", Entries: []readmodel.QueueEntryStanding{
+		{EntryID: "mqe-17", Order: 17, Place: 1, WorkItemID: "yoyodyne-ifd.428.126.6.5", Title: "Stop the local race check",
+			State: readmodel.QueueEntryVerifying, Label: "being verified", Step: "running make race, check 3 of 4", StepSince: &running,
+			Overdue: &readmodel.QueueEntryOverdue{TargetBranch: "main", EntryID: "mqe-17", Order: 17, Place: 1, WorkItemID: "yoyodyne-ifd.428.126.6.5",
+				Title: "Stop the local race check", Step: "running make race, check 3 of 4", Since: running, BoundSeconds: 7200, WaitingOn: "its step to finish"}},
+		{EntryID: "mqe-19", Order: 19, Place: 2, WorkItemID: "yoyodyne-pxdz", Title: "Refused re-runs",
+			State: readmodel.QueueEntryWaiting, Label: "waiting", Step: "waiting for its candidate to be built", StepSince: &admitted},
+		{EntryID: "mqe-15", Order: 15, Place: 0, WorkItemID: "yoyodyne-ifd.78.4", State: readmodel.QueueEntryLanded, Label: "landed"},
+	}}}
+	observer = withStanding(observer, readmodel.Standing{ObservedAt: observedAt, MergeQueues: queues, FactoryProblems: readmodel.MergeQueueOverdue(queues)})
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+
+	if len(observation.MergeQueues) != 2 || observation.MergeQueues[0].EntryID != "mqe-17" || observation.MergeQueues[1].EntryID != "mqe-19" {
+		t.Fatalf("queue entries = %+v, want the two open entries in order", observation.MergeQueues)
+	}
+	head := observation.MergeQueues[0]
+	if head.Place != 1 || head.Step != "running make race, check 3 of 4" || head.Since == nil || !head.Since.Equal(running) ||
+		head.SinceLocal != running.Local().Format("2006-01-02 15:04 MST") || !head.Problem {
+		t.Fatalf("head = %+v, want its place, step, local time, and the problem marked", head)
+	}
+	if observation.MergeQueues[1].Problem {
+		t.Fatalf("the entry waiting behind the head is marked as a problem: %+v", observation.MergeQueues[1])
+	}
+	stuck := find(t, observation, "yoyodyne/-/factory-problem:merge-queue-overdue:mqe-17")
+	if !stuck.Actionable || stuck.Owner != ownership.MoverDevelopmentManager || !strings.Contains(stuck.Says, "it is waiting on its step to finish") ||
+		!strings.Contains(stuck.Needs, "yoyo queue hand-back mqe-17") {
+		t.Fatalf("stuck entry = %+v, want an actionable condition the development manager owns, naming what it waits on", stuck)
+	}
+	complete := false
+	for _, source := range observation.Sources {
+		complete = complete || (source.Name == SourceMergeQueues && source.Complete)
+	}
+	if !complete {
+		t.Fatalf("sources = %+v, want the merge queues read whole", observation.Sources)
+	}
+}

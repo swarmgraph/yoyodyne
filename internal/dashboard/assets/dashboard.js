@@ -1524,7 +1524,17 @@ var standingWarningAgeSeconds = 5 * 60;
       }
       var entries = el("ul", "held-list");
       (queue.entries || []).forEach(function (entry) {
-        entries.appendChild(el("li", "held-reason", entry.place + ". " + namedOr(entry.work_item_id, entry.work_item_id + " " + entry.title) + " \u2014 " + entry.label + ", in " + entry.mode_label + " \u2014 " + entry.why));
+        var said = entry.place + ". " + namedOr(entry.work_item_id, entry.work_item_id + " " + entry.title) + " \u2014 " + entry.label + ", in " + entry.mode_label + " \u2014 " + entry.why;
+        // What the queue is doing with the entry now and since when, in the
+        // reader's zone, and the problem the read model marked on it, if any.
+        if (entry.step) {
+          said += ". Now: " + entry.step + ", since " + (entry.step_since ? localMoment(entry.step_since) : "a moment no record keeps");
+        }
+        var item = el("li", "held-reason", said);
+        if (entry.overdue) {
+          item.appendChild(el("p", "held-reason", "Problem, the development manager's to move: waiting on " + entry.overdue.waiting_on));
+        }
+        entries.appendChild(item);
       });
       row.appendChild(entries);
       list.appendChild(row);

@@ -453,6 +453,11 @@ type Sources struct {
 	// SchedulingWaitProblemAfter is execution.scheduling_wait_problem_after as
 	// the caller read it. Zero takes DefaultSchedulingWaitProblemAfter.
 	SchedulingWaitProblemAfter time.Duration
+	// MergeQueueStepOverdueAfter is execution.merge_queue_step_overdue_after
+	// as the caller read it: how long one step of a merge queue entry may run
+	// before the entry is a problem. Zero takes
+	// DefaultMergeQueueStepOverdueAfter.
+	MergeQueueStepOverdueAfter time.Duration
 	// MaxWaitingPullRequests is execution.max_waiting_pull_requests as the
 	// caller read it: how many approved changes may wait for a person to merge
 	// them before the scheduler starts no new developer work. Zero is no limit,
@@ -1445,7 +1450,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// where the operator already looks, once per item.
 	needs = append(needs, laneHumanBlockAttention(standing.ProgramManagers)...)
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
-	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
+	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueuesAt(sources.MergeQueues, now, sources.MergeQueueStepOverdueAfter)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
 	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
 	standing.IntakeQueries, standing.IntakeQueriesProblem = ReadIntakeQueries(sources.IntakeQueries)
@@ -1510,6 +1515,13 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	waitingOnDesign := DesignWaits(queue, now)
 	standing.FactoryProblems = append(standing.FactoryProblems, waitingOnDesign...)
 	needs = append(needs, waitingOnDesign...)
+	// A merge queue entry the queue has made no progress with past the bound,
+	// or whose merge GitHub will not make by itself, holds every approved
+	// change behind it, and the queue's own record is a file nobody reads by
+	// accident, so it is a factory problem and on the attention line.
+	queueOverdue := MergeQueueOverdue(standing.MergeQueues)
+	standing.FactoryProblems = append(standing.FactoryProblems, queueOverdue...)
+	needs = append(needs, queueOverdue...)
 	if len(waitingOnDesign) > 0 {
 		if _, problem := readNeedsDesignSince(sources); problem != "" {
 			needsProblem = joinProblems(needsProblem, problem)

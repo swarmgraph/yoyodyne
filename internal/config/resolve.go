@@ -374,6 +374,7 @@ func newResolution() *resolution {
 				BlockedRunsBeforeIntakeHold:           defaultBlockedRunsBeforeIntakeHold,
 				MaxWaitingPullRequests:                defaultMaxWaitingPullRequests,
 				SchedulingWaitProblemAfter:            Duration(time.Hour),
+				MergeQueueStepOverdueAfter:            defaultMergeQueueStepOverdueAfter,
 				BrakeCooldown:                         defaultBrakeCooldown,
 				BrakeEscalationCycles:                 defaultBrakeEscalationCycles,
 				BrakeProbeOverdueAfter:                defaultBrakeProbeOverdueAfter,
@@ -487,6 +488,7 @@ func newResolution() *resolution {
 			"execution.brake_probe_overdue_after":                  OriginDefault,
 			"execution.declarative_delivery":                       OriginDefault,
 			"execution.merge_queue":                                OriginDefault,
+			"execution.merge_queue_step_overdue_after":             OriginDefault,
 			"execution.ci_checks.enabled":                          OriginDefault,
 			"execution.ci_checks.wait_limit":                       OriginDefault,
 			"triage.stuck_merge_age":                               OriginDefault,
@@ -600,6 +602,7 @@ func (r *resolution) apply(applied layer) error {
 		// does takes the origin, so `config show --origins` names the file that
 		// switched integration over to the queue.
 		setValue(r.origins, "execution.merge_queue", execution.MergeQueue, &r.config.Execution.MergeQueue, applied.origin)
+		setValue(r.origins, "execution.merge_queue_step_overdue_after", execution.MergeQueueStepOverdueAfter, &r.config.Execution.MergeQueueStepOverdueAfter, applied.origin)
 	}
 	if triage := document.Triage; triage != nil {
 		setValue(r.origins, "triage.stuck_merge_age", triage.StuckMergeAge, &r.config.Triage.StuckMergeAge, applied.origin)

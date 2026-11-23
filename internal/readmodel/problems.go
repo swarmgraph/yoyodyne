@@ -111,7 +111,7 @@ func problemKindOf(a Attention) ProblemKind {
 		AttentionTrackerUnanswered, AttentionForgeCertificate, AttentionUnrunCheck, AttentionUnreadableRun,
 		AttentionUntracedPass:
 		return ProblemBroken
-	case AttentionStall, AttentionFactoryStall, AttentionOwedStep, AttentionPublication, AttentionKeptHeavyCheck:
+	case AttentionStall, AttentionFactoryStall, AttentionOwedStep, AttentionPublication, AttentionKeptHeavyCheck, AttentionMergeQueueOverdue:
 		return ProblemStalled
 	case AttentionOutage, AttentionCapacityDegraded, AttentionCapacityBlocked:
 		return ProblemDegraded
@@ -198,6 +198,8 @@ func problemFacts(a Attention) (since, latest time.Time, count, runs, waiting in
 		return a.LaneHumanBlock.Entry.Since, time.Time{}, 0, 0, 0
 	case a.KeptHeavyCheck != nil:
 		return a.KeptHeavyCheck.Since(), time.Time{}, 0, 1, 0
+	case a.QueueOverdue != nil:
+		return a.QueueOverdue.Since, time.Time{}, 0, 0, 0
 	case a.OwedStep != nil:
 		return a.OwedStep.EndedAt, time.Time{}, 0, 1, 0
 	case a.Publication != nil:

@@ -2796,6 +2796,27 @@ record that cannot be read is said, never left out. A product with no queue
 record prints nothing and the dashboard shows no panel, so both read as they
 did before queues existed.
 
+Under each change the queue has not finished with, a `now:` line says what the
+queue is doing with it and the time that step began, in your zone: waiting for
+its candidate to be built, starting its checks, running a named check (check 2
+of 4, say), waiting for or under its independent review, waiting to begin
+landing, landing, waiting for GitHub to merge its pull request, recording its
+landing, handed back, or passed over and the rule that chose another entry
+first. A step tried again says which try it is on and why the last one was set
+aside. The time is read off the queue's own records; where none records when a
+step began, the line says so rather than guessing. The head of the queue,
+waiting for its candidate, has waited since the change ahead of it left the
+queue.
+
+A change whose step has run longer than `execution.merge_queue_step_overdue_after`
+(two hours by default) is marked as a problem for the development manager to
+move, under the step, naming what it waits on; so is a merge GitHub holds whose
+required checks have all ended with one not passing, failed or cancelled, which
+GitHub will not make by itself however long the queue waits. The same problem
+is on the attention line, in the problems list, and in the factory health check
+the managers read, as a `merge-queue-overdue` entry. A change waiting behind the
+head, passed over, or handed back is not marked: the head is what holds it.
+
 ## Landing through a merge queue
 
 With `execution.merge_queue` on, an approved change does not land at the end of

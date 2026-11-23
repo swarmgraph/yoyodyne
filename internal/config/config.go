@@ -689,6 +689,13 @@ type Execution struct {
 	// new; entries already admitted are still drained in the mode each was
 	// admitted in.
 	MergeQueue bool `yaml:"merge_queue" json:"merge_queue"`
+	// MergeQueueStepOverdueAfter is how long one step of a merge queue entry
+	// may run — building its candidate, one check, its review, landing, waiting
+	// on GitHub — before the entry is shown as a problem for the development
+	// manager to move: every change behind the head of a queue waits on it.
+	// Zero takes the default of two hours. It selects when an entry is said to
+	// be stuck and nothing else; the queue does exactly what it did before.
+	MergeQueueStepOverdueAfter Duration `yaml:"merge_queue_step_overdue_after" json:"merge_queue_step_overdue_after"`
 	// CIChecks is the switch that moves most of a run's testing to the forge
 	// (cichecks.go). Absent or disabled, which is the default, a run's checks,
 	// timing and records are exactly what they were before the key existed: the
@@ -794,6 +801,10 @@ const (
 	// hourly sweep, so one failed pass is not a stall and two in a row with
 	// nothing pulled between them is.
 	defaultFactoryStallAfter = Duration(2 * time.Hour)
+	// defaultMergeQueueStepOverdueAfter is two hours: a code candidate takes
+	// about seventy minutes from being built to landing, so one step running
+	// twice that is past anything ordinary.
+	defaultMergeQueueStepOverdueAfter = Duration(2 * time.Hour)
 	// defaultCouldNotRunBeforeStatus is three: one change without a check is
 	// the case the outcome exists for, and three in a row is a check that is
 	// not going to run until somebody does something about it.
@@ -1496,6 +1507,9 @@ func (c Config) Validate() error {
 	// describes no wait anybody could take, is refused.
 	if c.Execution.SchedulingWaitProblemAfter < 0 {
 		problems = append(problems, "execution.scheduling_wait_problem_after cannot be negative")
+	}
+	if c.Execution.MergeQueueStepOverdueAfter < 0 {
+		problems = append(problems, "execution.merge_queue_step_overdue_after cannot be negative")
 	}
 	if c.Execution.BrakeCooldown < 0 {
 		problems = append(problems, "execution.brake_cooldown cannot be negative")

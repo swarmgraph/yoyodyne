@@ -429,6 +429,10 @@ execution:
   # reviewer approve it, and lands exactly that. Turning it off admits nothing
   # new and still finishes what is already queued.
   merge_queue: %t
+  # How long one step of a merge queue entry -- building its candidate, one
+  # check, its review, landing, waiting on GitHub -- may run before the entry is
+  # shown as a problem for the development manager to move.
+  merge_queue_step_overdue_after: %s
   # Whether most of a run's testing happens on the forge instead of on this
   # machine (docs/designs/checks-on-ci.md). Off, every run's checks run here
   # before review, as they always have. "local" names the checks this machine
@@ -563,6 +567,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.BrakeProbeOverdueAfter),
 		effective.Execution.DeclarativeDelivery,
 		effective.Execution.MergeQueue,
+		renderScaffoldDuration(effective.Execution.MergeQueueStepOverdueAfter),
 		renderScaffoldDuration(effective.Triage.StuckMergeAge),
 		effective.Triage.ReviewRoundsCap,
 		effective.Exchange.MaxRounds,

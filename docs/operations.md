@@ -6305,6 +6305,7 @@ they are not the labels a person reads:
 | `blocked-on-a-human` | blocked on a human |
 | `document-approval` | document waiting for approval |
 | `unreadable-run` | unreadable run |
+| `merge-queue-overdue` | merge queue not moving |
 
 ### Who owns each kind of entry
 
@@ -6327,7 +6328,7 @@ your hand**, never under **Yours to decide**.
 | `publication` | the harness while it can look up, re-read, re-run, or wait on a red target; the forge while it holds the merge; the development manager for a merge dropped or never asked for |
 | `degraded-service`, `config-mismatch`, `tracker-unanswered`, `forge-certificate`, `factory-stall` | the harness |
 | `failing-task` | the harness for a firing refused before its first turn; for a repeatedly failing pass, the role that resolves its failures, and yours only for a recorded person-only step |
-| `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision`, `unreadable-run` | the development manager |
+| `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision`, `unreadable-run`, `merge-queue-overdue` | the development manager |
 | `hold` | yours for your own pause or intake hold (`own-hold`); for the brake's hold, the development manager, the harness while it carries her decision out, and the Lead Product Manager once it is escalated; the harness for the provider holding every role |
 | `directive` | the Lead Product Manager |
 | `outage` | yours for a lapsed login (`credential`); nobody's for a provider nobody can reach |
@@ -6679,7 +6680,7 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`, `forge-certificate`,
 `check-could-not-run`, `heavy-check-kept`, `blocked-on-a-human`,
-`document-approval`, `unreadable-run` — the `id`
+`document-approval`, `unreadable-run`, `merge-queue-overdue` — the `id`
 of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
@@ -6690,7 +6691,8 @@ and for a `tracker-unanswered` the moment listings began failing, and for a
 permit holding the place, and for a `blocked-on-a-human` the work item, or the
 record the entry cites where it names none, and for a `document-approval` the
 conversation and the document's identifier there, as
-`<conversation>/document-<turn>.<n>`, and for an `unreadable-run` the run), the
+`<conversation>/document-<turn>.<n>`, and for an `unreadable-run` the run, and
+for a `merge-queue-overdue` the queue entry, as `yoyo status` names it), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
@@ -8224,7 +8226,10 @@ slowly or not at all`.
    how many have finished, what the queue's worker last found, why the queue
    last refused a change where it did, and one line per change naming the work
    item by identifier and title, the queue it is in, where it stands, and why,
-   all in the read model's words. A change reads as landed only once the queue
+   all in the read model's words, then what the queue is doing with it now and
+   since when, in the reader's zone, and the problem marked on a change whose
+   step ran past `execution.merge_queue_step_overdue_after` or whose merge
+   GitHub will not make. A change reads as landed only once the queue
    confirmed it on the target.
    [Merge queues on `yoyo status` and the dashboard](work.md#merge-queues-on-yoyo-status-and-the-dashboard)
    says the same for the terminal. While shown it is ready, or says what could
@@ -9163,7 +9168,8 @@ health](conversation.md#observing-the-factorys-health)) and puts it at the top
 of the message: the runs in flight with no process behind them, the work held
 after a stopped run, the factory problems, each service's running copies with
 their builds, search paths, provider commands and configuration files, the
-maintenance failures no finding has carried yet, the legitimate waits, and the
+maintenance failures no finding has carried yet, every merge queue entry with
+its place, its step and the time that step began, the legitimate waits, and the
 finished runs whose checkout was kept (which ask nothing of anybody), with
 every source named and whether it was read whole. It is taken whatever the
 events since the pass's last one, so a quiet hour still shows a run that lost

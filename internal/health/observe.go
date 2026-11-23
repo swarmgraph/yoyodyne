@@ -36,6 +36,7 @@ const (
 	SourcePasses      = "pass records"
 	SourceSlots       = "what holds each developer slot"
 	SourceEmptySlots  = "why a developer slot stands empty"
+	SourceMergeQueues = "the merge queues' records"
 )
 
 // launchesRoles is the parts that launch a provider's command: the scheduler,
@@ -164,6 +165,7 @@ func (o Observer) Observe(ctx context.Context, caller Caller, runs []string) Obs
 	o.readFactory(r, standing)
 	o.readEmptySlots(r, standing)
 	o.readServices(r, standing)
+	queues, leftOut := o.readMergeQueues(r, standing)
 	passes := o.readPasses(r)
 	maintenance, since := o.readMaintenance(r, caller, passes)
 
@@ -173,6 +175,7 @@ func (o Observer) Observe(ctx context.Context, caller Caller, runs []string) Obs
 		ID: newID(now), Product: o.Product, ObservedAt: now,
 		Sources: r.sources, Failures: r.failures, Services: r.services, Slots: r.slots,
 		Maintenance: maintenance, MaintenanceSince: since,
+		MergeQueues: queues, QueueEntriesLeftOut: leftOut,
 	}
 	if len(runs) > 0 {
 		observation.RestrictedTo = append([]string(nil), runs...)
@@ -433,6 +436,33 @@ func (o Observer) readFactory(r *reading, standing readmodel.Standing) {
 		r.add(Anomaly{Classification: ClassFactoryProblem, Identity: Identity{Condition: "factory-problem:" + string(entry.Kind) + ":" + entry.ID},
 			WorkItem: entry.WorkItemID, Says: entry.What(), Owner: entry.Mover, Needs: entry.Whose()})
 	}
+}
+
+// readMergeQueues lists every entry each merge queue has not finished with,
+// in the order it is worked. An entry that is a problem is already a condition,
+// from the factory problems the read model raised for it (readFactory).
+func (o Observer) readMergeQueues(r *reading, standing readmodel.Standing) ([]QueueEntry, int) {
+	r.source(SourceMergeQueues, standing.MergeQueuesProblem)
+	var listed []QueueEntry
+	leftOut := 0
+	for _, queue := range standing.MergeQueues {
+		for _, entry := range queue.Entries {
+			if entry.Finished() {
+				continue
+			}
+			if len(listed) == MaxQueueEntries {
+				leftOut++
+				continue
+			}
+			shown := QueueEntry{TargetBranch: queue.TargetBranch, Place: entry.Place, EntryID: entry.EntryID, WorkItem: entry.WorkItemID,
+				Title: entry.Title, State: entry.Label, Step: entry.Step, Since: entry.StepSince, Problem: entry.Overdue != nil}
+			if entry.StepSince != nil {
+				shown.SinceLocal = entry.StepSince.Local().Format("2006-01-02 15:04 MST")
+			}
+			listed = append(listed, shown)
+		}
+	}
+	return listed, leftOut
 }
 
 // readEmptySlots says a developer slot the scheduler left empty while ready
@@ -840,6 +870,9 @@ func redact(o *Observation, all []Anomaly, redact func(string) string) {
 	}
 	for i := range o.Maintenance {
 		o.Maintenance[i].Problem = redact(o.Maintenance[i].Problem)
+	}
+	for i := range o.MergeQueues {
+		o.MergeQueues[i].Title, o.MergeQueues[i].Step = redact(o.MergeQueues[i].Title), redact(o.MergeQueues[i].Step)
 	}
 }
 
