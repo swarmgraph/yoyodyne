@@ -1226,10 +1226,14 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 			return generation, false, err
 		}
 		result, reviewErr = reviewer.Review(ctx, review.Request{
-			RunID:      generation.EventStream(),
-			WorkItemID: entry.WorkItemID,
-			Context:    candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
-			Invariants: selected.Text(),
+			RunID: generation.EventStream(),
+			// What the reviewer is sent is kept with the run whose change this
+			// candidate carries, since the generation's stream is no run.
+			InvocationRunID:  entry.RunID,
+			InvocationCommit: generation.Candidate,
+			WorkItemID:       entry.WorkItemID,
+			Context:          candidateReviewContext(entry, generation, item.Title, item.Description, item.Design, item.AcceptanceCriteria) + intent,
+			Invariants:       selected.Text(),
 			// A queued publication of the architect's own invariant is reviewed as
 			// one here too, said from the run's record.
 			ArchitectInvariant: architectInvariant(run),

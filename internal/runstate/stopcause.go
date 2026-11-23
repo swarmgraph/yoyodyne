@@ -296,7 +296,7 @@ var stopSays = map[StopClass]string{
 	StopIntegration:        "the change could not be merged onto the target branch",
 	StopPublish:            "the merged change could not be published to the forge",
 	StopCleanup:            "the run's worktree could not be removed after its change merged",
-	StopRecording:          "the harness could not record that the run finished",
+	StopRecording:          "the harness could not write down a record it owed, such as that the run finished or what it was about to send the AI provider, so it did not go on",
 	StopProvider:           "the AI provider ended the run without the work being judged",
 	StopOutside:            "something outside the work refused the run",
 	StopCancelled:          "the run was cancelled",
