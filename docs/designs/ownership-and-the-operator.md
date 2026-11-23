@@ -78,6 +78,10 @@ revisions:
       by: architect
       at: 2026-11-23T18:35:44.866625Z
       reason: 'Approved amendment-6dd848b7 and the reviewer''s report-06e848c9: the table gains the concern kind (yoyodyne-o4gg, on main). It also gains fifteen kinds the registry has rules for and the table left out, and the rows for owed steps, publications, stoppages, held work and steps set aside for a person now say what the code does. What is not yet built, and the two sections still to follow, are said under the table. Read from main at 0bbabbeaadf8, and the kinds, empty slot and stale build at f5a6bccc.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T22:39:44.161474Z
+      reason: 'The closed list section described neither of the two checks now on main: that a step put to the operator exists and is only his (yoyodyne-r3xa), and that a record under credential says which secret or account it needs (yoyodyne-e427). It adds them, widens fundamental-intent to a concern and human-gate to a merge the project leaves to a person, as the registry does, and says the install reason is not yet returned by the outage rule. No reason is added. Read at main 24b2b15dcac8; part of the design review against the code.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -164,6 +168,11 @@ approvals:
       by: harness
       at: 2026-11-23T18:35:44.866625Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3725, for document-3725.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 18
+      by: harness
+      at: 2026-11-23T22:39:44.161474Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3739, for document-3739.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -380,18 +389,23 @@ The operator is the owner only for one of these reasons, named as the code
 names them:
 
 - `fundamental-intent`: a change to what the goals admit or refuse, drafted by
-  the Lead Product Manager, or an amendment to the brief or the goals that does
-  not say which kind it is.
-- `credential`: a credential or an external account only a person holds.
+  the Lead Product Manager; an amendment to the brief or the goals that does
+  not say which kind it is; or a concern, which is a role's question about work
+  it would not propose because of what the goals admit.
+- `credential`: a secret or an external account only a person holds. Read
+  access a role could be given is neither.
 - `install`: a program that has to be installed, or put on the search path, on
   the machine the harness runs on.
-- `repository-setting`: a forge or repository setting the harness's token
-  cannot change.
+- `repository-setting`: a forge or repository setting, or a right on the forge,
+  that the harness's token cannot change.
 - `protected-file`: a file beyond every grant, which today means Claude Code's
   settings files and activating a role definition, or a section of the
   project's configuration that every role's write refuses, such as `intake`.
-- `human-gate`: a step an item reserved for a person with `human-gate:`, or a
-  step a query reserved for a person with `questions: person`.
+- `human-gate`: a step an item reserved for a person with `human-gate:`, a
+  step a query reserved for a person with `questions: person`, or a merge the
+  project's merge setting leaves to a person. Where the harness cannot bring
+  such a pull request up to date with its target, the development manager
+  decides what becomes of it.
 - `own-hold`: lifting a hold or pause the operator placed himself.
 - `diverged-history`: saying which history is right when a target branch
   diverged from the forge, which needs rights on the protected branch that no
@@ -413,21 +427,58 @@ person can physically perform, the invariant stays as it is; where it does
 not, the invariant is amended first, by the architect, and the reason is added
 only after.
 
+### What is checked before a request reaches the operator
+
+*(yoyodyne-r3xa, yoyodyne-e427)*
+
+A reason says why only the operator can act. It does not say the step can be
+taken, or that it needs a person at all. So the harness checks the step itself.
+The checks are in `internal/ownership`, read at main 24b2b15dcac8:
+
+- **A protected file.** A `protected-file` step must name a file. Every path it
+  names must exist. A path inside the repository must also be beyond every
+  grant: a file a developer run may change is work to admit, and the refusal
+  says so. For a path outside the repository only its existence is checked.
+- **A hold.** An `own-hold` request is refused when no hold or pause the
+  operator placed stands. A hold the harness cannot read counts as standing.
+- **A restart.** Under every reason, a step asking him to restart part of the
+  product is refused, because the product restarts itself.
+- **A credential.** A record under `credential` says whether the step needs a
+  secret or an account, and which one. One that says the step needs only read
+  access is refused: that is a missing capability naming a role and an outside
+  system, a defect for the Lead Product Manager to admit. One that does not say
+  which is refused too and goes back to the role that raised it, because the
+  harness cannot tell the two apart and never defaults to the operator.
+
+A check that cannot look, because it was not given the checkout or the home
+directory, refuses nothing on that ground.
+
+A request already on the operator's list is checked again. A restart and a hold
+are checked on every reading, and the paths once the request has waited three
+days. A request that no longer passes leaves his list and goes back to the role
+that recorded it, with the reason.
+
+These step checks are for a report handling that names the operator. Giving an
+escalation of a stopped run, and an ask naming him, the same step checks is the
+open work on checking escalations and asks as a report handling is checked
+(yoyodyne-ifd.430.101). It is not built as of this revision.
+
 ### A provider program that cannot be found
 
 *(yoyodyne-la2d)*
 
 When a provider's program cannot be found on the machine the harness runs on,
-the rule for an outage returns the operator with the reason `install`, and the
-remedy names the program and says it has to be installed or put on the search
-path the harness runs with. It no longer returns `credential`, which made
+the rule for an outage is to return the operator with the reason `install`, and
+a remedy that names the program and says it has to be installed or put on the
+search path the harness runs with. It is not to return `credential`, which makes
 every surface call a missing program a login problem. An expired login stays
-`credential`.
+`credential`. **Not built:** at main 24b2b15dcac8 the rule for an outage still
+returns `credential` for a missing program.
 
 The invariant needed no change to admit `install`: installing software on the
 harness's machine, outside the repository, is an act only a person can
-physically perform, because no role or run can write there. This revision is
-the record of the addition.
+physically perform, because no role or run can write there. The revision of
+November 18, 2026 is the record of the addition.
 
 Rejected: keeping `credential` with plain wording printed beside it, because
 the stored name would still be wrong in every record and every report that
@@ -451,8 +502,10 @@ stored name alone:
 | `diverged-history` | which history of the branch is right |
 
 The wording lives beside the closed set in `internal/ownership`, and every
-surface takes it from there. A role that names a reason still writes the
-stored name exactly, as the operating rules require.
+surface takes it from there. Where a rule can say more about one entry than the
+reason's own words do, such as which product document a waiting change is
+against, the surface shows that instead. A role that names a reason still writes
+the stored name exactly, as the operating rules require.
 
 ## A role's decision that needs the operator's hand
 
