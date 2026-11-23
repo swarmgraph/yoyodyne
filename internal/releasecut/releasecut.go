@@ -463,7 +463,7 @@ func (c *Cutter) recover(ctx context.Context, intent runstate.ReleaseCut) runsta
 			intent.UpdatedAt = c.now().UTC()
 			return c.record(ctx, intent, runstate.StepRan, intent.Detail)
 		}
-		// The gates still describe what would be tagged only while origin's
+		// The release checks still describe what would be tagged only while origin's
 		// default branch holds the commit they ran on and the notes there still
 		// name it.
 		branch := c.defaultBranch(ctx)

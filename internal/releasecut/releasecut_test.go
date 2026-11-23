@@ -646,7 +646,7 @@ func TestNotesNamingACommitNotOnMainAreHandedBack(t *testing.T) {
 
 // Notes naming a commit from before the release workflow read notes from main
 // would publish a release with no notes, since the notes land after the commit
-// they name: the cut is refused before any gate runs, the release item is told
+// they name: the cut is refused before any release check runs, the item is told
 // why once, and nothing is tagged however often main moves.
 func TestNotesNamingACommitThatCannotPublishThemAreHandedBack(t *testing.T) {
 	t.Parallel()
@@ -657,7 +657,7 @@ func TestNotesNamingACommitThatCannotPublishThemAreHandedBack(t *testing.T) {
 		t.Fatalf("step = %+v, want the cut refused because the named commit cannot publish its notes", step)
 	}
 	if f.runner.gateRuns() != 0 || f.originTag(t) != "" || git(t, f.repository, "tag", "--list") != "" {
-		t.Fatalf("a commit that cannot publish its notes ran the gates or was tagged")
+		t.Fatalf("a commit that cannot publish its notes ran the release checks or was tagged")
 	}
 	notes := f.tracker.noted()
 	if len(notes) != 1 || !strings.HasPrefix(notes[0], "calc-fvn: The harness did not cut v0.6.0") || !strings.Contains(notes[0], "published without its notes") {
@@ -715,7 +715,7 @@ func TestAParkedReleaseIsNeitherCutNorWrittenOn(t *testing.T) {
 			if err := f.cuts.Put(runstate.ReleaseCut{
 				SchemaVersion: runstate.ReleaseCutSchemaVersion, ProductID: "calc", Version: "v0.6.0",
 				WorkItemID: "calc-fvn", Commit: f.named, MainCommit: f.head(t), State: runstate.ReleaseCutRefused,
-				Detail: "the gates were red", CutBy: "an earlier pass", RecordedAt: f.now, UpdatedAt: f.now,
+				Detail: "make check was red", CutBy: "an earlier pass", RecordedAt: f.now, UpdatedAt: f.now,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -734,7 +734,7 @@ func TestAParkedReleaseIsNeitherCutNorWrittenOn(t *testing.T) {
 				f.moveMain(t)
 			}
 			if f.runner.gateRuns() != 0 || f.originTag(t) != "" || git(t, f.repository, "tag", "--list") != "" {
-				t.Errorf("a parked release ran the gates or was tagged")
+				t.Errorf("a parked release ran the release checks or was tagged")
 			}
 			if notes, filed := f.tracker.noted(), f.reports.all(); len(notes) != 0 || len(filed) != 0 {
 				t.Errorf("a parked release was written on: notes %q, reports %+v", notes, filed)
