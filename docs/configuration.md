@@ -7629,10 +7629,15 @@ the request. If GitHub has still not started the check when that limit passes
 again, the merge is withdrawn and the change is handed back as a failure
 outside the change: no repair attempt is charged, the checks it passed still
 stand, no check failure is written against it, and the reason says so on
-status and on the item. A change withdrawn from the queue a second time, for
-any reason, is not handed back to its run to be admitted again: it is set
-aside, kept on its branch, and put on the development manager's docket saying
-how many times it was withdrawn.
+status and on the item. The same change withdrawn a second time — an earlier
+entry of the same run, at the same approved head, whose queued merge the forge
+confirmed withdrawn — is not handed back to its run to be admitted again: it is
+set aside, kept on its branch, and put on the development manager's docket
+saying how many times it was withdrawn. A repaired change carries a new
+approved head, so a change handed back for a repair after a failed check is
+handed back for a repair again if its check fails again; and an entry that left
+the queue without a merge being withdrawn, such as a pull request closed
+outside the queue, does not count.
 
 While GitHub holds a candidate's merge, each pass reads the candidate's checks
 on GitHub as well. A check that ended without judging the change is run again

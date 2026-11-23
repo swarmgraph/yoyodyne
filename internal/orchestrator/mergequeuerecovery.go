@@ -858,9 +858,10 @@ func (e MergeQueueHandbackRefusedError) Unwrap() error { return e.Problem }
 // single run can take up to the development manager's docket, so no failure
 // the queue meets is written only to the queue's own record.
 //
-// A change whose earlier entry was already withdrawn and released is not handed
-// back to be admitted again in a loop: its second withdrawal is set aside and
-// put on the development manager's docket (earlierWithdrawals).
+// The same change, at the same approved head, whose queued merge was already
+// withdrawn from an earlier entry is not handed back to be admitted again in a
+// loop: its second withdrawal is set aside and put on the development
+// manager's docket (earlierWithdrawals).
 //
 // A hand-back the run's record refuses never stops the queue: the entry is set
 // aside with the refusal on the landing, put on the development manager's
@@ -889,10 +890,10 @@ func (q *queuePromotion) handBack(ctx context.Context) error {
 	if earlier, err := q.earlierWithdrawals(); err != nil {
 		return err
 	} else if earlier > 0 && handback.Continuation == runstate.MergeQueueReleased {
-		// A change withdrawn from the queue before is not handed back to be
-		// admitted again in a loop: its second withdrawal is set aside for the
-		// development manager, with its change kept.
-		handback.SetAside = oneline.Fold(fmt.Sprintf("this is the change's withdrawal number %d from the merge queue, so rather than handing it back to run %s to be admitted again, the queue keeps the change on its branch for the development manager to decide what happens to it, and the entries behind it go on",
+		// The same change withdrawn from the queue before is not handed back
+		// to be admitted again in a loop: its second withdrawal is set aside
+		// for the development manager, with its change kept.
+		handback.SetAside = oneline.Fold(fmt.Sprintf("the merge queue has now withdrawn this change, at the same approved head, %d times, so rather than handing it back to run %s to be admitted again, the queue keeps the change on its branch for the development manager to decide what happens to it, and the entries behind it go on",
 			earlier+1, q.entry.RunID), 1500)
 		handback.SetAsideAt = &at
 		if err := q.p.Repair.Report(ctx, q.entry, *handback); err != nil {
@@ -920,13 +921,18 @@ func (q *queuePromotion) handBack(ctx context.Context) error {
 	return q.save()
 }
 
-// earlierWithdrawals counts the earlier entries of the same run whose queued
-// merge was withdrawn and that were released back to the run rather than
-// moved to the other queue mode: the times this change was withdrawn before.
-// Only a released hand-back of this entry is counted against; any other is
+// earlierWithdrawals counts the times this same change was withdrawn from the
+// queue before: earlier entries of the same run that carried the same approved
+// head, whose queued merge the forge confirmed withdrawn, and that were
+// released back to the run rather than moved to the other queue mode. A
+// repaired change carries a new approved head, so a change handed back for a
+// repair and withdrawn again is not counted; and an entry that left the queue
+// without a merge withdrawn — a pull request closed outside the queue, or a
+// hand-back by hand — is not a withdrawal. This entry is counted against only
+// where it was itself released after its merge was withdrawn; any other is
 // reported as having none.
 func (q *queuePromotion) earlierWithdrawals() (int, error) {
-	if handback := q.landing.Handback; handback == nil || handback.Continuation != runstate.MergeQueueReleased || handback.TransferTo != "" {
+	if !releasedAfterWithdrawal(q.landing) {
 		return 0, nil
 	}
 	entries, err := q.p.Queue.Entries(q.key)
@@ -935,18 +941,34 @@ func (q *queuePromotion) earlierWithdrawals() (int, error) {
 	}
 	count := 0
 	for _, entry := range entries {
-		if entry.RunID != q.entry.RunID || entry.EntryID == q.entry.EntryID || entry.Order >= q.entry.Order {
+		if entry.RunID != q.entry.RunID || entry.ApprovedHead != q.entry.ApprovedHead || entry.EntryID == q.entry.EntryID || entry.Order >= q.entry.Order {
 			continue
 		}
 		landing, found, err := q.p.Queue.Landing(q.key, entry.EntryID)
 		if err != nil {
 			return 0, fmt.Errorf("read merge queue entry %d's landing to count the times its change was withdrawn: %w", entry.Order, err)
 		}
-		if found && landing.Handback != nil && landing.Handback.Continuation == runstate.MergeQueueReleased && landing.Handback.TransferTo == "" {
+		if found && releasedAfterWithdrawal(landing) {
 			count++
 		}
 	}
 	return count, nil
+}
+
+// releasedAfterWithdrawal reports a landing whose entry was released back to
+// its run, not moved to the other queue mode, after the forge confirmed one of
+// its queued merges withdrawn.
+func releasedAfterWithdrawal(landing runstate.MergeQueueLanding) bool {
+	handback := landing.Handback
+	if handback == nil || handback.Continuation != runstate.MergeQueueReleased || handback.TransferTo != "" {
+		return false
+	}
+	for _, attempt := range landing.Attempts {
+		if w := attempt.Withdrawal; w != nil && w.Settled != nil && w.Settled.Result == runstate.MergeQueueWithdrawalConfirmed {
+			return true
+		}
+	}
+	return false
 }
 
 // HandBackConflict hands back an entry whose approved head would not merge

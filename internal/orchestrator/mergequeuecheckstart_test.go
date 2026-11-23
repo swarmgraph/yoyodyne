@@ -163,49 +163,95 @@ func TestAHeldMergeWhoseCheckNeverStartsIsHandedBackAsAFailureOutsideTheChange(t
 	}
 }
 
+// withdrawAndPass withdraws the entry's queued merge with the reason given and
+// runs a pass, which hands the change back or sets it aside.
+func (f *promotionFixture) withdrawAndPass(entryID, why string) {
+	f.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if withdrawn, err := f.promoter.Withdraw(ctx, queueKey, entryID, why); err != nil || !withdrawn.Withdrawn {
+		f.t.Fatalf("Withdraw() = %#v, %v; want the merge withdrawn", withdrawn, err)
+	}
+	f.passNow()
+}
+
+// admitAgain admits the same run's change at head behind its earlier entry,
+// verifies it, and has the forge queue its merge.
+func (f *promotionFixture) admitAgain(head string) runstate.MergeQueueEntry {
+	f.t.Helper()
+	again, _, err := f.queue.Admit(context.Background(), runstate.MergeQueueAdmission{
+		Key: queueKey, WorkItemID: f.entry.WorkItemID, WorkItemTitle: f.entry.WorkItemTitle, RunID: f.entry.RunID,
+		ApprovedHead: head, IntegrationPolicy: f.entry.IntegrationPolicy, Mode: f.entry.Mode, ModeEvidence: f.entry.ModeEvidence,
+	})
+	if err != nil || again.Supersedes != f.entry.EntryID {
+		f.t.Fatalf("Admit() = %#v, %v; want the change admitted again after its first entry", again, err)
+	}
+	f.entry = again
+	f.verify()
+	if waiting, err := f.promote(); err != nil || waiting.Waiting == "" {
+		f.t.Fatalf("Promote() = %#v, %v; want the merge queued with the forge again", waiting, err)
+	}
+	return again
+}
+
 func TestAChangeWithdrawnFromTheQueueASecondTimeIsSetAsideForTheDevelopmentManager(t *testing.T) {
 	t.Parallel()
 
 	f, _, _ := queuedMergeFixture(t)
 	repair := &recordingRepair{}
 	f.promoter.Repair = repair
-	withdrawAndPass := func(entryID string) {
-		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if withdrawn, err := f.promoter.Withdraw(ctx, queueKey, entryID, "GitHub held the merge too long"); err != nil || !withdrawn.Withdrawn {
-			t.Fatalf("Withdraw() = %#v, %v; want the merge withdrawn", withdrawn, err)
-		}
-		f.passNow()
-	}
 
 	// The first withdrawal is handed back to the run, as before.
-	withdrawAndPass(f.entry.EntryID)
+	f.withdrawAndPass(f.entry.EntryID, "GitHub held the merge too long")
 	if repair.count() != 1 || len(repair.reported) != 0 {
 		t.Fatalf("handed back %d and reported %d, want the first withdrawal handed back", repair.count(), len(repair.reported))
 	}
 
-	// The same change admitted again, verified, queued with the forge, and
-	// withdrawn a second time: set aside for the development manager.
-	again, _, err := f.queue.Admit(context.Background(), runstate.MergeQueueAdmission{
-		Key: queueKey, WorkItemID: f.entry.WorkItemID, WorkItemTitle: f.entry.WorkItemTitle, RunID: f.entry.RunID,
-		ApprovedHead: f.entry.ApprovedHead, IntegrationPolicy: f.entry.IntegrationPolicy, Mode: f.entry.Mode, ModeEvidence: f.entry.ModeEvidence,
-	})
-	if err != nil || again.Supersedes != f.entry.EntryID {
-		t.Fatalf("Admit() = %#v, %v; want the change admitted again after its first entry", again, err)
-	}
-	f.entry = again
-	f.verify()
-	if waiting, err := f.promote(); err != nil || waiting.Waiting == "" {
-		t.Fatalf("Promote() = %#v, %v; want the merge queued with the forge again", waiting, err)
-	}
-	withdrawAndPass(again.EntryID)
+	// The same change, at the same approved head, admitted again, verified,
+	// queued with the forge, and withdrawn a second time: set aside for the
+	// development manager.
+	again := f.admitAgain(f.entry.ApprovedHead)
+	f.withdrawAndPass(again.EntryID, "GitHub held the merge too long")
 	if repair.count() != 1 || len(repair.reported) != 1 {
 		t.Fatalf("handed back %d and reported %d, want the second withdrawal reported rather than handed back", repair.count(), len(repair.reported))
 	}
 	handback := f.landing().Handback
-	if handback == nil || !handback.IsSetAside() || !strings.Contains(handback.SetAside, "withdrawal number 2") || !strings.Contains(handback.SetAside, "development manager") {
+	if handback == nil || !handback.IsSetAside() || !strings.Contains(handback.SetAside, "same approved head, 2 times") || !strings.Contains(handback.SetAside, "development manager") {
 		t.Fatalf("hand-back = %#v, want it set aside for the development manager as the second withdrawal", handback)
+	}
+}
+
+// A change whose required check started and failed is handed back for a
+// repair; the repaired change carries a new approved head, so when its check
+// fails again it is handed back for a repair again rather than set aside.
+func TestARepairedChangeWithdrawnAgainAfterAFailedCheckIsHandedBackForRepair(t *testing.T) {
+	t.Parallel()
+
+	f, _, _ := queuedMergeFixture(t)
+	repair := &recordingRepair{}
+	f.promoter.Repair = repair
+	failed := "GitHub's checks on pull request 41 failed: the required check test ended in failure"
+	f.withdrawAndPass(f.entry.EntryID, failed)
+	if repair.count() != 1 {
+		t.Fatalf("handed back %d, want the failed change handed back for a repair", repair.count())
+	}
+
+	// The run's repair commits on top of the change, and the repaired head is
+	// admitted again.
+	runPipelineGit(t, f.repository, "switch", "-c", "repaired", f.entry.ApprovedHead)
+	writeQueueFile(t, f.repository, "repaired.txt", "repaired\n")
+	runPipelineGit(t, f.repository, "add", "repaired.txt")
+	runPipelineGit(t, f.repository, "commit", "-m", "the repair")
+	repaired := gitLine(t, f.repository, "rev-parse", "HEAD")
+	runPipelineGit(t, f.repository, "switch", "main")
+	again := f.admitAgain(repaired)
+
+	f.withdrawAndPass(again.EntryID, failed)
+	if repair.count() != 2 || len(repair.reported) != 0 {
+		t.Fatalf("handed back %d and reported %d, want the repaired change handed back for a repair again", repair.count(), len(repair.reported))
+	}
+	if handback := f.landing().Handback; handback == nil || handback.IsSetAside() {
+		t.Fatalf("hand-back = %#v, want it given to the run, not set aside", handback)
 	}
 }
 
