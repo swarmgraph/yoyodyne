@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -211,6 +210,16 @@ func (r *listingRunner) Run(ctx context.Context, command execution.Command, obse
 // pass on servers the CLI never read. The worktree's server has a dot in its
 // name, which a dotted `--config` path cannot reach. It skips where Codex is
 // not installed, and where the control starts no server at all.
+//
+// The test reads what started only once the CLI has exited, and the CLI exits
+// only after both servers have recorded starting. A server the CLI does not
+// wait for is killed when it exits, and on a loaded machine that can happen
+// before the script has written its record, so the control would see one
+// server or none. Each server is therefore marked `required`, which makes the
+// CLI wait for it to answer the MCP `initialize` request, and the script
+// writes its record before it answers. The servers' start-up timeout is set
+// past `go test`'s own -timeout, so load never reaches it and a server that
+// never answers is reported by that timeout's dump instead.
 func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 	t.Parallel()
 
@@ -229,13 +238,13 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 			home, servers := t.TempDir(), t.TempDir()
 			server := func(name string) string {
 				script := filepath.Join(servers, name+".sh")
-				body := "#!/bin/sh\necho started >> " + shellQuote(filepath.Join(servers, name+".started")) + "\ncat >/dev/null\n"
+				body := "#!/bin/sh\necho started >> " + shellQuote(filepath.Join(servers, name+".started")) + "\n" + recordingServer
 				if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				return script
+				return tomlString(script) + "\nrequired = true\nstartup_timeout_sec = 3600\n"
 			}
-			account := "[mcp_servers.account_server]\ncommand = " + tomlString(server("account")) + "\n"
+			account := "[mcp_servers.account_server]\ncommand = " + server("account")
 			for _, directory := range []string{worktree, physical} {
 				account += "[projects." + tomlString(directory) + "]\ntrust_level = \"trusted\"\n"
 			}
@@ -245,7 +254,7 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 			if err := os.MkdirAll(filepath.Join(worktree, ".codex"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			project := "[mcp_servers.\"project.server\"]\ncommand = " + tomlString(server("project")) + "\n"
+			project := "[mcp_servers.\"project.server\"]\ncommand = " + server("project")
 			if err := os.WriteFile(filepath.Join(worktree, ".codex", "config.toml"), []byte(project), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -261,30 +270,44 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 				t.Fatalf("the CLI listed no server for the adapter to turn off: %q", runner.turn.Args)
 			}
 
-			started := func(args []string) []string {
+			// started opens the session and, once the CLI has exited, says which
+			// servers recorded starting, with the CLI's error and output where
+			// it failed.
+			started := func(args []string) ([]string, []string, error, []byte) {
 				for _, name := range []string{"account", "project"} {
 					_ = os.Remove(filepath.Join(servers, name+".started"))
 				}
-				openSession(t, binary, runner.turn, args)
-				var names []string
+				output, err := openSession(binary, runner.turn, args)
+				var names, missing []string
 				for _, name := range []string{"account", "project"} {
-					if _, err := os.Stat(filepath.Join(servers, name+".started")); err == nil {
+					if _, statErr := os.Stat(filepath.Join(servers, name+".started")); statErr == nil {
 						names = append(names, name)
+					} else {
+						missing = append(missing, name)
 					}
 				}
-				return names
+				return names, missing, err, output
 			}
 			// The control goes first: where the CLI starts no server even
 			// without the adapter's setting, as inside a sandbox that will not
-			// let it spawn one, nothing here can be shown either way.
-			control := started(withoutMCPServersSetting(runner.turn.Args))
+			// let it spawn one, nothing here can be shown either way. A
+			// required server that cannot be spawned makes the CLI fail, so
+			// that case is a failed CLI with no server recorded.
+			control, missing, err, output := started(withoutMCPServersSetting(runner.turn.Args))
 			if len(control) == 0 {
-				t.Skip("the installed CLI started no MCP server even without the adapter's setting, as in a sandbox that refuses it, so what the setting stops cannot be seen here")
+				t.Skipf("the installed CLI started no MCP server even without the adapter's setting, as in a sandbox that refuses it, so what the setting stops cannot be seen here (codex debug prompt-input: %v)\n%s", err, output)
 			}
-			if !slices.Equal(control, []string{"account", "project"}) {
-				t.Fatalf("without the adapter's setting the CLI started %q, not both servers, so this check shows nothing about the files it reads", control)
+			if err != nil {
+				t.Fatalf("codex debug prompt-input without the adapter's setting: %v\n%s", err, output)
 			}
-			if names := started(runner.turn.Args); len(names) != 0 {
+			if len(missing) != 0 {
+				t.Fatalf("without the adapter's setting the CLI exited having started %q, and the %q server never recorded starting, so this check shows nothing about the files it reads", control, missing)
+			}
+			names, _, err, output := started(runner.turn.Args)
+			if err != nil {
+				t.Fatalf("codex debug prompt-input for a developer's turn: %v\n%s", err, output)
+			}
+			if len(names) != 0 {
 				t.Fatalf("a developer's turn started the MCP servers %q", names)
 			}
 		})
@@ -292,10 +315,11 @@ func TestTheInstalledCLIStartsNoMCPServerForADeveloper(t *testing.T) {
 }
 
 // openSession opens the session the turn's configuration describes, as
-// `codex debug prompt-input`, in the turn's directory and environment. Opening
-// it starts its MCP servers; it reaches no provider.
-func openSession(t *testing.T, binary string, turn execution.Command, args []string) {
-	t.Helper()
+// `codex debug prompt-input`, in the turn's directory and environment, and
+// returns once the CLI has exited. Opening it starts its MCP servers, waiting
+// for each one marked `required` to answer `initialize`; it reaches no
+// provider.
+func openSession(binary string, turn execution.Command, args []string) ([]byte, error) {
 	probe := []string{"debug", "prompt-input"}
 	for index := 1; index < len(args); index++ {
 		switch args[index] {
@@ -309,10 +333,32 @@ func openSession(t *testing.T, binary string, turn execution.Command, args []str
 	command := exec.Command(binary, append(probe, "hello")...)
 	command.Dir = turn.Dir
 	command.Env = turn.Env
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("codex debug prompt-input: %v\n%s", err, output)
-	}
+	return command.CombinedOutput()
 }
+
+// recordingServer is the rest of each test server's script, after the line
+// that records it started: the least of MCP over stdio that lets the CLI
+// finish starting it. It answers every request, read as one JSON object to a
+// line, with the request's own id: `initialize` with the protocol version the
+// CLI asked for, `tools/list` with no tools, and anything else with an empty
+// result. The id is read from the part of the line before "params", so an
+// "id" inside the parameters is never taken for it; a notification carries no
+// id and gets no answer.
+const recordingServer = `while IFS= read -r line; do
+  head=$(printf '%s\n' "$line" | sed 's/"params".*//')
+  id=$(printf '%s\n' "$head" | sed -n 's/.*"id":\([^,}]*\).*/\1/p')
+  [ -n "$id" ] || continue
+  case "$head" in
+  *'"initialize"'*)
+    version=$(printf '%s\n' "$line" | sed -n 's/.*"protocolVersion":\("[^"]*"\).*/\1/p')
+    [ -n "$version" ] || version='"2025-06-18"'
+    result='{"protocolVersion":'"$version"',"capabilities":{"tools":{}},"serverInfo":{"name":"recorder","version":"1"}}' ;;
+  *'"tools/list"'*) result='{"tools":[]}' ;;
+  *) result='{}' ;;
+  esac
+  printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$id" "$result"
+done
+`
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
