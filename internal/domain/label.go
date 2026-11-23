@@ -53,6 +53,22 @@ func ValidateLabel(label string) error {
 // names is not held, because naming one is an override.
 const NeedsDesignLabel = "needs-design"
 
+// RaisedByOperatorLabel marks an item the operator raised on purpose, which the
+// unmet-goal review leaves where he put it and lists apart every time
+// (docs/designs/unmet-goal-review.md, section 6). The review reads it; only the
+// harness's action for recording his raising writes it.
+const RaisedByOperatorLabel = "raised-by-operator"
+
+// RaisedByOperator reports labels carrying RaisedByOperatorLabel.
+func RaisedByOperator(labels []string) bool {
+	for _, label := range labels {
+		if strings.TrimSpace(label) == RaisedByOperatorLabel {
+			return true
+		}
+	}
+	return false
+}
+
 // NeedsDesign reports labels carrying NeedsDesignLabel, compared exactly as the
 // tracker stores it, as every label is.
 func NeedsDesign(labels []string) bool {

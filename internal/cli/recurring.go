@@ -214,6 +214,16 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		trigger.NeedsDesignWakes = parts.store.NeedsDesignWakes()
 		trigger.NeedsDesignLabelled = parts.store.NeedsDesignLabelled()
 	}
+	// The goals and the work serving them, and the record of each review, so
+	// the daily review of unmet goals runs at 09:00 local time
+	// (orchestrator/goalreview.go). It runs only where the Lead Product Manager
+	// has a recurring task to deliver it through.
+	trigger.GoalReview = goalReviewSource{
+		repository: parts.repository,
+		product:    parts.config.Product,
+		items:      withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
+	}
+	trigger.GoalReviews = parts.store.GoalReviews()
 	// The harness's own reading of the forge on the development manager's pass,
 	// through the same client the publication path opens and merges requests
 	// with, so what it lists is the repository runs publish into. The tracker

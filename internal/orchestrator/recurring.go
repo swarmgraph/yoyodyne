@@ -537,6 +537,14 @@ type Trigger struct {
 	// needsdesignwake.go.
 	NeedsDesign      NeedsDesignItems
 	NeedsDesignWakes NeedsDesignWakeRecord
+	// GoalReview reads what the unmet-goal review goes through, and GoalReviews
+	// records each review. Both are needed, with a recurring task of the Lead
+	// Product Manager's, for the daily review to run; a trigger wired without
+	// them runs none. GoalReviewZone is the operator's zone its 09:00 is read
+	// in, and nil is this machine's. See goalreview.go.
+	GoalReview     GoalReviewSource
+	GoalReviews    GoalReviewRecord
+	GoalReviewZone *time.Location
 	// NeedsDesignLabelled is since when each labelled item has waited on the
 	// architect's design, recorded at every pull from NeedsDesign; the standing
 	// surfaces and the scheduler's refusal say it, and a P0 item past a day is
