@@ -5709,7 +5709,29 @@ remote gained, which is by definition work this repository has never seen.
 at the top of its page. While the harness is paused on the provider's usage
 limit, the sentence saying so comes first, above the summary, so the cause is
 still the first thing you read. It answers five questions in ordinary words, so you can
-see where things stand without reading run records:
+see where things stand without reading run records.
+
+While something refuses every new run start, the summary's first line says so,
+ahead of its heading on `yoyo status` and at the top of the summary on the
+dashboard: what is refusing, since when, what happens next, and who can clear
+it. Four things refuse every start, including a run you name: your hold on all
+harness activity, the provider answering nobody, the provider holding every
+role on its usage limit, and the machine refusing runs, such as a primary
+checkout with uncommitted changes in it:
+
+```text
+No new run can start: uncommitted changes in the primary checkout (.yoyodyne/config.yaml); commit or stash to release (since 12:13 PST) — next: runs are retried at the next poll once the refusing condition clears; waiting on the harness
+```
+
+Who it waits on is [the ownership registry's](#who-owns-each-kind-of-entry)
+answer. Where that is you, the same line is also listed under **Needs your
+decision**, unless that answer already carries it as your hold or the provider
+login. The line is gone at the first reading after the condition clears. An
+intake hold, a full machine, or a watch session that is idle or not running
+stops only the choosing of the next item, and is said where the four lines
+below say why nothing is being chosen.
+
+With nothing refusing, the summary reads:
 
 ```text
 Summary, today, since 00:00 PDT on Sunday October 25 (read at 20:00 PDT):

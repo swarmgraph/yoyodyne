@@ -85,6 +85,12 @@ type OwnerSummary struct {
 	Since     time.Time `json:"since"`
 	SinceSays string    `json:"since_says"`
 
+	// StartsStopped is the condition that refuses every new run start, while
+	// one stands, as one line: what cannot happen and why, since when, what
+	// clears it, and who can. It is said ahead of the five answers, because
+	// nothing in them moves until it clears, and it is nil once it has.
+	StartsStopped *SummaryEntry `json:"starts_stopped,omitempty"`
+
 	// Landed is the code changes that reached the target branch in the period,
 	// and Published the confirmed documents that did. They are apart because a
 	// document published is the owning role's words landing, and a code change
@@ -191,6 +197,11 @@ func Summarize(in SummaryInputs) OwnerSummary {
 	summary.Moving = summarizeMoving(in, now, names)
 	summary.Blocked, summary.Decisions = summarizeWaiting(in, now, names)
 	summary.Cost = summarizeCost(in, period, now)
+	summary.StartsStopped = summarizeStartsStopped(in, now)
+	if summary.StartsStopped != nil {
+		summary.StartsStopped.Line = summary.StartsStopped.line()
+		summary.Decisions = withStartsStopped(summary.Decisions, *summary.StartsStopped, in.Standing)
+	}
 	if summary.nothing() {
 		summary.Quiet = "Nothing landed, nothing is in progress or blocked, no run ended without landing, nothing needs you, and nothing was spent, " + summary.SinceSays + "."
 	}
@@ -204,6 +215,9 @@ func Summarize(in SummaryInputs) OwnerSummary {
 
 // nothing reports every answer read and empty, and nothing spent.
 func (s *OwnerSummary) nothing() bool {
+	if s.StartsStopped != nil {
+		return false
+	}
 	for _, answer := range s.answers() {
 		if answer.Unread || len(answer.Entries) > 0 {
 			return false
@@ -555,6 +569,71 @@ func summarizeWaiting(in SummaryInputs, now time.Time, names summaryNames) (Summ
 	return blocked, decisions
 }
 
+// summarizeStartsStopped is the condition that refuses every new run start as
+// the line the summary opens with, worded from the standing's own reading of
+// it, and nil where nothing refuses every start or the standing could not be
+// read. Who can clear it is the ownership registry's answer the standing
+// carries, said as every other line in the summary says whose move it is.
+func summarizeStartsStopped(in SummaryInputs, now time.Time) *SummaryEntry {
+	if in.Standing == nil || in.StandingProblem != "" || in.Standing.StartsStopped == nil {
+		return nil
+	}
+	stop := in.Standing.StartsStopped
+	stall := stop.Stall
+	cause := strings.TrimSpace(strings.TrimPrefix(stall.Says, "runs cannot start: "))
+	if cause == "" {
+		cause = "the harness gave no cause"
+	}
+	if len(cause) > 1 && cause[0] >= 'A' && cause[0] <= 'Z' && cause[1] >= 'a' && cause[1] <= 'z' {
+		cause = strings.ToLower(cause[:1]) + cause[1:]
+	}
+	entry := &SummaryEntry{
+		Says:      "No new run can start: " + cause,
+		WaitingOn: waitingOn(stop.Ownership.Owner),
+		Next:      stallNext(stall),
+		Count:     1,
+		Latest:    stall.Since,
+		Detail:    []string{"stop reason " + string(stall.Reason)},
+	}
+	if !stall.Since.IsZero() {
+		entry.LatestSays = "since " + summaryMoment(stall.Since, now)
+	}
+	if because := stop.Ownership.ReasonSays(); because != "" {
+		entry.WaitingOn += ", because it is " + because
+	}
+	if remedy := stop.Ownership.Remedy; remedy != "" && remedy != entry.Next {
+		entry.Detail = append(entry.Detail, "what clears it: "+remedy)
+	}
+	if capability := stop.Ownership.Capability; capability != "" {
+		entry.Detail = append(entry.Detail, "needs "+capability)
+	}
+	return entry
+}
+
+// withStartsStopped lists a stop of every new run start among the owner's
+// decisions where only he can clear it, unless the attention line already put
+// it there in its own right: the operator's hold on everything and a provider
+// login only he can renew are each on that line as themselves, and the same
+// thing said twice in one answer is one more line to read past.
+func withStartsStopped(decisions SummaryAnswer, stop SummaryEntry, standing *Standing) SummaryAnswer {
+	if decisions.Unread || standing == nil || standing.StartsStopped == nil || !standing.StartsStopped.Ownership.Owner.IsOperator() {
+		return decisions
+	}
+	for _, waiting := range standing.NeedsHuman {
+		if !waiting.Mover.IsOperator() {
+			continue
+		}
+		switch {
+		case waiting.Kind == AttentionHold && standing.StartsStopped.Stall.Reason == ReasonOperatorHold,
+			waiting.Kind == AttentionOutage && standing.StartsStopped.Stall.Reason == ReasonProviderAway:
+			return decisions
+		}
+	}
+	decisions.Entries = append([]SummaryEntry{stop}, decisions.Entries...)
+	decisions.Says = count(len(decisions.Entries), "thing") + " only you can do"
+	return decisions
+}
+
 // groupAttention folds the entries that are the same thing — one kind, one
 // mover, one next step — into one line with how many there are and the newest
 // of them, and keeps each entry's own sentence as the line's detail, since that
@@ -700,12 +779,20 @@ func summarizeCost(in SummaryInputs, period SummaryPeriod, now time.Time) Summar
 	return answer
 }
 
-// Render is the summary as `yoyo status` opens with it: a heading, then each
-// answer with its lines under it. With detail, each line is followed by what
-// it keeps behind it. It is deterministic, so the same summary always prints
-// the same text.
+// Render is the summary as `yoyo status` opens with it: a stop of every new
+// run start where one stands, then a heading, then each answer with its lines
+// under it. With detail, each line is followed by what it keeps behind it. It
+// is deterministic, so the same summary always prints the same text.
 func (s OwnerSummary) Render(detail bool) string {
 	var rendered strings.Builder
+	if s.StartsStopped != nil {
+		rendered.WriteString(s.StartsStopped.Line + "\n")
+		if detail {
+			for _, line := range s.StartsStopped.Detail {
+				fmt.Fprintf(&rendered, "  detail: %s\n", line)
+			}
+		}
+	}
 	fmt.Fprintf(&rendered, "Summary, %s (read at %s):\n", s.SinceSays, summaryMoment(s.ObservedAt, s.ObservedAt))
 	for _, answer := range s.answers() {
 		fmt.Fprintf(&rendered, "  %s: %s\n", answer.Heading, answer.Says)
