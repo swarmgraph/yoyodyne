@@ -16,10 +16,13 @@
 // every gate a person's cut runs (scripts/cut-release.sh, in its automatic
 // mode, in a worktree of its own at the named commit, handed main's notes),
 // and pushes the tag under the harness's identity. Notes that are missing,
-// older than the decision, naming no commit or one main does not hold, or
-// carrying a stale stamp refuse the cut and hand the release back to the Lead
-// Product Manager, once for each version of the notes. The release workflow
-// publishes the page from the same notes on main (scripts/release-body.sh).
+// older than the decision, naming no commit or one main does not hold, naming
+// a commit that could not publish them (publishesNotes), or carrying a stale
+// stamp refuse the cut and hand the release back to the Lead Product Manager,
+// once for each version of the notes. The release workflow publishes the page
+// from the same notes on main (scripts/release-body.sh). A release item the
+// Lead Product Manager has parked is neither cut nor written on, and a cut
+// recorded for it waits until she releases it.
 //
 // Interrupted publication follows the architect's ruling on release-tag
 // recovery (Settle interrupted release-tag publication, yoyodyne-ifd.436.2.1):
@@ -164,7 +167,15 @@ func (c *Cutter) Pass(ctx context.Context) runstate.SweepStep {
 	if err != nil {
 		return failed(step, fmt.Sprintf("the record of release cuts could not be read, so nothing is cut: %v", err))
 	}
-	owed := c.announceOwed(ctx, cuts)
+	// Whether a release item is parked is read before anything is said or
+	// tagged: a parked release is the Lead Product Manager's to release, so the
+	// pass neither tags for it nor writes on it until she does.
+	items, err := c.Tracker.List(ctx, "")
+	if err != nil {
+		return failed(step, fmt.Sprintf("the tracker could not be read, so whether a release is parked is not known and nothing is cut: %v", err))
+	}
+	parked := parkedReleases(items)
+	owed := c.announceOwed(ctx, cuts, parked)
 	if c.Holds != nil {
 		hold, held, err := c.Holds.Held()
 		if err != nil {
@@ -176,14 +187,34 @@ func (c *Cutter) Pass(ctx context.Context) runstate.SweepStep {
 	}
 	for _, cut := range cuts {
 		if cut.State == runstate.ReleaseCutIntent {
+			if reason, held := parked[cut.WorkItemID]; held {
+				// The intent is left as it stands, so the cut is finished from its
+				// record once the item is released.
+				return skipped(step, prefixed(owed, fmt.Sprintf("%s is parked, so its recorded cut on %s is not finished and nothing is written on it: %s",
+					cut.Version, short(cut.Commit), oneline.Fold(reason, maxDetailBytes))))
+			}
 			outcome := c.recover(ctx, cut)
 			outcome.Detail = prefixed(owed, outcome.Detail)
 			return outcome
 		}
 	}
-	outcome := c.next(ctx, cuts)
+	outcome := c.next(ctx, cuts, items)
 	outcome.Detail = prefixed(owed, outcome.Detail)
 	return outcome
+}
+
+// parkedReleases is the parked items, by id, with the reason each is parked.
+// Every item is read, not only the decided releases, so a cut recorded for an
+// item whose title or origin has since changed is still held while it is
+// parked.
+func parkedReleases(items []beads.WorkItem) map[string]string {
+	parked := map[string]string{}
+	for _, item := range items {
+		if item.Parking.Parked() {
+			parked[item.ID] = item.Parking.Reason()
+		}
+	}
+	return parked
 }
 
 // decided is one release the Lead Product Manager decided.
@@ -242,12 +273,8 @@ func semver(version string) [3]int {
 }
 
 // next finds the release to cut and cuts it.
-func (c *Cutter) next(ctx context.Context, cuts []runstate.ReleaseCut) runstate.SweepStep {
+func (c *Cutter) next(ctx context.Context, cuts []runstate.ReleaseCut, items []beads.WorkItem) runstate.SweepStep {
 	step := runstate.SweepStep{Name: StepName}
-	items, err := c.Tracker.List(ctx, "")
-	if err != nil {
-		return failed(step, fmt.Sprintf("the tracker could not be read, so no decided release was looked for: %v", err))
-	}
 	releases := Decided(items)
 	if len(releases) == 0 {
 		return skipped(step, "no release the Lead Product Manager decided is waiting to be cut")
@@ -265,6 +292,11 @@ func (c *Cutter) next(ctx context.Context, cuts []runstate.ReleaseCut) runstate.
 	var passedOver []string
 	for _, item := range releases {
 		version, _ := decidedVersion(item)
+		if item.Parking.Parked() {
+			passedOver = append(passedOver, fmt.Sprintf("%s is parked, so it is not cut and nothing is written on %s: %s",
+				version, item.ID, oneline.Fold(item.Parking.Reason(), maxDetailBytes)))
+			continue
+		}
 		if reason := standing(cuts, version); reason != "" {
 			passedOver = append(passedOver, version+" "+reason)
 			continue
@@ -356,6 +388,13 @@ func (c *Cutter) cut(ctx context.Context, cuts []runstate.ReleaseCut, item beads
 		return c.handBack(ctx, cuts, refused, digest, why)
 	}
 	refused.Commit = commit
+	why, err = c.publishesNotes(ctx, version, commit)
+	if err != nil {
+		return failed(step, err.Error())
+	}
+	if why != "" {
+		return c.handBack(ctx, cuts, refused, digest, fmt.Sprintf("%s on origin/%s names commit %s, but %s", notes, branch, short(commit), why))
+	}
 
 	result, err := c.gates(ctx, version, commit, text)
 	if err != nil {
@@ -411,9 +450,22 @@ func (c *Cutter) recover(ctx context.Context, intent runstate.ReleaseCut) runsta
 		return failed(step, fmt.Sprintf("whether this repository holds %s could not be read: %v", intent.Version, err))
 	}
 	if local == "" {
-		// No tag anywhere: the gates still describe what would be tagged only
-		// while origin's default branch holds the commit they ran on and the
-		// notes there still name it.
+		// No tag anywhere: an intent recorded before the commit's ability to
+		// publish its notes was checked is checked now, before a tag is written.
+		why, err := c.publishesNotes(ctx, intent.Version, intent.Commit)
+		if err != nil {
+			return c.unconfirmed(ctx, intent, err.Error())
+		}
+		if why != "" {
+			intent.State = runstate.ReleaseCutStale
+			intent.Detail = runstate.BoundReleaseCutText(fmt.Sprintf("no tag was written for %s at %s, because %s; the next pass cuts it afresh from the notes on main",
+				intent.Version, short(intent.Commit), why))
+			intent.UpdatedAt = c.now().UTC()
+			return c.record(ctx, intent, runstate.StepRan, intent.Detail)
+		}
+		// The release checks still describe what would be tagged only while origin's
+		// default branch holds the commit they ran on and the notes there still
+		// name it.
 		branch := c.defaultBranch(ctx)
 		head, err := c.remoteHead(ctx, branch)
 		if err != nil {
@@ -498,6 +550,58 @@ func (c *Cutter) namedOnMain(ctx context.Context, text, head, notes, branch stri
 		return "", fmt.Sprintf("%s on origin/%s names commit %s, which is not on origin/%s", notes, branch, short(commit), branch), nil
 	}
 	return "", "", fmt.Errorf("whether origin/%s holds %s could not be read: the ancestry check %s", branch, short(commit), describe(result))
+}
+
+// The release page is composed by the release workflow as the tagged commit
+// carries it (.github/workflows/release.yml, a tag push runs the workflow file
+// of the tag's own commit), from the notes that commit's own tree holds or,
+// where it holds none, from the notes on the default branch that name it. That
+// second source is the variable below: scripts/release-body.sh reads the
+// default branch's notes only where it reads it, and the workflow names the
+// branch to read only where it sets it. A commit from before both carry it
+// would publish its release with no notes, because the notes always land after
+// the commit they name.
+const (
+	releaseBodyScript   = "scripts/release-body.sh"
+	releaseWorkflow     = ".github/workflows/release.yml"
+	notesFromMainMarker = "RELEASE_NOTES_FROM"
+)
+
+// publishesNotes says why a tag on commit would publish its release without
+// its notes, or nothing where it would carry them: the commit's own tree holds
+// the notes, or its release workflow and its release-body script both read them
+// from the default branch. err is a Git command that could not answer.
+func (c *Cutter) publishesNotes(ctx context.Context, version, commit string) (string, error) {
+	_, present, err := c.blob(ctx, commit, NotesPath(version))
+	if err != nil {
+		return "", fmt.Errorf("whether commit %s carries %s could not be read: %w", short(commit), NotesPath(version), err)
+	}
+	if present {
+		return "", nil
+	}
+	var missing []string
+	for _, path := range []string{releaseWorkflow, releaseBodyScript} {
+		_, held, err := c.blob(ctx, commit, path)
+		if err != nil {
+			return "", fmt.Errorf("whether commit %s carries %s could not be read: %w", short(commit), path, err)
+		}
+		if !held {
+			missing = append(missing, path+" is not there")
+			continue
+		}
+		text, err := c.git(ctx, c.Repository, gitTimeout, "show", commit+":"+path)
+		if err != nil {
+			return "", fmt.Errorf("%s at commit %s could not be read: %w", path, short(commit), err)
+		}
+		if !strings.Contains(text, notesFromMainMarker) {
+			missing = append(missing, path+" there does not read notes from main")
+		}
+	}
+	if len(missing) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("a release tagged there would be published without its notes: that commit does not carry %s, and %s. Notes for this release have to name a commit that can publish them",
+		NotesPath(version), strings.Join(missing, ", and ")), nil
 }
 
 // publish writes the tag where it is not, pushes it, and reads it back. Each
@@ -609,11 +713,15 @@ func (c *Cutter) record(ctx context.Context, cut runstate.ReleaseCut, outcome ru
 	return step
 }
 
-// announceOwed writes what earlier passes recorded and could not say.
-func (c *Cutter) announceOwed(ctx context.Context, cuts []runstate.ReleaseCut) string {
+// announceOwed writes what earlier passes recorded and could not say, except on
+// a parked release, which is said once the item is released.
+func (c *Cutter) announceOwed(ctx context.Context, cuts []runstate.ReleaseCut, parked map[string]string) string {
 	var problems []string
 	for _, cut := range cuts {
 		if cut.State == runstate.ReleaseCutIntent || cut.State == runstate.ReleaseCutStale || (cut.Noted && cut.Reported) {
+			continue
+		}
+		if _, held := parked[cut.WorkItemID]; held {
 			continue
 		}
 		if _, problem := c.announce(ctx, cut); problem != "" {

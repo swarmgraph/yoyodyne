@@ -835,6 +835,22 @@ What it will not do:
   `warning` report saying its reviewed run has the notes or the stamp still to
   land. That happens once for each version of the notes, however often `main`
   moves.
+- **Tag a commit that cannot publish the notes.** The release page is composed
+  by the release workflow and `scripts/release-body.sh` as the tagged commit
+  carries them, and the notes always land after the commit they name. So
+  unless that commit's own tree holds the notes, its release workflow and
+  `scripts/release-body.sh` must both read them from `main` (they mention
+  `RELEASE_NOTES_FROM`). A commit from before they did, such as one older than
+  the fix to the release step that landed on November 21, 2026, would publish
+  a release with no notes: the cut is refused before the walkthrough,
+  `make check` or the release build runs, and handed back the same way, saying
+  so, and the notes have to name a later commit. A cut already recorded
+  for such a commit and not yet tagged is dropped, and the next pass starts
+  afresh.
+- **Act on a parked release item.** While the Lead Product Manager has the
+  release item parked, the step runs none of the release checks, writes no tag, finishes no cut
+  recorded for it, and writes no note or report on it; the pass's own record
+  says it is parked and why. Once she releases it, the next pass takes it up.
 - **Cut over a red gate.** A red walkthrough, `make check`, or build writes no
   tag. It is noted on the release item, once for each distinct failure, and
   that commit is not gated again. The next cut is tried once origin's default
