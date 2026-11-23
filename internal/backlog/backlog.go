@@ -101,6 +101,12 @@ type Hold struct {
 	// stoppages awaiting a decision for as long as that work is unfinished: she
 	// has decided, and what moves next is that work landing.
 	WaitsOn string
+	// MergeQueued reports a hold that is the run's approved change still waiting
+	// in a merge queue, which no stoppage and no decision is behind: the harness
+	// moves next, by landing the change or recording its hand-back on the run.
+	// It is carried apart from Decided, which it also sets, so a surface listing
+	// held work can say it is a wait rather than a stoppage somebody owes.
+	MergeQueued bool
 }
 
 // Holds is the admitted work somebody has to release before anything pulls it,
@@ -375,6 +381,10 @@ type Entry struct {
 	// the item, where the hold is a parent's landing, or where the record that
 	// holds it names no run. Like AwaitingSince it is a fact about the wait.
 	AwaitingRun string `json:"awaiting_run,omitempty"`
+	// AwaitingMergeQueue reports a held item whose hold is its run's approved
+	// change still waiting in a merge queue (Hold.MergeQueued). Like
+	// AwaitingCarryOut it is a fact about the wait.
+	AwaitingMergeQueue bool `json:"awaiting_merge_queue,omitempty"`
 	// AwaitingLanding reports a held item whose hold is its parent's change
 	// landing rather than anybody's decision: a child that says it builds on a
 	// change the harness recorded and never saw reach the target branch. It is a
@@ -556,11 +566,12 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			// Only ever true beside a reason: a decision recorded about an item
 			// nothing is holding says nothing about why it is not being pulled, and
 			// carrying it here would put an item on the held count that no hold is on.
-			AwaitingCarryOut: awaiting != "" && holding.Decided && !landing,
-			AwaitingWork:     awaitingWork(awaiting, holding, landing),
-			AwaitingLanding:  landing,
-			AwaitingSince:    since,
-			AwaitingRun:      awaitingRun(awaiting, holding, landing),
+			AwaitingCarryOut:   awaiting != "" && holding.Decided && !landing,
+			AwaitingWork:       awaitingWork(awaiting, holding, landing),
+			AwaitingLanding:    landing,
+			AwaitingSince:      since,
+			AwaitingRun:        awaitingRun(awaiting, holding, landing),
+			AwaitingMergeQueue: awaiting != "" && holding.MergeQueued && !landing,
 			// An item whose execution is not a developer run is never the next thing
 			// to pull, however clear the dependency answer about it is, and neither is
 			// one somebody parked or one somebody is holding. All three are a

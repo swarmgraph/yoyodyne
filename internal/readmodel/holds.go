@@ -720,7 +720,7 @@ func heldReasons(runs []runstate.State, escalated []runstate.Escalation, decided
 		if !awaitingMergeQueue(run) {
 			continue
 		}
-		reasons[workItemID] = backlog.Hold{Reason: queuedChange(run), Decided: true, Since: run.MergeQueue.AdmittedAt, RunID: run.RunID}
+		reasons[workItemID] = backlog.Hold{Reason: queuedChange(run), Decided: true, Since: run.MergeQueue.AdmittedAt, RunID: run.RunID, MergeQueued: true}
 	}
 	// A stop the development manager decided, last, because it is only ever about
 	// the item's latest run and says the most about what to do with it. Such a run

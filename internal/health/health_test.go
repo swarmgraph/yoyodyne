@@ -873,6 +873,69 @@ func TestADecidedRerunsWaitIsSaidWholeAndACutNeverSplitsAWord(t *testing.T) {
 	}
 }
 
+// An approved change waiting its turn in the merge queue holds its item, and
+// the harness moves next, so it is a wait and not a decision the development
+// manager owes. An entry the queue handed back is its run's stoppage, and that
+// is hers to decide. An entry that landed holds nothing and is no condition at
+// all. The counts are the conditions listed.
+func TestAnApprovedChangeWaitingInTheMergeQueueIsTheHarnesssWait(t *testing.T) {
+	t.Parallel()
+
+	queuedReason := "run run-queued's approved change is in the merge queue for main as entry 40, and neither a landing nor a hand-back is recorded on the run yet, so a fresh run would duplicate an approved change; the harness moves next, and the item stays out of every pull until the queue lands the change or the hand-back is recorded on the run"
+	observer, _ := whole(t)
+	observer = withStanding(observer, readmodel.Standing{
+		NotStartable: []readmodel.Refused{
+			{WorkItemID: "yoyodyne-queued", Title: "the queued change", Kind: backlog.HeldForAPerson, RunID: "run-queued", Reason: queuedReason, MergeQueued: true},
+			{WorkItemID: "yoyodyne-handed-back", Title: "the handed-back change", Kind: backlog.HeldForAPerson, RunID: "run-handed-back",
+				Reason: "run run-handed-back stopped on it and its change is preserved; the development manager has not decided"},
+		},
+		AlsoHeld: []readmodel.Refused{
+			{WorkItemID: "yoyodyne-queued-elsewhere", Title: "a queued change the tracker marks in progress", Kind: backlog.HeldForAPerson, RunID: "run-queued-elsewhere",
+				Reason: queuedReason, MergeQueued: true, Status: "in_progress"},
+		},
+		MergeQueues: []readmodel.MergeQueueStanding{{TargetBranch: "main", Entries: []readmodel.QueueEntryStanding{
+			{EntryID: "mqe-landed", Order: 39, WorkItemID: "yoyodyne-landed", RunID: "run-landed", State: readmodel.QueueEntryLanded},
+			{EntryID: "mqe-queued", Order: 40, Place: 1, WorkItemID: "yoyodyne-queued", RunID: "run-queued", State: readmodel.QueueEntryWaiting, Step: "waiting for its candidate to be built"},
+			{EntryID: "mqe-handed-back", Order: 41, Place: 2, WorkItemID: "yoyodyne-handed-back", RunID: "run-handed-back", State: readmodel.QueueEntryHandedBack},
+		}}},
+	})
+	observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+
+	for _, key := range []string{"yoyodyne/run-queued/merge-queue-wait", "yoyodyne/run-queued-elsewhere/merge-queue-wait"} {
+		queued := find(t, observation, key)
+		if queued.Classification != ClassMergeQueueWait || queued.Actionable || queued.Owner != ownership.MoverHarness {
+			t.Errorf("the queued change = %+v, want a wait the harness moves", queued)
+		}
+		if !strings.Contains(queued.Says, "waiting its turn in the merge queue") || queued.Needs != queuedReason {
+			t.Errorf("the queued change says %q and needs %q, want it to say it waits its turn and give the hold's whole reason", queued.Says, queued.Needs)
+		}
+	}
+	handedBack := find(t, observation, "yoyodyne/run-handed-back/held-after-stoppage")
+	if handedBack.Classification != ClassHeldStoppage || !handedBack.Actionable || handedBack.Owner != ownership.MoverDevelopmentManager {
+		t.Errorf("the handed-back change = %+v, want a stoppage the development manager owes", handedBack)
+	}
+	for _, anomaly := range observation.Anomalies {
+		if anomaly.WorkItem == "yoyodyne-landed" || anomaly.Identity.Run == "run-landed" {
+			t.Errorf("the landed entry was listed as a condition: %+v", anomaly)
+		}
+		if anomaly.Classification == ClassHeldStoppage && anomaly.WorkItem != "yoyodyne-handed-back" {
+			t.Errorf("a queued change was listed as a stoppage: %+v", anomaly)
+		}
+	}
+	if observation.Totals != (Totals{Conditions: 3, Actionable: 1, Waits: 2, Services: 2}) {
+		t.Errorf("totals = %+v, want the one handed-back stoppage needing a decision and the two queued changes as waits", observation.Totals)
+	}
+	if !strings.Contains(observation.Says, "1 needing a decision or an action, and 2 legitimate wait(s)") {
+		t.Errorf("says %q, want the counts of what it lists", observation.Says)
+	}
+	if observation.Anomalies[0].Key != handedBack.Key {
+		t.Errorf("the decision owed is not listed first: %+v", observation.Anomalies)
+	}
+	if len(observation.MergeQueues) != 2 {
+		t.Errorf("merge queue entries listed = %+v, want the two the queue has not finished with", observation.MergeQueues)
+	}
+}
+
 // The scheduler moves onto a new build at most once every
 // execution.build_move_interval, so its copy on an old build is not a
 // condition while it waits that out. Once its move has fallen due and not
