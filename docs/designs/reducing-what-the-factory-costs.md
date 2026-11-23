@@ -35,6 +35,10 @@ revisions:
       by: architect
       at: 2026-11-22T18:54:50.932728Z
       reason: 'amendment-f9345507f2d46b92cd94eb3d7d92e304, approved Nov 22: section 2 now says a role''s own acts in its last pass do not make the next pass new, while what then happened to its work does, and that a landing counts only where it touches a file kind the role owns, product intent, role instructions, or an item the role owns, carries or is named on. The four hour floor stays. Read at 697f81f621a0.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T04:54:59.264601Z
+      reason: 'amendment-edddc4becd1e806d859cc309d0c44984, approved Nov 22: section 8 rewritten from the settings that landed with yoyodyne-ifd.435.85, read at main 24f452bc4b3a. Keys sit under execution; Codex and declared providers name no kind by default; the four fixed high risk labels are held in code with no setting naming them; bounds and eligibility order as built; a Built column; the typed write for these settings is not built yet (434.54).'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -71,6 +75,11 @@ approvals:
       by: harness
       at: 2026-11-22T18:54:50.932728Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3520, for document-3520.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-23T04:54:59.264601Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3636, for document-3636.1 under the automatic approval policy
 ---
 # Reducing what the factory costs to run
 
@@ -246,36 +255,70 @@ Its saving is the smallest here, so it is built last. The conversation roles sti
 
 ## 8. Settings, defaults and who may change them
 
-Every change above has a setting, a default and an owner, unless this section says there is deliberately none. The default is what the shipped bundle gives a project that states nothing. A project in its own file is the project's configuration, changed by its operator or by a reviewed change. The development manager's path is section 6 of [portable agent configuration](portable-agent-configuration.md): a typed write, reviewed, recorded as hers. The defaults are today's behaviour except where a change trades nothing away.
+Every change above has a setting, a default and an owner, unless this section says there is deliberately none. Each setting is a key under `execution:` in the project's configuration unless its row says otherwise. The default is what the shipped bundle gives a project that states nothing. A project in its own file is the project's configuration, changed by its operator or by a reviewed change. The development manager's path is section 6 of [portable agent configuration](portable-agent-configuration.md): a typed write, reviewed, recorded as hers. That write is not built yet; it is the item letting a role change a setting it owns through one checked write (yoyodyne-ifd.434.54). Until it lands, these values change only by a reviewed change to the project's configuration file. The defaults are today's behaviour except where a change trades nothing away.
 
-| Change | Setting | Default for a new project | Who may change it |
-| --- | --- | --- | --- |
-| Models by kind | `model_kinds`, for each provider: `stronger`, `cheaper`, `lightest` | for Claude Code: Opus, Sonnet, Haiku; for any other provider, `stronger` is the model its agents name and the others are not named | the development manager |
-| Reusing the opening of each pass (section 1) | none | always on | nobody |
-| Skipping a scheduled pass with nothing new (section 2) | `skip_when_unchanged` on each recurring task, and on each scheduled trigger of a program manager instance | on for every scheduled pass of a management role | the development manager |
-| The floor on full passes (section 2) | `full_pass_every` on each recurring task, and on each scheduled trigger of a program manager instance | 4 hours; allowed between 1 hour and 12 hours | the development manager |
-| Developers starting on the cheaper model (section 4) | `developer_cheaper_first`: on or off, and which items are eligible by label and priority | off; when on, priority 0 is not eligible | the development manager |
-| High risk kinds never on the cheaper model (section 4) | `high_risk_labels`: which labels mean security, migrations, concurrency and public interfaces, and any further kinds | the labels `security`, `migration`, `concurrency` and `public-interface` | the development manager may add labels and kinds, never remove the four kinds |
-| Reviewer's model by kind of change (section 5) | `reviewer_models`: `documents` and `code`, each a kind | both `stronger` | the development manager |
-| A recurring task's model (section 6) | the task's existing `model`, which may now name a kind | unchanged | the development manager, as today |
-| The model of a program manager's scheduled passes (section 6) | a new optional `model` on each scheduled trigger of a program manager instance, naming a model or a kind | none, so the passes use the agent's model, as today | the development manager |
-| The reading helper (section 7) | `repository_ask`: its model kind, answer limit and time limit | on once built; `lightest`; 4 KiB, allowed between 1 KiB and 16 KiB; 60 seconds | the development manager; a project may take the tool from an agent with `tools: deny` |
-| Weekly cost figures | none | always kept | nobody |
+| Change | Setting | Default for a new project | Who may change it | Built |
+| --- | --- | --- | --- | --- |
+| Models by kind | `execution.model_kinds`, for each provider: `stronger`, `cheaper`, `lightest` | for Claude Code: `opus`, `sonnet`, `haiku`; Codex and any provider a project declares name no kind until the project does | the development manager | yes, with yoyodyne-ifd.435.85 |
+| Reusing the opening of each pass (section 1) | none | always on | nobody | yes, with yoyodyne-ifd.430.89 |
+| Skipping a scheduled pass with nothing new (section 2) | `skip_when_unchanged` on each recurring task, and on each scheduled trigger of a program manager instance | on for every scheduled pass of a management role | the development manager | no; admitted as yoyodyne-ifd.430.92 |
+| The floor on full passes (section 2) | `full_pass_every` on each recurring task, and on each scheduled trigger of a program manager instance | 4 hours; allowed between 1 hour and 12 hours | the development manager | no; admitted as yoyodyne-ifd.430.92 |
+| Developers starting on the cheaper model (section 4) | `execution.developer_cheaper_first`: `enabled`, `labels`, `priorities`, `trial_runs` | off; when on, every item of priority 1 to 4 that carries no high risk label, and a trial of 40 runs | the development manager | yes, with yoyodyne-ifd.435.85 |
+| High risk kinds never on the cheaper model (section 4) | `execution.high_risk_labels`: further labels only | none added; the four fixed labels `security`, `migration`, `concurrency` and `public-interface` always apply | the development manager may add labels; the four fixed ones are held in code and no setting names them | yes, with yoyodyne-ifd.435.85 |
+| Reviewer's model by kind of change (section 5) | `reviewer_models`: `documents` and `code`, each a kind | both `stronger` | the development manager | no; build piece 7 |
+| A recurring task's model (section 6) | the task's existing `model`, which may now name a kind | unchanged | the development manager, as today | naming a kind: no |
+| The model of a program manager's scheduled passes (section 6) | a new optional `model` on each scheduled trigger of a program manager instance, naming a model or a kind | none, so the passes use the agent's model, as today | the development manager | no; build piece 8 |
+| The reading helper (section 7) | `repository_ask`: its model kind, answer limit and time limit | on once built; `lightest`; 4 KiB, allowed between 1 KiB and 16 KiB; 60 seconds | the development manager; a project may take the tool from an agent with `tools: deny` | no; build piece 9 |
+| Weekly cost figures | none | always kept | nobody | build piece 10 |
 
-Why the floor stops at 12 hours, and why these settings reach a program manager's triggers:
+### What the built settings hold
+
+Read in the configuration code at main 24f452bc4b3a.
+
+**Models by kind.** A kind the project names for a provider is used; otherwise the shipped default for that provider, where there is one; otherwise that provider has no model of that kind. A provider named under `execution.model_kinds` must be `claude-code`, `codex`, or a provider the project declares, and each name must pass the same check as any model name. Anything else is refused when the configuration loads.
+
+**Developers starting on the cheaper model.** The keys and their bounds:
+
+- `enabled`: off by default. Off, every run starts on the model it always did.
+- `priorities`: which tracker priorities are eligible, each from 1 to 4, none named twice. Left empty, all four are. Naming priority 0 is refused.
+- `labels`: when any are named, only items carrying one of them are eligible. Each must be a label the tracker would carry, none named twice, and none may be a high risk label, because that would make nothing eligible. Each of these is refused at load.
+- `trial_runs`: how many eligible runs the trial alternates before its comparison is due, from 40 to 1000. Left out, it is 40.
+
+Turning `enabled` on while any developer agent runs on a provider that names no cheaper model is refused at load, naming the provider and the agent. In practice a project with a Codex developer names Codex's cheaper model first.
+
+An item is judged in this order, and the run records the reason in words:
+
+1. the setting is off: not eligible;
+2. the item's priority was never recorded: treated as priority 0, so not eligible, because an item of unknown priority might be priority 0;
+3. priority 0: not eligible;
+4. carries any high risk label, fixed or added: not eligible;
+5. its priority is not among `priorities`: not eligible;
+6. `labels` names some and the item carries none of them: not eligible;
+7. otherwise eligible.
+
+An item that `execution.developer_models` sends to a model by one of its labels keeps that model and does not start on the cheaper one. The mapping is a choice somebody made for that work, and starting it cheaper would undo it.
+
+**High risk labels.** The four fixed labels are held in code, as the management loop protocol rules. `execution.high_risk_labels` adds to them, and each added label must be one the tracker would carry, named once. Because no setting names the four fixed ones, there is no configuration that removes one; that is how the rule is enforced, rather than by a refusal.
+
+Every one of these settings selects a model and nothing else, so none of them can widen what a run may do, as the invariant on configuration says.
+
+### Why the floor stops at 12 hours, and why these settings reach a program manager's triggers
 
 - **12 hours, not 24.** The floor is what catches a change the skip check does not cover. A role left a whole day without one full pass could miss such a change for a working day, and the milestone's internal week allows no hour with ready work waiting and nobody moving it. Twelve hours still lets a project with little to do skip most of its passes.
 - **Program manager triggers.** A program manager instance is scheduled by its triggers, not by a recurring task, and it had the largest share of passes with nothing new, 53%. Section 2 says every role keeps its floor, so leaving the triggers out would leave the program manager out by accident, and section 6 needs the trigger's model for the same reason. The development manager decides only these three keys on a trigger, the two pass settings and its model; the rest of an instance's settings stay the operator's.
 
-Why some things have no setting:
+### Why some things have no setting
 
 - **Reusing the opening of each pass.** It sends each role the same text in a different order and changes nothing a role sees, so turning it off would only make the same work cost more.
 - **Which things the skip check reads.** The list is held in code for each role. A list a project could edit could hide a change from the role that has to act on it. A project chooses only whether passes are skipped and how long the floor is.
 - **The four high risk kinds.** The management loop protocol rules that high risk work never runs on the cheapest model, so a project can widen the list and never shrink it.
+- **Priority 0 work.** It never starts on the cheaper model, and no setting can make it eligible.
 - **Which roles hold the reading helper.** Grants are held in the role bundles in Go and configuration never grants a tool, as the invariant on configuration says; a project can only take the helper away from an agent.
 - **Which model each management role runs on.** It stays what it is today, the operator's, in each agent's configuration. A model on a recurring task or on a scheduled trigger changes only the passes it starts, never the agent's own model or its conversation turns. Nothing in this design changes the agent's model.
 
-A change that needs a model of a kind its provider has not named cannot be turned on: a configuration that turns on `developer_cheaper_first`, names a kind in `reviewer_models`, a task's model or a trigger's model, or keeps the reading helper on, for a provider lacking that kind, is refused when it loads, naming the provider, the change and the missing kind. The reading helper is off for such a provider until its lightest kind is named.
+### A change whose provider lacks the kind it needs
+
+A change that needs a model of a kind its provider has not named cannot be turned on. A configuration that turns on `developer_cheaper_first`, names a kind in `reviewer_models`, a task's model or a trigger's model, or keeps the reading helper on, for a provider lacking that kind, is refused when it loads, naming the provider, the change and the missing kind. For `developer_cheaper_first` this is built; for the others it is built with each change. The reading helper is off for such a provider until its lightest kind is named.
 
 The trials in sections 4 to 6 decide what this repository turns on. They do not change the shipped defaults. If a trial shows a change helps without costing quality, changing the shipped default is a later decision recorded in its own revision of this design.
 
