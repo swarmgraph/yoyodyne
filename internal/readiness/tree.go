@@ -3,6 +3,8 @@ package readiness
 import (
 	"bytes"
 	"fmt"
+	"go/ast"
+	"go/parser"
 	"go/scanner"
 	"go/token"
 	"io/fs"
@@ -53,6 +55,10 @@ type Repository struct {
 	once     sync.Once
 	source   []byte
 	packages map[string]struct{}
+	// declared is every name the tree's Go source declares, qualified the way an
+	// item cites it: package and name, and for a method or a struct field package,
+	// type, and member. See declarations.
+	declared map[string]struct{}
 	loaded   error
 	library  sync.Once
 	std      *standardLibrary
@@ -119,9 +125,18 @@ func lines(content []byte) int {
 	return counted
 }
 
-// Declares reports the tree's own source naming this symbol. Four forms count,
-// and the last three are what keep this from firing on every method a document
-// refers to by its package-qualified name.
+// Declares reports the tree's own source naming this symbol. The first answer
+// is the declarations themselves: a package of that name declaring that
+// function, type, constant, or variable, or that method or field on that type.
+// That one is exact, and it is the one that matters for a name nothing outside
+// its own package calls yet. Every form below is a search of the source text,
+// and a function used only inside its own package — or only by tests, which are
+// not read — is never written package-qualified anywhere the search looks: that
+// is how runstate.StopKeptOutOfHold, declared in internal/runstate, was once
+// reported missing while every qualified call in the tree was to the longer
+// StopKeptOutOfHoldAfter. Four textual forms also count, and the last three are
+// what keep this from firing on every method a document refers to by its
+// package-qualified name.
 //
 //   - The symbol as the item wrote it. A package-qualified function is written
 //     that way wherever it is called, so its absence is the function's absence.
@@ -143,6 +158,9 @@ func (r *Repository) Declares(symbol string) (bool, error) {
 	source, err := r.corpus()
 	if err != nil {
 		return false, err
+	}
+	if _, declared := r.declared[symbol]; declared {
+		return true, nil
 	}
 	if names(source, symbol) {
 		return true, nil
@@ -233,6 +251,7 @@ func (r *Repository) corpus() ([]byte, error) {
 			return
 		}
 		var assembled bytes.Buffer
+		r.declared = make(map[string]struct{})
 		r.loaded = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -252,6 +271,7 @@ func (r *Repository) corpus() ([]byte, error) {
 			}
 			assembled.Write(uncommented(content))
 			assembled.WriteByte('\n')
+			declarations(r.declared, content)
 			return nil
 		})
 		if r.loaded == nil {
@@ -263,6 +283,69 @@ func (r *Repository) corpus() ([]byte, error) {
 		}
 	})
 	return r.source, r.loaded
+}
+
+// declarations adds every top-level name one Go source file declares to the set,
+// qualified by the file's package name the way an item cites it: "pkg.Name" for
+// a function, type, constant, or variable, "pkg.Type.Method" for a method, and
+// "pkg.Type.Field" for a field of a struct type. A file that will not parse
+// gives what the parser recovered of it, and one it recovered nothing of gives
+// nothing: the textual reads in Declares still see it.
+func declarations(declared map[string]struct{}, content []byte) {
+	file, _ := parser.ParseFile(token.NewFileSet(), "", content, parser.SkipObjectResolution)
+	if file == nil || file.Name == nil {
+		return
+	}
+	pkg := file.Name.Name
+	add := func(names ...string) {
+		declared[pkg+"."+strings.Join(names, ".")] = struct{}{}
+	}
+	for _, decl := range file.Decls {
+		switch decl := decl.(type) {
+		case *ast.FuncDecl:
+			if decl.Recv == nil || len(decl.Recv.List) == 0 {
+				add(decl.Name.Name)
+				continue
+			}
+			if receiver := receiverName(decl.Recv.List[0].Type); receiver != "" {
+				add(receiver, decl.Name.Name)
+			}
+		case *ast.GenDecl:
+			for _, spec := range decl.Specs {
+				switch spec := spec.(type) {
+				case *ast.TypeSpec:
+					add(spec.Name.Name)
+					if structure, isStruct := spec.Type.(*ast.StructType); isStruct && structure.Fields != nil {
+						for _, field := range structure.Fields.List {
+							for _, name := range field.Names {
+								add(spec.Name.Name, name.Name)
+							}
+						}
+					}
+				case *ast.ValueSpec:
+					for _, name := range spec.Names {
+						add(name.Name)
+					}
+				}
+			}
+		}
+	}
+}
+
+// receiverName is the type a method is declared on, through a pointer and any
+// type parameters.
+func receiverName(expression ast.Expr) string {
+	switch expression := expression.(type) {
+	case *ast.StarExpr:
+		return receiverName(expression.X)
+	case *ast.IndexExpr:
+		return receiverName(expression.X)
+	case *ast.IndexListExpr:
+		return receiverName(expression.X)
+	case *ast.Ident:
+		return expression.Name
+	}
+	return ""
 }
 
 // uncommented is one file's source with every comment blanked to spaces. It is

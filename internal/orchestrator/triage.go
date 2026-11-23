@@ -233,6 +233,21 @@ type Docketer struct {
 	RepositoryID string
 	Harness      string
 	Clock        execution.Clock
+	// Unready reads the items the docket holds as unready again, as the tracker
+	// now holds them, each time the docket is built for somebody to read; see
+	// settleListedUnready. Optional: a docketer with none leaves those entries
+	// to the next pull, which reads them again anyway, and a hold whose words
+	// are gone then stands until a pull is made.
+	Unready DocketUnready
+}
+
+// DocketUnready reads again the items the docket holds as unready. It is given
+// the identifiers of the items whose entries stand and returns how each now
+// reads, so a tracker behind it is asked once for all of them rather than once
+// per entry. An error is a reading that could not be made, which settles
+// nothing.
+type DocketUnready interface {
+	RereadUnready(workItemIDs []string) (func(workItemID string) UnreadyReading, error)
 }
 
 // DocketBuild is what one build found: the docket as it now stands, and how
@@ -396,6 +411,12 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// And so is an earlier run whose item a later run holds or has landed the
 	// approved change for: see docketsupersededruns.go.
 	if _, err := d.settleSupersededRuns(recorded, now); err != nil {
+		problems = append(problems, err)
+	}
+	// And an item held for what its text said is read again as it now reads, so
+	// the development manager is never listed a hold whose words the item no
+	// longer carries.
+	if err := d.settleListedUnready(docketed, now); err != nil {
 		problems = append(problems, err)
 	}
 	entries, err := d.Docket.List()
@@ -1257,8 +1278,10 @@ type UnreadyReading struct {
 	Unreadable bool
 }
 
-// SettleUnreadyItems takes off the docket every unready entry the pull's own
-// reading no longer supports, and reports how many it took off.
+// SettleUnreadyItems takes off the docket every unready entry a fresh reading of
+// its item no longer supports, and reports how many it took off. A pull calls it
+// with the items it read, and building the docket calls it with the items as the
+// tracker then holds them (settleListedUnready).
 //
 // Nothing did this before, and the docket entry outlived the sentence it quoted.
 // yoyodyne-ifd.298's entry went on quoting "this item does not start before
@@ -1296,11 +1319,11 @@ func (d Docketer) SettleUnreadyItems(reread func(workItemID string) UnreadyReadi
 		reason := ""
 		switch {
 		case !reading.Present:
-			reason = "the item is no longer in the backlog the pull reads, so it is asking nothing of anybody"
+			reason = "the item is no longer in the backlog, so it is asking nothing of anybody"
 		case len(reading.Unmet) == 0:
-			reason = "the item was read again at a pull, as the tracker then held it, and asks for nothing the tree does not have"
+			reason = "the item was read again, as the tracker then held it, and asks for nothing the tree does not have"
 		case !samePrerequisites(entry.Unready.Prerequisites, reading.Unmet):
-			reason = "the item was read again at a pull and what it asks for is no longer what this entry quotes: " +
+			reason = "the item was read again and what it asks for is no longer what this entry quotes: " +
 				singleLine(readiness.Describe(reading.Unmet), triage.MaxMessageBytes/2)
 		default:
 			continue
@@ -1321,7 +1344,7 @@ func (d Docketer) SettleUnreadyItems(reread func(workItemID string) UnreadyReadi
 			WorkItemID:    entry.WorkItemID,
 			Decision:      clearedUnreadyDecision,
 			Reason:        reason,
-			DecidedBy:     "the harness, reading the item again at a pull",
+			DecidedBy:     "the harness, reading the item again",
 			ClosedAt:      closedAt,
 		})
 		if err != nil {
@@ -1333,6 +1356,41 @@ func (d Docketer) SettleUnreadyItems(reread func(workItemID string) UnreadyReadi
 		}
 	}
 	return settled, errors.Join(problems...)
+}
+
+// settleListedUnready reads again every item the docket holds as unready, as the
+// tracker now holds it, and takes off the entries that reading no longer
+// supports, by the same rule a pull settles them by (SettleUnreadyItems).
+//
+// It is here because a pull is not made while every developer slot is busy, and
+// a hold read only at a pull stood for hours on a priority 0 item after the
+// development manager had reworded the sentence it quoted. Building the docket
+// is what lists it to her, so reading the holds again here means no hold she is
+// shown is older than the item's current text. A docket with no unready entry
+// standing asks the tracker nothing.
+func (d Docketer) settleListedUnready(docketed []triage.Entry, now time.Time) error {
+	if d.Unready == nil {
+		return nil
+	}
+	var standing []string
+	for _, entry := range docketed {
+		if entry.Class != triage.ClassUnreadyItem || entry.Unready == nil {
+			continue
+		}
+		if entry.Closed != nil && entry.Closed.Holds(now) {
+			continue
+		}
+		standing = append(standing, entry.WorkItemID)
+	}
+	if len(standing) == 0 {
+		return nil
+	}
+	reread, err := d.Unready.RereadUnready(standing)
+	if err != nil {
+		return fmt.Errorf("read again the items the docket holds as unready, so some may still stand there under words their item no longer carries: %w", err)
+	}
+	_, err = d.SettleUnreadyItems(reread)
+	return err
 }
 
 // clearedUnreadyDecision is the word a closure made by SettleUnreadyItems

@@ -6239,7 +6239,7 @@ func TestAnItemAmendedUnderASentenceRefusalIsTakenAtTheNextPull(t *testing.T) {
 	if len(entries) != 1 || entries[0].Class != triage.ClassUnreadyItem {
 		t.Fatalf("docket = %+v, want the one unready entry the first pull made", entries)
 	}
-	if !strings.Contains(entries[0].Unready.Prerequisites[0].Missing, "its description says of it") {
+	if !strings.Contains(entries[0].Unready.Prerequisites[0].Missing, "its description says \"") {
 		t.Fatalf("entry = %+v, want the refusal to name the field the sentence was in", entries[0].Unready.Prerequisites[0])
 	}
 	closed := entries[0].Closed
