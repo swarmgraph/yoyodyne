@@ -117,6 +117,13 @@ type RunPresence interface {
 	Presence(state runstate.State, quiet time.Duration, now time.Time) (runstate.RunPresence, error)
 }
 
+// RunStops reads the stop somebody recorded on a run, from beside the run where
+// it is written (runstate.Store.StopRequested). Every wired store satisfies it;
+// a reading over runs that cannot answer it says no run is stopping.
+type RunStops interface {
+	StopRequested(runID string) (runstate.StopRequest, bool, error)
+}
+
 // RunSlots reads whether a run in flight holds a developer slot by the rule the
 // reservation and the scheduler count by: a run whose worker's process is gone
 // holds none (runstate.Store.HoldsDeveloperSlotNow). Every wired store
@@ -574,6 +581,13 @@ type RunningRun struct {
 	// still working are the same phase and different facts, and only the second
 	// is the provider's.
 	AfterReply string `json:"after_reply,omitempty"`
+	// Stopping says somebody has asked the run to stop and it has not ended yet:
+	// who asked, when, and by when it ends — or, once that has passed, that it
+	// is overdue and how long it has run on (runstate.State.StoppingSays). It is
+	// empty where no stop is on file. The line says it in place of the bare
+	// phase, because a run asked to stop is not doing what its phase names any
+	// more, and a stop that never reached its run read as a run still developing.
+	Stopping string `json:"stopping,omitempty"`
 	// Install says the run is waiting to try one of the project's install steps
 	// again after it failed for a cause outside the work, naming the step and
 	// the local time of the next try — runstate.InstallWait.Describe — and is
@@ -1813,6 +1827,14 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, []
 			if found, err := presence.Presence(state, DefaultDeadClaimThreshold, now); err == nil && !found.Found {
 				run.NoProcess = found.Says
 				run.NoProcessRemedy = runstate.DeadRunRemedy(state, DefaultDeadClaimThreshold)
+			}
+		}
+		// A stop that cannot be read is left off the line rather than failing the
+		// reading, as the run summary leaves it off; the run itself fails its step
+		// on it (runstate.Store.StopRequested).
+		if stops, ok := sources.Runs.(RunStops); ok {
+			if request, requested, err := stops.StopRequested(state.RunID); err == nil && requested {
+				run.Stopping = state.StoppingSays(request, now)
 			}
 		}
 		if slots, ok := sources.Runs.(RunSlots); ok && state.HoldsDeveloperSlot() && !slots.HoldsDeveloperSlotNow(state, now) {

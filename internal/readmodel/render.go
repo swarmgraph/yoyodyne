@@ -757,6 +757,9 @@ func phaseOf(run RunningRun) string {
 	if run.HoldsNoSlot != "" {
 		return run.HoldsNoSlot
 	}
+	if run.Stopping != "" {
+		return run.Stopping
+	}
 	if run.ResumingIntegration {
 		return runstate.ResumingIntegrationSays
 	}
