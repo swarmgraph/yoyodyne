@@ -258,3 +258,19 @@ func TestAWaitOnTheHeldItemsParentOrAboveReadsAsNeedingADecision(t *testing.T) {
 		}
 	}
 }
+
+// A decision waiting for its item to be unparked still holds the item, so the
+// item is not pulled fresh beside the decision once it is released, and the hold
+// says the decision waits for the unparking rather than on the harness.
+func TestADecisionWaitingOnTheUnparkingHoldsTheItemAndSaysSo(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 15, 21, 0, 0, 0, time.UTC)
+	hold := heldFor("run-0123456789abcdef0123456789abcdef", "the run stopped", decidedStanding{carryOut: false, parked: true, rerun: true}, stopped)
+	if !hold.Decided || !strings.Contains(hold.Reason, "waits for the item to be unparked") {
+		t.Fatalf("hold = %#v, want a decided hold saying it waits for the unparking", hold)
+	}
+	if strings.Contains(hold.Reason, "what is outstanding is the harness carrying that decision out") {
+		t.Fatalf("hold = %#v, want it not read as owed by the harness", hold)
+	}
+}

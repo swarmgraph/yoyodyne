@@ -356,6 +356,11 @@ type RerunResult struct {
 	// the decision stands until it is carried out or the development manager
 	// withdraws it, and asking again once a slot frees carries out the same one.
 	CapacityFull *runstate.CapacityError `json:"capacity_full,omitempty"`
+	// ItemParked is the item being parked by somebody other than the stopped run,
+	// when that is what this is waiting on. It is not a refusal: nothing was
+	// claimed, the decision stands, and it is carried out once the item is
+	// unparked.
+	ItemParked *ItemParked `json:"item_parked,omitempty"`
 	// PausedBeforeStarting is the pause the fresh run met where it would have
 	// started, when one is what stopped this: the operator's hold on all activity,
 	// an unresolved directive, work the item waits on, or a held intake. It is the
@@ -389,6 +394,19 @@ type RerunResult struct {
 	// than in place of it — but a disposition nobody wrote down is exactly the
 	// orphan this record exists to prevent, so it is never left unsaid.
 	RecordProblem string `json:"record_problem,omitempty"`
+}
+
+// ItemParked is the parking a re-run waits on: who placed it, in words a person
+// reads, and the parking's own reason.
+type ItemParked struct {
+	By     string `json:"by"`
+	Reason string `json:"reason"`
+}
+
+// Says is the sentence a reader of the wait is given.
+func (p ItemParked) Says(workItemID string) string {
+	return fmt.Sprintf("%s is parked by %s (%s), and a re-run is not started on a parked item: it waits until the item is unparked, and then starts by itself in the ordinary order",
+		workItemID, p.By, singleLine(p.Reason, 300))
 }
 
 // Rerun carries out one re-run decision.
@@ -460,6 +478,17 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	item, err := r.itemCanBeRun(ctx, entry.WorkItemID)
 	if err != nil {
 		return result, err
+	}
+	// A parking anybody but the stopped run placed is somebody deciding the item
+	// is not to be started yet, and a re-run is the harness choosing work, so it
+	// waits for the item to be unparked exactly as the scheduler's pull does. It
+	// is a wait rather than a refusal: nothing is claimed, the decision stands,
+	// and the pass that finds the item unparked carries it out. A parking the
+	// stopped run placed on its own item is the one the decision answers, so it
+	// does not hold the re-run (runstate.RerunWaitsOnParking).
+	if parkedBy, waits := runstate.RerunWaitsOnParking(item, prior.RunID); waits {
+		result.ItemParked = &ItemParked{By: parkedBy, Reason: item.Parking.Reason()}
+		return result, nil
 	}
 	// A raise is re-run only once the item's owner has amended it and released
 	// the parking the raise placed: the raise said the item could not be met as

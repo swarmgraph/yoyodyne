@@ -371,7 +371,16 @@ func (c TriageCounters) Standing(runID string) triage.Standing {
 		GrantOutstanding: c.GrantOutstanding(),
 		Refused:          refused,
 		NoLongerApplies:  settled,
+		WaitsOnParking:   decided && c.waitsOnParking(runID, decision),
 	}
+}
+
+// waitsOnParking reports the finding standing about this decision being that
+// it waits for its item to be unparked. A finding about an earlier decision
+// about the same run says nothing about this one.
+func (c TriageCounters) waitsOnParking(runID string, decision TriageDecision) bool {
+	finding, found := c.CarryOutOf(runID)
+	return found && finding.WaitsOnParking() && finding.AboutDecision(decision.Decision, decision.DecidedAt)
 }
 
 // StandingOf is Standing read with the stopped run's own record beside it, which
@@ -470,7 +479,9 @@ func (s *Store) stillToCarryOut(workItemID string, standing TriageDecision, coun
 	if err != nil {
 		run = State{RunID: standing.RunID}
 	}
-	if !counters.AwaitingCarryOutOf(run) {
+	// A re-run waiting for its item to be unparked is still to be carried out,
+	// so a wait naming nothing keeps it standing as it keeps one the harness owes.
+	if !triage.DecisionStands(counters.StandingOf(run)) {
 		return false
 	}
 	if standing.Decision != TriageDecisionRerun {

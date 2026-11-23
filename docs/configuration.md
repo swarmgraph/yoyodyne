@@ -8727,6 +8727,19 @@ refusal says so, and asking again once it no longer refuses carries out the same
 decision. A refusal that does name a run is a run that existed and did something:
 its claim stands and is settled like any other.
 
+**A parked item holds a re-run until it is unparked.** A parking is somebody
+deciding the item is not to be started yet, and a re-run is the harness choosing
+work, so a re-run decided about a stoppage of a parked item waits as the
+scheduler's pull does: nothing is claimed, the decision stands, and the first
+pass after the item is unparked carries it out with nobody deciding it again.
+The development manager is told so when she records the re-run, with who parked
+the item; the pass records the wait on the item's triage record at once, and the
+docket, `yoyo status`, and the item's hold read it as waiting on whoever parked
+the item rather than as something the harness owes. The one parking that does
+not hold a re-run is the one the stopped run placed on its own item, such as an
+evidence landing's, because the re-run is the decision that parking waited for;
+a raise's own parking still waits for its owner to release it.
+
 **A full harness is a state rather than a refusal.** `execution.max_concurrent_developers`
 is read before the claim, from the same runs in flight the reservation counts, and
 every slot being taken neither refuses the carry-out nor fails it: nothing is

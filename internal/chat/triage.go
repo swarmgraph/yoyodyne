@@ -973,8 +973,31 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	if raised && decision == decisionRerun {
 		lifted = "; it is a re-run of a raise, so it starts from the raising run's preserved change where its branch still stands, once the item's owner has amended the item and released the raise's parking"
 	}
+	if decision == decisionRerun {
+		lifted += s.rerunParkedClause(ctx, id, run)
+	}
 	outcome.applied("triaged %s as %q%s, on the stopped work of run %s%s%s%s",
 		id, decision, waitsOnClause(waitsOn), run, spent.clause, lifted, s.closeDocketEntryWaiting(ctx, decision, run, action.Reason, waitsOn))
+}
+
+// rerunParkedClause tells the development manager, as she records a re-run,
+// that the item is parked by somebody other than the run she answered and so
+// the re-run waits until the item is unparked, naming who parked it. The
+// carry-out holds the re-run either way (runstate.RerunWaitsOnParking); this is
+// so she is not left expecting a run that will not start yet. An item that
+// cannot be read says so rather than nothing, since silence here reads as the
+// run starting now.
+func (s *Session) rerunParkedClause(ctx context.Context, id, run string) string {
+	item, err := s.options.Tracker.Show(ctx, id)
+	if err != nil {
+		return fmt.Sprintf("; whether %s is parked could not be read (%v), and a re-run of a parked item waits until it is unparked", id, err)
+	}
+	parkedBy, waits := runstate.RerunWaitsOnParking(item, run)
+	if !waits {
+		return ""
+	}
+	return fmt.Sprintf("; %s is parked by %s (%s), so the re-run will not start while it stays parked: it waits until the item is unparked, and then the harness starts it by itself in the ordinary order",
+		id, parkedBy, singleLine(item.Parking.Reason(), maxTrackerFailureBytes))
 }
 
 // escalatedTo and operatorReasonOf are what an escalation writes on the durable
