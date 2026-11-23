@@ -369,6 +369,32 @@ func (s *Session) confirmDocument(record *writeRecord, publishes, landsDecided b
 	return true, nil
 }
 
+// HarnessConfirms reports whether the harness confirms a document saved in a
+// conversation by itself, so that it never waits on the operator: the question
+// confirmDocument asks at the conversation's next message, asked of the saved
+// record by a surface that only reads it. A document waits unconfirmed until
+// then, or while an earlier revision of it is still publishing, and in that
+// time it is the harness's to confirm and send, not the operator's to approve.
+//
+// integratesAutomatically is approvals.integration being automatic, without
+// which nothing is confirmed by policy. Where it is not, a change the Lead
+// Product Manager recorded as consistent with intent may still be approved as
+// hers when a reviewed run can carry it; that depends on the pipeline, which a
+// reading does not build, so such a document is answered no and stays listed
+// for the operator, the side that never hides a decision that is his.
+func HarnessConfirms(store artifact.Store, policy artifact.Policy, integratesAutomatically bool, role domain.AgentRole, conversationID string, recorded runstate.PendingWrite, now time.Time) (bool, error) {
+	if !integratesAutomatically || recorded.Publication != nil {
+		return false, nil
+	}
+	write := restoredWrite(conversationID, recorded).Write
+	reason := fmt.Sprintf("read in conversation %s, turn %d, for %s, to say who it is waiting on", conversationID, recorded.Turn, recorded.ID)
+	_, automatic, err := store.PrepareConfirmation(role, write, policy, reason, now)
+	if err != nil {
+		return false, err
+	}
+	return automatic, nil
+}
+
 // tellMarkOverruled tells the owning role, once in this process, why a document
 // it marked consistent with intent waits for the operator all the same: it
 // creates the goals or the brief, or adds or removes a goal, which is his
