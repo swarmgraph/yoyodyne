@@ -73,10 +73,10 @@ func (l ReviewLimits) DiffLimits() DiffLimits {
 	return DiffLimits{MaxTotalBytes: l.DiffKiB << 10, MaxFileBytes: l.FileKiB << 10, MaxFiles: l.Files}
 }
 
-// Resolved is the limits with every one left unset at its default, as the
+// WithDefaults is the limits with every one left unset at its default, as the
 // rendering applies them, for a reader that has to state the numbers a change is
 // held to. Negative limits, which the rendering refuses, are returned as given.
-func (l DiffLimits) Resolved() DiffLimits {
+func (l DiffLimits) WithDefaults() DiffLimits {
 	resolved, err := l.resolve()
 	if err != nil {
 		return l

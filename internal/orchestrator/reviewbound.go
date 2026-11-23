@@ -228,7 +228,7 @@ func reviewBoundRepairPrompt(invariants, scratchDirectory string, checks []strin
 // the project's review_limits as reviewDiffLimits reads them, so the numbers the
 // developer is told are the ones the size check compares.
 func reviewBoundContract(limits gitworktree.DiffLimits) string {
-	resolved := limits.Resolved()
+	resolved := limits.WithDefaults()
 	return fmt.Sprintf(`# How large a change the reviewer can be shown
 
 Before any check runs, the harness measures your change the way the reviewer's copy of it is rendered. Every source and test file has to fit in that copy whole. The limits are: %d KiB of diff for the whole change; %d KiB for one new file; and %d new files. A change that would keep a source or test file out of the copy is refused before it is checked or reviewed. Test data and generated files — under a testdata or fixtures directory, golden files, lock files, files marked as generated — are not held to them. The first refusal on a run is handed back to you, with each file kept out and its size, and spends one repair attempt; a second refusal stops the run and goes to the development manager. Keep generated and vendored files out of the change, and check its size before you hand it over.`,
