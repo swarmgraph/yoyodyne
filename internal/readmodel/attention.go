@@ -951,7 +951,7 @@ func (a Attention) Whose() string {
 			return a.Mover.Possessive() + " — the decision is made, and what is outstanding is the harness acting on it"
 		}
 		if a.HeldWork != nil && a.HeldWork.Awaiting == HeldAwaitingDesign {
-			return a.Mover.Possessive() + " — no developer run starts the item until she makes its design readable, in its design field or landed in docs/designs naming it, and removes the " + domain.NeedsDesignLabel + " label; the entry clears when the label comes off"
+			return a.Mover.Possessive() + " — no developer run starts the item until a document in docs/designs naming the item among the items it answers lands and the development manager, for now, removes the " + domain.NeedsDesignLabel + " label; the entry clears when the label comes off"
 		}
 		return a.Mover.Possessive() + " — nothing pulls a stopped item until she decides what happens to it"
 	case AttentionCarriedItem:

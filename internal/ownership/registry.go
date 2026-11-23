@@ -564,9 +564,9 @@ func heldWorkRule(r Record) (Answer, bool) {
 	case r.Parked:
 		return owned(MoverProductManager, "release each item once what it was parked for is settled", "tracker")
 	case r.NeedsDesign:
-		// docs/designs/needs-design-gate.md: only the architect removes the label,
-		// once the design is readable by the developer who will pull the item.
-		return owned(MoverArchitect, "make the design each item waits on readable and remove the needs-design label", "design")
+		// docs/designs/needs-design-gate.md: the architect writes the design and
+		// the development manager removes the label, for now, once it has landed.
+		return owned(MoverArchitect, "write the design each item waits on, naming the item, and let it land", "design")
 	case r.WaitsOnWork:
 		return owned(MoverHarness, "pull each item once the work it waits on lands", "watch session")
 	case r.Unread:

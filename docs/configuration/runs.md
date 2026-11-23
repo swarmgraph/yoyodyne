@@ -924,9 +924,9 @@ thirteen in the same order, and a test fails when the two lists differ:
 5. **Parking** withholds an item the Lead Product Manager parked however far the
    queue drains, and only her `unpark` releases it.
 6. **The needs-design label** withholds an item labelled `needs-design` from
-   every start the harness chooses until the architect's design for it is
-   readable, and only the architect's removal of the label releases it; a run
-   already going on the item carries on, and one you name is not held.
+   every start the harness chooses until a document in docs/designs naming the
+   item lands and the label comes off, which the development manager does by
+   hand for now; a run already going on the item carries on, and one you name is not held.
 7. **A hold** withholds an item whose stopped run left its change on a branch,
    or whose publication did not finish, until the development manager's
    decision is carried out, the escalation is answered, or `yoyo reconcile`
