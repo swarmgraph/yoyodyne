@@ -69,6 +69,32 @@ func TestOnlyTheQueuesWorkerWritesALanding(t *testing.T) {
 	}
 }
 
+// The run store reads the landing of the entry a run was admitted as from the
+// queue's own record, and none where nothing is recorded.
+func TestTheRunStoreReadsTheLandingOfARunsQueueEntry(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	queues := newMergeQueueStore(t, root)
+	entry := admittedEntry(t, queues)
+	runs, err := NewStore(root, queues.productID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := runs.MergeQueueLanding(entry.AdmissionRecord()); err != nil || found {
+		t.Fatalf("MergeQueueLanding() = found %t, %v; want none recorded", found, err)
+	}
+	landing := NewMergeQueueLanding(entry)
+	landing.Attempts = []MergeQueuePromotionAttempt{intendedAttempt(entry.EntryID, 1)}
+	if err := queues.RecordLanding(workerLease(t, queues, mainQueue), mainQueue, landing); err != nil {
+		t.Fatal(err)
+	}
+	read, found, err := runs.MergeQueueLanding(entry.AdmissionRecord())
+	if err != nil || !found || read.EntryID != entry.EntryID || len(read.Attempts) != 1 {
+		t.Fatalf("MergeQueueLanding() = %#v, %t, %v; want the entry's own landing", read, found, err)
+	}
+}
+
 func TestALandingRecordIsOnlyEverAddedTo(t *testing.T) {
 	t.Parallel()
 
