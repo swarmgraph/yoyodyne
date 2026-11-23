@@ -1217,6 +1217,12 @@ type Started struct {
 	// (ownStartsTheRecordsFree, sayOwnSlotCountCorrected).
 	onRecord       string
 	countCorrected string
+	// tookUp is the run already on record that this start took up — a
+	// continuation after GitHub's checks or another wait, a re-adoption, a
+	// decision carried out on a kept change — named when the start is made, so
+	// the slot it counts is given back once that run ends even where no pull saw
+	// it in flight in between (ownStartsTheRecordsFree). Empty for a fresh start.
+	tookUp string
 	// awayCause is set when Failure is the provider turning the dispatch away —
 	// a login nobody has renewed, an API nothing reaches — which the settle reads
 	// to count the start toward nothing. It is not on the record because the
@@ -1947,6 +1953,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// than a line per poll: what decides whether it is made again is the run's
 	// own record, which carries the stop until a pipeline consumes it.
 	readopted := make(map[string]int)
+	// runsSaidFree is every run, other than this session's own starts, that a
+	// pull found its record holding no slot and said so once
+	// (sayRunCountCorrected).
+	runsSaidFree := map[string]bool{}
 	// retries is the run of harness readings that have failed with none
 	// succeeding between them. See readRetries: it is what lets a watch ride
 	// through the store contention a reconcile or a settling run makes, and what
@@ -3073,10 +3083,10 @@ pulling:
 				// stop as it is picked up.
 				index, tried := readopted[state.RunID]
 				if tried {
-					schedule.Started[index] = Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: schedule.Started[index].Readoptions + 1}
+					schedule.Started[index] = Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: schedule.Started[index].Readoptions + 1, tookUp: state.RunID}
 				} else {
 					index = len(schedule.Started)
-					schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: 1})
+					schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: 1, tookUp: state.RunID})
 					readopted[state.RunID] = index
 				}
 				remember(id, index)
@@ -3086,6 +3096,9 @@ pulling:
 		}
 		noteOwnRunsOnRecord(occupied, waitingRuns, mine, schedule.Started)
 		returned := handedBack.snapshot()
+		// takingUp is the continuations counted below under their run before
+		// their dispatch has taken the slot back (continuationsNotInTheirSlot).
+		takingUp := map[string]bool{}
 		for id := range mine {
 			// A run this session started and that has not reserved yet is in flight
 			// with no identifier to name; one that has reserved is already here under
@@ -3117,6 +3130,7 @@ pulling:
 						counted := waitingState
 						counted.Routing = nil
 						occupied[id] = counted
+						takingUp[id] = true
 					}
 				}
 				continue
@@ -3153,8 +3167,19 @@ pulling:
 		for id := range stalledStarts(withoutItems(occupied, uncounted), mine, schedule.Started, pull.Capacity, s.now()) {
 			uncounted[id] = true
 		}
+		for id, why := range continuationsNotInTheirSlot(takingUp, mine, schedule.Started, s.now()) {
+			uncounted[id] = true
+			sayOwnSlotCountCorrected(s.Log, &schedule, &schedule.Started[mine[id]], id, why)
+		}
 		for id := range gone {
 			uncounted[id] = true
+		}
+		// Last, every run still counted is checked against its own record, read
+		// again now, so the count never holds a slot for a run whose record says
+		// it holds none (runsTheRecordsFree).
+		for id, why := range runsTheRecordsFree(pull.Runs, withoutItems(occupied, uncounted), mine, runHistory(pull.Runs), s.now()) {
+			uncounted[id] = true
+			sayRunCountCorrected(s.Log, &schedule, runsSaidFree, occupied[id].RunID, id, why)
 		}
 		free := pull.Capacity - (len(occupied) - len(uncounted))
 		pullSlots.counted(free, slotNumbers(pull.slotsOf(withoutItems(occupied, uncounted), nil).Free()), withoutItems(occupied, uncounted))
@@ -3493,6 +3518,7 @@ pulling:
 			schedule.Started = append(schedule.Started, Started{
 				WorkItemID: task.WorkItemID,
 				Reason:     carryingOutReason(task),
+				tookUp:     task.RunID,
 			})
 			// Both, for the two different questions below: occupied is what stops the
 			// queue scan choosing the same item beside this, and mine is what stops the
@@ -3652,7 +3678,7 @@ pulling:
 				continuing[index] = continuation.state.RunID
 				continuedFrom[index] = continuation.state
 				selection := runstate.Selection{By: runstate.SelectedByScheduler, Reason: continuation.reason}
-				schedule.Started = append(schedule.Started, Started{WorkItemID: workItemID, Reason: selection.Reason})
+				schedule.Started = append(schedule.Started, Started{WorkItemID: workItemID, Reason: selection.Reason, tookUp: continuation.state.RunID})
 				occupied[workItemID] = continuation.state
 				remember(workItemID, index)
 				running++
@@ -9845,6 +9871,7 @@ func (s Scheduler) carryOutFeedbackRepairs(ctx context.Context, schedule *Schedu
 		schedule.Started = append(schedule.Started, Started{
 			WorkItemID: task.WorkItemID,
 			Reason:     fmt.Sprintf("a repair decided from feedback %s on pull request #%d: it builds on a change a run already wrote, so it takes a freed developer slot ahead of fresh work", task.FeedbackID, task.PullRequest),
+			tookUp:     task.RunID,
 		})
 		slots.occupied[task.WorkItemID] = runstate.State{WorkItemID: task.WorkItemID}
 		remember(task.WorkItemID, index)
