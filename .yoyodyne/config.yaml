@@ -115,22 +115,24 @@ services:
     hide_summary: true
 
 execution:
-  # Two developer slots at the operator's direction of 2026-11-22: "move us
-  # back to 2 dev seats. One without a label preference and another dedicated
-  # to the cost items". Lowering the count stops no run: a run already holding
-  # a slot keeps it, and new work waits until fewer than two slots are held.
-  # A third slot stays out until the operator says otherwise.
-  max_concurrent_developers: 2  # slot 1 no preference, slot 2 cost (dedicated)
+  # Two developer slots, both preferring cost work, at the operator's direction
+  # of 2026-11-22: "focus on cost items until they're done but i don't want to
+  # prevent merge conflicts from being fixed". Once the cost items needing a
+  # slot are done, this goes to one slot with no preference ("When the last cost
+  # item is done, please remove its dev slot as well").
+  max_concurrent_developers: 2  # both slots prefer cost
   # docs/configuration.md, "A developer slot that prefers a label", explains
   # what a preference does and does not change: it selects what a slot pulls
   # first, and never what it may do.
   developer_slots:
-    # Slot 1 prefers nothing: it pulls in the Lead Product Manager's order.
-    - {}
-    # Slot 2 is kept for cost-labelled work, the work that cuts what the
-    # factory spends. Dedicated, it takes cost work ahead of fresh priority-0
-    # work carrying no cost label, and falls back to the ordinary order when no
-    # cost work is ready. Work on a change already written still goes first.
+    # Both slots prefer cost-labelled work, the work that cuts what the factory
+    # spends. Each takes, in order: work on a change already written (repairs of
+    # what the merge queue hands back among it), then ready cost work ahead of
+    # fresh priority-0 work carrying no cost label, then the ordinary order when
+    # no cost work is ready, so neither sits idle. Only slot 2 is marked
+    # dedicated, which changes how it is named and nothing about its order; the
+    # configuration refuses every slot dedicated.
+    - prefer: [cost]
     - prefer: [cost]
       dedicated: true
   repair_attempts_before_replan: 4
