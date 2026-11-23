@@ -3181,3 +3181,59 @@ func TestRunRedactsTheProviderOutputBySecretShape(t *testing.T) {
 		t.Fatalf("the provider's output redactor kept a key it can recognize: %q", got)
 	}
 }
+
+// A document a role writes reaches the harness inside its reply, and the reply
+// passes through secret masking on the way. A configuration line whose value
+// is an ordinary store name is part of the document, so it arrives exactly as
+// the role wrote it, in the reply and in the reply's recorded events, while a
+// real key beside it is still removed.
+func TestADocumentInTheReplyKeepsAnOrdinaryConfigurationLine(t *testing.T) {
+	t.Parallel()
+
+	key := "sk-" + "ant-" + "api03-" + strings.Repeat("Q2xhdWRlS2V5", 5)
+	const line = "      credential: keychain           # or file; never a path"
+	reply := "Revised.\n```yoyodyne-artifact\n" + `{"documents":[{"action":"revise","id":"mcp-tools","body":"servers:\n` + line + `\n","reason":"example"}]}` + "\n```\nkey seen: " + key
+	assistant, err := json.Marshal(map[string]any{
+		"type":       "assistant",
+		"session_id": "session-1",
+		"message":    map[string]any{"content": []any{map[string]any{"type": "text", "text": reply}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := json.Marshal(map[string]any{"type": "result", "subtype": "success", "session_id": "session-1", "is_error": false, "result": reply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []execution.Event
+	run, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: string(assistant) + "\n" + string(result) + "\n"}}}}).Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleArchitect,
+		WorkingDirectory: "/repository",
+		Prompt:           "revise the design",
+		AllowedTools:     []string{},
+		EventSink: func(event execution.Event) error {
+			events = append(events, event)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(run.FinalText, line) {
+		t.Fatalf("the configuration line did not reach the reply as written:\n%s", run.FinalText)
+	}
+	if strings.Contains(run.FinalText, key) || !strings.Contains(run.FinalText, "key seen: [REDACTED]") {
+		t.Fatalf("the key beside it was not removed:\n%s", run.FinalText)
+	}
+	recorded := false
+	for _, event := range events {
+		if strings.Contains(string(event.Payload), key) {
+			t.Fatalf("event %s recorded the key", event.Type)
+		}
+		recorded = recorded || strings.Contains(string(event.Payload), "credential: keychain")
+	}
+	if !recorded {
+		t.Fatal("no recorded event carries the configuration line as written")
+	}
+}

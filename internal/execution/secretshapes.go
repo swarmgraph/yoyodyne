@@ -2,15 +2,87 @@ package execution
 
 import "regexp"
 
-// redactedMarker is what every redaction leaves in place of the secret.
-const redactedMarker = "[REDACTED]"
+// RedactedMarker is what every redaction leaves in place of the secret. It is
+// exported so a caller holding text a role wrote can tell the role where a
+// value was replaced, rather than letting the change pass silently.
+const RedactedMarker = "[REDACTED]"
+
+const redactedMarker = RedactedMarker
 
 // secretShape is one kind of secret recognized by how it looks rather than by
 // its value. keep is the replacement template: it keeps whatever names the
 // secret, such as a header's name, and puts the marker where the value was.
+//
+// ordinary, where it is set, is asked about the pattern's second group, the
+// value, and a match whose value it accepts is left as it was.
 type secretShape struct {
-	pattern *regexp.Regexp
-	keep    string
+	pattern  *regexp.Regexp
+	keep     string
+	ordinary func(value string) bool
+}
+
+// find returns the submatch indexes of every match of the shape in text that
+// is a secret, leaving out any whose value is ordinary.
+func (s secretShape) find(text string) [][]int {
+	matches := s.pattern.FindAllStringSubmatchIndex(text, -1)
+	if s.ordinary == nil {
+		return matches
+	}
+	kept := matches[:0]
+	for _, match := range matches {
+		if len(match) >= 6 && match[4] >= 0 && s.ordinary(text[match[4]:match[5]]) {
+			continue
+		}
+		kept = append(kept, match)
+	}
+	return kept
+}
+
+// replace puts the marker in place of every secret of this shape in text.
+func (s secretShape) replace(text string) string {
+	matches := s.find(text)
+	if len(matches) == 0 {
+		return text
+	}
+	out := make([]byte, 0, len(text))
+	last := 0
+	for _, match := range matches {
+		out = append(out, text[last:match[0]]...)
+		out = s.pattern.ExpandString(out, s.keep, text, match)
+		last = match[1]
+	}
+	return string(append(out, text[last:]...))
+}
+
+// ordinaryWord reports a value made only of lowercase letters, in one word or
+// several joined by single hyphens, underscores, or dots: keychain, file,
+// macos-keychain. That is how a configuration value naming a store, a mode, or
+// a kind of thing reads, and documents and examples have to be able to show
+// one, such as "credential: keychain", exactly as written. A token, key, or
+// generated password is not one: of random strings eight characters long, one
+// in a thousand is all lowercase letters with no digit or capital, and fewer
+// the longer they are. What this lets through is a password a person chose as
+// lowercase words alone, which is a weaker secret than the ordinary text that
+// masking it would rewrite.
+func ordinaryWord(value string) bool {
+	if value == "" {
+		return false
+	}
+	separated := true
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			separated = false
+		case r == '-' || r == '_' || r == '.':
+			if separated {
+				return false
+			}
+			separated = true
+		default:
+			return false
+		}
+	}
+	return !separated
 }
 
 // secretShapes are the secrets a provider can print that the harness never
@@ -58,10 +130,12 @@ var secretShapes = []secretShape{
 	// cookie or session key, or the account a ChatGPT login is bound to. The
 	// name may carry a prefix — x-api-key, OPENAI_API_KEY, refresh_token — and is
 	// kept; a value shorter than eight characters, such as null or a count, is
-	// not a credential and is left.
+	// not a credential and is left, and neither is an ordinary lowercase word
+	// such as the store in "credential: keychain" (ordinaryWord).
 	{
-		pattern: regexp.MustCompile(`(?i)((?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|secret|password|passwd|credentials?|session[_-]?key|cookie|account[_-]?id)(?:\\?["'])?\s*[:=](?:\s|\\[nrt])*(?:\\?["'])?)[^\s"',;&\\\[\]]{8,}`),
-		keep:    "${1}" + redactedMarker,
+		pattern:  regexp.MustCompile(`(?i)((?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|secret|password|passwd|credentials?|session[_-]?key|cookie|account[_-]?id)(?:\\?["'])?\s*[:=](?:\s|\\[nrt])*(?:\\?["'])?)([^\s"',;&\\\[\]]{8,})`),
+		keep:     "${1}" + redactedMarker,
+		ordinary: ordinaryWord,
 	},
 	// Anthropic keys and tokens: API keys (sk-ant-api03-), OAuth access and
 	// refresh tokens (sk-ant-oat01-, sk-ant-ort01-), and session keys
@@ -86,7 +160,7 @@ var secretShapes = []secretShape{
 // redactSecretShapes replaces every secret recognized by its shape.
 func redactSecretShapes(value string) string {
 	for _, shape := range secretShapes {
-		value = shape.pattern.ReplaceAllString(value, shape.keep)
+		value = shape.replace(value)
 	}
 	return value
 }
