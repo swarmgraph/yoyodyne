@@ -1095,8 +1095,9 @@ func (t Trigger) Summon(ctx context.Context, summons BrakeSummons) (Fired, error
 		return Fired{}, fmt.Errorf("claim the summoned firing of the recurring task %s: %w", name, err)
 	}
 	summoned := summonedBy(summons.Hold)
+	addressed := t.addressedTo(task)
 	batch := t.amendmentBatch(task)
-	fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSummons, message: summonsMessage(name, task, summons.Hold, "", batch), summoned: summoned, batch: batch})
+	fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSummons, message: summonsMessage(name, task, summons.Hold, "", addressed, batch), summoned: summoned, batch: batch, addressed: addressed})
 	return fired, nil
 }
 
@@ -1235,6 +1236,10 @@ type firing struct {
 	// criticals are the critical reports the firing was made to deliver, and
 	// empty on every firing a critical report did not make.
 	criticals []string
+	// addressed are the reports addressed to the role, with the ones the pass
+	// is shown, which it records so that one its account says nothing about is
+	// counted as passed over.
+	addressed *addressedReports
 	// finish is called once the turns are over and before anything is recorded,
 	// with whether every turn the pass asked for was answered. What it returns is
 	// a problem for the record. A program manager's pass moves its cursor there,
@@ -1411,7 +1416,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			if err != nil {
 				problems = append(problems, err.Error())
 			}
-			message = work.Section + "\n" + message
+			message = f.addressed.besideConversationWork(work) + "\n" + message
 			// The order the pass is judged against is the first one it was handed
 			// that could be read. A later turn reads the queue afresh, and an item
 			// taken on the first turn is gone from it, so that reading says what is
@@ -1724,6 +1729,8 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			problems = append(problems, "no machine sleep, harness downtime or wait behind another pass was established during the stopped response")
 		}
 	}
+	recorded.Addressed = f.addressed.ids()
+	problems = append(problems, passedOverAddressed(name, task.Role, recorded.Addressed, merged))
 	recorded.Result = merged
 	recorded.Wording = terms.MergeFindings(recorded.Wording, readmodel.ReadTextTerms(t.Repository).Pass(merged))
 	recorded.Failed = failed
@@ -2423,7 +2430,7 @@ func alreadySavedMessage(saved []runstate.SavedWrite) string {
 // A role other than the Lead Product Manager is put the reports addressed to it
 // beside the overdue ones, for the same reason: a report is said to the role
 // whose move it asks for, and its pass is where that role reads it.
-func wakeMessage(name string, task config.RecurringTask, docket, overdue, addressed string, batch amendmentBatch) string {
+func wakeMessage(name string, task config.RecurringTask, docket, overdue string, addressed *addressedReports, batch amendmentBatch) string {
 	lines := []string{
 		fmt.Sprintf("The harness woke you for the recurring task %q, which runs every %s. Nobody is waiting at a terminal for this: what you produce is recorded and read later.", name, task.Every),
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra, and nothing about being woken on a schedule widens what you may decide or change.",
@@ -2471,7 +2478,7 @@ func docketLines(docket string) []string {
 // asking her to find the three entries this turn is about. The docket as it
 // stands now follows the trip, as on every pass of hers, for everything else
 // that is waiting on her.
-func summonsMessage(name string, task config.RecurringTask, hold runstate.IntakeHold, docket string, batch amendmentBatch) string {
+func summonsMessage(name string, task config.RecurringTask, hold runstate.IntakeHold, docket string, addressed *addressedReports, batch amendmentBatch) string {
 	lines := []string{
 		fmt.Sprintf("The intake brake summoned you now, ahead of the schedule of %q: %s, and intake is held since %s. Nobody is waiting at a terminal for this: what you produce is recorded and read later.",
 			name, strings.TrimSpace(hold.Reason), hold.HeldAt.UTC().Format(time.RFC3339)),
@@ -2510,6 +2517,7 @@ func summonsMessage(name string, task config.RecurringTask, hold runstate.Intake
 		lines = append(lines, fmt.Sprintf("This is %s; once it does, no further probe starts and the hold goes to the Lead Product Manager, so escalate it yourself sooner if another probe will not settle it.", hold.Brake.Loop()))
 	}
 	lines = append(lines, docketLines(docket)...)
+	lines = append(lines, addressedLines(addressed)...)
 	lines = append(lines,
 		"",
 		batch.section(task.Role)+strings.TrimSpace(task.Prompt),
@@ -2562,6 +2570,9 @@ func closingContract(f firing, handedWork bool) string {
 	}
 	if handedWork {
 		lines = append(lines, "", sweep.LeftContract())
+	}
+	if len(f.addressed.ids()) > 0 {
+		lines = append(lines, "", sweep.ReportsContract())
 	}
 	if f.agent != "" {
 		lines = append(lines, instanceAuditLines()...)
