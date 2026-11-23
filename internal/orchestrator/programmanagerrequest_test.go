@@ -375,3 +375,50 @@ func TestARequestTakenByAStoppedSchedulerIsTakenAgainOnce(t *testing.T) {
 		t.Errorf("request = %+v, want it closed by the second pass", closed)
 	}
 }
+
+// Triggers naming their own model have the passes they start ask for it — the
+// scheduled pass and a pass its events wake — and each pass's record names the
+// model that served. A pass somebody asked for was not started by the
+// triggers, so it asks for the agent's own model.
+func TestATriggersOwnModelIsAskedForByThePassesItStartsAndNoOthers(t *testing.T) {
+	t.Parallel()
+
+	instances := instance(2*time.Hour, config.TriggerLandings)
+	pm := instances[instanceName]
+	pm.Triggers.Model = "sonnet"
+	instances[instanceName] = pm
+	h := newPassHarness(t, instances)
+	requests := withRequests(t, h)
+	h.role.answers = []scriptedTurn{
+		{result: complete("scheduled"), model: "claude-sonnet-5-5"},
+		{result: complete("woken by a landing"), model: "claude-sonnet-5-5"},
+		{result: complete("asked for"), model: "claude-opus-5-5"},
+	}
+
+	if fired := h.fire(t, recurringNow); len(fired.Fired) != 1 {
+		t.Fatalf("fired = %+v, want the scheduled pass", fired.Fired)
+	}
+	h.events.land(recurringNow.Add(10*time.Minute), "yoyodyne-ifd.1")
+	if fired := h.fire(t, recurringNow.Add(15*time.Minute)); len(fired.Fired) != 1 {
+		t.Fatalf("fired = %+v, want the pass the landing woke", fired.Fired)
+	}
+	askForPass(t, requests, runstate.PassAskerOperator, recurringNow.Add(30*time.Minute), runstate.PassFocus{})
+	if fired := h.fire(t, recurringNow.Add(31*time.Minute)); len(fired.Fired) != 1 {
+		t.Fatalf("fired = %+v, want the requested pass", fired.Fired)
+	}
+
+	if want := []string{"sonnet", "sonnet", ""}; strings.Join(h.role.models, ",") != strings.Join(want, ",") {
+		t.Fatalf("asked for models %q, want %q: the triggers' model for their own passes, the agent's for the requested one", h.role.models, want)
+	}
+	recorded := h.recorded(t)
+	if len(recorded) != 3 {
+		t.Fatalf("recorded = %+v, want three passes", recorded)
+	}
+	served := map[string]bool{}
+	for _, pass := range recorded {
+		served[pass.Model] = true
+	}
+	if !served["claude-sonnet-5-5"] || !served["claude-opus-5-5"] {
+		t.Errorf("recorded models = %v, want each pass's record to name the model that served it", served)
+	}
+}

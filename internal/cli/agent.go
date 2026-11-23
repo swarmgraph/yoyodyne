@@ -686,5 +686,9 @@ func describeTriggers(triggers config.Triggers) string {
 		}
 		parts = append(parts, "on "+strings.Join(events, ", "))
 	}
-	return "passes over its lane " + strings.Join(parts, " and ")
+	described := "passes over its lane " + strings.Join(parts, " and ")
+	if model := triggers.ModelSelector(); model != "" {
+		described += ", on model " + model
+	}
+	return described
 }

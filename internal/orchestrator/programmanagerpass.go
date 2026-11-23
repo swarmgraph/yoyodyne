@@ -287,10 +287,14 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 		}
 	}
 
+	// The triggers' own model, where they name one, is asked for by the passes
+	// they start and no other: a requested pass (requestedPass) asks for the
+	// agent's own model.
 	task := config.RecurringTask{
 		Role:    domain.RoleProgramManager,
 		Every:   triggers.Every,
 		Enabled: true,
+		Model:   triggers.ModelSelector(),
 	}
 	// A pass taken is reported rather than an error, so what stopped the last
 	// pass's miss being recorded rides on this one's problem.
@@ -389,6 +393,8 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 	if err != nil {
 		return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the requested pass of the program manager instance %s: %w", agent, err))
 	}
+	// No model is named: the triggers did not start this pass, so it asks for
+	// the agent's own model even where the triggers name one.
 	task := config.RecurringTask{
 		Role:    domain.RoleProgramManager,
 		Every:   instance.Triggers.Every,
