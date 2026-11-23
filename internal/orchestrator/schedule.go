@@ -1996,6 +1996,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// continuations this session attempted that did not get the run going, so a
 	// pull leaves each for continuationRetry rather than attempting it every poll.
 	continuing := map[int]string{}
+	// continuedFrom is the record each of those continuations was started from,
+	// so a pull can tell a run whose dispatch has yet to take its slot back,
+	// whose record still shows that pause, from one that took it and has since
+	// paused again (stillPausedAsContinued).
+	continuedFrom := map[int]runstate.State{}
 	refusedContinuations := map[string]refusedContinuation{}
 	// refusedDocuments is the waiting documents this session started whose start
 	// failed, so a pull leaves each for continuationRetry rather than attempting
@@ -2044,6 +2049,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		}
 		if runID, continuation := continuing[done.index]; continuation {
 			delete(continuing, done.index)
+			delete(continuedFrom, done.index)
 			record := *started
 			record.record(done)
 			// One that lost its slot, or was turned away by a checkout that was not
@@ -3077,6 +3083,7 @@ pulling:
 			}
 		}
 		noteOwnRunsOnRecord(occupied, waitingRuns, mine, schedule.Started)
+		returned := handedBack.snapshot()
 		for id := range mine {
 			// A run this session started and that has not reserved yet is in flight
 			// with no identifier to name; one that has reserved is already here under
@@ -3093,7 +3100,23 @@ pulling:
 			// A run of this session's that holds no developer slot — one waiting at
 			// its merge step for GitHub to be reachable again — is already among the
 			// waiting runs and is not counted against the slots a second time.
-			if _, waiting := waitingRuns[id]; waiting {
+			//
+			// The exception is a continuation this session started of a paused run
+			// whose dispatch has not yet taken a slot back: the run's record still
+			// shows the pause it was continued from until the dispatch adopts it, but
+			// the slot it is about to take is not free for anything else. It is
+			// counted under its run, with the slot its pause recorded left off, since
+			// takeUpSlot may move it. One that took its slot and has paused again
+			// shows a new pause, and gives the slot back as any waiting run does.
+			if waitingState, waiting := waitingRuns[id]; waiting {
+				index := mine[id]
+				if from, continued := continuedFrom[index]; continued && !returned[index] && stillPausedAsContinued(waitingState, from) {
+					if _, recorded := occupied[id]; !recorded {
+						counted := waitingState
+						counted.Routing = nil
+						occupied[id] = counted
+					}
+				}
 				continue
 			}
 			if _, recorded := occupied[id]; !recorded {
@@ -3625,6 +3648,7 @@ pulling:
 				delete(deferred, workItemID)
 				index := len(schedule.Started)
 				continuing[index] = continuation.state.RunID
+				continuedFrom[index] = continuation.state
 				selection := runstate.Selection{By: runstate.SelectedByScheduler, Reason: continuation.reason}
 				schedule.Started = append(schedule.Started, Started{WorkItemID: workItemID, Reason: selection.Reason})
 				occupied[workItemID] = continuation.state
@@ -9042,6 +9066,15 @@ func slotlessStarts(occupied map[string]runstate.State, mine map[string]int, sta
 		}
 	}
 	return set
+}
+
+// stillPausedAsContinued reports a run's record showing the same pause as the
+// record it was continued from: its dispatch has not taken its slot back yet.
+// A run that took its slot and paused again records a new pause, with its own
+// push, dependency, or wait for GitHub.
+func stillPausedAsContinued(now, from runstate.State) bool {
+	return now.RunID == from.RunID && reflect.DeepEqual(now.CIWait, from.CIWait) &&
+		reflect.DeepEqual(now.DependencyPause, from.DependencyPause) && reflect.DeepEqual(now.ForgeWait, from.ForgeWait)
 }
 
 // withoutItems is occupied without the items named, as a copy.

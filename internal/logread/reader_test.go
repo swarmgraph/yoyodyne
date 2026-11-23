@@ -133,7 +133,7 @@ func TestBoundsWindowsCursorsAndRefusals(t *testing.T) {
 	cursor = 1
 	request = Request{Record: "watch", Cursor: &cursor, MaxBytes: 100}
 	results, err = reader.Read(context.Background(), []Request{request})
-	if err != nil || !strings.Contains(results[0].Problem, "boundary") {
+	if err != nil || !strings.Contains(results[0].Problem, "boundary") || !strings.Contains(results[0].Problem, fmt.Sprintf("starts at byte %d", len(first))) {
 		t.Fatalf("unaligned cursor=%#v %v", results, err)
 	}
 	cursor = 0
@@ -382,5 +382,138 @@ func TestAPassReadNarrowsToOneTask(t *testing.T) {
 	joined := strings.Join(read, "")
 	if strings.Count(joined, `"task":"technical-health-pm"`) != 3 || len(read) != 3 || strings.Contains(joined, "dm-sweep") {
 		t.Fatalf("one pass at a time read %q", read)
+	}
+}
+
+// writeLongPassRecord writes a pass record several times longer than one read
+// scans: one pass a minute from base, each about a kilobyte, with every
+// seventh written late, as a long pass is, stamped up to five hours before the
+// passes beside it. It returns the record's size and when its last pass started.
+func writeLongPassRecord(t *testing.T, root string, base time.Time) (int64, time.Time) {
+	t.Helper()
+	path := filepath.Join(home.ProductDirectory(root, "sample"), "sweeps", "sweeps.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	padding := strings.Repeat("p", 1000)
+	var record strings.Builder
+	var last time.Time
+	for i := 0; record.Len() < 4*MaxScanBytes; i++ {
+		last = base.Add(time.Duration(i) * time.Minute)
+		at := last
+		if i%7 == 6 {
+			at = at.Add(-5 * time.Hour)
+		}
+		fmt.Fprintf(&record, `{"task":"reconcile","started_at":%q,"pass":%d,"padding":%q}`+"\n", at.Format(time.RFC3339Nano), i, padding)
+	}
+	if err := os.WriteFile(path, []byte(record.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return int64(record.Len()), last
+}
+
+func TestAWindowAtTheEndOfARecordManyReadsLongIsReached(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	size, last := writeLongPassRecord(t, root, base)
+	if size < 4*MaxScanBytes {
+		t.Fatalf("the record is %d bytes, not several reads long", size)
+	}
+	reader := Reader{StateRoot: root, ProductID: "sample"}
+
+	// The last two hours hold 120 passes on time, and the late passes stamped
+	// into them; together they are more than one read returns.
+	since := last.Add(-2 * time.Hour).Add(time.Second)
+	until := last.Add(time.Second)
+	request := Request{Record: "pass", Since: since, Until: until, MaxBytes: MaxContentBytes}
+	results, err := reader.Read(context.Background(), []Request{request})
+	if err != nil || len(results) != 1 || results[0].Problem != "" {
+		t.Fatalf("window read=%#v %v", results, err)
+	}
+	first := results[0]
+	if first.Bytes == 0 || first.Omitted == 0 || first.Next == nil || !strings.Contains(first.Note, "left out") || strings.Contains(first.Note, "at least") {
+		t.Fatalf("a window larger than one read says neither what it left out nor how to ask for it: bytes=%d omitted=%d note=%q next=%v", first.Bytes, first.Omitted, first.Note, first.Next)
+	}
+	if !strings.Contains(first.Note, fmt.Sprint(first.Omitted)) {
+		t.Fatalf("the note does not give the count left out: %q", first.Note)
+	}
+	seen := map[int]bool{}
+	collect := func(content string) {
+		for _, line := range strings.Split(strings.TrimSpace(content), "\n") {
+			var pass struct {
+				Pass      int       `json:"pass"`
+				StartedAt time.Time `json:"started_at"`
+			}
+			if err := json.Unmarshal([]byte(line), &pass); err != nil {
+				t.Fatalf("returned entry %q: %v", line, err)
+			}
+			if pass.StartedAt.Before(since) || !pass.StartedAt.Before(until) || seen[pass.Pass] {
+				t.Fatalf("pass %d at %s is outside the window or returned twice", pass.Pass, pass.StartedAt)
+			}
+			seen[pass.Pass] = true
+		}
+	}
+	collect(first.Content)
+	firstCount := len(seen)
+	request = *first.Next
+	for reads := 1; ; reads++ {
+		if reads > 20 {
+			t.Fatal("the window's next reads never ended")
+		}
+		results, err = reader.Read(context.Background(), []Request{request})
+		if err != nil || results[0].Problem != "" {
+			t.Fatalf("next read=%#v %v", results, err)
+		}
+		collect(results[0].Content)
+		if results[0].Next == nil {
+			break
+		}
+		request = *results[0].Next
+	}
+	want := 0
+	for i := 0; ; i++ {
+		at := base.Add(time.Duration(i) * time.Minute)
+		if at.After(last) {
+			break
+		}
+		if i%7 == 6 {
+			at = at.Add(-5 * time.Hour)
+		}
+		if !at.Before(since) && at.Before(until) {
+			want++
+		}
+	}
+	if len(seen) != want || first.Omitted != want-firstCount {
+		t.Fatalf("read %d passes of the %d in the window; the first read said %d were left out after its %d", len(seen), want, first.Omitted, firstCount)
+	}
+
+	// A window the record covers but holds nothing in says so, and a read that
+	// could not reach its window says that instead.
+	empty := Request{Record: "pass", Task: "health", Since: since, Until: until, MaxBytes: MaxContentBytes}
+	results, err = reader.Read(context.Background(), []Request{empty})
+	if err != nil || results[0].Problem != "" || results[0].Content != "" || results[0].Next != nil || !strings.Contains(results[0].Note, "held no") {
+		t.Fatalf("empty window=%#v %v", results, err)
+	}
+	early := int64(0)
+	unreached := Request{Record: "pass", Cursor: &early, Since: since, Until: until, MaxBytes: MaxContentBytes}
+	results, err = reader.Read(context.Background(), []Request{unreached})
+	if err != nil || results[0].Problem != "" {
+		t.Fatalf("window from the start=%#v %v", results, err)
+	}
+	if results[0].Content == "" {
+		t.Fatal("a cursor of zero is the start of the record, so the window read should still find its window")
+	}
+	// Carried on from the second pass, the read goes through a whole scan of
+	// passes weeks older than the window and reaches none of it.
+	data, err := os.ReadFile(filepath.Join(home.ProductDirectory(root, "sample"), "sweeps", "sweeps.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	far := int64(strings.IndexByte(string(data), '\n') + 1)
+	unreached.Cursor = &far
+	results, err = reader.Read(context.Background(), []Request{unreached})
+	if err != nil || results[0].Problem != "" || results[0].Content != "" || results[0].Next == nil || !strings.Contains(results[0].Note, "without reaching") || strings.Contains(results[0].Note, "held no") {
+		t.Fatalf("a read carried on from far before the window=%#v %v", results, err)
 	}
 }

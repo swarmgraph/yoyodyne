@@ -90,7 +90,7 @@ func plainIdentifier(value string) bool {
 
 func Descriptor() action.Tool {
 	return action.Tool{ID: capability.LogRead, Block: "yoyodyne-log", Class: action.ToolRead,
-		Parameters: `JSON such as {"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}. Records: pass (task narrows it to one recurring task's passes), watch (name output reads scheduler output), docket, run (requires name), usage-limit, provider-outage, intervention (the operator's recorded hand steps and messages). Supply a nonnegative byte cursor at a record boundary, or since and until as RFC3339 times spanning at most 24 hours, or both to carry a window read on from a cursor. Unknown fields and invalid requests refuse the whole block. Results name the next cursor, bytes returned, the record's whole size, any truncation, and the next read to ask for. A record longer than one read returns comes back in parts: each part names where it starts and how many bytes of the record remain, and its next read carries on with an offset into the record at the cursor. A pass entry returned in parts, or one too long to return at all, also comes with a summary: whose pass it was, when it started, when it ended, and how it ended.`,
+		Parameters: `JSON such as {"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}. Records: pass (task narrows it to one recurring task's passes), watch (name output reads scheduler output), docket, run (requires name), usage-limit, provider-outage, intervention (the operator's recorded hand steps and messages). Supply a nonnegative byte cursor at a record boundary, or since and until as RFC3339 times spanning at most 24 hours, or both to carry a window read on from a cursor. A window read with no cursor finds where its window starts however long the record is. A window read's note says when the window held no entries, when the read stopped before reaching the window's end, and how many entries in the window it left out, with omitted giving that count. Unknown fields and invalid requests refuse the whole block. Results name the next cursor, bytes returned, the record's whole size, any truncation, and the next read to ask for. A record longer than one read returns comes back in parts: each part names where it starts and how many bytes of the record remain, and its next read carries on with an offset into the record at the cursor. A pass entry returned in parts, or one too long to return at all, also comes with a summary: whose pass it was, when it started, when it ended, and how it ended.`,
 		Bounds:     action.ToolBounds{RequestsPerReply: MaxRequestsPerReply, RoundsPerMessage: MaxRoundsPerMessage, BytesPerRequest: MaxContentBytes, BytesPerReply: MaxBytesPerReply},
 		Scope:      "one named record the product keeps of its own running, under its state directory; never a path, a credential, a memory, a conversation, or the repository's files",
 		Gates:      "that your role is allowed to use it, and that spending is not paused. One request reads through at most 8 MiB of a record.",
@@ -151,8 +151,16 @@ type Result struct {
 	Summary *PassSummary `json:"summary,omitempty"`
 	// Next is the read that carries on from where this one stopped, set
 	// whenever it stopped before the end of what it could reach.
-	Next    *Request `json:"next,omitempty"`
-	Problem string   `json:"problem,omitempty"`
+	Next *Request `json:"next,omitempty"`
+	// Omitted is, for a time-window read, how many entries in the window this
+	// read found after it stopped returning them, so a cut read says how much
+	// it left for the next read rather than only that it was cut.
+	Omitted int `json:"omitted,omitempty"`
+	// Note says in words what a time-window read found: that the window held
+	// no entries, that the read stopped before reaching its end, or how many of
+	// its entries were left out and how to ask for them.
+	Note    string `json:"note,omitempty"`
+	Problem string `json:"problem,omitempty"`
 }
 
 // Part places one part within its record. Both are counted in bytes of the
