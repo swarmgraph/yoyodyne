@@ -16,7 +16,7 @@ func TestRequestSizeMeasuresTheComposedPromptOnFreshAndResumedTurns(t *testing.T
 	t.Parallel()
 	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer, domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleArchitect, domain.RoleProgramManager} {
 		for _, session := range []string{"", "old-session"} {
-			request := backendapi.RunRequest{Role: role, WorkingDirectory: "/repo with spaces", SystemPrompt: "Follow the role contract.", Prompt: "Current evidence: 世界 🐝", SessionID: session}
+			request := backendapi.RunRequest{Role: role, ScratchDirectory: testScratch, WorkingDirectory: "/repo with spaces", SystemPrompt: "Follow the role contract.", Prompt: "Current evidence: 世界 🐝", SessionID: session}
 			size, limit := (Backend{}).RequestSize(request)
 			if size != len(composePrompt(request, "")) || limit != 1<<20 {
 				t.Fatalf("size=%d, limit=%d, composed=%d", size, limit, len(composePrompt(request, "")))
@@ -48,7 +48,7 @@ func TestRequestSizeCountsWhatTheProjectNames(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repository, "notes.md"), []byte(strings.Repeat("n", 4096)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	request := backendapi.RunRequest{Role: domain.RoleDeveloper, WorkingDirectory: repository, Prompt: "work"}
+	request := backendapi.RunRequest{Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: repository, Prompt: "work"}
 	bare, _ := (Backend{}).RequestSize(request)
 	named, _ := (Backend{Context: backendapi.NamedContext{Instructions: []backendapi.ContextFile{{Path: "notes.md"}}}}).RequestSize(request)
 	if named < bare+4096 {

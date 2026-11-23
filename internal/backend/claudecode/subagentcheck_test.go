@@ -93,7 +93,7 @@ func TestACLIThatAppliesWhatSubagentsAreLaunchedWithConfirmsThem(t *testing.T) {
 
 	developer := &fakeRunner{results: claudeCompletedTurn()}
 	if _, err := (Backend{Runner: developer, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, Prompt: "do the work", Subagents: &request,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree, Prompt: "do the work", Subagents: &request,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +101,7 @@ func TestACLIThatAppliesWhatSubagentsAreLaunchedWithConfirmsThem(t *testing.T) {
 	for _, option := range []string{"--settings", "--agents"} {
 		checked, _ := optionValue(launched.Args, option)
 		given, _ := optionValue(run.Args, option)
+		checked, given = standIns(checked, worktree), runFolders(given, testScratch)
 		if checked == "" || checked != given {
 			t.Fatalf("checked %s %s, want the run's %s", option, checked, given)
 		}

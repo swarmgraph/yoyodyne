@@ -114,7 +114,7 @@ func TestExecutableDiscoveryFailuresDoNotBecomeAuthenticationFailures(t *testing
 			if err != nil || availability.Installed || !strings.Contains(availability.Missing, want) || !strings.Contains(availability.Missing, "providers.codex.binary") {
 				t.Fatalf("availability = %+v, %v", availability, err)
 			}
-			_, err = provider.Run(context.Background(), backend.RunRequest{RunID: "run-fixture", Role: domain.RoleDeveloper, Model: "gpt-6-astra", WorkingDirectory: root, Prompt: "ping"})
+			_, err = provider.Run(context.Background(), backend.RunRequest{RunID: "run-fixture", Role: domain.RoleDeveloper, ScratchDirectory: testScratch, Model: "gpt-6-astra", WorkingDirectory: root, Prompt: "ping"})
 			if !errors.Is(err, execution.ErrProcessNotStarted) || !strings.Contains(err.Error(), want) || len(runner.commands) != 0 {
 				t.Fatalf("launch refusal = %v, commands = %v", err, runner.commands)
 			}

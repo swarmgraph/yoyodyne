@@ -138,9 +138,9 @@ func TestACLIThatAppliedTheDevelopersSettingsIsInForce(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// The developer's sandbox grants its scratch folder and the check's grants
-	// the directory it runs in, which stands in for one; apart from that one
-	// path the two launches carry the same settings.
+	// The developer's sandbox grants its scratch folder and refuses the
+	// services folder; the check's grants the directory it runs in and refuses a
+	// folder inside it, which stand in for them. Apart from those paths the two launches carry the same settings.
 	checked, _ := optionValue(launched.Args, "--settings")
 	given, _ := optionValue(developer.commands[0].Args, "--settings")
 	if got := sandboxWrites(t, checked); !slices.Equal(got, []string{worktree}) {
@@ -149,7 +149,7 @@ func TestACLIThatAppliedTheDevelopersSettingsIsInForce(t *testing.T) {
 	if got := sandboxWrites(t, given); !slices.Equal(got, []string{scratch}) {
 		t.Fatalf("the developer's sandbox grants %q, want its scratch folder %q", got, scratch)
 	}
-	if strings.ReplaceAll(checked, worktree, "") != strings.ReplaceAll(given, scratch, "") {
+	if standIns(checked, worktree) != runFolders(given, scratch) {
 		t.Fatalf("checked settings %s, want the developer's %s", checked, given)
 	}
 	for _, flag := range append(contextArgs(true), "--permission-mode", worktreeWriteSessionMode, "--allowedTools", "--no-session-persistence") {
@@ -287,7 +287,7 @@ func TestEveryFlagTheAdapterPassesIsOneTheCheckConfirms(t *testing.T) {
 			for _, session := range []string{"", "session-1"} {
 				runner := &fakeRunner{results: claudeCompletedTurn()}
 				request := backendapi.RunRequest{
-					RunID: testRunID, Role: role, WorkingDirectory: worktree, Prompt: "do the work",
+					RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: worktree, Prompt: "do the work",
 					SystemPrompt: "the contract", SessionID: session, Model: "opus", Effort: "high",
 				}
 				if role != domain.RoleDeveloper {
@@ -328,4 +328,20 @@ func sandboxWrites(t *testing.T, settings string) []string {
 		t.Fatalf("decode settings %s: %v", settings, err)
 	}
 	return decoded.Sandbox.Filesystem.AllowWrite
+}
+
+// standIns is settings a check is launched with in directory, and runFolders
+// those a run is, each with the folders named alike so they can be compared.
+// The names are quoted as they are in the settings, so a path they are part of,
+// such as an instruction file above the worktree, is left as it is.
+func standIns(settings, directory string) string {
+	return nameFolders(settings, directory, filepath.Join(directory, execution.ServicesDirectoryName))
+}
+
+func runFolders(settings, scratch string) string {
+	return nameFolders(settings, scratch, filepath.Join(filepath.Dir(filepath.Dir(scratch)), execution.ServicesDirectoryName))
+}
+
+func nameFolders(settings, scratch, services string) string {
+	return strings.NewReplacer(`"`+scratch+`"`, `"SCRATCH"`, `"`+services+`"`, `"SERVICES"`, "Read(/"+services, "Read(SERVICES").Replace(settings)
 }

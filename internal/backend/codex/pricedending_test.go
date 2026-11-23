@@ -26,7 +26,7 @@ func TestAPricedEndingIsKeptWhenLaterOutputIsMalformed(t *testing.T) {
 	t.Parallel()
 
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: pricedEnding}}}, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -46,7 +46,7 @@ func TestAPricedEndingIsKeptWhenAnEventAfterItCannotBeRecorded(t *testing.T) {
 	refused := errors.New("the event log refused the line")
 	terminated := false
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: pricedEnding}}}, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 		EventSink: func(event execution.Event) error {
 			if terminated {
 				return refused

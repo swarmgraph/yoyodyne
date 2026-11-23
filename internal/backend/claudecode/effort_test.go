@@ -23,6 +23,7 @@ func TestRunPassesTheEffortLevelOnlyWhereOneIsNamed(t *testing.T) {
 			request := backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             role,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: "/worktree",
 				Prompt:           "go",
 				Model:            "opus",

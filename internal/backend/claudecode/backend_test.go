@@ -136,6 +136,7 @@ func TestRunParsesStructuredSuccessAndToolActivity(t *testing.T) {
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		EventSink: func(event execution.Event) error {
@@ -180,7 +181,11 @@ func TestRunParsesStructuredSuccessAndToolActivity(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	settings, err := settingsFor(developerSettings, true, "/worktree")
+	developer, err := developerSettingsFor(testScratch, testRunID, "/worktree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := settingsFor(developer, true, "/worktree")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +244,7 @@ func TestATerminalNamesTheRoleTheInvocationWasMadeAs(t *testing.T) {
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             testCase.role,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: "/worktree",
 				Prompt:           "do the work",
 				AllowedTools:     testCase.tools,
@@ -302,6 +308,7 @@ func TestATerminalCarriesTheProvidersUsageWhereThePriceReaderLooksForIt(t *testi
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "do the work",
 		EventSink: func(event execution.Event) error {
@@ -348,6 +355,7 @@ func TestATerminalCarriesTheProvidersUsageWhereThePriceReaderLooksForIt(t *testi
 	if _, err := (Backend{Runner: unpriced, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "do the work",
 		EventSink: func(event execution.Event) error {
@@ -413,8 +421,8 @@ func TestADeveloperRunIsSandboxedAndCarriesTheAttributionGuard(t *testing.T) {
 // A developer's Bash may bind a local port, on a fresh invocation and on a
 // resumed one, and that is the whole of what its sandbox opens: the network
 // block holds the one grant and nothing that reaches another host or a Unix
-// socket, no filesystem block widens what it may write, nothing in the
-// settings grants a permission rule, and commands still cannot leave the
+// socket, the filesystem block grants the scratch folder and refuses the
+// services folder, the only permission rules deny, and commands still cannot leave the
 // sandbox. No other role is given the grant.
 //
 // This reads the settings the CLI was actually passed. That Claude Code turns
@@ -427,7 +435,7 @@ func TestADeveloperSandboxAllowsLocalBindingAndNothingElseFreshOrResumed(t *test
 	for _, session := range []string{"", "session-1"} {
 		runner := &fakeRunner{results: claudeCompletedTurn()}
 		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(),
+			RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(),
 			Prompt: "do the work", SessionID: session,
 		}); err != nil {
 			t.Fatalf("session %q: %v", session, err)
@@ -444,16 +452,19 @@ func TestADeveloperSandboxAllowsLocalBindingAndNothingElseFreshOrResumed(t *test
 			t.Fatalf("session %q: the sandbox is not enforced: %v", session, sandbox)
 		}
 		network, _ := sandbox["network"].(map[string]any)
-		if !reflect.DeepEqual(network, map[string]any{"allowLocalBinding": true}) {
+		if !reflect.DeepEqual(network, map[string]any{"allowLocalBinding": true, "allowAllUnixSockets": false}) {
 			t.Fatalf("session %q: sandbox.network = %v, want local binding and no other network grant", session, network)
 		}
 		for key := range sandbox {
-			if !slices.Contains([]string{"enabled", "failIfUnavailable", "allowUnsandboxedCommands", "network"}, key) {
+			if !slices.Contains([]string{"enabled", "failIfUnavailable", "allowUnsandboxedCommands", "network", "filesystem"}, key) {
 				t.Fatalf("session %q: the sandbox carries %q, which widens it beyond local binding: %v", session, key, sandbox)
 			}
 		}
-		if permissions, found := settings["permissions"]; found {
-			t.Fatalf("session %q: the settings grant permission rules, which could widen what Bash may reach or write: %v", session, permissions)
+		if filesystem, _ := sandbox["filesystem"].(map[string]any); len(filesystem) != 2 || filesystem["allowWrite"] == nil || filesystem["denyRead"] == nil {
+			t.Fatalf("session %q: sandbox.filesystem = %v, want the scratch grant and the services denial", session, filesystem)
+		}
+		if permissions, _ := settings["permissions"].(map[string]any); len(permissions) != 1 || permissions["deny"] == nil {
+			t.Fatalf("session %q: the settings carry permission rules beside the services denial, which could widen what Bash may reach or write: %v", session, permissions)
 		}
 	}
 
@@ -461,7 +472,7 @@ func TestADeveloperSandboxAllowsLocalBindingAndNothingElseFreshOrResumed(t *test
 		if role == domain.RoleDeveloper || !supportedRole(role) {
 			continue
 		}
-		request := backendapi.RunRequest{RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "do the work"}
+		request := backendapi.RunRequest{RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "do the work"}
 		runner := &fakeRunner{results: claudeCompletedTurn()}
 		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), request); err != nil {
 			t.Fatalf("%s: %v", role, err)
@@ -484,6 +495,7 @@ func TestRunPassesTheRequestedModelAndReportsWhatServedIt(t *testing.T) {
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		Model:            "opus",
@@ -525,6 +537,7 @@ func TestRunKeepsTheDecidedResultWhenTheProviderKeepsWriting(t *testing.T) {
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		EventSink: func(event execution.Event) error {
@@ -582,6 +595,7 @@ func TestRunHonorsTheParentTerminalWhenANestedAgentFinishesFirst(t *testing.T) {
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: string(stream)}}}, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "resolve the review findings",
 		EventSink: func(event execution.Event) error {
@@ -659,6 +673,7 @@ func runStream(t *testing.T, stream string, prompt string) (backendapi.RunResult
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           prompt,
 		EventSink: func(event execution.Event) error {
@@ -966,6 +981,7 @@ func TestRunClassifiesProviderError(t *testing.T) {
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessFailed, ExitCode: 1, Stdout: stream}}}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	})
@@ -1011,6 +1027,7 @@ func TestRunRedactsDecodedProviderStringsContainingJSONEscapes(t *testing.T) {
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		RedactValues:     []string{secret},
@@ -1066,7 +1083,7 @@ func TestRunRejectsMalformedOrIncompleteStream(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: test.stream}}}}).Run(context.Background(), backendapi.RunRequest{
-				RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+				RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 			})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Run() error = %v, want %q", err, test.want)
@@ -1079,7 +1096,7 @@ func TestRunClassifiesCancellation(t *testing.T) {
 	t.Parallel()
 
 	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessCancelled, ExitCode: -1}}}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -1142,7 +1159,7 @@ func TestRunClassifiesAStallApartFromAnExhaustedBudget(t *testing.T) {
 			t.Parallel()
 
 			result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: status, ExitCode: -1}}}}).Run(context.Background(), backendapi.RunRequest{
-				RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+				RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 			})
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
@@ -1163,7 +1180,7 @@ func TestRunBoundsAProviderInvocationByActivityAndByTotalBudget(t *testing.T) {
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0,
 		Stdout: `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done"}` + "\n"}}}
 	if _, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -1183,7 +1200,7 @@ func TestRunReportsEventSinkFailure(t *testing.T) {
 
 	stream := `{"type":"system","subtype":"init","session_id":"session-1"}` + "\n"
 	_, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement",
 		EventSink: func(execution.Event) error { return errors.New("disk full") },
 	})
 	if err == nil || !strings.Contains(err.Error(), "disk full") {
@@ -1278,7 +1295,7 @@ func TestAOneShotInvocationSharesItsPrefixAndTheDevelopersDoesNot(t *testing.T) 
 			stream := `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"answered"}` + "\n"
 			runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: "/worktree", Prompt: "judge this",
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "judge this",
 				SystemPrompt: "the contract",
 			}); err != nil {
 				t.Fatalf("Run() error = %v", err)
@@ -1304,7 +1321,7 @@ func TestAOneShotInvocationSharesItsPrefixAndTheDevelopersDoesNot(t *testing.T) 
 	stream := `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done"}` + "\n"
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "make the change",
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "make the change",
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -1389,6 +1406,7 @@ func TestRunServesEveryConversationalRole(t *testing.T) {
 			result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             role,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: "/repository",
 				Prompt:           "what do you make of this?",
 				// The shape a conversation sends whichever role is answering: no
@@ -1427,7 +1445,7 @@ func TestRunKeepsTheManagementRolesToolless(t *testing.T) {
 			// No permission mode and no tool list, so the defaults this backend
 			// chooses for the role are what get asserted.
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: "/repository", Prompt: "where is the promotion lease recorded?",
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: "/repository", Prompt: "where is the promotion lease recorded?",
 			}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -1518,7 +1536,7 @@ func TestReadOnlyPostureIsTheContractsPostureFor(t *testing.T) {
 			stream := `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done"}` + "\n"
 			runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: "/repository", Prompt: "advise",
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: "/repository", Prompt: "advise",
 			}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -1533,7 +1551,7 @@ func TestReadOnlyPostureIsTheContractsPostureFor(t *testing.T) {
 
 			blocked := &fakeRunner{}
 			if _, err := (Backend{Runner: blocked}).Run(context.Background(), backendapi.RunRequest{
-				RunID: testRunID, Role: role, WorkingDirectory: "/repository", Prompt: "advise", AllowedTools: []string{"Read"},
+				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: "/repository", Prompt: "advise", AllowedTools: []string{"Read"},
 			}); err == nil || !strings.Contains(err.Error(), string(role)+" runs cannot be granted tools") {
 				t.Fatalf("Run() with a tool error = %v", err)
 			}
@@ -1569,6 +1587,7 @@ func TestRunRejectsAllowedToolListDelimiterInjection(t *testing.T) {
 		_, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
 			RunID:            testRunID,
 			Role:             domain.RoleDeveloper,
+			ScratchDirectory: testScratch,
 			WorkingDirectory: "/worktree",
 			Prompt:           "implement",
 			AllowedTools:     []string{tool},
@@ -1590,6 +1609,7 @@ func TestRunRequiresWorktreeScopedDeveloperWriteTools(t *testing.T) {
 		_, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
 			RunID:            testRunID,
 			Role:             domain.RoleDeveloper,
+			ScratchDirectory: testScratch,
 			WorkingDirectory: "/worktree",
 			Prompt:           "implement",
 			AllowedTools:     []string{"Read", tool},
@@ -1635,6 +1655,7 @@ func TestAnInvocationTooVerboseToRetainStillCompletesAndSaysItWasCut(t *testing.
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		EventSink: func(event execution.Event) error {
@@ -1690,6 +1711,7 @@ func TestAStreamLineTooLongToHoldIsRecordedRatherThanFatal(t *testing.T) {
 	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		EventSink: func(event execution.Event) error {
@@ -1740,6 +1762,7 @@ func TestAStreamLineWithAnInvalidEscapeIsRepairedRatherThanFatal(t *testing.T) {
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement the task",
 		EventSink: func(event execution.Event) error {
@@ -1865,6 +1888,7 @@ func runUsageLimitStream(t *testing.T, stream string) (backendapi.RunResult, []e
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		EventSink: func(event execution.Event) error {
@@ -2152,6 +2176,7 @@ func runProcessFailure(t *testing.T, stream, stderr string) (backendapi.RunResul
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		EventSink: func(event execution.Event) error {
@@ -2325,6 +2350,7 @@ func TestAPlainStdoutLineThatIsNotARefusalStillFailsTheStream(t *testing.T) {
 			}).Run(context.Background(), backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             domain.RoleDeveloper,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: "/worktree",
 				Prompt:           "implement",
 			})
@@ -2492,6 +2518,7 @@ func TestRunRedactsSecretsInsideARateLimitPayload(t *testing.T) {
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 		RedactValues:     []string{"super-secret-value"},
@@ -2649,6 +2676,7 @@ func TestAnInvocationCarriesABuildCacheTheRunMayWrite(t *testing.T) {
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: worktree,
 		Prompt:           "implement the task",
 	}); err != nil {
@@ -2678,6 +2706,7 @@ func TestAnInvocationIsGivenAnExplicitEnvironmentWithoutTheSlackTokens(t *testin
 	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: t.TempDir(),
 		Prompt:           "implement the task",
 	}); err != nil {
@@ -2726,6 +2755,7 @@ func TestAReviewIsCachedForFiveMinutesAndNoResumedSessionIs(t *testing.T) {
 		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 			RunID:            testRunID,
 			Role:             role,
+			ScratchDirectory: testScratch,
 			WorkingDirectory: t.TempDir(),
 			Prompt:           "judge this",
 			SystemPrompt:     "the contract",
@@ -2766,7 +2796,7 @@ func TestAManagementRoleIsCachedForAnHour(t *testing.T) {
 		stream := `{"type":"result","subtype":"success","session_id":"s","is_error":false,"result":"done","total_cost_usd":0.01}` + "\n"
 		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
 		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-			RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "a pass", SystemPrompt: "the contract",
+			RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "a pass", SystemPrompt: "the contract",
 		}); err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
@@ -2796,7 +2826,7 @@ func TestAManagementRoleIsNotSentTheCheckoutsGitStatus(t *testing.T) {
 		stream := `{"type":"result","subtype":"success","session_id":"s","is_error":false,"result":"done","total_cost_usd":0.01}` + "\n"
 		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
 		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-			RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "a pass", SystemPrompt: "the contract",
+			RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: "a pass", SystemPrompt: "the contract",
 			CachedPromptBytes: len("a "),
 		}); err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -2829,7 +2859,7 @@ func TestAMessageOpeningIsSentAsACachedBlockOfItsOwn(t *testing.T) {
 		stream := `{"type":"result","subtype":"success","session_id":"s","is_error":false,"result":"done","total_cost_usd":0.01}` + "\n"
 		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
 		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-			RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: prompt, SystemPrompt: "the contract",
+			RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: t.TempDir(), Prompt: prompt, SystemPrompt: "the contract",
 			CachedPromptBytes: opening,
 		}); err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -2951,6 +2981,7 @@ func TestRunCostsEveryTerminalAnInvocationEndedWith(t *testing.T) {
 			}).Run(context.Background(), backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             domain.RoleDeveloper,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: "/worktree",
 				Prompt:           "finish the work",
 				EventSink: func(event execution.Event) error {
@@ -3041,12 +3072,17 @@ func TestRecordedDuplicateTerminalIsPricedOnTheInvocationItFollowed(t *testing.T
 		for _, cost := range endings {
 			lines = append(lines, terminal(cost))
 		}
+		scratch, err := execution.PrepareScratchDirectory(t.TempDir(), runID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := (Backend{
 			Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: strings.Join(lines, "\n") + "\n"}}},
 			Clock:  fixedClock{},
 		}).Run(context.Background(), backendapi.RunRequest{
 			RunID:            runID,
 			Role:             domain.RoleDeveloper,
+			ScratchDirectory: scratch,
 			WorkingDirectory: "/worktree",
 			Prompt:           "finish the work",
 			EventSink: func(event execution.Event) error {
@@ -3101,7 +3137,7 @@ func TestRunStartsTheProviderBehindTheRequestsLaunchGate(t *testing.T) {
 		Stdout: `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done"}` + "\n"}}}
 	gate := &execution.LaunchGate{}
 	if _, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement", LaunchGate: gate,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: "/worktree", Prompt: "implement", LaunchGate: gate,
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -3169,6 +3205,7 @@ func TestRunRedactsTheProviderOutputBySecretShape(t *testing.T) {
 	if _, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	}); err != nil {

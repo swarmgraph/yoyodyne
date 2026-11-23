@@ -205,6 +205,14 @@ func nativeProbeDirectories(t *testing.T, repository, worktree, state string) []
 	if err != nil {
 		t.Fatal(err)
 	}
+	// What the developer's turn has to be refused, though it may read the rest.
+	services, err := execution.PrepareServicesDirectory(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(services, "token"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	paths, err := execution.PrepareDeveloperDirectories(repository, worktree, testRunID, scratch)
 	if err != nil {
 		t.Fatal(err)
@@ -233,6 +241,9 @@ if [ "$mode" = developer ]; then
     cat "$scratch/check.log"; exit 21
   fi
   test -s "$scratch/check.log"
+  if cat "$(dirname "$(dirname "$scratch")")/services/token" 2>/dev/null; then
+    printf 'unexpected read access to the services folder\n'; exit 22
+  fi
   printf '%s' "$proof" > "$cache/allowed"
   printf '%s' "$proof" > "$worktree/allowed"
 else
@@ -362,7 +373,7 @@ func TestNativeProbeReadsCommandEvidenceBeforeAdapterDiscardsRawOutput(t *testin
 		)}},
 	}}
 	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{Model: "gpt-6.1-sol",
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree,
 		RepositoryRoot: repository, Prompt: "probe",
 	}, nativeProbeReply, nil)
 	if result.Process.Stdout != "" || result.SessionID != "native-session" {
@@ -862,7 +873,7 @@ func TestNativeProbeReadsUnifiedToolResultWithoutACommandEvent(t *testing.T) {
 		)}},
 	}}
 	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{Model: "gpt-6.1-sol",
-		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+		RunID: testRunID, Role: domain.RoleDeveloper, ScratchDirectory: testScratch, WorkingDirectory: worktree,
 		RepositoryRoot: repository, Prompt: "probe",
 	}, nativeProbeReply, model)
 	if result.Process.Stdout != "" || result.SessionID != "native-session" {

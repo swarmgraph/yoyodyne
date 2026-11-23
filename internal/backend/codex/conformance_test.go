@@ -129,6 +129,7 @@ func invocationsToCheck(t *testing.T) map[string][]string {
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             role,
+				ScratchDirectory: testScratch,
 				WorkingDirectory: worktree,
 				RepositoryRoot:   repository,
 				Prompt:           "do the work",
@@ -263,6 +264,7 @@ func TestLocalConformance(t *testing.T) {
 	result, err := provider.Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
+		ScratchDirectory: testScratch,
 		WorkingDirectory: t.TempDir(),
 		Prompt:           "Reply with exactly: ok",
 		Timeout:          5 * time.Minute,
