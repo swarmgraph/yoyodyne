@@ -9540,7 +9540,8 @@ These are all errors, reported before any work is claimed:
   the same words; a `lane`, `remit`, or `triggers` on an agent of any other role;
   a `lane` the tracker would not carry, or one two agents name; a
   `triggers.every` under `5m`; a `triggers.full_pass_every` under `1h` or over
-  `12h`; and a `triggers.on` entry outside `landings`,
+  `12h`; a `triggers.model` that is not a model name, or that names a kind or
+  model the agent's provider cannot serve; and a `triggers.on` entry outside `landings`,
   `admissions`, and `stoppages`, or named twice; and a `recurring_tasks` entry
   named for a program manager instance, since an instance's passes are recorded
   and paced under its own name;
@@ -11140,9 +11141,41 @@ the instance's conversation, which means another process is still carrying it.
 five of the rest — as waiting, taken, joined, completed, or failed, with when. A requested pass is not held to the `5m` minimum, and it moves the
 cadence as an events pass does.
 
-**A pass asks for the agent's own model.** The triggers block names none, and the
-[`model`](#a-tasks-own-model) a recurring task names is that task's key rather
-than one an instance carries.
+**The triggers may name a model of their own.** A `model` under `triggers` is
+the model the passes those triggers start ask for — the scheduled pass and a pass
+its events wake — so a trial of a cheaper model for routine passes leaves every
+other turn of the instance on the agent's own `model`:
+
+```yaml
+agents:
+  factory-flow-pm:
+    role: program-manager
+    model: opus
+    lane: factory-flow
+    triggers:
+      every: 2h
+      on: [stoppages]
+      model: sonnet
+```
+
+It is the [`model`](#a-tasks-own-model) key a recurring task carries, applied to
+the instance, and it works the same way: it selects a model and nothing more,
+the turn is served under the agent's account, and its failover alternate and
+pinned version follow the rules given there. A pass somebody asked for was not
+started by the triggers, so it asks for the agent's own model, as does a message
+the operator sends and every other turn in the instance's conversation. Leaving
+the key out, or writing it empty, is the agent's own model.
+
+The value is a model, or one of the kinds `stronger`, `cheaper`, and `lightest`,
+which the passes ask for as the model `execution.model_kinds` names for the
+agent's provider (on Claude Code, `opus`, `sonnet`, and `haiku` unless the
+project names others). It is refused when the configuration loads, naming it,
+where it cannot name a model — longer than the bound, with whitespace in it, or
+beginning with `-` — or where the agent's provider cannot serve it: a kind the
+provider names no model for, and on Codex a model outside the catalog this build
+carries or one that does not accept the agent's `effort`. Each pass's record names the model that served it, which `yoyo sweeps`
+prints on the pass's header and `yoyo status --spend` splits the instance's cost
+by, as for a recurring task.
 
 ## Personas
 

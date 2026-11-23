@@ -1690,6 +1690,7 @@ func (c Config) Validate() error {
 		problems = append(problems, conversationModeProblems(name, agent.Conversations)...)
 		problems = append(problems, timeLimitProblems(name, agent)...)
 		problems = append(problems, instanceProblems(name, agent)...)
+		problems = append(problems, c.triggerModelProblems(providers, name, agent)...)
 		if agent.Role == domain.RoleDeveloper {
 			developers += agent.Instances
 		}
