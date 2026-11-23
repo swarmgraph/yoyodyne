@@ -54,6 +54,10 @@ revisions:
       by: architect
       at: 2026-11-23T00:20:08.848783Z
       reason: 'Resends this section after the reviewer refused document-3611.1. The operator''s pause already stops query runs: piece 3 built and tested it. So it stays in the built list, and the note on what is not yet built names only the daily limits, the limit on reader starts and the pause stopping readers, all with piece 4. Written from main 4d17c257d; nothing else in the section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T07:17:27.925776Z
+      reason: 'yoyodyne-ifd.435.53: the reader is a session the harness starts outside the six roles, never a role under agents. Its provider and model are set by the operator on each query, in a reader setting taking exactly provider and model. An adapter unable to launch with no tools is refused as its provider at load. The containment test runs this launch on each provider. Written from a read of the whole design at main e687feea; section 1''s example, build piece 4 and the invariant note follow later.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -115,6 +119,11 @@ approvals:
       by: harness
       at: 2026-11-23T00:20:08.848783Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3613, for document-3613.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-11-23T07:17:27.925776Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3620, for document-3620.1 under the automatic approval policy
 ---
 # Scheduled message intake
 
@@ -216,7 +225,22 @@ A message edited after it was recorded is not read again. Its record keeps the t
 
 ## 3. Message text stays data
 
-**The message reader is a role with nothing.** It is a shipped bundle in Go with no repository, tracker, memory, MCP tool, or ask. It has one fresh session for each reading and nothing carries over. A provider that cannot launch it with no tools cannot serve as its provider, and the configuration is refused.
+**The message reader is a session the harness starts, not a configured role.** It is not one of the roles under `agents`, and it is not added to them. The harness ships its instructions in its own code. It holds no repository, tracker, memory, MCP tool, ask, persona or tool list, and nothing in the configuration can give it one. Each reading is one fresh session, started in an empty folder the harness makes for that reading and removes afterwards, and nothing carries over.
+
+A seventh role under `agents` was rejected. It would bring a persona, a tool list and an `mcp_tools` setting a project could fill in, each of which would then have to be refused one by one. A role that configuration could widen is exactly what the reader must not be. The six roles also stay the closed set that ownership and asks are built on.
+
+**Its provider and model are the operator's, set on the query.** Each query's `reader` setting is a mapping:
+
+```yaml
+      reader: {provider: claude, model: claude-haiku-5-5}
+```
+
+- `provider` names a provider the configuration already declares, and is required.
+- `model` names the model for this reading, and is required, so the cost is chosen for this task rather than for any role.
+- Nothing else is accepted under `reader`. A plain name, such as the agent name shown in section 1's example, is refused when the configuration loads, saying the two fields it takes. No project runs a query yet, so no existing setting has to be converted.
+- `reader` sits inside `intake`, so it is the operator's like the rest of that section, and the refusals of section 1 cover it, a work item's grant included.
+
+**How it is launched.** Each adapter gains one launch beside the six roles: a session with no tools, no MCP servers, no resuming and no memory, given the fixed instructions and the one message. An adapter says whether it can make that launch. Where it cannot, as Codex cannot today because it has no way to start a session with no tools at all, a query naming that provider is refused when the configuration loads, naming the query and the provider. The launch uses that provider's ordinary choice of account and endpoint, as any other launch does. The containment test of the MCP design runs this launch on each provider beside the six roles, and shows it starts no server and holds no tool. Its spend is reported under its own kind, the message reader.
 
 It receives its fixed instructions, the rules at the recorded commit, and the sender, time and text of one message, marked as untrusted text from outside. Its reply is one block:
 
