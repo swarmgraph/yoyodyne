@@ -125,6 +125,36 @@ func TestAQueuedRunEndsOnlyWithItsAdmissionRecorded(t *testing.T) {
 	}
 }
 
+func TestARunRaisedForDesignEndsCompleteOnce(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := publishedRun(t, store)
+	raised := RaisedForDesignCompleted{At: updateAt}
+	ended, err := store.Update(context.Background(), state.RunID, raised)
+	if err != nil {
+		t.Fatalf("Update(RaisedForDesignCompleted) error = %v", err)
+	}
+	if ended.Status != StatusSucceeded || ended.Phase != PhaseComplete || ended.StopClass != StopNeedsDesign || ended.CompletedAt == nil || ended.PullRequest == nil {
+		t.Fatalf("the run raised for design ended as %+v", ended)
+	}
+	// Made again after a lost reply, it writes nothing.
+	again, err := store.Update(context.Background(), state.RunID, RaisedForDesignCompleted{At: updateAt.Add(time.Minute)})
+	if err != nil || again.Revision != ended.Revision {
+		t.Fatalf("Update(RaisedForDesignCompleted) again = %+v, %v; want nothing written", again, err)
+	}
+	// A run that ended some other way does not end again as raised for design.
+	other := publishedRun(t, store)
+	if _, err := store.Update(context.Background(), other.RunID, MergeQueueAdmitted{Record: MergeQueueAdmissionRecord{EntryID: "mqe-" + strings.Repeat("d", 32), Order: 1, Repository: "yoyodyne", TargetBranch: "main", Mode: MergeQueueHarness, ApprovedHead: strings.Repeat("b", 40), AdmittedAt: updateAt}, At: updateAt}); err != nil {
+		t.Fatalf("Update(MergeQueueAdmitted) error = %v", err)
+	}
+	if _, err := store.Update(context.Background(), other.RunID, QueuedRunCompleted{At: updateAt}); err != nil {
+		t.Fatalf("Update(QueuedRunCompleted) error = %v", err)
+	}
+	if _, err := store.Update(context.Background(), other.RunID, raised); err == nil {
+		t.Fatal("a run that already ended queued ended again as raised for design")
+	}
+}
+
 func TestALostMergeQueueEntryStopsOnlyARunWaitingOnTheQueue(t *testing.T) {
 	t.Parallel()
 	store := newTestStore(t)

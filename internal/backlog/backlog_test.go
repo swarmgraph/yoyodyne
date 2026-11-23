@@ -557,6 +557,31 @@ func TestHeldEntriesCountApartByWhoseMoveTheyAreWaitingOn(t *testing.T) {
 	}
 }
 
+// Text in the item's own design field lifts nothing: only the label coming off
+// releases the item.
+func TestADesignFieldLeavesANeedsDesignItemHeld(t *testing.T) {
+	t.Parallel()
+	item := beads.WorkItem{ID: "item", Title: "Item", Status: "open",
+		Labels: []string{domain.NeedsDesignLabel}, Design: "Write beside the target and rename over it."}
+	if next, ok := Order([]beads.WorkItem{item}, []string{item.ID}, ReadHolds(nil), nil).Next(); ok {
+		t.Fatalf("Next() = %+v, want the labelled item held whatever its design field says", next)
+	}
+}
+
+// The one refusal sentence points at the development manager for the label, and
+// at neither the architect's removal nor the item's design field.
+func TestTheNeedsDesignRefusalNamesTheDevelopmentManager(t *testing.T) {
+	t.Parallel()
+	if !strings.Contains(NeedsDesignHold, "the development manager removes the label, for now") {
+		t.Errorf("NeedsDesignHold = %q, want the development manager named", NeedsDesignHold)
+	}
+	for _, dropped := range []string{"the architect removes", "design field"} {
+		if strings.Contains(NeedsDesignHold, dropped) {
+			t.Errorf("NeedsDesignHold still says %q", dropped)
+		}
+	}
+}
+
 // An item labelled needs-design is admitted work in the order and never the
 // next thing to pull, whatever the tracker says about it; without the label the
 // same item is the next thing to pull.

@@ -113,6 +113,14 @@ func TestAddingTheNeedsDesignLabelWakesTheArchitectWithTheItemNamed(t *testing.T
 			t.Errorf("message lacks %q:\n%s", want, message)
 		}
 	}
+	if !strings.Contains(message, "the development manager removes the label, for now") {
+		t.Errorf("message does not say the development manager removes the label:\n%s", message)
+	}
+	for _, dropped := range []string{"Only you take the label off", "design field"} {
+		if strings.Contains(message, dropped) {
+			t.Errorf("message still says %q:\n%s", dropped, message)
+		}
+	}
 	if w.role.agents[0] != "" {
 		t.Errorf("woke agent %q, want the architect's role conversation", w.role.agents[0])
 	}
