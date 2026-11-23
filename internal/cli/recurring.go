@@ -169,6 +169,15 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	trigger.ClosedWork = closedWork{
 		items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
 	}
+	// The latest release tag, the open release items with what each waits on,
+	// and the open priority 0 work, so her pass is held to acting on each that
+	// has waited more than seven days (orchestrator/overdue.go).
+	trigger.WaitingWork = waitingWork{
+		items:      withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
+		runs:       parts.store,
+		runner:     parts.runner,
+		repository: parts.repository,
+	}
 	// The documents written and not yet published, and the tracker, so the
 	// architect's and the Lead Product Manager's passes are handed the ones that
 	// overlap open work (orchestrator/documentoverlap.go).

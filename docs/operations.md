@@ -9316,6 +9316,33 @@ example; [recurring tasks](configuration.md#recurring-tasks) says how to turn it
 on. A listing the tracker would not give is said in the pass's message and on
 its record, and the next pass is handed the same range.
 
+**Her sweep is handed every release and every priority 0 item waiting more than
+seven days, and acts on each or explains it.** The first turn of every pass of a
+recurring task of hers opens with the latest release tag, when it was made and
+how many days ago; each open release item she decided, with every open item it
+waits on and how long each has gone without a developer run; and every open
+priority 0 item, parked or not, that has had no developer run and no closing in
+the past seven days, with how long ago it was admitted, its parking reason where
+it is parked, and what it waits on. An item past seven days is marked
+`PAST SEVEN DAYS`: a release item open more than seven days while the latest
+tag is more than seven days old, and each of those priority 0 items. For each
+one the pass's account carries an entry under `overdue` with an act from a
+closed list — `ordered`, `started`, `unblocked`, `parking-corrected`,
+`parking-lifted`, `dropped-from-release`, `retired`, or `explained` — and the
+reason. Every act but `explained` must be borne out by a tracker action of the
+same pass on the item or on something it waits on; `explained` says by name why
+the item still waits, in the entry's reason, which is kept with the account on
+the pass's record and shown under `overdue` by `yoyo sweeps --json`.
+There is no act for deferring. An item with no entry, an act off the list, or an
+act no tracker action bears out is read as deferred again, and the pass is sent
+back once, in a further turn, naming each such item, with everything else it did
+kept. If it still only defers one, the pass's record says so by name. At most
+ten items hold a pass at once, the release items first and then the priority 0
+items longest waiting first; the rest are handed to the next pass. A reading the tracker or Git would not give is said in the pass's
+message and on its record, and holds the pass to nothing. This is the operator's
+direction of November 7, 2026, that a priority 0 item waiting more than seven
+days is acted on or explained rather than deferred again.
+
 **A pass of a role that owns documents decides the changes proposed to them,
 and carries what it recommended on the ones you decide.** The harness puts the
 undecided proposals against the role's documents in front of it on every
