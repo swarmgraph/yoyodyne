@@ -2,6 +2,7 @@ package readmodel
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +32,20 @@ type DocumentApproval struct {
 	Title     string `json:"title,omitempty"`
 	Directory string `json:"directory,omitempty"`
 	Reason    string `json:"reason"`
+	// Intent is what the writer recorded the document does to what the goals
+	// admit — "consistent", "fundamental", or empty where it said nothing — and
+	// Section the heading a section revision replaces. Serves is the work items
+	// the document answers or names.
+	Intent  string   `json:"intent,omitempty"`
+	Section string   `json:"section,omitempty"`
+	Serves  []string `json:"serves,omitempty"`
+	// Before and After are the part of the document a revision changes, read
+	// against the repository when the line is read (beforeAndAfter), and
+	// BeforeUnread why the document as it stands could not be read where it
+	// could not.
+	Before       string `json:"before,omitempty"`
+	After        string `json:"after,omitempty"`
+	BeforeUnread string `json:"before_unread,omitempty"`
 	// Body is the document's text as the role wrote it. The line says what
 	// waits rather than holding it, so it is not in the line's JSON; the
 	// decision the dashboard opens from this entry carries it.
@@ -114,8 +129,8 @@ func documentApprovalAttention(waiting DocumentApproval) Attention {
 	})
 }
 
-// documentReading is one reading of the waiting documents, as the line
-// carries them, and what could not be read.
+// documentReading is one reading of the waiting documents and the unanswered
+// concerns beside them, as the line carries them, and what could not be read.
 type documentReading struct {
 	attention []Attention
 	problem   string
@@ -127,7 +142,9 @@ func readDocuments(sources Sources) documentReading {
 }
 
 // readDocumentApprovals is every document waiting for the operator's approval,
-// across every recorded conversation, longest waiting first. A document the
+// across every recorded conversation, longest waiting first, and after them
+// every concern a conversation raised that nobody has answered, which waits on
+// his answer for the same reason a document waits on his approval. A document the
 // conversation keeps is waiting on him unless a reviewed run is carrying it,
 // which is the harness's, its owner has held it for sending, which is the
 // owner's until the item its hold names closes, or the harness holds it back
@@ -143,6 +160,7 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 		return nil, fmt.Sprintf("the documents waiting for the operator's approval could not be read: %v", err)
 	}
 	var waiting []DocumentApproval
+	var concerns []Attention
 	for _, conversation := range recorded {
 		agent := conversation.Agent
 		if agent == "" {
@@ -152,14 +170,33 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 			if !write.AwaitsDecision() {
 				continue
 			}
-			waiting = append(waiting, DocumentApproval{
+			document := DocumentApproval{
 				WriteID: write.ID, ConversationID: conversation.ConversationID, Agent: agent, Owner: conversation.Role,
 				Action: write.Action, Document: strings.TrimSpace(write.Artifact), Kind: write.Kind,
 				Title: strings.TrimSpace(write.Title), Directory: strings.TrimSpace(write.Directory),
-				Reason: strings.TrimSpace(write.Reason), Body: write.Body, ProductIntent: productIntent(conversation.Role, write),
+				Reason: strings.TrimSpace(write.Reason), Intent: strings.TrimSpace(write.Intent), Section: strings.TrimSpace(write.Section),
+				Serves: servedItems(write), Body: write.Body, ProductIntent: productIntent(conversation.Role, write),
 				DocumentKind: documentKind(write),
 				Turn:         write.Turn, WrittenAt: write.WrittenAt,
-			})
+			}
+			if document.Action != string(artifact.WriteCreate) && strings.TrimSpace(write.Body) != "" {
+				path := ""
+				if revised := write.WithRelations().Revises; len(revised) > 0 {
+					path = revised[0].Path
+				}
+				current, unread := readBefore(sources.Repository, path, document.Section)
+				if unread != "" {
+					document.BeforeUnread = unread
+				} else {
+					document.Before, document.After = beforeAndAfter(current, write.Body)
+				}
+			}
+			waiting = append(waiting, document)
+		}
+		// The concerns it raised that nobody has answered wait on the operator
+		// beside its documents, in the order it raised them.
+		for _, concern := range conversation.PendingConcerns {
+			concerns = append(concerns, concernAttention(concernWait(conversation, agent, concern)))
 		}
 	}
 	// A record holding no moment sorts last rather than first: it is not known
@@ -174,11 +211,23 @@ func readDocumentApprovals(sources Sources) ([]Attention, string) {
 		}
 		return documentApprovalID(waiting[i].ConversationID, waiting[i].WriteID) < documentApprovalID(waiting[j].ConversationID, waiting[j].WriteID)
 	})
-	attention := make([]Attention, 0, len(waiting))
+	attention := make([]Attention, 0, len(waiting)+len(concerns))
 	for _, each := range waiting {
 		attention = append(attention, documentApprovalAttention(each))
 	}
-	return attention, ""
+	return append(attention, concerns...), ""
+}
+
+// servedItems is the work items a written document serves: the ones it is the
+// design or ruling for, then any other it names, each once.
+func servedItems(write runstate.PendingWrite) []string {
+	var served []string
+	for _, id := range append(slices.Clone(write.Answers), write.WithRelations().Names...) {
+		if id = strings.TrimSpace(id); id != "" && !slices.Contains(served, id) {
+			served = append(served, id)
+		}
+	}
+	return served
 }
 
 // documentKind is the kind of the document a write changes, as far as its

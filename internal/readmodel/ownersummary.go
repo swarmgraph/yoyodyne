@@ -149,6 +149,13 @@ type SummaryEntry struct {
 	Latest     time.Time `json:"latest,omitzero"`
 	LatestSays string    `json:"latest_says,omitempty"`
 	Detail     []string  `json:"detail,omitempty"`
+	// Account is what a decision of the owner's changes, why, what approving
+	// and declining each lead to, and why it is his (DecisionAccount). Every
+	// surface prints it under the line, not behind Detail, because it is what
+	// he decides from. Decision is how the dashboard opens the decision whole,
+	// its OperatorDecision.Key, where the dashboard puts it to him.
+	Account  *DecisionAccount `json:"account,omitempty"`
+	Decision string           `json:"decision,omitempty"`
 }
 
 // SummaryInputs are the three readings the summary is made from, each with
@@ -526,7 +533,19 @@ func summarizeWaiting(in SummaryInputs, now time.Time, names summaryNames) (Summ
 			theirs = append(theirs, waiting)
 		}
 	}
-	decisions.Entries = append(decisions.Entries, groupAttention(mine, now, names)...)
+	// A decision of his — a document, a proposed change, a concern — is a line
+	// of its own with its account under it, never folded into a count: he
+	// decides each one from what it says.
+	var grouped []Attention
+	for _, waiting := range mine {
+		account, ok := waiting.Account()
+		if !ok {
+			grouped = append(grouped, waiting)
+			continue
+		}
+		decisions.Entries = append(decisions.Entries, decisionEntry(waiting, account, now))
+	}
+	decisions.Entries = append(decisions.Entries, groupAttention(grouped, now, names)...)
 	blocked.Entries = append(blocked.Entries, groupAttention(theirs, now, names)...)
 	if groupsRead {
 		for _, group := range standing.NotStartableGroups {
@@ -702,6 +721,34 @@ func groupAttention(entries []Attention, now time.Time, names summaryNames) []Su
 	return lines
 }
 
+// decisionEntry is one decision of the owner's as the summary lists it: what
+// it is about, since when, the next step and whose it is, and the account.
+func decisionEntry(waiting Attention, account DecisionAccount, now time.Time) SummaryEntry {
+	entry := SummaryEntry{
+		Says:       capitalized(waiting.Label()) + ": " + waiting.decisionSubject(),
+		WorkItemID: waiting.WorkItemID,
+		WaitingOn:  waitingOn(waiting.Mover),
+		Next:       waiting.Ownership.Remedy,
+		Count:      1,
+		Latest:     waiting.Since(),
+		Account:    &account,
+		Decision:   waiting.decisionKey(),
+	}
+	if waiting.Ownership.NeedsHand() {
+		entry.WaitingOn = "you, to carry out " + waiting.Mover.Possessive() + " decision"
+	}
+	if because := waiting.Ownership.ReasonSays(); because != "" {
+		entry.WaitingOn += ", because it is " + because
+	}
+	entry.LatestSays = summaryMoment(entry.Latest, now)
+	detail := waiting.CitedWhat() + " — " + waiting.CitedWhose()
+	if waiting.ID != "" {
+		detail = waiting.ID + ": " + detail
+	}
+	entry.Detail = []string{detail}
+	return entry
+}
+
 // waitingOn is who an entry waits on, as the summary says it to the operator:
 // "you" where it is his, and the mover the fourth line names otherwise.
 func waitingOn(mover Mover) string {
@@ -811,6 +858,11 @@ func (s OwnerSummary) Render(detail bool) string {
 			}
 			listed++
 			rendered.WriteString("    - " + entry.Line + "\n")
+			if entry.Account != nil {
+				for _, line := range entry.Account.Lines() {
+					rendered.WriteString("      " + line + "\n")
+				}
+			}
 			if detail {
 				for _, line := range entry.Detail {
 					fmt.Fprintf(&rendered, "      detail: %s\n", line)

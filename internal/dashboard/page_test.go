@@ -908,6 +908,36 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"5. yoyodyne-ifd.232 Keep the reviewer's summary on the card — waiting, in the harness's own queue",
 			"2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, in the harness's own queue — landed on main as 4b825dc642cb, confirmed on the target",
 		},
+		// Each decision of the owner's on the summary's "Needs your decision" —
+		// a proposed change, a concern, and a document — carries what changes,
+		// why, what approving and declining lead to, and why it is his, and a
+		// button that opens it whole.
+		"decisions": {
+			"What changes: a change to v1-goals: The legibility goal should say",
+			"If you approve: it is recorded, and the Lead Product Manager writes the new text of v1-goals itself",
+			"What changes: whether the Lead Product Manager goes on to propose: A billing page for hosted customers",
+			"If you decline: answer that it should not; the work is not proposed",
+			"Before: The local dashboard is read-only and can direct nothing.",
+			"After: A reduced, local dashboard is in v1 scope",
+			"Why it is yours: it states the product's intent",
+			`data-decide="document:product-manager:document-2328.1">Read it whole and decide</button>`,
+			`data-decide="concern:product-manager:c4807.1">Read it whole and decide</button>`,
+		},
+		// A concern opened from its summary line is shown whole, with the command
+		// that answers it, and offers no approve or decline.
+		"decide-concern": {
+			"How to answer",
+			"answer c4807.1 &lt;your answer&gt;",
+			"The whole concern",
+			"It asks: Should the goals admit hosted billing, or is it out of scope?",
+		},
+		// The document's pop-up opens with its account above the whole text.
+		"decide-document": {
+			"<dt>Before</dt>",
+			"<dd>The local dashboard is read-only and can direct nothing.</dd>",
+			"<dt>If you decline</dt>",
+			"<dt>The whole document</dt>",
+		},
 		"queues-unreadable": {"Could not be read: the merge queues could not all be listed: decode the merge queue 7d2f0c41: unexpected end of JSON input"},
 		// Each tool by name and how its calls ended, from the counts alone; the
 		// record's content is never in the standing, so it cannot be here.

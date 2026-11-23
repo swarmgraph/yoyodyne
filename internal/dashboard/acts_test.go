@@ -299,6 +299,7 @@ func TestEveryOtherActIsRefusedWithTheReason(t *testing.T) {
 		{"an ask that decides", askPath, `{"kind":"amendment","agent":"","id":"` + architectDoc.ID + `","question":"why?","verdict":"approve"}`, nil, http.StatusBadRequest, "decides nothing"},
 		{"an ask with no question", askPath, `{"kind":"amendment","agent":"","id":"` + architectDoc.ID + `"}`, nil, http.StatusBadRequest, "carries the question"},
 		{"a field the act does not carry", decidePath, `{"kind":"amendment","agent":"","id":"` + architectDoc.ID + `","verdict":"approve","by":"operator"}`, nil, http.StatusBadRequest, "could not be read"},
+		{"a concern approved rather than answered", decidePath, `{"kind":"concern","agent":"product-manager","id":"c41.1","verdict":"approve"}`, nil, http.StatusBadRequest, "is answered in the conversation that raised it"},
 		{"a document named without its conversation", decidePath, `{"kind":"document","agent":"","id":"document-41.1","verdict":"approve"}`, nil, http.StatusBadRequest, "names the agent"},
 		{"a form post", decidePath, approveOf(architectDoc), func(r *http.Request) { r.Header.Set("Content-Type", "application/x-www-form-urlencoded") }, http.StatusUnsupportedMediaType, "application/json"},
 		{"another path", "/api/acts/release", approveOf(architectDoc), nil, http.StatusMethodNotAllowed, "takes nothing but approve and decline"},

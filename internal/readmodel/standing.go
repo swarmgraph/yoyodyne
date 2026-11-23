@@ -2766,7 +2766,8 @@ func summarizePile(reports []report.Report, handlings []report.Handling, problem
 //
 // A document a role wrote that waits for the operator's approval is on it too:
 // nothing reaches the repository until he decides it, and nothing else tells
-// him it is waiting outside the conversation it was written in.
+// him it is waiting outside the conversation it was written in. So is a
+// concern a role raised and nobody answered, for the same reason.
 //
 // A finding only the operator can act on is named ahead of the undecided
 // proposals and is never folded into the remainder: the brake's hold, with the

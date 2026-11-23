@@ -411,7 +411,7 @@ const pages = [
   // A standing with things waiting on the operator's own approve or decline,
   // which puts the band's "Your decisions" tile on the page; and one whose
   // record of them could not be read, which puts it there saying so.
-  { name: "decisions", token: "t", standing: ok(fixture("standing-decisions")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
+  { name: "decisions", token: "t", standing: ok(fixture("standing-decisions")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), summary: ok(fixture("summary-decisions")) },
   { name: "decisions-unreadable", token: "t", standing: ok(fixture("standing-decisions-unreadable")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "spend-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/spend": refused(503, "the state root could not be resolved") } },
   // The busy page served with services.dashboard.hide_summary set: the summary
@@ -537,6 +537,10 @@ const scenarios = pages.concat([
   // and the document put to him on the page — shown, approved, declined with
   // no reason, and asked about first.
   over("attention-document", "decisions", { open: [{ grouping: "attention" }, { entry: "document-approval:chat-91253e0e070c17b0663651cc48602122/document-2328.1" }] }),
+  // A concern is shown whole and answered in its conversation: the pop-up
+  // offers no approve or decline for it, and the summary's line for it opens
+  // the pop-up at it.
+  over("decide-concern", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "concern:product-manager:c4807.1" }] }),
   over("decide-document", "decisions", { acts: { "/api/session": ok(boundSession) }, open: [{ decide: "list" }, { act: "previous" }] }),
   over("decide-document-approve", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "You approved document-2328.1: it is not written to your checkout and nothing is yours to commit: run doc-2328-1 takes it through its own checks and an independent review to the target branch. Its reviewed run has been started; `yoyo status` shows it until it merges, and the Lead Product Manager's conversation says how it went.", decided: true, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "approve" }] }),
   over("decide-document-decline", "decisions", { acts: { "/api/session": ok(boundSession), "/api/acts/decide": ok({ done: "You declined document-2328.1, and nothing was written", decided: true, person: "mason-bryant", decision: "document:product-manager:document-2328.1" }) }, open: [{ decide: "list" }, { act: "previous" }, { act: "decline" }, { act: "decline-confirm" }] }),
