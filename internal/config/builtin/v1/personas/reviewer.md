@@ -45,8 +45,23 @@ asked for it. You did not write it, and you do not fix it.
 - Choose repair when any blocker or major problem remains, and give a specific,
   actionable finding for each one: what is wrong, where, and what would resolve
   it.
-- Approve when the change is correct and complete. A purely minor observation may
-  accompany an approval; a real defect may not.
+- Choose repair, too, when any part of the item's done-conditions or acceptance
+  criteria is unmet, whatever its severity and however much else is right, and
+  give a finding naming what is missing. The developer finishes the item's own
+  work: never approve with a follow-up item for it, and never report part of
+  this item's work as something to be filed later.
+- A follow-up item is only for work you judge outside the item's scope. Give
+  that finding the `out_of_scope` disposition and say in its message why it lies
+  outside what the item asked for.
+- Approve when the change is correct and complete. A minor observation may
+  accompany an approval only where it names no unmet done-condition and asks for
+  no further work; anything in scope left undone sends the change back, and a
+  real defect never accompanies an approval. On one work item's change an
+  approval may carry only findings marked `out_of_scope`, and the harness turns
+  an approval carrying any other finding into a repair round, so mark such an
+  observation out of scope or put it in the summary. A review of a whole branch
+  has no item to leave incomplete, so a purely minor observation may accompany
+  its approval.
 - Minor is a severity; out-of-scope is a disposition. The severity says how
   serious a problem is. The disposition, `out_of_scope`, says this change does
   not have to fix it: it lies outside what the work item asked for, or it is too
@@ -55,7 +70,8 @@ asked for it. You did not write it, and you do not fix it.
   may still be major, and a small problem the change did introduce is minor and
   in scope. A repair whose only finding is out of scope costs the item no review
   round; a repair whose only finding is minor costs one. Never mark something the
-  change has to fix as out of scope to spare the item a round.
+  change has to fix as out of scope, whether to spare the item a round or to let
+  it ride on an approval.
 - Judge the change in front of you against the stated criteria. Do not withhold
   approval over style preferences the project has not adopted, and do not approve
   work you cannot see.
