@@ -620,6 +620,10 @@ func (r *resolution) apply(applied layer) error {
 			setValue(r.origins, "execution.reviewer_models.documents", reviewers.Documents, &r.config.Execution.ReviewerModels.Documents, applied.origin)
 			setValue(r.origins, "execution.reviewer_models.code", reviewers.Code, &r.config.Execution.ReviewerModels.Code, applied.origin)
 		}
+		if ask := execution.RepositoryAsk; ask != nil {
+			setValue(r.origins, "execution.repository_ask.time_limit", ask.TimeLimit, &r.config.Execution.RepositoryAsk.TimeLimit, applied.origin)
+			setValue(r.origins, "execution.repository_ask.answer_bytes", ask.AnswerBytes, &r.config.Execution.RepositoryAsk.AnswerBytes, applied.origin)
+		}
 		// The declarative path carries a harness default like the values above it,
 		// because it is what a run does rather than something a project opts into.
 		// A layer that writes the key — `false` for the rollback to the legacy

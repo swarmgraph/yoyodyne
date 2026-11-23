@@ -45,6 +45,12 @@ func bundles() []Bundle {
 				// configurable-workflows design's authority-model section, per the
 				// architect's ruling of 2026-09-18.
 				capability.RepositoryList,
+				// Asking the reading helper one question about the repository, which
+				// the harness answers with a session of its own on the lightest model
+				// (docs/designs/reducing-what-the-factory-costs.md, section 7). The
+				// Lead Product Manager, the architect and the program manager hold it;
+				// the grant is here and no configuration adds it to another role.
+				capability.RepositoryAsk,
 				// Every role's work is carried out by provider invocations, so every
 				// bundle holds this. What stops a role spending is the runtime envelope —
 				// budgets, holds, pauses — which is not a capability and must not become
@@ -109,6 +115,7 @@ func bundles() []Bundle {
 				capability.ReportFile,
 				capability.RepositoryRead,
 				capability.RepositoryList,
+				capability.RepositoryAsk,
 				capability.ProviderInvoke,
 				capability.ArtifactDesignMutate,
 				capability.InvariantMutate,
@@ -251,6 +258,7 @@ func bundles() []Bundle {
 				// named files alone cannot do (docs/designs/tool-interface.md,
 				// "Searching the repository").
 				capability.RepositorySearch,
+				capability.RepositoryAsk,
 				capability.LogRead,
 				// The design gives both to the factory-flow instance alone. A grant
 				// is held by a role, so the role holds them and the tools refuse an

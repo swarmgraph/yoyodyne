@@ -62,6 +62,15 @@ const (
 	// is, across the tree — and because only the roles whose bundles name it are
 	// given it, per the tool-interface design's "Searching the repository".
 	RepositorySearch Capability = "repository.search"
+	// RepositoryAsk is having one question about the repository answered by a
+	// session the harness runs on the provider's lightest model, which is handed
+	// the files Git tracks at the commit the turn reads at and nothing else, and
+	// being told back paths, line ranges and a bounded amount of text
+	// (internal/repositoryask). It is apart from the read and the search because
+	// it spends a provider call, and because only the roles whose bundles name it
+	// are given it, per section 7 of
+	// docs/designs/reducing-what-the-factory-costs.md.
+	RepositoryAsk Capability = "repository.ask"
 	// LogRead reads bounded, redacted operational records under the state root.
 	LogRead Capability = "log.read"
 	// RunInspect is being shown one run as it stands: its record, who holds its
@@ -348,6 +357,7 @@ var declared = []Capability{
 	RepositoryRead,
 	RepositoryList,
 	RepositorySearch,
+	RepositoryAsk,
 	LogRead,
 	RunInspect,
 	RunVerify,

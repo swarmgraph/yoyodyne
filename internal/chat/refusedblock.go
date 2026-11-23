@@ -21,6 +21,7 @@ const (
 	blockResearch       = "research"
 	blockEvaluation     = "evaluation"
 	blockRepositoryRead = "repository read"
+	blockRepositoryAsk  = "question for the reading helper"
 	blockLogRead        = "log read"
 	blockRunRead        = "run read"
 	blockHealthRead     = "health read"
@@ -69,6 +70,8 @@ func blockRefusal(authority Authority, kind string) *AuthorityError {
 		return refused("an evaluation to be recorded", "judging an idea the operator brought is the Lead Product Manager's, and this role says what it thinks in prose instead")
 	case blockRepositoryRead:
 		return refused("a repository path to be read", "reading the repository by path is the management roles' — the Lead Product Manager, the architect, and the development manager — and this role reasons over the evidence it was given")
+	case blockRepositoryAsk:
+		return refused("a question to be put to the reading helper", "this role holds no repository.ask grant; it names the paths it wants read instead")
 	case blockLogRead:
 		return refused("an operational record to be read", "this role holds no log.read grant")
 	case blockRunRead:
@@ -114,6 +117,8 @@ func (s *Session) refusedBlockAuthority(authority Authority, kind string) error 
 		held = authority.Evaluations
 	case blockRepositoryRead:
 		held = authority.RepositoryReads
+	case blockRepositoryAsk:
+		held = authority.RepositoryAsk
 	case blockLogRead:
 		held = authority.LogReads
 	case blockRunRead:

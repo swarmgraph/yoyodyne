@@ -55,6 +55,10 @@ var providerInvocations = map[string]string{
 	"internal/cli/exchange.go": "an inter-role ask exchange answering a round: exchangeVoice.noteUsageLimit " +
 		"records the refusal naming the exchange it stopped, because an answering round has neither a run " +
 		"to park nor a conversation of its own to fail at anybody's terminal",
+	"internal/repositoryask/asker.go": "the reading helper's session, asked by a conversation role: the " +
+		"conversation hands it a provider wrapped by chat's usageLimitNoting, which records the refusal " +
+		"against the asking conversation through Session.noteUsageLimit, and the ask ends with the refusal " +
+		"on its answer for the role to be told rather than waiting it out",
 	"internal/cli/sidestream.go": "a side conversation taking a turn: sideVoice.noteSideUsageLimit records the " +
 		"refusal naming the side thread it stopped and the main conversation that thread is held beside, " +
 		"because a side turn has no run to park and the conversation it is beside is not its own to fail — " +

@@ -32,6 +32,10 @@ var roleApplicableKeys = []string{
 	// it chooses a model and never who reviews, and a code review below the
 	// stronger model is refused in code (reviewermodels.go).
 	"execution.reviewer_models",
+	// How long the reading helper may run and how much of its answer comes
+	// back: bounds held in code (repositoryask.go), and never which roles hold
+	// it, which is the role bundles' in Go.
+	"execution.repository_ask",
 	"recurring_tasks.*.every",
 	"recurring_tasks.*.model",
 	"execution.check_timeout",

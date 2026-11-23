@@ -47,7 +47,7 @@ type expression struct {
 }
 
 var expresses = map[string]expression{
-	"conversation.tool-grant": {question: "does the role hold every capability the registered tool requires?", asks: []capability.Capability{capability.LogRead, capability.RunInspect, capability.RunVerify, capability.HealthObserve, capability.HealthFollow, capability.RunRecover, capability.ReportFile, capability.AmendmentPropose, capability.MCPRead, capability.MCPAct}},
+	"conversation.tool-grant": {question: "does the role hold every capability the registered tool requires?", asks: []capability.Capability{capability.LogRead, capability.RunInspect, capability.RunVerify, capability.HealthObserve, capability.HealthFollow, capability.RunRecover, capability.ReportFile, capability.AmendmentPropose, capability.MCPRead, capability.MCPAct, capability.RepositoryAsk}},
 	"run.tool-grant":          {question: "does the run's role hold its requested report or amendment tool?", asks: []capability.Capability{capability.ReportFile, capability.AmendmentPropose}},
 	"review.tool-grant":       {question: "does the reviewer hold its requested report tool?", asks: []capability.Capability{capability.ReportFile}},
 	"conversation.authority-table": {
@@ -61,7 +61,7 @@ var expresses = map[string]expression{
 			capability.BacklogOrder, capability.WorkDecompose, capability.WorkTriage,
 			capability.ProposalRaise, capability.ConcernRaise, capability.ResearchCommission,
 			capability.EvaluationRecord, capability.ExchangeAsk, capability.ExchangeAnswer,
-			capability.RepositoryRead, capability.RepositoryList, capability.RepositorySearch,
+			capability.RepositoryRead, capability.RepositoryList, capability.RepositorySearch, capability.RepositoryAsk,
 			capability.AgentContextMutate, capability.WorkItemAdmit, capability.WorkItemAttribute, capability.WorkItemUpdate,
 			capability.WorkItemLabel, capability.WorkItemReprioritize, capability.WorkItemPark,
 			capability.WorkItemUnpark, capability.WorkItemLink, capability.WorkItemUnlink,
@@ -101,7 +101,7 @@ var expresses = map[string]expression{
 			capability.RepositoryRead, capability.RepositoryList, capability.RepositorySearch,
 			capability.AgentContextMutate, capability.LaneReportWrite, capability.StopCauseRecord, capability.ServiceRequestRestart, capability.PassRequest,
 			capability.RunRecordLandedDefect,
-			capability.MCPRead, capability.MCPAct,
+			capability.MCPRead, capability.MCPAct, capability.RepositoryAsk,
 		},
 		gap: "the repository block is refused unless the role holds both the read and the list, and a search in it unless the role holds the search as well; that the named read is the pair is a rule of the derivation rather than a capability either half states",
 	},

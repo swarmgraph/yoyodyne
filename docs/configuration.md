@@ -4997,6 +4997,43 @@ keeps both kinds on the stronger model.
 from before it refuses a file that carries it until it moves onto a newer
 build.
 
+### The reading helper
+
+[Reducing what the factory costs](designs/reducing-what-the-factory-costs.md),
+sections 7 and 8. The Lead Product Manager, the architect and the program
+manager may ask the reading helper one question about the repository, with
+optional path prefixes, in a `yoyodyne-reading-helper` block. The harness runs
+one session on the lightest model of the provider the asking role runs on
+(`execution.model_kinds`), handed only the text files Git tracks at the commit
+the turn reads at, under those prefixes. The session has no tools, so it cannot
+write, reach the network, call an MCP tool, or open anything it was not handed.
+Its answer comes back as paths, line ranges and a little text, each place
+checked against the files it was handed, and it is labelled as untrusted and as
+somewhere to look rather than proof: a role that rules on a passage reads that
+passage itself first. What the session cost is a line in the cost log against
+the asking role and its conversation, and it counts toward the message's own
+spending limit.
+
+```yaml
+execution:
+  repository_ask:
+    time_limit: 5m       # default 5m; between 30s and 15m
+    answer_bytes: 4096   # default 4096 (4 KiB); between 1024 and 8192
+```
+
+`time_limit` is how long the helper's session may run, and `answer_bytes` is
+the most of its answer, places and text together, that reaches the asking role.
+The development manager may set both. Which roles hold the helper is fixed in
+the harness and no setting adds it to another role. A provider that names no
+lightest model has the helper off, and a role that asks is told so. One message
+may ask the helper twice.
+
+**What the file refuses at load.** A `time_limit` or an `answer_bytes` outside
+its range, including a negative one.
+
+These are new keys: a part of the product still running a build from before
+them refuses a file that carries them until it moves onto a newer build.
+
 ### Saying why ready work has not started
 
 ```yaml

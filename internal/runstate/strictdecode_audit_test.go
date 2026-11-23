@@ -145,6 +145,7 @@ var strictSites = map[string]strictSite{
 	"internal/runrecover/runrecover.go:Decode":           {strictValidator, "a run.recover request block in an agent's reply; the run it acts on is read strictly under its lease by the store, because it is written back"},
 	"internal/report/report.go:Decode":                   {strictValidator, "a report block in an agent's reply"},
 	"internal/repositoryread/repositoryread.go:Decode":   {strictValidator, "a repository-read block in an agent's reply"},
+	"internal/repositoryask/repositoryask.go:Decode":     {strictValidator, "a reading helper block in an agent's reply"},
 	"internal/research/research.go:Decode":               {strictValidator, "a research block in an agent's reply"},
 	"internal/selfcheck/selfcheck.go:Decode":             {strictValidator, "a verification block in a developer's reply"},
 	"internal/sidestream/contract.go:decodeSide":         {strictValidator, "a side-stream block in an agent's reply"},
