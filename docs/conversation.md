@@ -759,7 +759,9 @@ path. A revision opening with the identifier in a document the item does not
 name is written onto the item's notes as related, once, and leaves it open. An
 item that names none closes at the first pull after the first such revision is
 in the tree, in any document the role owns, and its close says no named
-document was checked. Reopen it with a note if the close was wrong: the item carries the
+document was checked. A parked item is never closed this way: the pass names it
+with what it is parked for, and it stays open until a role closes or retires it,
+or releases it, when the next pull closes it. Reopen it with a note if the close was wrong: the item carries the
 revision it was closed on and is not closed on that revision again. The same
 clause that is refused on an unmarked item is what a marked one says: "Done means the ruling is recorded on the slack-reporting design" is
 admitted with `executor: conversation:architect`, and refused with none.
