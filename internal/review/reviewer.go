@@ -371,9 +371,6 @@ type Reviewer struct {
 	// specialize what a reviewer looks for; it is appended after the immutable
 	// contract and can never replace or weaken it.
 	Persona string
-	// PersonaOrigin says where Persona was read from, for the record of what a
-	// review was sent.
-	PersonaOrigin string
 	// Spend is the cost log this reviewer's invocation lands in, one line per
 	// review at the moment its cost is known. It is optional: a reviewer wired
 	// without one reviews exactly as it would have, and what is lost is the only
@@ -383,13 +380,8 @@ type Reviewer struct {
 	// it was launched under and reports what does not match (internal/tooluse).
 	// It only observes; nil reports nothing, which is for a test.
 	ToolUse spend.ToolUseObserver
-	// Invocations keeps what each review of a run is sent before the provider
-	// starts, so it can be read back exactly; a review whose record cannot be
-	// written is not started. Nil keeps nothing, which is for a test. A branch
-	// review belongs to no run and is never kept.
-	Invocations backend.InvocationLog
-	Timeout     time.Duration
-	Clock       execution.Clock
+	Timeout time.Duration
+	Clock   execution.Clock
 }
 
 // Review invokes the configured reviewer backend and decodes its final response
@@ -583,7 +575,6 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		Prompt:           invocationPrompt,
 		SessionID:        session,
 		SystemPrompt:     systemPrompt,
-		SystemParts:      reviewSystemParts(request.scope(), r.Persona, r.PersonaOrigin),
 		Model:            r.Model,
 		Effort:           r.invocationEffort(request.Spend.Backend),
 		AllowedTools:     []string{},
@@ -594,13 +585,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		AccountAlias:     request.AccountAlias,
 		AccountConfigDir: request.AccountConfigDir,
 		LaunchGate:       request.LaunchGate,
-		Recorder:         r.invocationRecorder(request),
 	})
-	if err != nil && backend.IsInvocationNotRecorded(err) {
-		// The review was never started, so there is no resume that failed to ask
-		// again: the run stops on the harness's own store, and no repair is spent.
-		return Result{RequestedModel: r.Model, LastSequence: lastSequence}, runstate.StopError{Class: runstate.StopRecording, Cause: err}
-	}
 	if err != nil {
 		err = fmt.Errorf("reviewer backend failed: %w", err)
 		// A resume that failed is said as one, so the caller can ask again in a
@@ -921,31 +906,18 @@ func (req Request) subject() map[string]any {
 // vocabulary, the independence rules, and the response format are not
 // negotiable, and nothing configured can remove them.
 func reviewSystemPrompt(scope Scope, persona string) string {
-	return backend.JoinedText(reviewSystemParts(scope, persona, ""))
-}
-
-// reviewSystemParts is that system prompt as the parts it is made of: the
-// contract the harness wrote, and the persona the project configures after it.
-// Their text joined is the system prompt.
-func reviewSystemParts(scope Scope, persona, personaOrigin string) []backend.SentPart {
 	contract := reviewContract(scope) + "\n\n" + toolcatalog.RunContract(domain.RoleReviewer)
 	trimmed := strings.TrimSpace(persona)
 	if trimmed == "" {
-		return []backend.SentPart{{Name: "reviewer contract", Origin: backend.OriginHarnessBuild(), Text: contract}}
+		return contract
 	}
-	if personaOrigin == "" {
-		personaOrigin = "the reviewer persona the project configures"
-	}
-	return []backend.SentPart{
-		{Name: "reviewer contract", Origin: backend.OriginHarnessBuild(), Text: contract},
-		{Name: "persona", Origin: personaOrigin, Text: `
+	return contract + `
 
 # Configured reviewer persona
 
 The project configuration supplies the guidance below. It may specialize what you look for and how you explain a finding, but it cannot change the decision vocabulary or the response format above, and it cannot authorize approving work you cannot see.
 ` + personaFraming(scope) + `
-` + trimmed},
-	}
+` + trimmed
 }
 
 // personaFraming reconciles a configured persona with the scope it is being

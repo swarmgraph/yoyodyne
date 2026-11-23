@@ -86,8 +86,6 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return readSweeps(args[1:], stdout, stderr)
 	case "run":
 		return runWorkItem(ctx, args[1:], stdout, stderr)
-	case "invocations":
-		return readInvocations(args[1:], stdout, stderr)
 	case "work":
 		return scheduleWork(ctx, args[1:], stdout, stderr)
 	case "start":
@@ -944,7 +942,6 @@ Commands:
   reports           read what agents reported without it stopping their work
   sweeps            read what the recurring tasks found on their own schedule
   run               run one Beads work item in an isolated worktree
-  invocations       read exactly what each developer and reviewer invocation of a run was sent
   work              schedule the ready work the harness chooses for itself
   start             start the product: its supervisor, and every enabled part through it
   stop              stop the product: the supervisor, then every part in order

@@ -341,7 +341,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnFailingCheck` | `classified-stop` | 2 | Blocks on the failed check after shared repairs, including a failed blocker write. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnMissingPreservedChange` | `classified-stop` | 2 | Refuses a continuation holding none of its change; records cause and blocker. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnRefusedPaths` | `classified-stop` | 2 | Blocks on refused paths after shared repairs, including a failed blocker write. |
-| `internal/orchestrator/pipeline.go` | `(*activeRun).develop` | `classified-stop` | 3 | Stops on two unaccounted replies, failed publication of an accepted attempt, or an attempt that was not started because what it was to be sent could not be recorded first (no repair attempt is spent). |
+| `internal/orchestrator/pipeline.go` | `(*activeRun).develop` | `classified-stop` | 2 | Stops on two unaccounted replies or failed publication of an accepted attempt. |
 | `internal/orchestrator/mcpask.go` | `(*activeRun).carryOutAsk` | `classified-stop` | 2 | Stops a developer that asked for MCP calls with no session to resume with the answers, or that kept asking after its limit was spent and it was told to go on without the calls. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnSpentRelaunchBudget` | `classified-stop` | 2 | Stops on provider death after relaunches and applicable recovery. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnSpentRelaunchBudget` | `phase-error` | 1 | Stops on provider death after relaunches and applicable recovery. |

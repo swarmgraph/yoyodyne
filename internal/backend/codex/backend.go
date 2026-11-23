@@ -703,25 +703,6 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			return backend.RunResult{}, err
 		}
 	}
-	// What the provider is about to be sent is recorded first, and it is the
-	// message the standard input below is made of; an invocation that could not
-	// be recorded is not started.
-	message := composeMessage(request, named)
-	if request.Recorder != nil {
-		posture, _ := backend.RequestPosture(request)
-		if err := backend.RecordInvocation(request, backend.SentInvocation{
-			Backend:          string(b.provider()),
-			ProviderVersion:  b.installedVersion(ctx, configDir),
-			Model:            request.Model,
-			Effort:           strings.TrimSpace(request.Effort),
-			Posture:          string(posture),
-			WorkingDirectory: request.WorkingDirectory,
-			Resumed:          request.SessionID,
-			Messages:         []backend.SentMessage{message},
-		}); err != nil {
-			return backend.RunResult{}, err
-		}
-	}
 	processResult, err := b.Runner.Run(ctx, execution.Command{
 		Name: b.binary(),
 		Args: args,
@@ -735,7 +716,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		// -- pause, resume, release, approve -- can refuse a shell this agent
 		// opens.
 		Env:   environment,
-		Stdin: strings.NewReader(message.Text()),
+		Stdin: strings.NewReader(composePrompt(request, named)),
 		// The stream this invocation is asked for is the liveness signal: every
 		// line the process writes is an event, so the gap between lines is
 		// exactly the gap between events.
@@ -916,28 +897,18 @@ func (Backend) SessionKeepsInstructions() bool { return true }
 // What the project named for the role goes between the contract and the prompt,
 // so it reads as part of the role's standing instructions rather than the task.
 func composePrompt(request backend.RunRequest, named string) string {
-	return composeMessage(request, named).Text()
-}
-
-// composeMessage is the one message Codex is sent, as the named parts it is
-// made of, so the text sent and the text recorded for the invocation are the
-// same parts joined. Each part that is followed by another carries the blank
-// line between them at its end.
-func composeMessage(request backend.RunRequest, named string) backend.SentMessage {
-	parts := backend.PartsOr(request.PromptParts, request.Prompt, backend.SentPart{Name: "first message", Origin: backend.OriginHarnessBuild()})
+	prompt := request.Prompt
 	if strings.TrimSpace(named) != "" {
-		parts = append([]backend.SentPart{{Name: "skills and instructions the project names", Origin: "the skill and instruction files the project configuration names", Text: named + "\n\n"}}, parts...)
+		prompt = named + "\n\n" + prompt
 	}
 	if strings.TrimSpace(request.SystemPrompt) != "" {
-		system := backend.PartsOr(request.SystemParts, request.SystemPrompt, backend.SentPart{Name: "system instructions", Origin: backend.OriginHarnessBuild()})
-		system[len(system)-1].Text += "\n\n"
-		parts = append(system, parts...)
+		prompt = request.SystemPrompt + "\n\n" + prompt
 	}
 	if posture, _ := backend.RequestPosture(request); posture == backend.PostureReadOnly {
 		directory, _ := json.Marshal(request.WorkingDirectory)
-		parts = append([]backend.SentPart{{Name: "read-only inspection note", Origin: backend.OriginHarnessBuild(), Text: "Repository available for read-only inspection: " + string(directory) + ".\nThe current directory is an empty launch directory, not the repository. Inspect and plan only; do not implement changes or request escalation.\n\n"}}, parts...)
+		prompt = "Repository available for read-only inspection: " + string(directory) + ".\nThe current directory is an empty launch directory, not the repository. Inspect and plan only; do not implement changes or request escalation.\n\n" + prompt
 	}
-	return backend.SentMessage{Role: backend.SentUser, Parts: parts}
+	return prompt
 }
 
 // contextWindowTokens is the window Codex compacts against: the architect's
