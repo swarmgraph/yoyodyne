@@ -384,6 +384,14 @@ type Reviewer struct {
 	Clock   execution.Clock
 }
 
+// OnModel is this reviewer asking for another model, with its role, contract,
+// persona and permissions unchanged: execution.reviewer_models chooses the
+// model a kind of change is reviewed on, and nothing else about the reviewer.
+func (r Reviewer) OnModel(model string) Reviewer {
+	r.Model = model
+	return r
+}
+
 // Review invokes the configured reviewer backend and decodes its final response
 // through the structured verdict contract. Anything the contract does not
 // accept, including a provider-level failure, is rejected rather than treated
