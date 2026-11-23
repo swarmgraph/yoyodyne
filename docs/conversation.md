@@ -2688,7 +2688,9 @@ conversation carries, whether or not anything was delivered since her last turn.
 Each continuation turn carries the next slice in that order, with entries
 already delivered on the pass left out. Decisions and closed work are read
 again between turns. A pass cannot end complete while live entries remain
-undelivered; if its turn bound or a provider refusal ends it first, its record
+undelivered. A stoppage she decided to wait on, while its wait still stands,
+asks nothing of her and never counts as undelivered: it is listed where there
+is room, and only once the wait runs out does it hold a pass open. If its turn bound or a provider refusal ends it first, its record
 counts those entries and names the oldest. The next pass starts with those
 unread entries before showing entries an earlier pass already delivered.
 
