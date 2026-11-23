@@ -295,7 +295,7 @@ func (p *product) start(ctx context.Context, stdout, stderr io.Writer, jsonOutpu
 		// The Slack variables are taken out whatever the shell had exported:
 		// the supervisor never holds a token, and the sink's launch puts this
 		// product's own pair into the sink's environment and nowhere else.
-		Env:     slack.WithoutSecrets(p.environ),
+		Env:     append(slack.WithoutSecrets(p.environ), supervise.StartVariable+"="+supervise.StartedByYoyoStart),
 		LogRoot: logRoot,
 		Log:     logPath,
 	})
@@ -455,6 +455,9 @@ func (p *product) reportStart(stdout, stderr io.Writer, jsonOutput bool, report 
 // is asked to stop. It is what `yoyo start` detaches, and what the launch agent
 // runs.
 func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
+	// Read first, because it takes `yoyo start`'s word out of the environment
+	// every part is started with.
+	startedBy := p.startReason(ctx)
 	children, notYet, off, err := p.children()
 	if err != nil {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
@@ -497,6 +500,7 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		Log:         log,
 		PID:         os.Getpid(),
 		Build:       p.build(),
+		StartedBy:   startedBy,
 		RestartHold: hold,
 		PowerHistory: func(ctx context.Context) ([]runstate.PowerEvent, error) {
 			return supervise.ReadPowerHistory(ctx, p.runner)
@@ -544,6 +548,43 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// startReason is why this supervisor started (supervise.StartReason), read
+// before anything else runs. `yoyo start`'s word for it is taken out of this
+// process's environment and of the one its parts are started with, so no part
+// carries it.
+func (p *product) startReason(ctx context.Context) string {
+	facts := supervise.StartFacts{
+		PID:     os.Getpid(),
+		Build:   p.build(),
+		Environ: p.environ,
+	}
+	if facts.Environ == nil {
+		facts.Environ = os.Environ()
+	}
+	if p.agent != nil {
+		facts.LaunchAgent = p.agent.Label
+	}
+	if previous, found, err := p.store.Load(); err == nil {
+		facts.Previous, facts.PreviousFound = previous, found
+	}
+	if p.runner != nil {
+		// Unread, the start at login is said as any other start by the agent.
+		facts.BootedAt, _ = supervise.ReadBootTime(ctx, p.runner)
+	}
+	reason := supervise.StartReason(facts)
+	_ = os.Unsetenv(supervise.StartVariable)
+	kept := p.environ[:0:0]
+	for _, entry := range p.environ {
+		if !strings.HasPrefix(entry, supervise.StartVariable+"=") {
+			kept = append(kept, entry)
+		}
+	}
+	if p.environ != nil {
+		p.environ = kept
+	}
+	return reason
 }
 
 // checkForgeTrust says in the supervisor's log, and once in a report, that this

@@ -301,3 +301,58 @@ func TestStatusSaysWhatTheSupervisorWaitsForBeforeItMovesAndSinceWhen(t *testing
 		t.Errorf("services = %s, want no line for a supervisor on the deployed build", rendered)
 	}
 }
+
+type fakeAtLogin struct {
+	starts bool
+	err    error
+}
+
+func (f fakeAtLogin) StartsAtLogin() (bool, string, error) {
+	return f.starts, "com.yoyodyne.supervisor.yoyodyne", f.err
+}
+
+// After a restart the status says when the supervisor last started and why,
+// and whether anything starts it at login, so a product that stayed down is
+// told from one that came back by itself.
+func TestTheServicesLineSaysWhenTheSupervisorStartedWhyAndWhetherItStartsAtLogin(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, 11, 12, 8, 10, 0, 0, time.UTC)
+	why := "its launch agent com.yoyodyne.supervisor.yoyodyne started it when you logged in, after the machine started at 2026-11-12 00:09 PST"
+	supervision := fakeSupervision{running: true, found: true, recorded: runstate.Supervision{PID: 4242, StartedAt: started, StartedBy: why}}
+
+	sources := quietSources()
+	sources.Supervision = supervision
+	sources.AtLogin = fakeAtLogin{starts: true}
+	standing := ReadStanding(context.Background(), sources)
+	rendered := standing.RenderServices()
+	for _, want := range []string{
+		"  supervisor: started at " + started.Local().Format("2006-01-02 15:04 MST") + "; " + why + "\n",
+		"  at login: the launch agent com.yoyodyne.supervisor.yoyodyne starts the supervisor when you log in",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered:\n%s\nwant it to contain %q", rendered, want)
+		}
+	}
+	if standing.Services.AtLogin == nil || !standing.Services.AtLogin.Starts {
+		t.Errorf("Services.AtLogin = %+v, want the launch agent carried for every surface", standing.Services.AtLogin)
+	}
+
+	sources.Supervision = fakeSupervision{found: true, recorded: runstate.Supervision{PID: 4242, StartedAt: started, ObservedAt: started}}
+	sources.AtLogin = fakeAtLogin{}
+	rendered = ReadStanding(context.Background(), sources).RenderServices()
+	for _, want := range []string{
+		"  supervisor: last started at " + started.Local().Format("2006-01-02 15:04 MST") + "\n",
+		"  at login: nothing starts the supervisor when you log in, so after a restart of the machine the product stays down until `yoyo start`; `yoyo setup --launch-agent` installs",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered:\n%s\nwant it to contain %q", rendered, want)
+		}
+	}
+
+	sources.AtLogin = fakeAtLogin{err: errors.New("permission denied")}
+	standing = ReadStanding(context.Background(), sources)
+	if !strings.Contains(standing.ServicesProblem, "whether the supervisor starts when you log in could not be read: permission denied") {
+		t.Errorf("ServicesProblem = %q, want the unreadable launch agent named", standing.ServicesProblem)
+	}
+}

@@ -44,6 +44,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -55,6 +57,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/intake"
+	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -927,6 +930,14 @@ func standingSources(configPath string) readmodel.Sources {
 		sources.Supervision = store
 		sources.Machine = store
 	}
+	// Whether the launch agent that starts the supervisor at login is installed
+	// for this checkout, which only macOS has.
+	if runtime.GOOS == "darwin" {
+		sources.AtLogin = launchAgentAtLogin{
+			agent:      launchd.AgentFor(cfg.Product.ID, launchd.Controller{UserHomeDir: os.UserHomeDir}),
+			configPath: resolved.Path,
+		}
+	}
 	// The program manager instances, and everything their status is derived
 	// from.
 	programManagerSources(&sources, cfg, stateRoot)
@@ -962,6 +973,20 @@ func standingSources(configPath string) readmodel.Sources {
 	slowCalls, _ := runstate.NewTrackerSlowCallStore(stateRoot, cfg.Product.ID)
 	sources.Tracker = withTrackerRecords(beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}, listings, slowCalls)
 	return sources
+}
+
+// launchAgentAtLogin answers readmodel.AtLogin from the launch agent's property
+// list: one installed for this checkout's configuration is loaded by launchd at
+// every login, whether or not it is loaded now. It reads the file and runs
+// nothing.
+type launchAgentAtLogin struct {
+	agent      *launchd.Agent
+	configPath string
+}
+
+func (l launchAgentAtLogin) StartsAtLogin() (bool, string, error) {
+	runs, err := l.agent.Runs(l.configPath)
+	return runs, l.agent.Label, err
 }
 
 // agentEndpoints is every configured agent as the read model needs it: what

@@ -326,8 +326,8 @@ func TestStartSaysWhatTheSupervisorRecordedAboutEachPart(t *testing.T) {
 	if launch.Program != "/opt/yoyo/bin/yoyo" || strings.Join(launch.Args, " ") != "start --foreground --config "+resolved.Path {
 		t.Errorf("launched %s %v, want this binary as the foreground supervisor reading this configuration", launch.Program, launch.Args)
 	}
-	if strings.Join(launch.Env, " ") != "HOME=/Users/mason" {
-		t.Errorf("supervisor environment = %v, want the Slack variables taken out and nothing else changed", launch.Env)
+	if strings.Join(launch.Env, " ") != "HOME=/Users/mason "+supervise.StartVariable+"="+supervise.StartedByYoyoStart {
+		t.Errorf("supervisor environment = %v, want the Slack variables taken out and `yoyo start` named as what started it", launch.Env)
 	}
 	if launch.LogRoot != stateRoot || !strings.HasSuffix(launch.Log, "supervisor/supervisor.log") {
 		t.Errorf("supervisor log = %q under %q, want it beside the supervisor's record", launch.Log, launch.LogRoot)
@@ -1094,5 +1094,25 @@ func TestTheSchedulerSaysWhenItsMoveFallsDue(t *testing.T) {
 		Draining: &runstate.WatchDrain{Since: cancelledAt.Add(2 * time.Minute), BoundSeconds: 900, Until: cancelledAt.Add(17 * time.Minute), Hosting: 1}})
 	if _, windingDown, err := scheduler.NextMove(context.Background()); err != nil || !windingDown {
 		t.Fatalf("NextMove() winding down = %t, %v; want the session's wind-down read", windingDown, err)
+	}
+}
+
+// The supervisor `yoyo start` detaches records `yoyo start` as why it started,
+// and takes that word out of the environment its parts are started with.
+func TestTheSupervisorRecordsYoyoStartAsWhyItStartedAndPassesItOnToNoPart(t *testing.T) {
+	t.Parallel()
+	store, err := runstate.NewSupervisionStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &product{
+		store:   store,
+		environ: []string{"HOME=/Users/mason", supervise.StartVariable + "=" + supervise.StartedByYoyoStart, "PATH=/usr/bin"},
+	}
+	if got := p.startReason(context.Background()); got != supervise.StartedByYoyoStart {
+		t.Errorf("startReason() = %q, want %q", got, supervise.StartedByYoyoStart)
+	}
+	if strings.Join(p.environ, " ") != "HOME=/Users/mason PATH=/usr/bin" {
+		t.Errorf("the parts' environment = %v, want `yoyo start`'s word taken out and nothing else changed", p.environ)
 	}
 }

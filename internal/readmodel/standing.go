@@ -377,6 +377,10 @@ type Sources struct {
 	// that nothing else reports.
 	Supervision Supervision
 	Machine     MachineHistory
+	// AtLogin says whether something on this machine starts the supervisor when
+	// the operator logs in. It is optional, and nil on a platform with no such
+	// thing to ask about.
+	AtLogin AtLogin
 	// ConfigReaders is what each running part of the product recorded, as it
 	// started, about the configuration keys its build reads, compared against
 	// the file each reads now. It is optional, and a reading without it says

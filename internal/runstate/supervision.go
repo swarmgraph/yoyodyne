@@ -213,6 +213,11 @@ type Supervision struct {
 	// that finish "it moves onto it": "at its next look" where nothing holds it.
 	TakeUpWait string    `json:"take_up_wait,omitempty"`
 	StartedAt  time.Time `json:"started_at"`
+	// StartedBy is why this supervisor started, in words that follow "it
+	// started at <time>, because": its launch agent at login after the machine
+	// started, `yoyo start`, taking up a deployed build. It is empty in a record
+	// written by a build from before it was kept (supervise.StartReason).
+	StartedBy string `json:"started_by,omitempty"`
 	// ObservedAt is when the supervisor last wrote the record.
 	ObservedAt time.Time `json:"observed_at"`
 	// Children is every part of the product, in the order the section declares
@@ -236,6 +241,9 @@ func (s Supervision) Validate() error {
 	}
 	if s.ObservedAt.IsZero() {
 		problems = append(problems, errors.New("observed at is required"))
+	}
+	if len(s.StartedBy) > MaxChildReasonBytes {
+		problems = append(problems, fmt.Errorf("why the supervisor started is %d bytes, which exceeds the %d byte bound", len(s.StartedBy), MaxChildReasonBytes))
 	}
 	if len(s.TakeUpWait) > MaxChildReasonBytes {
 		problems = append(problems, fmt.Errorf("what the supervisor waits for is %d bytes, which exceeds the %d byte bound", len(s.TakeUpWait), MaxChildReasonBytes))
