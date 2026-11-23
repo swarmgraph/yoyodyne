@@ -1614,3 +1614,47 @@ func slicesContains(items []string, want string) bool {
 	}
 	return false
 }
+
+// A handoff told to a conversation from outside its turns counts itself, so
+// the check before a scheduled pass can tell it from the agent's own results
+// waiting in the same text.
+func TestAHandoffToldToAConversationIsCounted(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewConversationStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewConversationStore() error = %v", err)
+	}
+	now := time.Now().UTC()
+	conversation := Conversation{
+		SchemaVersion:         ConversationSchemaVersion,
+		ConversationID:        "chat-0123456789abcdef0123456789abcdef",
+		ProductID:             "yoyodyne",
+		RepositoryID:          "yoyodyne",
+		Agent:                 "architect",
+		Role:                  "architect",
+		Backend:               domain.BackendClaudeCode,
+		StartedAt:             now,
+		UpdatedAt:             now,
+		PendingTrackerResults: "# Memory results\n\n- recorded as revision 3\n",
+	}
+	if err := store.Save(conversation); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if err := store.TellDocumentAuthor(conversation.ConversationID, "\nYour document was handed back.\n"); err != nil {
+		t.Fatalf("TellDocumentAuthor() error = %v", err)
+	}
+	if err := store.TellDocumentOwner("architect", "\nThe operator approved your document.\n"); err != nil {
+		t.Fatalf("TellDocumentOwner() error = %v", err)
+	}
+	told, err := store.Load(conversation.Identity())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if told.Told != 2 {
+		t.Fatalf("Told = %d, want 2 after two handoffs", told.Told)
+	}
+	if !strings.Contains(told.PendingTrackerResults, "handed back") || !strings.Contains(told.PendingTrackerResults, "revision 3") {
+		t.Fatalf("pending results = %q, want the agent's own results and the handoffs both", told.PendingTrackerResults)
+	}
+}
