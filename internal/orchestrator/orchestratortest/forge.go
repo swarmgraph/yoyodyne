@@ -44,8 +44,19 @@ type Forge struct {
 	// is what a base branch with required checks produces: the request is
 	// accepted, nothing moves yet, and the forge merges minutes later. Queued is
 	// the merge it is holding.
+	//
+	// It holds a direct merge request too (publish.MergeRequest.Directly),
+	// which GitHub never does. The merge queue asks only directly now, so its
+	// tests use it to stand for a merge GitHub holds under a request an earlier
+	// build made with merging when ready on.
 	QueueMerge bool
 	Queued     bool
+	// MergeStatus is the merge state MergeState reports for the request, in
+	// GitHub's vocabulary (CLEAN, BLOCKED, BEHIND and the rest), and
+	// MergeStateErr a forge that could not say. MergeStates counts the reads.
+	MergeStatus   string
+	MergeStateErr error
+	MergeStates   int
 	// ReplayMerge makes the forge rewrite what it merges instead of merging it,
 	// which is what GitHub's rebase and squash methods do: the base ends up with
 	// a fresh commit carrying the same content, and the reviewed commit itself
@@ -167,6 +178,12 @@ func (f *Forge) Merge(_ context.Context, request publish.MergeRequest) (publish.
 	}
 	f.Merged = true
 	return publish.MergeResult{}, nil
+}
+
+// MergeState answers with the merge state the test gave the forge.
+func (f *Forge) MergeState(context.Context, int) (string, error) {
+	f.MergeStates++
+	return f.MergeStatus, f.MergeStateErr
 }
 
 // PerformQueuedMerge is the forge merging a request it queued, which is what

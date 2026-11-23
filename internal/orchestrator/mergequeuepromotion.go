@@ -154,6 +154,18 @@ type MergeQueuePromoter struct {
 	// not reach it (mergequeuegithubwait.go). Nil keeps none: such a pass still
 	// ends waiting rather than stopping, and each wait counts from its first try.
 	GitHubWaits MergeQueueGitHubWaits
+	// Mergeable reads whether GitHub would merge a candidate's pull request
+	// now, under the promotion lease and just before the merge is asked for
+	// (mergeReadiness). Nil reads nothing, and GitHub's answer to the merge
+	// itself decides.
+	Mergeable MergeQueueMergeStates
+}
+
+// MergeQueueMergeStates reads the forge's own merge state for a pull request,
+// in its vocabulary (CLEAN, BLOCKED, BEHIND and the rest). It is satisfied by
+// publish.GitHub.
+type MergeQueueMergeStates interface {
+	MergeState(ctx context.Context, number int) (string, error)
 }
 
 // MergeQueueForgeChecks is the forge access a promotion reads a held merge's
@@ -204,11 +216,18 @@ type MergeQueuePromotion struct {
 	// be kept. It holds nothing up: the merge has landed.
 	Unreported string
 	// ForgeHeldSince is when the forge took the merge it holds queued, set
-	// beside Waiting on such a merge; Dropped is a merge the forge stopped
-	// holding without making, set beside Unresolved. Both are what the driver
-	// withdraws an entry for.
+	// beside Waiting on such a merge, or, where NotMergeable is set, when the
+	// attempt opened the pull request of a candidate GitHub would not yet merge
+	// directly; Dropped is a merge the forge stopped holding without making,
+	// set beside Unresolved. Both are what the driver withdraws an entry for.
 	ForgeHeldSince *time.Time
 	Dropped        bool
+	// NotMergeable is set beside Waiting where no merge was asked for because
+	// GitHub would not merge the candidate's pull request yet (mergeReadiness).
+	// The limits a held merge has apply to it the same way: its checks are read
+	// (readHeldChecks), and it is withdrawn once it has waited past
+	// triage.stuck_merge_age.
+	NotMergeable bool
 	// Unjudged is set beside Waiting where a check on the candidate's pull
 	// request ended without judging the change a second time, or could not be
 	// run again, and nothing else is still running there: the forge will never
@@ -417,6 +436,10 @@ type queuePromotion struct {
 	// gitHubWait is the queue's wait for GitHub on this entry as this call
 	// read or wrote it, and nil where there is none.
 	gitHubWait *runstate.MergeQueueGitHubWait
+	// notMergeable is GitHub found not ready to merge the candidate's pull
+	// request under the promotion lease (mergeReadiness): its checks and what
+	// it is waiting on are read once the lease is given back (awaitMergeable).
+	notMergeable bool
 }
 
 func (q *queuePromotion) now() time.Time {
@@ -682,7 +705,10 @@ func (q *queuePromotion) proceed(ctx context.Context) error {
 	case runstate.MergeQueueOpenPullRequest:
 		return q.openPullRequest(ctx)
 	case runstate.MergeQueueMoveTarget, runstate.MergeQueueRequestMerge:
-		return q.mutateTarget(ctx, mutation)
+		if err := q.mutateTarget(ctx, mutation); err != nil || !q.notMergeable {
+			return err
+		}
+		return q.awaitMergeable(ctx)
 	default:
 		return fmt.Errorf("promotion attempt %d of merge queue entry %d has made every mutation and records no landing", attempt.Number, q.entry.Order)
 	}
@@ -875,11 +901,28 @@ func (q *queuePromotion) mutateTarget(ctx context.Context, mutation runstate.Mer
 	if err := q.request(mutation, attempt.Candidate, ""); err != nil {
 		return err
 	}
-	result, err := p.Publisher.Merge(ctx, publish.MergeRequest{Number: attempt.PullRequest, HeadCommit: attempt.Candidate, Method: mergeMethod})
+	// A candidate's merge is asked for directly, never with merging when
+	// ready, so it can only happen now, while the lease is held and just after
+	// the remote target was read at the candidate's base (fresh). A merge GitHub
+	// held for later would land whenever its requirements were met, on whatever
+	// the target had become by then. Only an entry admitted to GitHub's own
+	// merge queue is handed to it the queued way, because that queue accepts no
+	// direct merge.
+	direct := attempt.Path != runstate.MergeQueueLandThroughForgeQueue
+	result, err := p.Publisher.Merge(ctx, publish.MergeRequest{Number: attempt.PullRequest, HeadCommit: attempt.Candidate, Method: mergeMethod, Directly: direct})
 	var refused publish.MergeRefused
 	var unavailable publish.AutoMergeUnavailable
 	if errors.As(err, &refused) || errors.As(err, &unavailable) {
-		return q.settle(runstate.MergeQueueMutationNotMade, err.Error(), false)
+		if settleErr := q.settle(runstate.MergeQueueMutationNotMade, err.Error(), false); settleErr != nil {
+			return settleErr
+		}
+		if direct && refused.Behind && !attempt.Path.MovesLocalTargetFirst() {
+			// GitHub refusing a head behind the target is the target having moved
+			// between the read above and the merge: the candidate is built again
+			// on the target as it stands, charged to nothing.
+			return q.driftFrom(ctx)
+		}
+		return nil
 	}
 	if err != nil {
 		// Whether the forge took the request is not known, so it is left
@@ -1018,8 +1061,80 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 			return false, fmt.Errorf("check the remote %s before asking for the merge: %w", q.key.TargetBranch,
 				gitHubAway("checking where "+q.key.TargetBranch+" stands on GitHub before asking for the merge", err))
 		}
+		return q.mergeReadiness(ctx, moved)
 	}
 	return true, nil
+}
+
+// mergeReadiness asks GitHub, under the promotion lease and after the remote
+// target was read at the candidate's base, whether it would merge the
+// candidate's pull request now. The merge is asked for directly, so a pull
+// request GitHub is not ready to merge would only be refused: one whose
+// required checks are still running, or whose mergeability GitHub has not
+// worked out yet, waits for a later pass with nothing written down, and one
+// GitHub reads as behind the target is the target having moved. A state that
+// cannot be read, or one of the states GitHub merges at, leaves the decision
+// to GitHub's answer to the merge itself.
+func (q *queuePromotion) mergeReadiness(ctx context.Context, moved bool) (bool, error) {
+	attempt := q.attempt()
+	if q.p.Mergeable == nil {
+		return true, nil
+	}
+	status, err := q.p.Mergeable.MergeState(ctx, attempt.PullRequest)
+	switch {
+	case err != nil || strings.TrimSpace(status) == "" || publish.MergeStateReady(status):
+		return true, nil
+	case publish.MergeStateBehind(status):
+		if moved {
+			// The local target already moved onto the candidate, and nothing here
+			// takes that move back.
+			q.outcome.Unresolved = fmt.Sprintf("%s was moved onto the candidate here, and GitHub reads pull request %d as behind the remote %s", q.key.TargetBranch, attempt.PullRequest, q.key.TargetBranch)
+			return false, nil
+		}
+		return false, q.driftFrom(ctx)
+	case strings.EqualFold(strings.TrimSpace(status), "DIRTY"):
+		// A conflict is not something a later pass waits out: the merge is asked
+		// for and GitHub's refusal is recorded and reported.
+		return true, nil
+	}
+	q.outcome.Waiting = fmt.Sprintf("GitHub would not merge pull request %d yet (%s), so no merge is asked for; the next pass reads %s and the pull request again",
+		attempt.PullRequest, strings.ToUpper(strings.TrimSpace(status)), q.key.TargetBranch)
+	q.outcome.NotMergeable, q.notMergeable = true, true
+	return false, nil
+}
+
+// awaitMergeable gives a candidate GitHub would not yet merge directly the
+// limits a merge GitHub holds has (awaitForge), once the promotion lease is
+// given back: GitHub is asked what the pull request is waiting on, its checks
+// are read (readHeldChecks) — a check that ended without judging the change is
+// run again once, a failure only in tests the change does not touch has the
+// failing job run once more, and any other failure is ChecksFailed, which the
+// driver withdraws at once — and the wait is counted toward
+// triage.stuck_merge_age from when the attempt opened the pull request. An
+// attempt is begun only for the entry at the head of the queue, so the time an
+// entry waited behind others never counts.
+func (q *queuePromotion) awaitMergeable(ctx context.Context) error {
+	attempt := q.attempt()
+	reading, read, err := q.readMergeWait(ctx)
+	if err != nil {
+		return err
+	}
+	// A pass that could not ask GitHub what it is waiting on does not count
+	// toward the limit, as for a held merge (mergequeueforgewait.go).
+	if opened, asked := attempt.Mutation(runstate.MergeQueueOpenPullRequest); asked && opened.Settled != nil && (!read || reading.Unread == "") {
+		since := opened.Settled.At.Add(reading.UnreadFor)
+		q.outcome.ForgeHeldSince = &since
+	}
+	if err := q.readHeldChecks(ctx); err != nil {
+		return err
+	}
+	if read {
+		q.outcome.ForgeSays = reading.Says()
+		if q.outcome.Waiting != "" {
+			q.outcome.Waiting += "; " + q.outcome.ForgeSays
+		}
+	}
+	return nil
 }
 
 // refusedPaths is every path the attempt's candidate changes that the
@@ -1195,7 +1310,7 @@ func (q *queuePromotion) requeueUntouchedDrop(ctx context.Context) (requeued boo
 	refused := ""
 	switch {
 	case len(attempt.Mutations) == asked:
-		refused = nonEmpty(q.outcome.Refusal, "the merge could not be asked for again")
+		refused = nonEmpty(q.outcome.Refusal, q.outcome.Waiting, "the merge could not be asked for again")
 	case attempt.Mutations[len(attempt.Mutations)-1].Settled == nil:
 		refused = "GitHub's answer was not recorded"
 	case attempt.Mutations[len(attempt.Mutations)-1].Settled.Result == runstate.MergeQueueMutationNotMade:
@@ -1210,7 +1325,7 @@ func (q *queuePromotion) requeueUntouchedDrop(ctx context.Context) (requeued boo
 		return true, "", nil
 	}
 	if refused != "" {
-		q.outcome.Refusal = ""
+		q.outcome.Refusal, q.outcome.Waiting = "", ""
 		return false, queueDropSays(drop, &settled, attempt.Candidate), nil
 	}
 	q.outcome.Waiting = fmt.Sprintf("GitHub's merge queue dropped pull request %d because its checks on the queue's merge commit failed only in tests the change does not touch (%s), so the harness queued the merge once more and GitHub runs its checks again on a fresh merge commit",
