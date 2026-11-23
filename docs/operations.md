@@ -7275,7 +7275,9 @@ or recovery rule. An older record with no class reads as `unknown`, without
 inferring a cause from its prose or its leftover check findings. A run that
 succeeded by handing its approved change to the merge queue, which has not yet
 landed it or handed it back, has no stop cause at all, because it has not
-stopped. Status prints
+stopped: Slack says it once, in the item's thread, as waiting to land, naming
+the queue and the entry it waits as, and posts no line saying the run ended.
+Status prints
 `stop cause`, the docket names it, and the run's Slack reason carries its name.
 `yoyo status --json` carries the shared read model's `throughput.windows`, whose
 `stops_by_cause` counts endings today and in the last seven local days, including

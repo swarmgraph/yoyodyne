@@ -180,6 +180,12 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 	if mergeQueued(after) && !mergeQueued(before) {
 		say(KindMergeQueued, report.SeverityNote, Harness(), Detail{PullRequest: describePullRequest(after.PullRequest)})
 	}
+	// An approved change the harness's merge queue took is said once, as the
+	// queue takes it, as waiting to land and in the record's own words for where
+	// it waits (State.MergeQueueSays), and never as a run that ended.
+	if waitingToLand(after) && !waitingToLand(before) {
+		sayWith(KindQueuedToLand, report.SeverityNote, Harness(), Detail{}, after.MergeQueueSays())
+	}
 	if merged(after) && !merged(before) {
 		say(KindMergeCompleted, report.SeverityNote, Harness(), Detail{PullRequest: describePullRequest(after.PullRequest)})
 	}
@@ -1613,9 +1619,20 @@ func parkSeverity(state runstate.State) report.Severity {
 }
 
 // An escalation or an integration policy can complete a run without landing
-// code. They name their stop cause too, as the throughput reading does.
+// code. They name their stop cause too, as the throughput reading does. A run
+// whose approved change waits in the merge queue has not ended without landing:
+// it is waiting to land (waitingToLand), and is said to have ended only if the
+// queue loses the change and the run fails.
 func endedWithoutLanding(state runstate.State) bool {
-	return state.Status.Terminal() && (state.Outcome() != runstate.OutcomeSucceeded || state.Integration == nil)
+	return state.Status.Terminal() && !waitingToLand(state) && (state.Outcome() != runstate.OutcomeSucceeded || state.Integration == nil)
+}
+
+// waitingToLand reports a run whose approved change waits in the harness's own
+// merge queue and which has not stopped: the record names no stop cause for it
+// (runstate.State.RecordedStopClass). One that also carries a blocker has
+// stopped, and is said as a stoppage.
+func waitingToLand(state runstate.State) bool {
+	return state.AwaitingMergeQueue() && state.RecordedStopClass() == ""
 }
 
 // handedToAPerson reports a run whose ending is a stoppage somebody has to

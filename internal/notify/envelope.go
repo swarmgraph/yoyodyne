@@ -115,6 +115,12 @@ const (
 	KindPublished      Kind = "publication.opened"
 	KindMergeQueued    Kind = "merge.queued"
 	KindMergeCompleted Kind = "merge.completed"
+	// An approved change the harness's own merge queue took, which has neither
+	// landed it nor handed it back. Its run ends succeeded with nothing landed,
+	// so without this the channel heard it as a run that ended without landing
+	// and gave no reason; it is said instead as waiting to land, with its place
+	// in the queue.
+	KindQueuedToLand Kind = "merge.waiting-to-land"
 	// A merge that is not going to happen: the forge refused it, or gave up on
 	// one it had queued. It is the fourth fact about getting a change out and the
 	// only one nobody finds out about on their own — the change is promoted, the
@@ -465,6 +471,7 @@ func Kinds() []Kind {
 		KindPublished,
 		KindMergeQueued,
 		KindMergeCompleted,
+		KindQueuedToLand,
 		KindMergeDropped,
 		KindMergeWaitingOnTarget,
 		KindLandingGreen,
@@ -529,7 +536,7 @@ func (k Kind) Valid() bool {
 		KindWorkHandedOff, KindWorkPickedUp, KindWorkCarriedOut, KindCapCrossed, KindCapGranted,
 		KindRunStarted, KindChecksPassed, KindChecksFailed, KindPathRefused,
 		KindReviewApproved, KindReviewRepairs,
-		KindRaceLost, KindPromoted, KindPublished, KindMergeQueued, KindMergeCompleted, KindMergeDropped, KindMergeWaitingOnTarget,
+		KindRaceLost, KindPromoted, KindPublished, KindMergeQueued, KindMergeCompleted, KindQueuedToLand, KindMergeDropped, KindMergeWaitingOnTarget,
 		KindLandingGreen, KindLandingRed, KindLandingUnverified,
 		KindRunParked, KindRunContinued, KindBlockerRecorded, KindRunEnded, KindUsageLimitExhausted,
 		KindModelSubstituted,
