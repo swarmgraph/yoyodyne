@@ -833,7 +833,14 @@ else in the way, the step:
    `scripts/cut-release.sh` itself, run with `YOYODYNE_RELEASE_CUT=automatic`
    and the notes in `YOYODYNE_RELEASE_NOTES`, which drafts nothing, opens no
    pull request, and tags nothing. The worktree and the notes beside it are
-   removed afterwards;
+   removed afterwards. Before the worktree is made, and again however the cut
+   ends, whatever is at its path in the product's `release-cut` folder is
+   removed, so the next pass cuts without anyone clearing it: a worktree Git
+   knows through Git, the lock a stopped Git command left included, and a
+   folder Git does not know directly. A cut that fails says what was removed,
+   or why the path could not be cleared. A link at that path, or a name that is
+   not one entry of the `release-cut` folder, is named in the failure and never
+   deleted;
 5. records its intent to cut in `release-cuts.json` under the product's state
    directory, before any tag exists: the version, the named commit and the
    commit `main` held, the verdict and definition the readiness stamp records,
