@@ -19,53 +19,137 @@ permissions:
 jobs:
   # Each of these three runs one declared check on every pull request and merge
   # group, under the job name this repository's configuration lists as required.
+  #
+  # Every job here starts with the same step, written once below and reused by
+  # name in the others. It reads the paths a pull request or merge group
+  # changes and, when every one of them is a Markdown file under docs/product,
+  # docs/designs or docs/decisions (their README.md indexes and the invariants
+  # included), sets `only` to true; every later step in the job carries
+  # `if: steps.documents.outputs.only != 'true'`, so the job ends there, passed.
+  # A document landing is checked on this machine by `make doccheck` before it
+  # is pushed (docs/developing-yoyo.md), which runs the tests that read it.
+  #
+  # The workflow has no path filter for this on purpose: GitHub then never
+  # starts the job, leaves the required check missing, and the pull request can
+  # never merge (docs/designs/integration-through-a-merge-queue.md).
+  #
+  # The step runs before the checkout and asks GitHub's compare API for the
+  # changed paths, so a documents-only change costs no clone and no Go setup.
+  # Anything it cannot prove -- a push, an API call that fails, an empty list,
+  # 300 or more files (the most the API lists), a rename from outside those
+  # homes -- leaves `only` false and the job runs in full.
+  # scripts/ci-documents-only-test.sh runs the script between the two marker
+  # lines against a stub of the API.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      - &documents-only
+        name: Pass at once when the change is only documents
+        id: documents
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          # documents-only: begin
+          only=false
+          case "$GITHUB_EVENT_NAME" in
+          pull_request) base=$PR_BASE head=$PR_HEAD ;;
+          merge_group) base=$GROUP_BASE head=$GROUP_HEAD ;;
+          *) base= head= ;;
+          esac
+          if [ -z "$base" ] || [ -z "$head" ]; then
+            echo "A $GITHUB_EVENT_NAME event is not a pull request or merge group, so this job runs in full."
+          elif ! paths=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base...$head" --jq '.files[] | .filename, (.previous_filename // empty)'); then
+            echo "GitHub did not list the paths changed between $base and $head, so this job runs in full."
+          else
+            count=$(printf '%s\n' "$paths" | sed '/^$/d' | wc -l | tr -d ' ')
+            if [ "$count" -eq 0 ]; then
+              echo "GitHub listed no changed paths between $base and $head, so this job runs in full."
+            elif [ "$count" -ge 300 ]; then
+              echo "GitHub listed $count changed paths, and it lists no more than 300, so this job runs in full."
+            else
+              only=true
+              while IFS= read -r path; do
+                case "$path" in
+                '') ;;
+                docs/product/*.md | docs/designs/*.md | docs/decisions/*.md) ;;
+                *)
+                  echo "The change touches $path, so this job runs in full."
+                  only=false
+                  break
+                  ;;
+                esac
+              done <<EOF
+          $paths
+          EOF
+            fi
+          fi
+          if [ "$only" = true ]; then
+            echo "::notice::Every path this change touches is a document under docs/product, docs/designs or docs/decisions, so this job passes without running."
+          fi
+          echo "only=$only" >>"$GITHUB_OUTPUT"
+          # documents-only: end
       - uses: actions/checkout@v7
+        if: steps.documents.outputs.only != 'true'
       - uses: actions/setup-go@v7
+        if: steps.documents.outputs.only != 'true'
         with:
           go-version-file: go.mod
           cache: true
       - name: Test
+        if: steps.documents.outputs.only != 'true'
         run: make test
 
   race:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - *documents-only
       - uses: actions/checkout@v7
+        if: steps.documents.outputs.only != 'true'
         with:
           # race-skip.sh compares with main to skip a change that is only
           # documents, so the history has to be there.
           fetch-depth: 0
       - uses: actions/setup-go@v7
+        if: steps.documents.outputs.only != 'true'
         with:
           go-version-file: go.mod
           cache: true
       - name: Race
+        if: steps.documents.outputs.only != 'true'
         run: make race
 
   vet:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - *documents-only
       - uses: actions/checkout@v7
+        if: steps.documents.outputs.only != 'true'
       - uses: actions/setup-go@v7
+        if: steps.documents.outputs.only != 'true'
         with:
           go-version-file: go.mod
           cache: true
       - name: Vet
+        if: steps.documents.outputs.only != 'true'
         run: make vet
 
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      - *documents-only
       - uses: actions/checkout@v7
+        if: steps.documents.outputs.only != 'true'
 
       - uses: actions/setup-go@v7
+        if: steps.documents.outputs.only != 'true'
         with:
           go-version-file: go.mod
           cache: true
@@ -74,6 +158,7 @@ jobs:
       # failing, so the download is tried three times before the job goes red,
       # and a job that does go red here says it was the download.
       - name: Download dependencies
+        if: steps.documents.outputs.only != 'true'
         run: |
           for attempt in 1 2 3; do
             if go mod download; then
@@ -86,6 +171,7 @@ jobs:
           exit 1
 
       - name: Verify dependencies
+        if: steps.documents.outputs.only != 'true'
         run: go mod verify
 
       # The tests, the race detector and vet run as jobs of their own, named
@@ -94,9 +180,11 @@ jobs:
       # (docs/designs/checks-on-ci.md); this job keeps formatting, the build and
       # the release and install checks.
       - name: Check formatting
+        if: steps.documents.outputs.only != 'true'
         run: make fmtcheck
 
       - name: Build
+        if: steps.documents.outputs.only != 'true'
         run: make build
 
       # The release path runs here, on every change, rather than first executing
@@ -106,6 +194,7 @@ jobs:
       # runner's own archive and asserts the binary names the version it was
       # built from.
       - name: Package a release and verify it names its version
+        if: steps.documents.outputs.only != 'true'
         run: make dist-verify VERSION=v0.0.0-ci
 
       # The release verb's value is the cuts it refuses, and a refusal nobody
@@ -113,6 +202,7 @@ jobs:
       # repositories rather than this one, so it needs no provider, no network,
       # and no cross-compile.
       - name: Check that the release verb refuses what it should
+        if: steps.documents.outputs.only != 'true'
         run: scripts/cut-release-test.sh
 
       # And that the notes it gates on say what landed, in the shape the
@@ -121,6 +211,7 @@ jobs:
       # this repository's own history is never read. The body composition is
       # covered here because its only other execution is a real publication.
       - name: Check a release's notes and the body they are published as
+        if: steps.documents.outputs.only != 'true'
         run: bash scripts/release-notes-test.sh
 
       # The install script runs on machines nobody here controls, and the states
@@ -131,6 +222,7 @@ jobs:
       # runs the same suite from a Go test, so a run applies it too; this step
       # is the one that prints its own report on the pull request.
       - name: Check that the install script works on a machine that has nothing
+        if: steps.documents.outputs.only != 'true'
         run: bash scripts/install-test.sh
 
   # The README's "Getting started" is a claim a stranger acts on, and until this
@@ -156,13 +248,16 @@ jobs:
       # how to move it.
       BD_VERSION: 1.2.2
     steps:
+      - *documents-only
       - uses: actions/checkout@v7
+        if: steps.documents.outputs.only != 'true'
 
       # This job gets a current Go rather than the repository's own version:
       # it installs the tracker, whose releases (v1.1.2 onward) require a newer
       # Go than this project pins for itself. The build job keeps go.mod's
       # version; only the walkthrough's toolchain floats.
       - uses: actions/setup-go@v7
+        if: steps.documents.outputs.only != 'true'
         with:
           go-version: stable
           cache: true
@@ -181,6 +276,7 @@ jobs:
       # is retried first, and still failing names the network beside the pin,
       # because the release host failing for a moment is not a bump gone wrong.
       - name: Install the tracker the walkthrough needs
+        if: steps.documents.outputs.only != 'true'
         run: |
           set -euo pipefail
           release="https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
@@ -228,6 +324,7 @@ jobs:
       # alone would otherwise replay a pass recorded against the version before
       # it, which is exactly the change this step is for.
       - name: Check the pinned tracker behaves as the harness assumes
+        if: steps.documents.outputs.only != 'true'
         run: |
           set -uo pipefail
           if ! go test ./internal/beads -run Conformance -count=1; then
@@ -242,4 +339,5 @@ jobs:
       # invoked and no capacity is spent; the walkthrough names that step as
       # skipped rather than passing over it.
       - name: Walk the README's getting-started steps
+        if: steps.documents.outputs.only != 'true'
         run: make getting-started

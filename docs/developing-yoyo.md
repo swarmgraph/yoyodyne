@@ -337,6 +337,18 @@ scripts' suites, and the getting-started walk — works on this repository's cod
 or on scratch projects of its own, so a document landing that passes `make doccheck`
 does not then fail there on account of its document.
 
+So GitHub does not run them again for one. Every job in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) starts with the same
+step, which asks GitHub for the paths a pull request or merge group changes and,
+when every one is a Markdown file under `docs/product`, `docs/designs` or
+`docs/decisions`, skips the job's other steps, so the job passes at once and the
+required checks are there for the merge. Anything else, a push to `main`
+included, runs every job in full. It is a first step rather than a path filter
+on the workflow because a filtered workflow never starts, which leaves a
+required check missing and the pull request unable to merge.
+`scripts/ci-documents-only-test.sh`, run by `make test`, runs that step against a
+stub of GitHub.
+
 ## What a checkout needs besides Go
 
 **Node**, for the dashboard. The page is drawn by its own script, which a Go
