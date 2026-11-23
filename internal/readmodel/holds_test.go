@@ -597,6 +597,31 @@ func TestAnApprovedChangeStillInTheMergeQueueHoldsItsItem(t *testing.T) {
 	}
 }
 
+// A hold that is an approved change waiting its turn says so on the hold, so
+// the health check can list it as the harness's wait; once the queue hands the
+// change back, the run is a stoppage like any other and the hold no longer says
+// it is queued, because the development manager owes a decision on it.
+func TestOnlyAChangeStillInTheMergeQueueIsHeldAsQueued(t *testing.T) {
+	t.Parallel()
+
+	queued := queuedRun("run-queued", "yoyodyne-queued", 40)
+	handedBack := queuedRun("run-handed-back", "yoyodyne-handed-back", 41)
+	handedBack.Status = runstate.StatusFailed
+	handedBack.Blocker = "the merge queue handed the change back: its candidate did not pass the configured checks"
+	held := heldForAPerson([]runstate.State{queued, handedBack}, nil, nothingDecided, asRecorded)
+
+	if hold, ok := held.Holding("yoyodyne-queued"); !ok || !hold.MergeQueued {
+		t.Errorf("the queued change's hold = %+v, want it marked as waiting in the merge queue", hold)
+	}
+	hold, ok := held.Holding("yoyodyne-handed-back")
+	if !ok {
+		t.Fatal("the handed-back change holds nothing, want it held as a stoppage")
+	}
+	if hold.MergeQueued {
+		t.Errorf("the handed-back change's hold = %+v, want it no longer marked as waiting in the merge queue", hold)
+	}
+}
+
 // The other side: a queued change the queue landed and recorded on its run,
 // one retired by another run's publication, and one whose item a later run has
 // taken up hold nothing here — the last because the later run is what
