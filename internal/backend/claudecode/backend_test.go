@@ -2783,6 +2783,39 @@ func TestAManagementRoleIsCachedForAnHour(t *testing.T) {
 	}
 }
 
+// A management role's invocation is made with Claude Code's git status snapshot
+// turned off, whatever the harness's own environment says, because that
+// snapshot is sent ahead of the briefing marked for the cache and changes every
+// time the checkout's branch moves, so the next pass could never read the
+// briefing back. The developer, who works with git, and the reviewer keep it.
+func TestAManagementRoleIsNotSentTheCheckoutsGitStatus(t *testing.T) {
+	// t.Setenv is this process's environment, so this cannot run in parallel.
+	t.Setenv(gitSnapshotVariable, "0")
+	invoke := func(role domain.AgentRole) []string {
+		t.Helper()
+		stream := `{"type":"result","subtype":"success","session_id":"s","is_error":false,"result":"done","total_cost_usd":0.01}` + "\n"
+		runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
+		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+			RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "a pass", SystemPrompt: "the contract",
+			CachedPromptBytes: len("a "),
+		}); err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		return runner.commands[0].Env
+	}
+	for _, role := range []domain.AgentRole{domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleArchitect, domain.RoleProgramManager} {
+		environment := invoke(role)
+		if !slices.Contains(environment, gitSnapshotVariable+"=1") || slices.Contains(environment, gitSnapshotVariable+"=0") {
+			t.Fatalf("a %s invocation is sent the checkout's git status ahead of its cached briefing, so a pass after any landing writes the briefing again: %v", role, environment)
+		}
+	}
+	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer} {
+		if environment := invoke(role); slices.Contains(environment, gitSnapshotVariable+"=1") {
+			t.Fatalf("a %s invocation has the git status snapshot turned off: %v", role, environment)
+		}
+	}
+}
+
 // A request naming an opening of its message that the next invocation will send
 // the same is sent as stream-json input: one user message whose first text block
 // is that opening and carries a cache marker with the invocation's own lifetime,

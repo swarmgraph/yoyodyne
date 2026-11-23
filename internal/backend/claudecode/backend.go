@@ -390,6 +390,34 @@ var reviewerEnvironment = [][2]string{
 // docs/experiments/yoyodyne-ifd-205-review-prompt-cache.md.
 const stableSystemPromptFlag = "--exclude-dynamic-system-prompt-sections"
 
+// gitSnapshotVariable, set, keeps Claude Code from taking a snapshot of the
+// working directory's git status — the current branch, the files changed, and
+// the latest commits — for the context it sends.
+//
+// It is the management roles'. With stableSystemPromptFlag that snapshot is
+// sent as the first user message, ahead of the recurring turn's own message, so
+// it sits in front of the part of the briefing marked for the cache
+// (promptInput). Those roles run in the project's own checkout, whose main branch
+// moves whenever a change lands, which is every few minutes, so the snapshot
+// differed between nearly every two passes and the next pass read only the
+// instructions block from the cache, writing the work items and the rest of the
+// briefing again. Measured over the morning after that marker went live, every
+// pass whose briefing was unchanged read it back when the checkout had not moved
+// since the role's previous pass and wrote it again when it had, with no
+// exception (docs/conversation.md, "The rest of the briefing is cached as a
+// block of its own"). A management role has no tools and reads the repository
+// only through the harness, so the snapshot told it nothing it acts on.
+//
+// Set to 1 it turns the snapshot off, replacing any value the harness's own
+// environment carried through (Claude Code 2.1.322, read from its shipped code:
+// the variable, where set, decides before the includeGitInstructions setting),
+// and it also drops the commit and pull request instructions it gives an agent
+// holding a shell, which a management role never holds. It is not the reviewer's
+// or the developer's: the reviewer's message is the patch, unique to its review,
+// so nothing after the snapshot is read back by anybody, and the developer works
+// in its worktree with git.
+const gitSnapshotVariable = "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS"
+
 // promptCacheLifetimeVariable is how Claude Code is told how long what an
 // invocation writes into the provider's cache is kept: "5m" or "1h". Unset, the
 // provider chooses an hour on a subscription, and an hour is billed at double
@@ -936,6 +964,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	environment := execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role)
 	if lifetime := promptCacheLifetimeFor(request.Role); lifetime != "" {
 		environment = withPromptCacheLifetime(environment, lifetime)
+	}
+	if conversationRole(request.Role) {
+		environment = withEnvironmentValue(environment, gitSnapshotVariable, "1")
 	}
 	if subagent != "" {
 		environment = withSubagentEnvironment(environment)
