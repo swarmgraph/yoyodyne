@@ -64,3 +64,13 @@ func pinStateRoot(stateRoot, anchor string) (*repowrite.PinnedRoot, error) {
 	}
 	return root, nil
 }
+
+// PinStateRoot holds the state directory for confined writes, creating what is
+// missing of it. The caller closes it.
+func PinStateRoot(root string) (*repowrite.PinnedRoot, error) {
+	stateRoot, anchor, err := confinedStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return pinStateRoot(stateRoot, anchor)
+}

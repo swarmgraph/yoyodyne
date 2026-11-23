@@ -17,6 +17,8 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
+	"github.com/mason-bryant/yoyodyne/internal/dolttool"
+	"github.com/mason-bryant/yoyodyne/internal/dolttool/dolttooltest"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
@@ -1090,6 +1092,8 @@ type setupWorld struct {
 	launchAgent bool
 	environ     []string
 	agentLoaded bool
+	// dolt is the installer the walk is given, and nil for a walk that offers none.
+	dolt *dolttool.Installer
 	// ignoreRule is the rule Git answers with when asked whether the
 	// configuration is ignored, in its own `<file>:<line>:<pattern>` form, and
 	// empty for a configuration no rule reaches.
@@ -1142,6 +1146,7 @@ func (w *setupWorld) walk() setupReport {
 		getuid:       func() int { return 501 },
 		stdin:        strings.NewReader(w.answers),
 		unattended:   w.unattended,
+		dolt:         w.dolt,
 		ask:          &questioner{reader: bufio.NewReader(strings.NewReader(w.answers)), out: &w.out, defaults: w.defaults, closed: w.closed},
 	}
 	if w.executable != "" {
@@ -1401,5 +1406,61 @@ func TestSetupInstallsNoLaunchAgentUnaskedOrWithoutLaunchd(t *testing.T) {
 	linux.executable = "/opt/calc/bin/yoyo"
 	if step := linux.step(linux.walk(), stepLaunchAgent); step.Status != setupHandedOff || step.Remedy != "yoyo start" {
 		t.Errorf("launch-agent step on linux = %+v, want it handed off to yoyo start", step)
+	}
+}
+
+func TestSetupInstallsTheHarnessesDolt(t *testing.T) {
+	t.Parallel()
+
+	world := newSetupWorld(t)
+	world.defaults = true
+	installer, serving := dolttooltest.Installer("darwin", "arm64", dolttooltest.Release(t, "darwin", "arm64", "dolt"))
+	world.dolt = &installer
+
+	report := world.walk()
+	if step := world.step(report, stepDolt); step.Status != setupDone {
+		t.Fatalf("dolt step = %s (%s: %s), want it installed", step.Status, step.Summary, step.Detail)
+	}
+	if finding := world.finding(report, "dolt"); finding.Status != doctor.StatusOK {
+		t.Errorf("doctor says %q after setup installed it", finding.Summary)
+	}
+	if step := world.step(world.walk(), stepDolt); step.Status != setupAlready || len(serving.Requests) != 1 {
+		t.Errorf("second walk: %s after %d downloads, want it left alone", step.Status, len(serving.Requests))
+	}
+}
+
+func TestSetupDoesNotInstallADoltItWasNotToldToOrCannotVerify(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		arrange func(*setupWorld, *dolttooltest.Serving)
+		want    setupStatus
+		fetched int
+	}{
+		"nobody to ask": {func(w *setupWorld, _ *dolttooltest.Serving) { w.defaults, w.closed = false, true }, setupSkipped, 0},
+		"another file":  {func(_ *setupWorld, s *dolttooltest.Serving) { s.Content = []byte("another file") }, setupHandedOff, 1},
+		"no checksum":   {func(w *setupWorld, _ *dolttooltest.Serving) { w.dolt.Checksum = "" }, setupHandedOff, 0},
+	} {
+		world := newSetupWorld(t)
+		world.defaults = true
+		world.walk()
+		installer, serving := dolttooltest.Installer("darwin", "arm64", dolttooltest.Release(t, "darwin", "arm64", "dolt"))
+		world.dolt = &installer
+		test.arrange(world, serving)
+
+		report := world.walk()
+		step := world.step(report, stepDolt)
+		if step.Status != test.want || step.Remedy == "" || !strings.Contains(step.Summary, "opened directly") {
+			t.Errorf("%s: dolt step = %+v, want %s saying the store is opened directly", name, step, test.want)
+		}
+		if len(serving.Requests) != test.fetched {
+			t.Errorf("%s: %d downloads, want %d", name, len(serving.Requests), test.fetched)
+		}
+		if _, err := os.Lstat(dolttool.Path(world.stateRoot)); !os.IsNotExist(err) {
+			t.Errorf("%s: a dolt is in the tools folder (%v)", name, err)
+		}
+		if !report.Diagnosis.Healthy() {
+			t.Errorf("%s stopped work running:%s", name, renderSetupReport(report))
+		}
 	}
 }
