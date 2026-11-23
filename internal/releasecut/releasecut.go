@@ -49,6 +49,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -827,20 +828,21 @@ func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (exec
 	}
 	defer func() { _ = root.Remove(notesName) }()
 	path := filepath.Join(c.WorkRoot, version)
-	// A worktree an interrupted cut left is removed before this one is made; it
-	// holds nothing but a checkout of a commit and what the gates built.
-	_, _ = c.git(ctx, c.Repository, gitTimeout, "worktree", "remove", "--force", path)
-	_, _ = c.git(ctx, c.Repository, gitTimeout, "worktree", "prune")
-	if _, err := os.Stat(path); err == nil {
-		return execution.ProcessResult{}, fmt.Errorf("%s is in the way and is not a worktree Git could remove; remove it and the next pass cuts", path)
-	}
-	if _, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "add", "--detach", path, commit); err != nil {
+	// Whatever an interrupted or failed cut left at the path is removed before
+	// this one is made; it holds nothing but a checkout of a commit and what the
+	// gates built.
+	removed, err := c.clearCheckout(ctx, root, version)
+	if err != nil {
 		return execution.ProcessResult{}, err
 	}
-	defer func() {
-		cleanup := context.WithoutCancel(ctx)
-		_, _ = c.git(cleanup, c.Repository, gitTimeout, "worktree", "remove", "--force", path)
-	}()
+	if _, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "add", "--detach", path, commit); err != nil {
+		// A checkout that failed or timed out part way leaves a folder Git may
+		// not know as a worktree, so it is cleared here rather than by the next
+		// pass.
+		again, clearErr := c.clearCheckout(context.WithoutCancel(ctx), root, version)
+		return execution.ProcessResult{}, errors.Join(withRemoved(err, append(removed, again...)), clearErr)
+	}
+	defer func() { _, _ = c.clearCheckout(context.WithoutCancel(ctx), root, version) }()
 	environ := execution.ForgeEnvironment(c.Environ)
 	environ = append(environ,
 		"YOYODYNE_RELEASE_CUT=automatic",
@@ -856,6 +858,83 @@ func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (exec
 		Env:     environ,
 		Timeout: CutTimeout,
 	}, nil)
+}
+
+// clearCheckout leaves nothing at the cut's checkout for version, the folder
+// of that name in the held directory release checkouts are made in, and
+// returns what it removed.
+// A worktree Git knows is removed through Git, the lock an interrupted
+// "worktree add" leaves included. A folder Git does not know as a worktree, as
+// a checkout that timed out part way leaves, is removed from inside the held
+// directory, so nothing outside it is reached. A name that is not one entry of
+// that directory, a link, or a worktree Git still lists after removing it is
+// refused and named, and nothing is deleted.
+func (c *Cutter) clearCheckout(ctx context.Context, root *repowrite.PinnedRoot, version string) ([]string, error) {
+	path := filepath.Join(c.WorkRoot, version)
+	if version == "" || version == "." || version == ".." || strings.ContainsAny(version, `/\`) {
+		return nil, fmt.Errorf("%s lies outside %s, the folder release checkouts are made in, so the harness removed nothing there", path, c.WorkRoot)
+	}
+	info, err := root.Lstat(version)
+	if errors.Is(err, fs.ErrNotExist) {
+		_, _ = c.git(ctx, c.Repository, gitTimeout, "worktree", "prune")
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%s is a link, not a folder the harness made, so the harness removed nothing there and cannot cut %s while it is in the way", path, version)
+	}
+	var removed []string
+	if _, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "remove", "--force", "--force", path); err == nil {
+		removed = append(removed, "the worktree "+path)
+	}
+	_, _ = c.git(ctx, c.Repository, gitTimeout, "worktree", "prune")
+	if exists, err := root.Exists(version); err != nil || !exists {
+		return removed, err
+	}
+	known, err := c.knownWorktree(ctx, filepath.Join(root.Path(), version))
+	if err != nil {
+		return removed, fmt.Errorf("could not tell whether Git knows %s as a worktree, so the harness removed nothing there: %w", path, err)
+	}
+	if known {
+		return removed, fmt.Errorf("%s is a worktree Git knows and would not remove, so the harness removed nothing there", path)
+	}
+	if err := root.RemoveAll(version); err != nil {
+		return removed, fmt.Errorf("remove the leftover folder %s: %w", path, err)
+	}
+	return append(removed, "the leftover folder "+path), nil
+}
+
+// knownWorktree reports whether Git lists a worktree at path, which is the
+// held directory's real path joined with one name.
+func (c *Cutter) knownWorktree(ctx context.Context, path string) (bool, error) {
+	out, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		listed, found := strings.CutPrefix(line, "worktree ")
+		if !found {
+			continue
+		}
+		if real, err := filepath.EvalSymlinks(listed); err == nil {
+			listed = real
+		}
+		if filepath.Clean(listed) == path {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// withRemoved adds to a cut's failure what the harness removed after it, so
+// the message says the path is clear rather than leaving anyone to clear it.
+func withRemoved(err error, removed []string) error {
+	if len(removed) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w; the harness removed %s, so the next pass starts clean", err, strings.Join(removed, " and "))
 }
 
 func (c *Cutter) tag(ctx context.Context, version, commit string) error {

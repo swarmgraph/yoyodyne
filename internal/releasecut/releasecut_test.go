@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -830,5 +831,158 @@ func TestStampReadsTheVerdictAndDefinition(t *testing.T) {
 	}
 	if _, _, err := Stamp("# notes with no section\n"); err == nil {
 		t.Errorf("Stamp read a verdict from notes with none")
+	}
+}
+
+// timingOutCheckout stops "git worktree add" part way, as a checkout that ran
+// past its bound does: the folder is there with some of the tree in it, and
+// Git records no worktree for it.
+type timingOutCheckout struct{ *countingRunner }
+
+func (r timingOutCheckout) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if command.Name == "git" && len(command.Args) > 2 && command.Args[0] == "worktree" && command.Args[1] == "add" {
+		path := command.Args[len(command.Args)-2]
+		if err := os.MkdirAll(filepath.Join(path, "scripts"), 0o755); err != nil {
+			return execution.ProcessResult{}, err
+		}
+		if err := os.WriteFile(filepath.Join(path, "scripts", "half-written"), []byte("x"), 0o644); err != nil {
+			return execution.ProcessResult{}, err
+		}
+		return execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1, Stderr: "the checkout ran past its time"}, nil
+	}
+	return r.countingRunner.Run(ctx, command, observer)
+}
+
+// leftover puts a plain folder with something in it where the cut's checkout
+// goes, as a checkout that stopped part way leaves one.
+func (f *fixture) leftover(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(f.cutter.WorkRoot, "v0.6.0")
+	if err := os.MkdirAll(filepath.Join(path, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "scripts", "half-written"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A folder Git does not know as a worktree, left where the checkout goes, is
+// removed by the next cut, which goes on and cuts.
+func TestALeftoverFolderIsRemovedAndTheCutGoesOn(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	f.leftover(t)
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+f.named {
+		t.Fatalf("step = %+v, origin %q, want the leftover cleared and the release cut", step, f.originTag(t))
+	}
+	if entries, _ := os.ReadDir(f.cutter.WorkRoot); len(entries) != 0 {
+		t.Errorf("the folder release checkouts are made in still holds %v", entries)
+	}
+}
+
+// A worktree an interrupted checkout left, still locked by Git, is removed
+// through Git and the cut goes on.
+func TestALockedWorktreeLeftBehindIsRemovedThroughGit(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	path := filepath.Join(f.cutter.WorkRoot, "v0.6.0")
+	git(t, f.repository, "worktree", "add", "-q", "--detach", path, f.named)
+	git(t, f.repository, "worktree", "lock", path)
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+f.named {
+		t.Fatalf("step = %+v, want the locked worktree removed and the release cut", step)
+	}
+	if strings.Contains(git(t, f.repository, "worktree", "list", "--porcelain"), "v0.6.0") {
+		t.Errorf("Git still lists the cut's worktree")
+	}
+}
+
+// A checkout that times out leaves no folder behind, the failure says what was
+// removed and asks nobody to remove anything, and the next pass cuts.
+func TestACheckoutThatTimesOutLeavesNoFolderBehind(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	f.cutter.Runner = timingOutCheckout{f.runner}
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome == runstate.StepRan || !strings.Contains(step.Detail, "timed_out") {
+		t.Fatalf("step = %+v, want the cut failed on the checkout's time", step)
+	}
+	path := filepath.Join(f.cutter.WorkRoot, "v0.6.0")
+	if !strings.Contains(step.Detail, "the harness removed the leftover folder "+path) || strings.Contains(step.Detail, "remove it") {
+		t.Errorf("detail = %q, want it to name the folder removed and ask nobody to remove it", step.Detail)
+	}
+	if entries, _ := os.ReadDir(f.cutter.WorkRoot); len(entries) != 0 {
+		t.Fatalf("a checkout that timed out left %v behind", entries)
+	}
+
+	f.cutter.Runner = f.runner
+	if again := f.cutter.Pass(context.Background()); f.originTag(t) != "refs/tags/v0.6.0 "+f.named {
+		t.Errorf("the pass after the timeout = %+v, want it cut", again)
+	}
+}
+
+// A link where the checkout goes is refused and named, and neither it nor what
+// it points at is deleted.
+func TestALinkWhereTheCheckoutGoesIsRefusedAndKept(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	outside := t.TempDir()
+	kept := filepath.Join(outside, "keep")
+	if err := os.WriteFile(kept, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(f.cutter.WorkRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(f.cutter.WorkRoot, "v0.6.0")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome == runstate.StepRan || !strings.Contains(step.Detail, link+" is a link") || !strings.Contains(step.Detail, "removed nothing") {
+		t.Fatalf("step = %+v, want the link refused and named", step)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("the link was removed: %v", err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("what the link points at was removed: %v", err)
+	}
+	if f.runner.gateRuns() != 0 || f.originTag(t) != "" {
+		t.Errorf("a cut ran past a link where its checkout goes")
+	}
+}
+
+// A name that is not one entry of the folder release checkouts are made in is refused and named,
+// and nothing outside the folder is deleted.
+func TestAPathOutsideTheReleaseCutFolderIsRefused(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	if err := os.MkdirAll(f.cutter.WorkRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(filepath.Dir(f.cutter.WorkRoot), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(f.cutter.WorkRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := repowrite.OpenPinnedRoot(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	for _, name := range []string{"../outside", "..", "", "a/b"} {
+		removed, err := f.cutter.clearCheckout(context.Background(), root, name)
+		if err == nil || !strings.Contains(err.Error(), "the folder release checkouts are made in") || len(removed) != 0 {
+			t.Errorf("clearing %q = %v, %v, want it refused and named", name, removed, err)
+		}
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("a folder outside the folder release checkouts are made in was removed: %v", err)
 	}
 }
