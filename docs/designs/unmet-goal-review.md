@@ -11,12 +11,21 @@ revisions:
       by: architect
       at: 2026-11-11T06:57:42.648367Z
       reason: 'yoyodyne-mis9: records the review the operator asked for on November 10 and the Lead Product Manager widened. One goal-by-goal review is started when developers have had nothing to start for 30 minutes and once a day at 09:00 local. The architect goes first and the Lead Product Manager reorders and admits. The operator hears only steps only he can take. Work switched off, in dry run or on a staging branch does not meet a goal. Items he raised on purpose carry a label and a harness note, stay put, and are always visible. Unchecked assumptions about outside systems hold their build items. Seven build pieces. Read at main 0c4273a0.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T11:05:46.229156Z
+      reason: 'Approved amendment-18f2578630bcdda940cb74e3e875e453 from the developer on the first build piece. The design said the review replaces today''s idle notice without reading its code. That notice is the alarm that work has stopped: it needs ready work, sends nothing for an empty queue, uses no AI call, and is the only alarm for a dead, hung or missing scheduler. It now stays exactly as it is, and the review is added beside it. Seven places change to say so; nothing else changes. Read at main dc3d4036.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-11T06:57:42.648367Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 2638, for document-2638.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-23T11:05:46.229156Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3657, for document-3657.1 under the automatic approval policy
 ---
 # Reviewing unmet goals
 
@@ -26,7 +35,7 @@ On November 9 and again on November 10, 2026, another project Yoyodyne builds sa
 
 On a project with a long backlog the same fault shows as priority drift rather than an empty queue. Priority is set once for each item, mostly in reaction to an incident, and nothing checks the order of admitted work against what each unmet goal most needs.
 
-This design answers both with one review, started two ways. It serves the autonomy goal in [the v1 goals](../product/goals/v1-goals.md): the operator's routine interface is the Lead Product Manager, and he should not be the one who notices a factory has stopped. It also serves the measure and the internal week in [the milestone goals](../product/milestone-goals.md): no hour with ready work waiting and a developer slot idle, and nothing asked of the owner that a role could have done. It must not break the plain-language goal or the traceable chain.
+This design answers both with one review, started two ways. It serves the autonomy goal in [the v1 goals](../product/goals/v1-goals.md): the operator's routine interface is the Lead Product Manager, and he should not be the one who notices that work toward a goal has stopped. It also serves the measure and the internal week in [the milestone goals](../product/milestone-goals.md): no hour with ready work waiting and a developer slot idle, and nothing asked of the owner that a role could have done. It must not break the plain-language goal or the traceable chain.
 
 The operator directed on November 10, about 07:57 PST, that work priority be checked against the goals. Items he raised on purpose are reported as exceptions, and items that are simply in the wrong place are fixed. At about 07:59 PST he agreed to go ahead and asked how the list of exceptions stays visible. The Lead Product Manager's answer to that question is taken into section 6 as she decided it.
 
@@ -34,11 +43,13 @@ The operator directed on November 10, about 07:57 PST, that work priority be che
 
 Read: the item asking for this design (yoyodyne-mis9) with its notes, the goals documents, and the operating rules, all at main 0c4273a0. Read as delivered in this conversation's briefing: the titles of [the design for holding work that needs design](needs-design-gate.md), [placing an item first](placing-an-item-first.md), and [ownership and the operator](ownership-and-the-operator.md).
 
-Not read: the code that sends today's notice that developers have nothing to start, the one-label design, the text of the three designs just named, and the dashboard design past its first part. Each build piece reads the code and designs it changes first. Where they say something this design does not account for, the piece stops and asks the architect.
+Read for this revision, at main dc3d4036: the code in internal/slack that says the alarm that work has stopped, and the listing of internal/watchdog, which takes the reading that alarm reports. The first revision of this design had not read them and said the review replaced the notice; the developer building the first piece pointed that out, and section 4 now says what the code does and what this design leaves alone.
+
+Not read: the one-label design, the text of the three designs just named, and the dashboard design past its first part. Each build piece reads the code and designs it changes first. Where they say something this design does not account for, the piece stops and asks the architect.
 
 ## The decision in one paragraph
 
-One review goes through every unmet goal in turn. For each it says how far the goal is from met and which admitted work would move it most. It then says whether that work can start now, and makes it start or is in front where it can. Where nothing serves the goal, or nothing can start, that is itself a finding, and it produces work. The review runs when developer slots have sat with nothing to start for 30 minutes and some goal is unmet, once in each such stretch, and every day at 09:00 in the operator's local time. The architect's pass goes first and the Lead Product Manager's follows. The operator hears only the steps that only he can take. Items he raised on purpose stay where he put them and are reported every time. A goal whose nothing has changed since the last review is said in one line and not gone through again.
+One review goes through every unmet goal in turn. For each it says how far the goal is from met and which admitted work would move it most. It then says whether that work can start now, and makes it start or is in front where it can. Where nothing serves the goal, or nothing can start, that is itself a finding, and it produces work. The review runs when developer slots have sat with nothing to start for 30 minutes and some goal is unmet, once in each such stretch, and every day at 09:00 in the operator's local time. The architect's pass goes first and the Lead Product Manager's follows. From the review, the operator hears only the steps that only he can take. The alarm that work has stopped, which reaches him today when ready work sits unstarted, is left exactly as it is. Items he raised on purpose stay where he put them and are reported every time. A goal whose nothing has changed since the last review is said in one line and not gone through again.
 
 ## 1. When the review runs
 
@@ -83,7 +94,11 @@ For work in any of these states, the next step is to make the switch decision re
 
 ## 4. What the operator is told
 
-The notice that developers have nothing to start no longer goes to the operator first. It starts the review instead. What he is told comes after, from the Lead Product Manager's report:
+**What the code sends today, and what stays.** The one notice about idleness the code sends the operator is the alarm that work has stopped. internal/watchdog takes the reading from durable files, with no call to any AI provider: work is ready, nothing has started for 10 minutes, and no hold, full machine or run in flight accounts for it. internal/slack says it to the operator directly, again every hour while it stands, and as critical once it has stood two hours. It is the only alarm for a scheduler that has died, hung or gone missing. It fires only where work is ready, so where nothing is ready the code sends no notice at all.
+
+This design leaves that alarm exactly as it is, in every case it covers. Ready work that nothing starts is a fault in the harness, not a question about goals: the review cannot start work that a dead or hung scheduler will not run, and the review's passes are calls to an AI provider, which the alarm is built never to depend on. Where the alarm and an idle stretch stand at once, both go ahead, and neither stands in for the other.
+
+**What the review adds.** The review covers what the alarm does not: a slot free with nothing it may start, whether the queue is empty or every ready item in it is held. What the operator is told about it comes from the Lead Product Manager's report:
 
 - **Where the review found work and started or admitted it:** one line in the regular summaries saying developers had nothing to start from when to when, and what was started or admitted. Nothing is sent to him directly.
 - **Where it found a step only he can take:** one request for each step, under its closed-list reason, as any request to him is made. Each says what the step unblocks and which goal it serves.
@@ -129,11 +144,12 @@ The architect's pass in section 2 lists, for each unmet goal, every unchecked as
 
 ## What it costs
 
-The review is two provider passes, the architect's and the Lead Product Manager's, at most once for each idle stretch and once a day. Unchanged goals cost no call. Both passes are counted to the management roles' spend, which the internal week holds to at most 40% of all known spend. Its figures say what the review cost, so the operator can see it.
+The review is two provider passes, the architect's and the Lead Product Manager's, at most once for each idle stretch and once a day. Unchanged goals cost no call. Both passes are counted to the management roles' spend, which the internal week holds to at most 40% of all known spend. Its figures say what the review cost, so the operator can see it. The alarm that work has stopped is unchanged and costs no provider call, as before.
 
 ## Alternatives rejected
 
-- **Sending the idle notice to the operator, as now.** It made him the one who notices, which is what the autonomy goal rules out, and he was sent it 105 times without anything changing.
+- **Replacing the alarm that work has stopped with the review.** The first revision of this design said so without reading the alarm's code. The alarm is the only one for a dead, hung or missing scheduler, it uses no provider call so it still works when a provider does not, and a review cannot restart a scheduler. Removing it would leave a stopped harness with nobody told.
+- **Sending the operator a notice whenever developers are idle.** It makes him the one who notices, which is what the autonomy goal rules out, and on the other project he was sent such a notice 105 times without anything changing.
 - **Each recurring pass looking beyond its inbox every time.** That would spend a full look at every goal every 45 minutes on a factory that is busy. Two triggers, and skipping goals that have not changed, spend it only when it can find something.
 - **A review only when developers are idle.** On a long backlog the fault shows as drift, not idleness, so a daily run is needed too.
 - **The Lead Product Manager alone.** The other project's review needed three designs corrected, which is the architect's work, and an architect pass that ran second could not correct anything before work was admitted on a wrong design.
@@ -145,7 +161,7 @@ The review is two provider passes, the architect's and the Lead Product Manager'
 
 ## Build pieces, for the Lead Product Manager to admit
 
-1. **Starting the review when developers have nothing to start.** The idle stretch as section 1 defines it, the limit as a configured number, one review for each stretch, no review where every goal is unchanged with the reason recorded, and today's notice to the operator replaced by section 4. Reads today's notice code first.
+1. **Starting the review when developers have nothing to start.** The idle stretch as section 1 defines it, the limit as a configured number, one review for each stretch, and no review where every goal is unchanged, with the reason recorded. The alarm that work has stopped is left unchanged: nothing in internal/watchdog or in the code in internal/slack that says it is removed or rerouted, and a test shows the alarm still reaches the operator over ready work while a review runs. Reads both first.
 2. **The daily run and the fingerprint.** The 09:00 local run, the fingerprint of each goal, the unchanged line, and the record of each review.
 3. **The two passes.** The architect's pass taking the review's reason and writing one entry for each unmet goal. The Lead Product Manager's review reading that account and writing hers. The hour she waits, the warnings in section 4, and both personas and their templates. Needs 2.
 4. **Recording items the operator raised.** The harness action that checks the quoted turn is his, adds the label, and writes the note. Ending it the same way, and recording items he has already raised. Reads the one-label design first, and stops to ask the architect if that design does not allow this label beside an item's own.
@@ -158,7 +174,7 @@ Pieces 1, 4 and 7 can start at once and side by side. Pieces 5 and 6 follow 4, a
 ## What is enforced in code
 
 - One review for each idle stretch, none where every goal is unchanged, and one each day.
-- The operator is not sent the notice that developers have nothing to start. He is sent only requests under a closed-list reason.
+- The review sends the operator nothing directly except requests under a closed-list reason, and it leaves the alarm that work has stopped exactly as it was.
 - A raised item's label and note are written only by the harness's action, against a turn that is the operator's.
 - The review does not move work ahead of a raised item.
 - A build item resting on an unchecked outside assumption is held until it is recorded as checked.
@@ -167,7 +183,9 @@ Left to role instructions: how far each goal is from met, which work moves it mo
 
 ## What a reviewer can check
 
-- With developers idle for 30 minutes and a goal unmet, one review runs and the operator is not sent the old notice.
+- With developers idle for 30 minutes and a goal unmet, one review runs, and the operator is sent nothing directly by it.
+- With work ready and nothing started for 10 minutes, the alarm that work has stopped still reaches the operator as before, whether or not a review is running.
+- With an empty queue and a goal unmet, the review runs, although no alarm fires.
 - A second idle stretch with nothing changed starts no review, and the record says why.
 - A goal whose fingerprint is unchanged costs no provider call and reads 'unchanged since' with a time.
 - A goal served only by work switched off, in dry run, or on a staging branch is reported as not met, and the report names the switch decision to make ready.
