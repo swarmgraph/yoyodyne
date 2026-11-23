@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-22T22:03:28.48674Z
       reason: Marks the yoyo status placement line built, from the read model's placement test read at main f50f9e66 on November 22; the dashboard listing, the role check, the refusal of a fourth placement and the note on a priority change stay unconfirmed. The decision is unchanged. Part of the design review against the code.
+    - action: amended
+      by: architect
+      at: 2026-11-23T10:22:08.0002Z
+      reason: 'Part of the design review against the code: point 4 no longer names the slot kept for reliability work, which the operator ended on November 22, 2026. Work on a change a run already wrote still goes first for every freed slot, any dedicated slot included. Nothing else in the decision changes. Section read at main ad38d3ead81b.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-11-22T22:03:28.48674Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3588, for document-3588.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-23T10:22:08.0002Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3654, for document-3654.1 under the automatic approval policy
 ---
 # Placing an item first among work of its own priority
 
@@ -58,7 +67,7 @@ The order work is pulled in is the Lead Product Manager's to decide. This design
 
 A placement never lifts an item above work of a higher priority. An item held from selection, such as a parked item or one waiting on the architect's design, stays held whatever its placement; the placement counts again once the hold comes off.
 
-**4. Work on a change a run has already written still goes first.** The operating rule of October 25 puts such work ahead of fresh work of any priority, for every freed slot, the reliability slot and any dedicated slot included. That rule is the operator's and is not changed here. Placement orders fresh work only. Within each step of a dedicated slot's order (the decision record on dedicated developer slots), and within a slot's label preference, items of one priority follow the order in point 3.
+**4. Work on a change a run has already written still goes first.** The operating rule of October 25 puts such work ahead of fresh work of any priority, for every freed slot, any slot dedicated to one kind of work included. That rule is the operator's and is not changed here. The slot once kept for reliability work, which this point used to name, was ended by the operator on November 22, 2026; the rule applies the same way to the slots that remain. Placement orders fresh work only. Within each step of a dedicated slot's order (the decision record on dedicated developer slots), and within a slot's label preference, items of one priority follow the order in point 3.
 
 **5. At most three items are placed in one priority at a time.** The Lead Product Manager may use placement for promises, not as a second scale of priorities. A fourth placement in the same priority is refused, and the refusal names the three already placed and when each was placed, so she can remove one.
 
