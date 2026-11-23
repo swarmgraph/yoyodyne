@@ -548,3 +548,20 @@ func TestTriageRearmReportsTheRequestItRepeated(t *testing.T) {
 		}
 	}
 }
+
+// A re-run of a parked item is a wait, and says who parked the item.
+func TestTriageRerunReportsAParkedItemAsAWaitRatherThanAFailure(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	waiting := orchestrator.RerunResult{WorkItemID: "yoyodyne-task", PriorRunID: "run-0123456789abcdef0123456789abcdef",
+		ItemParked: &orchestrator.ItemParked{By: "the Lead Product Manager in conversation chat-1", Reason: "held for the route"}}
+	if code := reportRerun(&stdout, &stderr, false, waiting, nil); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code = %d, stderr = %q, want a wait", code, stderr.String())
+	}
+	for _, want := range []string{"parked by the Lead Product Manager", "keeps its one re-run"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, is missing %q", stdout.String(), want)
+		}
+	}
+}

@@ -1801,7 +1801,9 @@ func (d Docketer) carryOutAwaited(state runstate.State) bool {
 	if err != nil {
 		return false
 	}
-	return counters.AwaitingCarryOutOf(state)
+	// A re-run waiting for its item to be unparked is her answer for the run as
+	// surely as one the harness owes now, so it keeps the publication off too.
+	return triage.DecisionStands(counters.StandingOf(state))
 }
 
 // withoutAwaitedPublications leaves out the open publication entries whose run
@@ -1814,7 +1816,7 @@ func withoutAwaitedPublications(entries []triage.Entry, now time.Time) ([]triage
 	left := 0
 	for _, entry := range entries {
 		if entry.Class == triage.ClassPublication && entry.Undecided(now) && entry.CountersProblem == "" &&
-			entry.Counters.AwaitingCarryOut() {
+			entry.Counters.DecisionStands() {
 			left++
 			continue
 		}

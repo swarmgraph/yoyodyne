@@ -258,3 +258,89 @@ func TestAWaitOnTheHeldItemsParentOrAboveReadsAsNeedingADecision(t *testing.T) {
 		}
 	}
 }
+
+// A decision waiting for its item to be unparked still holds the item, so the
+// item is not pulled fresh beside the decision once it is released, and the hold
+// says the decision waits for the unparking rather than on the harness.
+func TestADecisionWaitingOnTheUnparkingHoldsTheItemAndSaysSo(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 15, 21, 0, 0, 0, time.UTC)
+	hold := heldFor("run-0123456789abcdef0123456789abcdef", "the run stopped", decidedStanding{carryOut: false, parked: true, rerun: true}, stopped)
+	if !hold.Decided || !strings.Contains(hold.Reason, "waits for the item to be unparked") {
+		t.Fatalf("hold = %#v, want a decided hold saying it waits for the unparking", hold)
+	}
+	if strings.Contains(hold.Reason, "what is outstanding is the harness carrying that decision out") {
+		t.Fatalf("hold = %#v, want it not read as owed by the harness", hold)
+	}
+}
+
+// A re-run waiting for its parked item to be unparked is counted as parked work,
+// never as a decision the harness owes: the backlog, the held-work count, the
+// wait groups and the status line all say so. Once the item is unparked, the same
+// hold is the harness's to carry out again, and is counted that way.
+func TestARerunWaitingOnAParkedItemIsNotCountedAsOwedByTheHarness(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 15, 21, 0, 0, 0, time.UTC)
+	hold := heldFor("run-0123456789abcdef0123456789abcdef", "the run stopped", decidedStanding{parked: true, rerun: true}, stopped)
+	if !hold.Decided || !hold.WaitsOnParking {
+		t.Fatalf("hold = %#v, want a decided hold that waits on the parking", hold)
+	}
+	holds := backlog.ReadHolds(map[string]backlog.Hold{"yoyodyne-slack": hold})
+	parked := beads.WorkItem{ID: "yoyodyne-slack", Title: "Slack calls", Status: "open", Parking: "held until the Slack route is decided"}
+
+	queue := backlog.Order([]beads.WorkItem{parked}, nil, holds, nil)
+	entry := queue.Entries[0]
+	if entry.Ready || entry.AwaitingCarryOut || !entry.AwaitingUnparking {
+		t.Fatalf("entry = %#v, want it held, waiting on the unparking, and not awaiting the harness's carry-out", entry)
+	}
+	if queue.AwaitingCarryOut() != 0 || queue.Parked() != 1 {
+		t.Fatalf("awaiting carry-out %d, parked %d; want 0 and 1", queue.AwaitingCarryOut(), queue.Parked())
+	}
+	work := heldWork{}
+	work.count(entry)
+	if work.awaitingCarryOut != 0 || work.awaitingDecision != 0 {
+		t.Fatalf("held work counted carry-out %d, decision %d; want neither", work.awaitingCarryOut, work.awaitingDecision)
+	}
+	groups := newWaitGroups(Stall{}, switches{})
+	if group := groups.shape(entry, entry.HoldKind()); group.Kind != backlog.HeldParked || group.Awaiting == HeldAwaitingCarryOut || group.Mover == MoverHarness {
+		t.Fatalf("group = %#v, want it grouped as parked work, not as awaiting the harness's carry-out", group)
+	}
+	split := Standing{AwaitingCarryOut: work.awaitingCarryOut, AwaitingDecision: work.awaitingDecision}.heldSplit()
+	if strings.Contains(split, "the harness carrying out a decision already recorded") {
+		t.Fatalf("heldSplit() = %q, want nothing said as owed by the harness", split)
+	}
+
+	parked.Parking = ""
+	released := backlog.Order([]beads.WorkItem{parked}, nil, holds, nil).Entries[0]
+	if !released.AwaitingCarryOut || released.AwaitingUnparking {
+		t.Fatalf("entry = %#v, want the decision the harness's to carry out once the item is unparked", released)
+	}
+}
+
+// A stalled run whose decided re-run waits on the parking is held for that
+// wait, and not as a run the harness continues by itself.
+func TestAStalledRunWhoseRerunWaitsOnTheParkingIsHeldForTheUnparking(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 15, 21, 0, 0, 0, time.UTC)
+	stall := preservedRun("run-008b0e25", "yoyodyne-stalled", stopped)
+	stall.Phase = runstate.PhaseDeveloping
+	stall.BaseCommit, stall.TargetBranch, stall.ProviderSessionID = "c", "main", "session"
+	stall.Environmental = &runstate.EnvironmentalRefusal{
+		Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopStalled, RecordedAt: stopped, Settled: true,
+	}
+	if !stall.HarnessContinuesStall() {
+		t.Fatal("the run is not one the harness would continue, so this shows nothing")
+	}
+	waiting := func(string) (runstate.TriageCounters, string) {
+		return runstate.TriageCounters{WorkItemID: stall.WorkItemID, Reruns: 1,
+			Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRerun, RunID: stall.RunID, DecidedAt: stopped.Add(time.Minute)}},
+			CarryOuts: []runstate.TriageCarryOut{{Decision: runstate.TriageDecisionRerun, RunID: stall.RunID, Gate: runstate.TriageGateParked, Waiting: true, Attempts: 1, RefusedAt: stopped.Add(time.Hour)}}}, ""
+	}
+	hold := heldReasons([]runstate.State{stall}, nil, waiting, nil, asRecorded)[stall.WorkItemID]
+	if !hold.WaitsOnParking || !strings.Contains(hold.Reason, awaitingUnparkingClause) || strings.Contains(hold.Reason, harnessContinuesStallClause) {
+		t.Fatalf("hold = %#v, want it waiting on the unparking", hold)
+	}
+}
