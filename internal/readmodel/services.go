@@ -29,6 +29,20 @@ type Supervision interface {
 	Load() (runstate.Supervision, bool, error)
 }
 
+// AtLogin is what starts the product's supervisor when the operator logs in:
+// on macOS, the launch agent `yoyo setup` installs. Starts reports whether one
+// is installed for this checkout, and Label names it. It is satisfied in
+// internal/cli, over internal/launchd.
+type AtLogin interface {
+	StartsAtLogin() (starts bool, label string, err error)
+}
+
+// LoginStart is whether the supervisor starts when the operator logs in.
+type LoginStart struct {
+	Starts bool   `json:"starts"`
+	Label  string `json:"label,omitempty"`
+}
+
 // ConfigReaders is what the running parts of the product recorded about the
 // configuration keys their builds read, compared against the file each reads,
 // and which of the parts that recorded themselves are running. It is satisfied
@@ -102,6 +116,9 @@ type Services struct {
 	// and of the supervisor, each with its build; it is absent where nothing
 	// recorded which copies run.
 	Copies []ServiceCopies `json:"copies,omitempty"`
+	// AtLogin is whether the supervisor starts when the operator logs in, and
+	// is absent where that could not be asked.
+	AtLogin *LoginStart `json:"at_login,omitempty"`
 }
 
 // readServices reads the supervisor's lease and record. A reading with no
@@ -155,6 +172,14 @@ func readServices(sources Sources) (*Services, string) {
 				Why:           supervise.SettingsDriftWhy(drift, running, recorded, supervised),
 				onChildLine:   running && supervised && childSays(recorded, drift),
 			})
+		}
+	}
+	if sources.AtLogin != nil {
+		starts, label, err := sources.AtLogin.StartsAtLogin()
+		if err != nil {
+			problem = joinProblems(problem, fmt.Sprintf("whether the supervisor starts when you log in could not be read: %v", err))
+		} else {
+			services.AtLogin = &LoginStart{Starts: starts, Label: label}
 		}
 	}
 	if sources.Machine != nil {
@@ -247,6 +272,26 @@ func (s Standing) RenderServices() string {
 			fmt.Fprintf(&rendered, "; it moves onto it %s", record.TakeUpWait)
 		}
 		rendered.WriteString("\n")
+	}
+	if services.Recorded && !record.StartedAt.IsZero() {
+		// Said so that after a restart the operator can see whether the product
+		// came back by itself, and when.
+		started := "started"
+		if !services.SupervisorRunning {
+			started = "last started"
+		}
+		fmt.Fprintf(&rendered, "  supervisor: %s at %s", started, localMoment(record.StartedAt))
+		if record.StartedBy != "" {
+			fmt.Fprintf(&rendered, "; %s", record.StartedBy)
+		}
+		rendered.WriteString("\n")
+	}
+	if login := services.AtLogin; login != nil {
+		if login.Starts {
+			fmt.Fprintf(&rendered, "  at login: the launch agent %s starts the supervisor when you log in, so a restart of the machine brings the product back by itself\n", login.Label)
+		} else {
+			rendered.WriteString("  at login: nothing starts the supervisor when you log in, so after a restart of the machine the product stays down until `yoyo start`; `yoyo setup --launch-agent` installs the launch agent that starts it\n")
+		}
 	}
 	if availability := services.Availability; availability != nil {
 		if !availability.LastSleep.IsZero() {
