@@ -193,3 +193,99 @@ func TestUnreadableConversationsAreSaidOnTheNeedsAHumanLine(t *testing.T) {
 		t.Fatalf("needs-a-human problem = %q", standing.NeedsHumanProblem)
 	}
 }
+
+// fakeConfirmations answers which waiting documents the harness confirms by
+// itself, by write, and fails for the writes it is told to.
+type fakeConfirmations struct {
+	confirms map[string]bool
+	fail     map[string]bool
+}
+
+func (f fakeConfirmations) HarnessConfirms(_ domain.AgentRole, _ string, write runstate.PendingWrite) (bool, error) {
+	if f.fail[write.ID] {
+		return false, errors.New("the document could not be read")
+	}
+	return f.confirms[write.ID], nil
+}
+
+// A design the harness confirms under its kind's automatic approval setting
+// waits on nobody's decision until it is sent, whether its conversation has
+// not had its next message yet or an earlier revision of it is still
+// publishing. It is shown as the harness's, never as the operator's decision
+// nor as a role's decision needing his hand, and it is on none of his lists.
+// A change to the goals marked fundamental is still his, and so is a document
+// whose answer could not be had.
+func TestADocumentTheHarnessConfirmsIsNeverTheOperatorsDecision(t *testing.T) {
+	t.Parallel()
+
+	design := waitingDesign("document-7.1", 20*time.Minute)
+	publishing := waitingDesign("document-6.1", time.Hour)
+	publishing.Publication = &runstate.DocumentPublication{WriteID: "document-6.1", ConversationID: "chat-architect", Owner: domain.RoleArchitect}
+	behind := waitingDesign("document-6.2", 30*time.Minute)
+	unreadable := waitingDesign("document-8.1", 10*time.Minute)
+	unreadable.Artifact = "other-design"
+	goals := waitingGoals("document-4.1", time.Hour)
+	goals.Intent = string(artifact.IntentFundamental)
+
+	sources := quietSources()
+	sources.Conversations = documentConversations(map[domain.AgentRole][]runstate.PendingWrite{
+		domain.RoleProductManager: {goals},
+		domain.RoleArchitect:      {publishing, behind, design, unreadable},
+	})
+	sources.DocumentConfirmations = fakeConfirmations{
+		confirms: map[string]bool{"document-7.1": true, "document-6.2": true},
+		fail:     map[string]bool{"document-8.1": true},
+	}
+	standing := ReadStanding(context.Background(), sources)
+	if standing.NeedsHumanProblem != "" {
+		t.Fatalf("needs-a-human problem = %q", standing.NeedsHumanProblem)
+	}
+	byWrite := map[string]Attention{}
+	for _, entry := range documentEntries(standing) {
+		byWrite[entry.DocumentApproval.WriteID] = entry
+	}
+	if len(byWrite) != 4 {
+		t.Fatalf("document entries = %#v, want the four not yet sent", byWrite)
+	}
+	for _, id := range []string{"document-7.1", "document-6.2"} {
+		entry := byWrite[id]
+		if entry.Mover != ownership.MoverHarness || entry.Ownership.NeedsHand() || entry.Ownership.Reason != "" {
+			t.Errorf("%s owner = %+v, want the harness's with no hand and no reason naming the operator", id, entry.Ownership)
+		}
+		if what := entry.What(); strings.Contains(what, "operator") || !strings.Contains(what, "waits for the harness to confirm it") {
+			t.Errorf("%s what = %q, want it to say the harness confirms it and not name the operator", id, what)
+		}
+		if whose := entry.Whose(); !strings.HasPrefix(whose, ownership.MoverHarness.Possessive()+" — ") || strings.Contains(whose, "approve "+id) || !strings.Contains(whose, "nobody has to approve it") {
+			t.Errorf("%s whose = %q, want the harness's, saying nobody approves it and giving no approve command", id, whose)
+		}
+		if label := entry.Label(); label != "document waiting to be published" {
+			t.Errorf("%s label = %q", id, label)
+		}
+	}
+	if entry := byWrite["document-4.1"]; entry.Mover != ownership.MoverOperator || entry.Ownership.Reason != ownership.OperatorFundamentalIntent {
+		t.Errorf("goals owner = %+v, want the operator's for a change of fundamental intent", entry.Ownership)
+	}
+	if entry := byWrite["document-8.1"]; entry.Mover != MoverArchitect || !entry.Ownership.NeedsHand() {
+		t.Errorf("unreadable design owner = %+v, want the architect's needing the operator's hand, as before the question was asked", entry.Ownership)
+	}
+	operator := standing.RenderOperatorWaits(moment)
+	if !strings.Contains(operator, "document-4.1") || strings.Contains(operator, "document-7.1") || strings.Contains(operator, "document-6.2") {
+		t.Errorf("the operator's waits = %q, want the goals and neither design the harness confirms", operator)
+	}
+	decisions, problem := ReadOperatorDecisions(sources)
+	if problem != "" {
+		t.Fatalf("operator decisions problem = %q", problem)
+	}
+	for _, decision := range decisions {
+		if strings.Contains(decision.ID, "document-7.1") || strings.Contains(decision.ID, "document-6.2") {
+			t.Errorf("the operator's decisions carry %+v, a document the harness confirms", decision)
+		}
+	}
+	encoded, err := json.Marshal(byWrite["document-7.1"])
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(encoded), `"harness_confirms":true`) {
+		t.Errorf("encoded entry %s does not say the harness confirms it", encoded)
+	}
+}
