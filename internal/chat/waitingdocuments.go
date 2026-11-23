@@ -224,6 +224,41 @@ func (s *Session) answerWrite(record *writeRecord, settled []string, place revis
 		said.WriteString("; " + line)
 	}
 	said.WriteString(". It is waiting: " + s.waitingReason(record, place.behind, place.behindRun) + "\n")
+	said.WriteString(maskedLinesNotice(record.pending.ID, record.pending.Write))
+	return said.String()
+}
+
+// maskedLinesNotice tells a role which lines of a document it wrote carry the
+// marker secret masking leaves where it removed a value, or nothing where none
+// does. A role's reply passes through the masking on its way to the harness
+// (execution.Redactor.WithSecretShapes), so a value there that looked like a
+// credential reaches the document as the marker, and the document would
+// otherwise be published differing from what its author wrote with nobody
+// told. The harness never saw the value that was removed, so it can only name
+// the lines; a marker the role wrote on purpose is named too, and the notice
+// says so.
+func maskedLinesNotice(id string, write artifact.Write) string {
+	var found []string
+	if strings.Contains(write.Title, execution.RedactedMarker) {
+		found = append(found, "the title")
+	}
+	if strings.Contains(write.Reason, execution.RedactedMarker) {
+		found = append(found, "the reason")
+	}
+	for number, line := range strings.Split(write.Body, "\n") {
+		if strings.Contains(line, execution.RedactedMarker) {
+			found = append(found, fmt.Sprintf("body line %d: %s", number+1, strings.TrimSpace(line)))
+		}
+	}
+	if len(found) == 0 {
+		return ""
+	}
+	var said strings.Builder
+	fmt.Fprintf(&said, "Document %s carries %s where secret masking removed a value it took for a credential, so those lines will be published with the marker rather than what you wrote, unless you wrote the marker there yourself:\n", id, execution.RedactedMarker)
+	for _, line := range found {
+		said.WriteString("- " + line + "\n")
+	}
+	said.WriteString("A real credential never belongs in a document, so leave it out. If the value was not a credential, revise the document with it written so it no longer looks like one.\n")
 	return said.String()
 }
 
