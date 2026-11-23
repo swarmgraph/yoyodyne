@@ -102,6 +102,9 @@ func (a Attention) Label() string {
 	if a.Kind == AttentionHeldWork && a.HeldWork != nil && a.HeldWork.Awaiting == HeldAwaitingDesign {
 		return "waiting on design"
 	}
+	if a.Kind == AttentionDocumentApproval && a.DocumentApproval != nil && a.DocumentApproval.Placement != nil {
+		return "document waiting to be put in place"
+	}
 	if a.Kind == AttentionOperatorAction && a.OperatorAction != nil && a.OperatorAction.Returned {
 		return "report to handle again"
 	}
@@ -1479,6 +1482,9 @@ func (a Attention) ownershipRecord() ownership.Record {
 			record.Role, record.FundamentalIntent = a.DocumentApproval.Owner, a.DocumentApproval.ProductIntent
 			record.DocumentKind = a.DocumentApproval.DocumentKind
 			record.Command = a.DocumentApproval.approveCommand()
+			if a.DocumentApproval.Placement != nil {
+				record.Hand, record.Command = ownership.HandDocumentPlacement, a.DocumentApproval.placementCommand()
+			}
 		}
 	case AttentionCapacityBlocked:
 		if a.CapacityBlocked != nil {

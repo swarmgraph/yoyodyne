@@ -112,6 +112,9 @@ type PendingWrite struct {
 	// document ahead of it that the harness holds it back behind.
 	DocumentKind string `json:"document_kind,omitempty"`
 	WaitsBehind  string `json:"waits_behind,omitempty"`
+	// AwaitsPlacement is where a confirmed document waits for a person to put
+	// it; see runstate.PendingWrite.AwaitsPlacement.
+	AwaitsPlacement *runstate.DocumentPlacement `json:"awaits_placement,omitempty"`
 }
 
 // writeRecord is one written document and whether confirmation and delivery finished
@@ -1017,6 +1020,8 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Scope:         p.Write.Scope,
 		DocumentKind:  p.DocumentKind,
 		WaitsBehind:   p.WaitsBehind,
+		// Where a confirmed document waits for a person to put it.
+		AwaitsPlacement: p.AwaitsPlacement,
 	}.RecordRevisedPath(p.RevisedPath)
 }
 
@@ -1034,6 +1039,8 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 		RevisedPath:    revisedPath(recorded),
 		DocumentKind:   recorded.DocumentKind,
 		WaitsBehind:    recorded.WaitsBehind,
+		// Where a confirmed document waits for a person to put it.
+		AwaitsPlacement: recorded.AwaitsPlacement,
 		Write: artifact.Write{
 			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),

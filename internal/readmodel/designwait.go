@@ -19,6 +19,7 @@ package readmodel
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
@@ -105,4 +106,30 @@ func (h HeldWork) designWaitSays(item string) string {
 	}
 	return fmt.Sprintf("%s waiting on the architect's design since %s, %s ago, labelled %s",
 		named, localMoment(*h.Since), spanSaid(h.Waited), domain.NeedsDesignLabel)
+}
+
+// withoutFinishedDesigns is the design waits less every item a finished
+// document answers that waits only for a person to put it in the repository it
+// is kept in. That item is not waiting on the architect: the document entry
+// names it with the step that is left, and the item comes back here, as hers,
+// only if its label is still on once the document is in place.
+func withoutFinishedDesigns(waits, documents []Attention) []Attention {
+	finished := map[string]bool{}
+	for _, entry := range documents {
+		if d := entry.DocumentApproval; d != nil && d.Placement != nil {
+			for _, item := range d.Answers {
+				finished[strings.TrimSpace(item)] = true
+			}
+		}
+	}
+	if len(finished) == 0 {
+		return waits
+	}
+	kept := make([]Attention, 0, len(waits))
+	for _, wait := range waits {
+		if !finished[wait.WorkItemID] {
+			kept = append(kept, wait)
+		}
+	}
+	return kept
 }
