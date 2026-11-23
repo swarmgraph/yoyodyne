@@ -220,8 +220,9 @@ type cheaperFirstDocument struct {
 }
 
 type reviewerModelsDocument struct {
-	Documents *ModelKind `yaml:"documents"`
-	Code      *ModelKind `yaml:"code"`
+	Documents        *ModelKind `yaml:"documents"`
+	Code             *ModelKind `yaml:"code"`
+	CompareDocuments *bool      `yaml:"compare_documents"`
 }
 
 type ciChecksDocument struct {
