@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-10-19T06:58:50.604019Z
       reason: 'yoyodyne-ifd.433.46: the operator corrected his direction on October 18. Every item needs at least one label from the configured list, listed labels combine, `bug` stays a valid label, and the label for unsorted work is used only when nothing else fits. The design is rewritten to that rule: the lane prefix, the rename, the replace-on-change rule and the two-label count go.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T09:36:05.16896Z
+      reason: 'Design review: brings the one-label design up to date. It says nothing of it is built yet, adds raised-by-operator as a second label held in code so it agrees with the design for reviewing goals that are not yet met, and says the label list reaches the configuration by a reviewed change to that one file until the typed configuration write is built. Resent after the first send was refused for an undefined word.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,12 +29,27 @@ approvals:
       by: harness
       at: 2026-10-19T06:58:50.604019Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1262, for document-1262.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-23T09:36:05.16896Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3652, for document-3652.1 under the automatic approval policy
 ---
 # At least one label per work item, from a configured list
 
 It serves the goal "Run development nearly autonomously": labels already decide which developer slot prefers which work, and 72 of 267 open items carried none when this was first designed, so the scheduler was choosing with missing information and somebody had to sort work by hand. It must not break three other goals: configuration stays configurable without weakening safety, a newcomer gets a working first run from the readme alone, and what a person reads is in ordinary words.
 
 The build work is the item that builds this rule (yoyodyne-ifd.433.44). Where that item's conditions say "exactly one", this design governs and the rule is "at least one".
+
+## What is built
+
+Nothing of this design is built yet. This account comes from the design review's reading of this design against the code at main 848d86190, and was not checked against the code again for this revision:
+
+- there is no configured list of labels, and the harness's tracker write refuses no filing for its labels;
+- a child item takes its parent's labels only because a role's instructions advise it, not because the harness copies them;
+- a program manager's lane, or a developer slot's preference, may be named `needs-design` and still passes configuration validation.
+
+The item that builds this rule (yoyodyne-ifd.433.44) is open. Until it lands, every section below describes what is to be built.
 
 ## The decision: at least one listed label, and labels combine
 
@@ -41,11 +60,14 @@ An item's labels are of two kinds:
 | Kind | How many | Who sets it | Where the names come from |
 | --- | --- | --- | --- |
 | Listed | at least one | the role filing the item; the harness also adds a program manager's lane label | the project's configured list |
-| State | any | the roles the state's own design names | held in code; today only `needs-design` |
+| State | any | only what the state's own design names | held in code: `needs-design` and `raised-by-operator` |
 
 A program manager's lane label, such as `factory-flow`, is an ordinary listed label. The harness adds it to every item that program manager files, as it does today, and it counts toward "at least one". The program manager's authority check against its lane label is unchanged.
 
-State labels are a closed list in code, beside the role contracts, so configuration can never add one and a listed label can never take a state's name. A state label does not count toward "at least one".
+State labels are a closed list in code, beside the role contracts, so configuration can never add one and a listed label can never take a state's name. A state label does not count toward "at least one". There are two:
+
+- `needs-design` holds an item from developers until its design is readable, as the design for holding work that needs a design says.
+- `raised-by-operator` marks an item the operator raised on purpose. The design for reviewing goals that are not yet met adds it, and only the one harness action that records such an item from his own words sets it (yoyodyne-ifd.433.65). No role sets it by filing, and the tracker write refuses it from every filing. This revision adds it to the closed list so the two designs agree; before it, this design's list held only `needs-design`.
 
 The reliability operating rule holds unchanged: work that blocks reliable execution carries `reliability`, whatever else it carries.
 
@@ -55,6 +77,7 @@ The reliability operating rule holds unchanged: work that blocks reliable execut
 - **Prefixing lane labels, as `lane:factory-flow`.** The prefix existed only so a lane label would not count as a second area. With labels combining it separates nothing, and it would rename labels on every existing item for no gain.
 - **Counting only the labels the filer chose, not the lane label the harness adds.** The lane label says something true about the item, and the operator's own example treats `factory-flow` as an ordinary label. Making a program manager repeat it would be a special case with no purpose.
 - **A separate area field beside the labels.** Slots already prefer by label. A second field would be a second way to say what a label says.
+- **Making the mark for an item the operator raised a listed label.** A listed label is chosen by whoever files, and the Lead Product Manager may rename or remove it. This mark records who asked for the work, which no filer may claim and no list change may erase, so it is held in code like `needs-design`.
 
 ## 1. Where the list lives
 
@@ -86,7 +109,7 @@ A project with no `labels.area` uses the list `yoyo init` writes (section 7), su
 
 This is refused when the configuration is changed, never when a service starts:
 
-- `yoyo config validate`, `yoyo doctor`, and the role's typed configuration write refuse a slot preference naming a label that is not on the list, and name the list.
+- `yoyo config validate` and `yoyo doctor` refuse a slot preference naming a label that is not on the list, and name the list. The role's typed configuration write does the same once it is built.
 - When the scheduler or any service loads a configuration whose slot preference names such a label, it starts. It writes one warning in plain words naming the slot and the label, drops that one preference, and keeps every other.
 
 One stale entry must never stop every run until a person edits a file.
@@ -99,7 +122,7 @@ Every role files work through the harness's own tracker write; no role runs the 
 2. Where a program manager files, it adds that program manager's lane label.
 3. It refuses the item unless at least one of the resulting labels is on the list. The refusal lists every label with its meaning, so the role can file again at once.
 4. It refuses the item if the unsorted label is there beside any other listed label, and says that unsorted is only for an item no other label fits.
-5. It refuses a state label from a role whose design does not allow it, and a label that is neither listed nor a state label, naming the list.
+5. It refuses a state label from a role whose design does not allow it, `raised-by-operator` from every filing, and a label that is neither listed nor a state label, naming the list.
 
 Changing an item's labels through the same write:
 
@@ -110,7 +133,7 @@ Adding a listed label never removes another.
 
 ## 3. Items split off a parent
 
-An item filed with a parent takes all of the parent's listed labels when the filing names none. A filing that names at least one listed label keeps exactly what it names. A program manager's lane label is still added by the harness from whoever files.
+An item filed with a parent takes all of the parent's listed labels when the filing names none. A filing that names at least one listed label keeps exactly what it names. A program manager's lane label is still added by the harness from whoever files. State labels are never copied from a parent.
 
 ## 4. The label for unsorted work
 
@@ -148,9 +171,14 @@ An item filed that way with no listed label is counted on the dashboard, as in s
 
 The newcomer goal holds, because this list works unchanged and the readme need say nothing about it.
 
-**The list is the Lead Product Manager's to decide.** In her first pass on a project, she fits the list to the brief and applies it through the typed configuration write of [section 6 of the configuration design](portable-agent-configuration.md#6-values-the-harness-recommends-applied-by-a-role). That write adds `labels.area` to its keys and names her as the one who decides it. The change lands through the reviewed run every such value takes, and is reported to the operator afterwards. Choosing names for labels changes what work is called, not what the goals admit, so no operator approval is asked for.
+**The list is the Lead Product Manager's to decide.** In her first pass on a project, she fits the list to the brief. Choosing names for labels changes what work is called, not what the goals admit, so no operator approval is asked for; the change is reported to the operator afterwards.
 
-She revises the list later when unsorted items are more than a fifth of what was filed over two weeks, or when a label has had no item filed with it in 30 days. The write that changes the list refuses to remove a label while any open item, slot preference or configured lane carries it, and names the count, so items are relabelled before their label goes.
+How her choice reaches the configuration file depends on what is built:
+
+- **Once the typed configuration write is built**, she applies it through that write, under [section 6 of the configuration design](portable-agent-configuration.md#6-values-the-harness-recommends-applied-by-a-role). That write adds `labels.area` to its keys and names her as the one who decides it, and the change lands through the reviewed run that changes only the configuration file.
+- **Until then**, she admits a work item whose grant names `.yoyodyne/config.yaml` and nothing else, stating the list she chose. A developer run writes it, and it is reviewed and lands like any change. The dedicated developer slots decision applies slot settings the same way for the same reason.
+
+She revises the list later when unsorted items are more than a fifth of what was filed over two weeks, or when a label has had no item filed with it in 30 days. A change that removes a label is refused while any open item, slot preference or configured lane carries it, naming the count, so items are relabelled before their label goes. The typed write enforces this once it is built; until then the reviewer of the configuration change checks it.
 
 The operator's own starting list for this repository is the one in the design item for labels (yoyodyne-ifd.433.43): the init list above plus `factory-flow`, `team-development`, and `security` where wanted. The Lead Product Manager applies it the same way.
 
@@ -167,12 +195,13 @@ This is a rule for one filing path that the harness enforces in code, and no cha
 1. Filing with no listed label, or only labels not on the list, is refused, and the refusal lists every label with its meaning.
 2. Filing with two or more listed labels, such as `factory-flow` and `bug`, is accepted with every label kept.
 3. A program manager filing with `reliability` gets its lane label added and passes its authority check. A program manager filing with no label of its own is accepted, because its lane label is listed.
-4. A child item filed with no listed label takes all its parent's listed labels. One naming a label keeps exactly what it names.
+4. A child item filed with no listed label takes all its parent's listed labels and none of its state labels. One naming a label keeps exactly what it names.
 5. Filing as unsorted without a reason is refused. Filing unsorted beside another listed label is refused, including a program manager's filing. Adding a listed label to an unsorted item removes the unsorted label. An unsorted item 3 days old shows in the dashboard's list of problems with the Lead Product Manager as owner.
 6. Removing the last listed label from an item is refused. Adding a listed label removes no other.
 7. `yoyo config validate` accepts a slot preference naming `bug` when `bug` is listed, and refuses one naming a label not on the list. A scheduler started on a file holding such a preference starts, warns once naming the slot and label, and still applies every other preference.
-8. A list with no unsorted entry, two of them, or the name `needs-design` is refused by validation, and so is a configured lane whose name is not on the list.
-9. The typed configuration write accepts `labels.area` only from the Lead Product Manager. It refuses removing a label that an open item, slot preference or configured lane carries, naming the count.
-10. No existing label is renamed or removed by the change.
-11. A role's briefing shows the list from the configuration that applies at that turn. Changing the list changes the next briefing with no persona edited.
-12. `bd create` with no listed label in an interactive session warns and creates the item.
+8. A list with no unsorted entry, two of them, or the name `needs-design` or `raised-by-operator` is refused by validation, and so is a configured lane whose name is not on the list.
+9. Filing with `raised-by-operator` is refused from every role; only the harness action that records an item the operator raised sets it.
+10. Once the typed configuration write is built, it accepts `labels.area` only from the Lead Product Manager and refuses removing a label that an open item, slot preference or configured lane carries, naming the count.
+11. No existing label is renamed or removed by the change.
+12. A role's briefing shows the list from the configuration that applies at that turn. Changing the list changes the next briefing with no persona edited.
+13. `bd create` with no listed label in an interactive session warns and creates the item.
