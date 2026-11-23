@@ -2191,7 +2191,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			// that wording leaves the attribution alone — which is the whole of what
 			// identity is for, and it has to be true of the moment the item is made
 			// or it is true of nothing.
-			Notes:  s.trackerProvenance(creation.note, action.Reason) + "\n\n" + s.options.Goals.NoteFor(action.Goal) + s.classNote(action.Class) + directiveNote(prompting) + reportNote(cited) + distinctionNote(distinct, action.DistinctFrom) + s.correctionNote(corrected) + lane,
+			Notes:  s.trackerProvenance(creation.note, action.Reason) + "\n\n" + s.options.Goals.NoteFor(action.Goal) + s.classNote(action.Class) + directiveNote(prompting) + reportNote(cited) + distinctionNote(distinct, action.DistinctFrom) + s.correctionNote(corrected) + lane + s.parkedNote(action.Parked),
 			Parent: action.parent(),
 			// The executor is set as the item is admitted rather than after it,
 			// because the harness may choose an item the moment it is in the queue: a
@@ -3346,4 +3346,13 @@ func boundTextTail(text string, limit int) string {
 		cut++
 	}
 	return fmt.Sprintf("[the first %d bytes are cut; treat them as unread rather than absent]\n\n", cut) + strings.TrimSpace(text[cut:])
+}
+
+// parkedNote says who parked work that is admitted already parked, in the same
+// words parking it afterwards leaves (runstate.ParkedBy reads both).
+func (s *Session) parkedNote(parked domain.WorkItemParking) string {
+	if !parked.Parked() {
+		return ""
+	}
+	return "\n\n" + s.trackerProvenance("Parked", parked.Reason())
 }

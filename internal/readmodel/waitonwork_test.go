@@ -318,3 +318,29 @@ func TestARerunWaitingOnAParkedItemIsNotCountedAsOwedByTheHarness(t *testing.T) 
 		t.Fatalf("entry = %#v, want the decision the harness's to carry out once the item is unparked", released)
 	}
 }
+
+// A stalled run whose decided re-run waits on the parking is held for that
+// wait, and not as a run the harness continues by itself.
+func TestAStalledRunWhoseRerunWaitsOnTheParkingIsHeldForTheUnparking(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 15, 21, 0, 0, 0, time.UTC)
+	stall := preservedRun("run-008b0e25", "yoyodyne-stalled", stopped)
+	stall.Phase = runstate.PhaseDeveloping
+	stall.BaseCommit, stall.TargetBranch, stall.ProviderSessionID = "c", "main", "session"
+	stall.Environmental = &runstate.EnvironmentalRefusal{
+		Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopStalled, RecordedAt: stopped, Settled: true,
+	}
+	if !stall.HarnessContinuesStall() {
+		t.Fatal("the run is not one the harness would continue, so this shows nothing")
+	}
+	waiting := func(string) (runstate.TriageCounters, string) {
+		return runstate.TriageCounters{WorkItemID: stall.WorkItemID, Reruns: 1,
+			Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRerun, RunID: stall.RunID, DecidedAt: stopped.Add(time.Minute)}},
+			CarryOuts: []runstate.TriageCarryOut{{Decision: runstate.TriageDecisionRerun, RunID: stall.RunID, Gate: runstate.TriageGateParked, Waiting: true, Attempts: 1, RefusedAt: stopped.Add(time.Hour)}}}, ""
+	}
+	hold := heldReasons([]runstate.State{stall}, nil, waiting, nil, asRecorded)[stall.WorkItemID]
+	if !hold.WaitsOnParking || !strings.Contains(hold.Reason, awaitingUnparkingClause) || strings.Contains(hold.Reason, harnessContinuesStallClause) {
+		t.Fatalf("hold = %#v, want it waiting on the unparking", hold)
+	}
+}

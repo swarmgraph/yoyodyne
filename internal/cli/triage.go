@@ -955,12 +955,12 @@ func reportRerun(stdout, stderr io.Writer, jsonOutput bool, result orchestrator.
 		return 0
 	}
 	if !result.Started {
-		// A hold and a full harness are both states the carry-out is waiting on
+		// A hold, a full harness, and a parked item are states the carry-out is waiting on
 		// rather than failures: nothing was claimed, and the decision stands to be
 		// carried out by asking again. A record that could not be written while
 		// waiting is a failure, because the stoppage has then paid for a wait that
 		// was meant to cost it nothing.
-		if result.IntakeHeld != nil || result.CapacityFull != nil {
+		if result.IntakeHeld != nil || result.CapacityFull != nil || result.ItemParked != nil {
 			fmt.Fprint(stdout, result.Render())
 			if result.RecordProblem != "" {
 				return 1

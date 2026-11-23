@@ -39,3 +39,20 @@ func TestARerunWaitingOnAParkedItemNamesWhoeverParkedItAsTheNextMover(t *testing
 		t.Fatalf("rendered %q, want the parked wait not read as a decision no pass reached", rendered)
 	}
 }
+
+// A wait on a parking does not go ahead of the list as a decision that needs
+// the development manager.
+func TestAWaitOnAParkingIsNotCritical(t *testing.T) {
+	t.Parallel()
+
+	closed := time.Date(2026, 11, 15, 21, 15, 0, 0, time.UTC)
+	entry := Entry{Class: ClassStoppedRun, Closed: &Closure{ClosedAt: closed},
+		CarryOut: &CarryOut{Decision: "rerun", Gate: ParkedGate, Unattempted: true, RefusedAt: closed.Add(time.Minute)}}
+	if entry.Critical() {
+		t.Fatal("a wait on a parking was critical")
+	}
+	entry.CarryOut.Gate = "developer capacity"
+	if !entry.Critical() {
+		t.Fatal("an unattempted decision was not critical")
+	}
+}

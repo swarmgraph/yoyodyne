@@ -851,7 +851,12 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 			counters[task.WorkItemID], record = read, read
 		}
 		if standing, found := record.CarryOutOf(task.RunID); found && !standing.RefusedAt.Before(task.DecidedAt) {
-			if !standing.Unattempted || (standing.Gate == held.gate && standing.Refusal == strings.TrimSpace(held.why)) {
+			// An attempt already made is left to stand, except across a parking: a
+			// parked item is never attempted, so no later attempt replaces what an
+			// earlier one was told, and a released one held back for something else
+			// must stop naming whoever had parked it. A permanent refusal stands.
+			parking := standing.Cause == "" && (standing.WaitsOnParking() || held.gate == runstate.TriageGateParked)
+			if (!standing.Unattempted && !parking) || (standing.Gate == held.gate && standing.Refusal == strings.TrimSpace(held.why)) {
 				continue
 			}
 		}

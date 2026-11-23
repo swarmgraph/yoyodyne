@@ -1336,6 +1336,10 @@ type CarryOut struct {
 	DecidedAt time.Time `json:"decided_at,omitempty"`
 }
 
+// WaitsOnParking reports a decision that waits for its item to be unparked,
+// which asks nothing of the development manager.
+func (c CarryOut) WaitsOnParking() bool { return c.Gate == ParkedGate && c.Cause == "" }
+
 // waitedSays is when the decision was made and how long it had stood by the
 // finding, or nothing where the decision's time is not known.
 func (c *CarryOut) waitedSays() string {
@@ -2829,7 +2833,7 @@ func (e Entry) renderCarryOut() string {
 		}
 		return rendered.String()
 	}
-	if stopped.Gate == ParkedGate && stopped.Cause == "" {
+	if stopped.WaitsOnParking() {
 		fmt.Fprintf(&rendered, "      The %q you decided waits for the item to be unparked, as the harness found at %s: %s\n",
 			stopped.Decision, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
 		rendered.WriteString(indented("What it is waiting for", stopped.Clears))

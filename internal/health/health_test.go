@@ -1019,3 +1019,54 @@ func TestEveryMergeQueueEntryIsShownWithItsStepAndAStuckOneIsAProblem(t *testing
 		t.Fatalf("sources = %+v, want the merge queues read whole", observation.Sources)
 	}
 }
+
+// parkedDecisions is the triage record of one item whose decided re-run waits
+// on its parking.
+type parkedDecisions map[string]runstate.TriageCounters
+
+func (p parkedDecisions) Counters(id string) (runstate.TriageCounters, error) { return p[id], nil }
+
+// A decided re-run waiting for its item to be unparked is a wait nobody here has
+// to act on, whatever the tracker marks the item, naming the unparking as what
+// ends it.
+func TestARerunWaitingOnTheUnparkingIsAWaitAndNotActionable(t *testing.T) {
+	t.Parallel()
+
+	const runID = "run-0123456789abcdef0123456789abcdef"
+	for _, status := range []string{"open", "in_progress"} {
+		completed := observedAt.Add(-time.Hour)
+		state := run(runID, "yoyodyne-waits")
+		state.Status, state.CompletedAt, state.UpdatedAt = runstate.StatusFailed, &completed, completed
+		state.Branch, state.WorktreePath = "yoyodyne/waits", "/state/worktrees/waits"
+		state.Blocker = "a check failed"
+		decided := observedAt.Add(-30 * time.Minute)
+		counters := runstate.TriageCounters{WorkItemID: "yoyodyne-waits", Reruns: 1,
+			Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRerun, RunID: runID, DecidedAt: decided}},
+			CarryOuts: []runstate.TriageCarryOut{{Decision: runstate.TriageDecisionRerun, RunID: runID, Gate: runstate.TriageGateParked, Unattempted: true, Refusal: "parked", Clears: "unparking", RefusedAt: observedAt}}}
+		observer, _ := whole(t)
+		services := observer.standing(context.Background()).Services
+		sources := readmodel.Sources{Runs: fakeRuns{}, Stoppages: stoppedRuns{state}, Decisions: parkedDecisions{"yoyodyne-waits": counters},
+			Tracker:  trackerOf{status: {{ID: "yoyodyne-waits", Title: "waits", Status: status, Parking: "held for the route"}}},
+			Capacity: 2, Now: func() time.Time { return observedAt }}
+		observer.Standing = func(ctx context.Context) readmodel.Standing {
+			standing := readmodel.ReadStanding(ctx, sources)
+			standing.Services = services
+			return standing
+		}
+		observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+		found := 0
+		for _, anomaly := range observation.Anomalies {
+			if anomaly.WorkItem != "yoyodyne-waits" {
+				continue
+			}
+			found++
+			if anomaly.Classification != ClassWait || anomaly.Actionable || anomaly.Owner == ownership.MoverDevelopmentManager || anomaly.Owner == ownership.MoverHarness ||
+				!strings.Contains(anomaly.Needs, "unparking it") || !strings.Contains(anomaly.Needs, "held for the route") {
+				t.Fatalf("%s: anomaly = %+v, want a wait on the unparking", status, anomaly)
+			}
+		}
+		if found != 1 {
+			t.Fatalf("%s: found %d conditions, want 1: %+v", status, found, observation.Anomalies)
+		}
+	}
+}

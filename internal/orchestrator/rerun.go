@@ -1820,6 +1820,11 @@ func (result RerunResult) Render() string {
 		}
 		return rendered.String()
 	}
+	if result.ItemParked != nil {
+		fmt.Fprintf(&rendered, "WAITING FOR THE ITEM TO BE UNPARKED: %s\n", result.ItemParked.Says(result.WorkItemID))
+		fmt.Fprintf(&rendered, "nothing was started, and the stoppage of run %s keeps its one re-run\n", result.PriorRunID)
+		return rendered.String()
+	}
 	if result.PausedBeforeStarting != nil {
 		// What lifts the pause is said by the pause's own report rather than here,
 		// because it is the same thing that lifts it for any other work. What this

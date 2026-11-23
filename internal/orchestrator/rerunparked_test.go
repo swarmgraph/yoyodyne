@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -187,5 +188,64 @@ func TestACarryOutThatMeetsAParkedItemWaitsOnIt(t *testing.T) {
 	}
 	if standing := counters.Standing(docketedRunID); triage.AwaitingCarryOut(standing) || !triage.WaitingOnParking(standing) {
 		t.Fatalf("standing = %#v, want the decision read as waiting on the unparking, not owed", standing)
+	}
+}
+
+// A wait an earlier attempt recorded is replaced once the item is parked, since
+// a parked item is never attempted and nothing else would replace it; and the
+// parked wait is replaced in turn when the released item is held back for
+// something else.
+func TestAParkingReplacesAnEarlierWaitAndALaterHoldReplacesTheParking(t *testing.T) {
+	t.Parallel()
+
+	for _, earlier := range []string{runstate.TriageGateIntakeHold, runstate.TriageGateCapacity} {
+		harness := newRerunHarness(t, stoppedState())
+		carrying := harness.carryOutAt(time.Minute)
+		if earlier == runstate.TriageGateIntakeHold {
+			if _, err := harness.intake.Hold(runstate.IntakeHolderOperator, "held", docketedNow); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := harness.runs.Create(runningState("run-11111111111111111111111111111111", "yoyodyne-other")); err != nil {
+			t.Fatal(err)
+		} else {
+			harness.capacity = 1
+			carrying = harness.carryOutAt(time.Minute)
+		}
+		if carried, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil || carried.Gate != earlier {
+			t.Fatalf("carried = %#v, error = %v, want it waiting on %s", carried, err, earlier)
+		}
+
+		parkedByProductManager(harness)
+		carrying.Notes = harness
+		record := func() runstate.TriageCounters {
+			t.Helper()
+			if _, err := carrying.RecordUnattempted(context.Background(), 0, map[string]string{docketedRunID: "no slot"}); err != nil {
+				t.Fatalf("RecordUnattempted() error = %v", err)
+			}
+			counters, err := harness.runs.Triage().Counters(docketedItem)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return counters
+		}
+		if standing := record().Standing(docketedRunID); !triage.WaitingOnParking(standing) {
+			t.Fatalf("standing after %s = %#v, want it waiting on the parking", earlier, standing)
+		}
+
+		// The action's own parked wait is replaced as the sweep's is.
+		task := CarryOutTask{WorkItemID: docketedItem, RunID: docketedRunID, Decision: runstate.TriageDecisionRerun, DocketKey: triage.Key(triage.ClassStoppedRun, docketedRunID)}
+		counters, err := harness.runs.Triage().Counters(docketedItem)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decision, _ := counters.DecisionOf(docketedRunID)
+		task.DecidedAt = decision.DecidedAt
+		if carried, _, err := carrying.Carry(context.Background(), task); err != nil || carried.Gate != runstate.TriageGateParked {
+			t.Fatalf("carried = %#v, error = %v", carried, err)
+		}
+		unpark(harness)
+		if finding, _ := record().CarryOutOf(docketedRunID); finding.WaitsOnParking() || finding.Gate != runstate.TriageGateCapacity {
+			t.Fatalf("finding = %#v, want the released item's later hold in place of the parking", finding)
+		}
 	}
 }

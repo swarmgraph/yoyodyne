@@ -59,24 +59,28 @@ func RerunWaitsOnParking(item beads.WorkItem, priorRunID string) (parkedBy strin
 }
 
 // ParkedBy names who parked an item, in words a person reads: the run whose
-// parking it is, or the role and conversation the latest parking note on the
-// item names. Where neither says, it says that rather than guess.
+// parking it is, or the role and conversation named by the note that carries
+// this parking's own reason. A note about an earlier parking names nobody for
+// this one, so where no note matches it says that rather than guess.
 func ParkedBy(item beads.WorkItem) string {
-	if runID, byRun := ParkingRun(item.Parking.Reason()); byRun {
+	reason := item.Parking.Reason()
+	if runID, byRun := ParkingRun(reason); byRun {
 		return "run " + runID
 	}
-	// A role parks an item from its conversation, and the note it appends says
-	// who and where: "Parked by the <role> in conversation <id>, after turn N."
+	// A role parks an item from its conversation, and the note it appends is
+	// "Parked by the <role> in conversation <id>, after turn N." and the reason.
 	const opening = "Parked by "
-	notes := item.Notes
-	if at := strings.LastIndex(notes, opening); at >= 0 {
-		rest := notes[at+len(opening):]
-		if end := strings.Index(rest, ", after turn"); end > 0 {
-			return strings.TrimSpace(rest[:end])
+	lines := strings.Split(item.Notes, "\n")
+	for at := len(lines) - 1; at >= 0; at-- {
+		rest, found := strings.CutPrefix(lines[at], opening)
+		if !found {
+			continue
 		}
-		if end := strings.IndexAny(rest, ".\n"); end > 0 {
-			return strings.TrimSpace(rest[:end])
+		who, _, found := strings.Cut(rest, ", after turn")
+		if !found || !strings.HasPrefix(strings.TrimSpace(strings.Join(lines[at+1:], "\n")), "Reason: "+reason) {
+			continue
 		}
+		return strings.TrimSpace(who)
 	}
 	return "somebody the item's notes do not name"
 }

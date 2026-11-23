@@ -784,7 +784,7 @@ func stoppageHold(run, latest runstate.State, decided standing, found triage.Fou
 	if preserved && !reading.decided && reading.refused == nil && reading.problem == "" && run.HarnessContinuesCheckStage() {
 		return backlog.Hold{Reason: preservedChange(run, found) + "; " + opens + run.CheckStageStopSays(), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
-	if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
+	if preserved && !reading.carryOut && !reading.parked && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
 		return backlog.Hold{Reason: preservedChange(run, found) + "; " + opens + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
 	if !preserved && reading.rerun && reading.carryOut && !reading.parked && reading.problem == "" {
