@@ -47,6 +47,10 @@ revisions:
       by: architect
       at: 2026-11-20T09:31:17.155022Z
       reason: 'Rewords this section in plain words, as part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21): the word the operator retired on November 8 becomes the checks the change must still pass, as in the preserved-run recovery section, and the shorthand for the observed steps, finished and unfinished records, in-flight runs and the record format becomes ordinary words. What the section requires is unchanged. Written from a read of the whole design at main 00f2a55a.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T23:51:35.706365Z
+      reason: 'yoyodyne-ifd.437.42: the section granted the run and health reads to every program manager instance, while the code refuses all four from any instance not watching the factory-flow lane. It now says the role holds the grant and the harness checks the lane on every call, replacing the October 17 decision. Written from a read of the whole design and both code files at main 1998757b3508; nothing else in the document changes.'
 approvals:
     - revision: 0
       by: operator
@@ -97,6 +101,11 @@ approvals:
       by: harness
       at: 2026-11-20T09:31:17.155022Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3167, for document-3167.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-23T23:51:35.706365Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3774, for document-3774.1 under the automatic approval policy
 ---
 # Purpose and scope
 
@@ -323,7 +332,9 @@ A disposition of verified resolution must cite a `run.verify` result of met from
 
 ## Who holds what
 
-The development manager's bundle holds all five. The program manager's bundle, and so every instance of it, holds `health.observe`, `health.follow`, `run.inspect` and `run.verify`, and never `run.recover`, as the authority section above already says. The architect's bundle holds `health.observe`, `health.follow` and `run.inspect`, so a design can rest on how runs actually behave. A grant is registered by the slice that builds the capability, and a call without the grant is refused. The harness's own acts are not a grant to any role: they are the bounded acts of the section on who acts, taken by the harness's code with no model.
+The development manager's bundle holds all five. The program manager's bundle holds `health.observe`, `health.follow`, `run.inspect` and `run.verify`, and never `run.recover`, as the authority section above already says. The architect's bundle holds `health.observe`, `health.follow` and `run.inspect`, so a design can rest on how runs actually behave. A grant is registered by the slice that builds the capability, and a call without the grant is refused. The harness's own acts are not a grant to any role: they are the bounded acts of the section on who acts, taken by the harness's code with no model.
+
+Of the program manager's instances, only the one watching the `factory-flow` lane is answered. A grant is held by a role and not by an instance, so the harness checks the lane each time one of the four reads is asked for, and refuses a call from an instance watching any other lane with a reason naming both lanes. This replaces the decision of October 17, 2026, kept in the evidence below as history, that every instance could use the four reads. Factory health is what the `factory-flow` lane watches, and the [program manager](program-manager.md) design gives these reads to that lane alone. Rejected: answering every instance, which would give the same conditions to lanes that cannot act on them and pay for that evidence in each of their passes. The check was read in `internal/chat/runinspect.go` and `internal/chat/health.go` at commit 1998757b3508.
 
 ## What is enforced in code and what is left to the prompt
 
