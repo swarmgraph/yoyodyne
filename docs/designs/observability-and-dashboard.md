@@ -90,6 +90,10 @@ revisions:
       by: architect
       at: 2026-11-21T14:53:16.983184Z
       reason: 'yoyodyne-ifd.437.61: the generated token section no longer speaks of a token supplied for an address that is not loopback, since the dashboard now listens only on loopback and refuses any other address. Its opening says it governs the token generated each start, and its reviewer line drops the sentence about a configured token. This is the last passage the item asked for. Only this section changes; written from main at 7732866bdc84.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T14:46:42.196688Z
+      reason: 'yoyodyne-ifd.432.56: adds the work queue page, a third page listing open work in the order the scheduler pulls it, with parked and held items marked with their reason, and names two acts beside it: starting a run on an item and releasing a hold the operator placed, each needing direct-work and recorded as the command line records it. Only this section changes; the page count in the dashboard section and the read model''s query list follow in their own revision. Written from main at 4c6ca534.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -161,6 +165,11 @@ approvals:
       by: harness
       at: 2026-11-21T14:53:16.983184Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3326, for document-3326.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 21
+      by: harness
+      at: 2026-11-23T14:46:42.196688Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3677, for document-3677.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -411,7 +420,52 @@ The first act is deciding what waits on the operator. The page lists every entry
 
 The acts already designed here stay, each behind a grant held by the person, never by the token: settling an owed step needs `direct-work`; deciding an amendment needs `decide-amendments`, and an amendment against a product document needs `own-intent` beside it. Approving or declining a document needs the grant the command line's approve command checks for that document's kind, and nothing less.
 
-Further acts the command line offers are added one at a time. Each arrives by a revision of this design that names the act, the grant it needs, and the record it writes; until a revision names an act, the page refuses it.
+Further acts the command line offers are added one at a time. Each arrives by a revision of this design that names the act, the grant it needs, and the record it writes; until a revision names an act, the page refuses it. The two acts on the work queue page below are named that way.
+
+### The work queue page, and starting or releasing work from it
+
+The operator asked on August 20 to watch the work queue beside his conversation with the Lead Product Manager, with the acts that start and release work beside it (yoyodyne-ifd.432.56). No existing view does this: the backlog page charts counts over time, and the team section shows what is running now. Both stay as they are.
+
+**What it shows.** A third page beside the main page, reached from a link in the top status band and linking back, as the backlog and delivery pages are. It has one row for every open work item, in the order the scheduler pulls work: priority first; within one priority, the items the Lead Product Manager placed first, earliest placement first; then the oldest admitted. Each row shows the item as the work item references section renders a list the harness builds, such as `(P1, reliability) Retry the merge (ex-7)`, and then one of these, in words:
+
+- **ready**: nothing holds it, and the next free developer slot that may take it will;
+- **running**: a run holds it now, named with its phase as the team section names it;
+- **parked**: parked, with the reason recorded when it was parked;
+- **held**: held after a stopped run, or waiting on another item or on a design, with what it waits on and what releases it, in the words `yoyo status` uses for the same hold;
+- **placed first**: shown beside any of the above where the Lead Product Manager placed the item first, with the reason she recorded.
+
+Every time shown is in the operator's local zone with the zone named. Every distinction is a word, never only a color.
+
+**Where the order comes from.** The read model gains a `queue` query, served at `/api/queue`. It takes the order from the same function the scheduler uses to choose what to pull next, with the same inputs, and never sorts the items again for the page. If that function cannot be called from the read model as the code stands, the build moves it so the scheduler and the read model call one function. The reasons for parked and held items come from the same records the scheduler and `yoyo status` read. The answer carries the tracker's read time and health, as every answer does. When the tracker cannot be read, the page keeps showing the last answer, marked out of date with its time, and never shows an empty queue. The page polls as the main page does.
+
+**The two acts.** Beside each row, the page offers these, and no others:
+
+- **Start a run on this item.** The act the command line's `yoyo run <item>` takes, through the same code, with the same checks on slots, holds, the operator's pause and spending. A refusal is shown in the command line's own words, and nothing else happens.
+- **Release a hold the operator placed on this item.** The act the command line's own command for releasing that hold takes, through the same code. This design was written without reading the command help, so the build piece names the exact command. Where the command line has no act to release a kind of hold, the page offers none for it either, because the page offers no act the command line does not.
+
+Each act needs `direct-work`, held by the person, and is refused to a session that carries only the shared token. Each asks once to confirm, naming the item by its title, because starting a run spends money. Each is recorded as the next subsection says.
+
+**What it never does.** It does not reorder items, change a priority, place an item first, park an item, or admit one. Those are the Lead Product Manager's decisions, not the operator's acts on this page, and adding any of them would need its own revision of this design. The page keeps no work state of its own.
+
+**Alternatives rejected.**
+
+- Putting the list on the backlog page. That page only shows things and takes no act, as the dashboard section says, and a chart over time answers a different question than the live order.
+- Sorting the items in the page or in a second query. The page could then show an order different from the one work is pulled in, which is the confusion this page exists to remove.
+- Offering every command line act on the page at once. Each act is added by a revision naming it.
+
+**What a reviewer can check.**
+
+- For the same tracker answer, the page lists open items in the order the scheduler would pull them, and a test with items of mixed priority, placement and age shows that order.
+- A parked item shows the word parked and its reason, and a held item shows what releases it.
+- An unreadable tracker shows the last answer marked out of date, never an empty list.
+- Each act's record equals the same act's record from the command line, except who took it and where.
+- An act is refused with only the shared token, and refused when the person lacks `direct-work`.
+- An act the command line refuses is refused on the page in the same words.
+
+**Build pieces.** Both are sized to the range the operating rules set.
+
+1. **The page, showing only.** The `queue` query, the page, and the link from the status band, with the tests for order, marks, and an unreadable tracker. It also names, from the command help, the command that releases each kind of hold the operator places.
+2. **The two acts.** The controls, the grant check, the confirmation, and the record, with the tests for records, refusals, and shared tokens. This piece lands after the first.
 
 ### What an act records, and what a session may never do
 
