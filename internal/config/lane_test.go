@@ -281,3 +281,85 @@ func TestARecurringTaskNamedForTheNeedsDesignWakeIsRefused(t *testing.T) {
 		t.Fatalf("LoadResolved() error = %v, want the reserved name refused", err)
 	}
 }
+
+// A program manager's triggers may name a model of their own, which the passes
+// they start ask for; a block naming none leaves the agent's model to every
+// pass, and the agent's own model is untouched either way.
+func TestAProgramManagersTriggersMayNameTheirOwnModel(t *testing.T) {
+	t.Parallel()
+
+	withModel := strings.Replace(programManagerAgent("cheap-pm", "reliability", "remits/reliability.md"),
+		"      on: [landings, stoppages]\n", "      on: [landings, stoppages]\n      model: sonnet\n", 1)
+	resolved := loadProject(t, minimalProjectConfig+"agents:\n"+withModel+programManagerAgent("plain-pm", "writing", "remits/reliability.md"),
+		map[string]string{"remits/reliability.md": laneRemit})
+	cheap := resolved.Config.Agents["cheap-pm"]
+	if cheap.Triggers.ModelSelector() != "sonnet" || cheap.Model != "opus" {
+		t.Fatalf("cheap-pm triggers model = %q, model = %q; want sonnet for its passes and opus for the agent", cheap.Triggers.ModelSelector(), cheap.Model)
+	}
+	plain := resolved.Config.Agents["plain-pm"]
+	if plain.Triggers.ModelSelector() != "" || plain.Model != "opus" {
+		t.Fatalf("plain-pm triggers model = %q, model = %q; want none, leaving the agent's opus", plain.Triggers.ModelSelector(), plain.Model)
+	}
+}
+
+// A trigger model may name a kind, which the passes ask for as the model the
+// agent's provider names for that kind.
+func TestATriggerModelNamingAKindResolvesToTheProvidersModelForThePasses(t *testing.T) {
+	t.Parallel()
+
+	byKind := strings.Replace(programManagerAgent("cheap-pm", "reliability", "remits/reliability.md"),
+		"      on: [landings, stoppages]\n", "      on: [landings, stoppages]\n      model: cheaper\n", 1)
+	resolved := loadProject(t, minimalProjectConfig+"agents:\n"+byKind, map[string]string{"remits/reliability.md": laneRemit})
+	if written := resolved.Config.Agents["cheap-pm"].Triggers.ModelSelector(); written != "cheaper" {
+		t.Fatalf("written triggers model = %q, want the kind as written", written)
+	}
+	if asked := resolved.Config.ProgramManagerPasses()["cheap-pm"].Triggers.ModelSelector(); asked != "sonnet" {
+		t.Fatalf("passes ask for %q, want sonnet, Claude Code's cheaper model", asked)
+	}
+}
+
+// A trigger model is refused when it cannot name a model at all, or when the
+// agent's provider cannot serve it, and the refusal names the model.
+func TestATriggerModelTheProviderCannotServeIsRefusedNamingIt(t *testing.T) {
+	t.Parallel()
+
+	codexAgent := func(model, effort string) string {
+		return `  pm:
+    role: program-manager
+    backend: codex
+    model: ` + model + `
+    effort: ` + effort + `
+    lane: reliability
+    triggers:
+      every: 1h
+`
+	}
+	cases := []struct {
+		name, agent, model string
+		want               []string
+	}{
+		{name: "not a model name", agent: programManagerAgent("pm", "reliability", "remits/reliability.md"), model: "--dangerous",
+			want: []string{`agent "pm" triggers.model`, `model selector "--dangerous" must be a single model name`}},
+		{name: "not in the Codex catalog", agent: codexAgent("gpt-6-astra", "high"), model: "unlisted-family",
+			want: []string{`agent "pm (triggers.model)"`, `Codex model "unlisted-family"`, "not established"}},
+		{name: "a Codex model refusing the agent's effort", agent: codexAgent("gpt-6-astra", "ultra"), model: "gpt-6-luna",
+			want: []string{`agent "pm (triggers.model)"`, `effort "ultra"`}},
+		{name: "a kind the provider names no model for", agent: codexAgent("gpt-6-astra", "high"), model: "cheaper",
+			want: []string{`agent "pm" triggers.model is "cheaper"`, "provider codex", "names no cheaper model in execution.model_kinds"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			agent := strings.Replace(tc.agent, "      every: 1h\n", "      every: 1h\n      model: "+tc.model+"\n", 1)
+			_, err := loadProjectError(t, minimalProjectConfig+"agents:\n"+agent, map[string]string{"remits/reliability.md": laneRemit})
+			if err == nil {
+				t.Fatal("LoadResolved() error = nil, want the trigger model refused")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %v, want %q", err, want)
+				}
+			}
+		})
+	}
+}
