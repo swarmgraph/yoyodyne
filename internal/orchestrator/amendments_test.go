@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -706,9 +707,9 @@ func TestTheDeveloperContractSaysHowToProposeAChange(t *testing.T) {
 	// where a persona cannot weaken it — and repeated on a repair attempt for the
 	// same reason the rest of the contract is.
 	for name, prompt := range map[string]string{
-		"first attempt":       developerPrompt("", "", "# Assigned work item\n", "/scratch", nil),
-		"check repair":        checkRepairPrompt("", "/scratch", nil, runstate.CheckFailure{Command: "go test ./...", ExitCode: 1}, 1, 2),
-		"path refusal repair": pathRefusalRepairPrompt("", "/scratch", nil, runstate.PathRefusal{Paths: []string{"docs/designs/v1-design.md"}}, protectedpath.Protect(config.Config{}), 1, 2),
+		"first attempt":       developerPrompt("", "", "# Assigned work item\n", "/scratch", nil, gitworktree.DiffLimits{}),
+		"check repair":        checkRepairPrompt("", "/scratch", nil, gitworktree.DiffLimits{}, runstate.CheckFailure{Command: "go test ./...", ExitCode: 1}, 1, 2),
+		"path refusal repair": pathRefusalRepairPrompt("", "/scratch", nil, gitworktree.DiffLimits{}, runstate.PathRefusal{Paths: []string{"docs/designs/v1-design.md"}}, protectedpath.Protect(config.Config{}), 1, 2),
 	} {
 		for _, required := range []string{
 			amendment.Fence,

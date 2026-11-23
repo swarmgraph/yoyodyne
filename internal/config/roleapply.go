@@ -41,6 +41,10 @@ var roleApplicableKeys = []string{
 	// How long an agent's turns and calls may take changes how work is done and
 	// never what the agent may do; every value is held to its range on load.
 	"agents.*.time_limits",
+	// The limits on the reviewer's copy of a change change how large a change
+	// may be and never who reviews it; each is held to the bounds
+	// internal/gitworktree keeps, on load (docs/decisions/review-size-limits.md).
+	"review_limits",
 }
 
 // operatorKeyReasons says why a key that is never a role's is the operator's,

@@ -2836,6 +2836,60 @@ project that declares the checks it was written against; a project with checks
 of its own is asked for the record on every change, which is the stricter of the
 two answers and the one that costs nothing to be wrong about.
 
+### How large a change the reviewer is shown
+
+The reviewer is shown a copy of the change held to three limits, and the size
+check in front of the checks measures the change against the same three, so a
+change the check lets through is the change the reviewer is shown whole
+([work](work.md) says what each does). The developer is told the same three
+numbers when its run starts. A project sets them under
+`review_limits`; each one left out keeps its default:
+
+```yaml
+review_limits:
+  diff_kib: 192   # the whole patch, in KiB
+  file_kib: 96    # one uncommitted new file, in KiB
+  files: 300      # how many new files are rendered one by one
+```
+
+| Key | Default | Lowest | Highest |
+| --- | --- | --- | --- |
+| `review_limits.diff_kib` | 256 | 64 | 256, held there for now (see below) |
+| `review_limits.file_kib` | 64 | 16 | 128 |
+| `review_limits.files` | 200 | 50 | 400 |
+
+The bounds are held in the harness's code, beside the limits
+(`internal/gitworktree/reviewlimits.go`), and no configuration moves them. A
+value outside its bound, or written as zero, is refused as the configuration
+loads, naming the limit and the bound, so a change to the file carrying one
+fails `yoyo config validate` and is never run under.
+
+Everything one review is shown together is held to 768 KiB, and that limit is
+fixed. The ruling on these limits lets the diff limit go as high as 512 KiB,
+but only as far as the rest of the review evidence still fits whole beside it:
+the item and the intent it serves, the reviewer's contract and persona, the
+invariants, the check results, the developer's summaries, and the record of MCP
+calls. In this repository it does not fit even at the 256 KiB default. That
+evidence measures about 516 KiB, most of it the work item context at its own
+256 KiB limit, which leaves room for a one-file diff of about 250 KiB. A change
+made of many small files is shown with a status listing, a diff stat and a file
+listing that add about half a byte for each byte of patch and have no limit of
+their own, which leaves room for only about 173 KiB. So the diff limit is held
+to the 256 KiB default at most: a project can lower it, and can raise the other
+two, but cannot make a review larger than every review already is. A review
+that does not fit is stopped before the reviewer is asked, as it was before
+these limits could be set. Which of the ruling's figures gives way is waiting
+on the architect. A test in `internal/review` rebuilds that evidence, reports
+both figures, and fails if the diff limit's highest value is raised above the
+default while they do not fit.
+
+The limits are the project's, never one run's. Nothing gives a single run
+larger limits, and a change to them applies to runs that start after it lands;
+a run the size check stopped can then be run again under the new limits. They
+are among the values the development manager may apply under
+[section 6 of the portable agent configuration design](designs/portable-agent-configuration.md#6-values-the-harness-recommends-applied-by-a-role),
+by the same reviewed change to this file.
+
 ### What a check leaves running
 
 Every command the harness runs is the leader of a process group of its own, and

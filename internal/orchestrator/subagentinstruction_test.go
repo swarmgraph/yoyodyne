@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -221,7 +222,7 @@ func TestTheSubagentInstructionFollowsThePersona(t *testing.T) {
 	t.Parallel()
 
 	instruction := instructionOf(t)
-	prompt := developerPrompt(instructionTestPersona, "", "# Work item\n\nthe item\n", "/scratch", []string{"make test"})
+	prompt := developerPrompt(instructionTestPersona, "", "# Work item\n\nthe item\n", "/scratch", []string{"make test"}, gitworktree.DiffLimits{})
 	instructed := withSubagentInstruction(prompt, instructionTestPersona, instruction)
 	persona := strings.Index(instructed, "Prefer the smallest change")
 	at := strings.Index(instructed, instruction)
@@ -248,7 +249,7 @@ func TestAPromptQuotingTheSubagentInstructionIsStillGivenIt(t *testing.T) {
 
 	instruction := instructionOf(t)
 	bundle := "# Work item\n\n## Referenced file: internal/orchestrator/developer-sub-agents.md\n\n" + instruction + "\n"
-	prompt := developerPrompt(instructionTestPersona, "", bundle, "/scratch", []string{"make test"})
+	prompt := developerPrompt(instructionTestPersona, "", bundle, "/scratch", []string{"make test"}, gitworktree.DiffLimits{})
 	instructed := withSubagentInstruction(prompt, instructionTestPersona, instruction)
 	section := personaSection(instructionTestPersona)
 	if !strings.Contains(instructed, section+instruction+"\n\n") {
@@ -474,7 +475,7 @@ func TestARunMovedToAnotherSlotKeepsTheNoteOfTheInstruction(t *testing.T) {
 
 			run := &activeRun{pipeline: *pipeline, state: taken}
 			run.worktree.Path = repository
-			if _, err := run.attemptDevelopment(ctx, developerPrompt(instructionTestPersona, "", "# Work item\n", "/scratch", nil), ""); err != nil {
+			if _, err := run.attemptDevelopment(ctx, developerPrompt(instructionTestPersona, "", "# Work item\n", "/scratch", nil, gitworktree.DiffLimits{}), ""); err != nil {
 				t.Fatalf("attemptDevelopment() error = %v", err)
 			}
 			requests := provider.RequestsForRole(domain.RoleDeveloper)

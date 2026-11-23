@@ -85,7 +85,7 @@ func (a *activeRun) handUpToDateConflict(ctx context.Context, cause error) error
 		return errors.Join(cause, err)
 	}
 	conflict := *a.state.ReplayConflict
-	return a.develop(ctx, upToDateConflictPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, conflict, a.state.UpToDateConflicts), a.state.ProviderSessionID)
+	return a.develop(ctx, upToDateConflictPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), conflict, a.state.UpToDateConflicts), a.state.ProviderSessionID)
 }
 
 // blockOnUpToDateConflicts ends a run whose change conflicted again once its
@@ -168,8 +168,8 @@ func personMergeInProgress(current publish.PullRequest, number int) string {
 
 // upToDateConflictPrompt is the conflict handed to the developer while its
 // waiting pull request is brought up to date.
-func upToDateConflictPrompt(invariants, scratchDirectory string, checks []string, conflict runstate.ReplayConflict, round int) string {
-	return replayConflictPrompt(invariants, scratchDirectory, checks, conflict, "# Integration conflict: bring your waiting pull request up to date\n\n",
+func upToDateConflictPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, conflict runstate.ReplayConflict, round int) string {
+	return replayConflictPrompt(invariants, scratchDirectory, checks, limits, conflict, "# Integration conflict: bring your waiting pull request up to date\n\n",
 		fmt.Sprintf("Your pull request was waiting for a person to merge it when other contributors' work landed on the target. This is conflict round %d of %d for bringing it up to date; these rounds are not counted against your repair attempts.",
 			round, runstate.MaxUpToDateConflicts))
 }

@@ -35,6 +35,7 @@ type configDocument struct {
 	Conversation *conversationDocument `yaml:"conversation"`
 	Research     *researchDocument     `yaml:"research"`
 	OutsideFiles *outsideFilesDocument `yaml:"outside_files"`
+	ReviewLimits *reviewLimitsDocument `yaml:"review_limits"`
 	// MCP replaces an inherited section entirely rather than merging into it, for
 	// the reason the accounts mapping does: which programs the harness runs and
 	// which addresses it reaches on a role's behalf is one statement, and a server
@@ -256,6 +257,15 @@ type outsideFilesDocument struct {
 	// sources do.
 	Hosts    *[]string `yaml:"hosts"`
 	MaxBytes *int64    `yaml:"max_bytes"`
+}
+
+// reviewLimitsDocument is absent from every file written before a project
+// could set the limits on the reviewer's copy of a change, which leaves those
+// projects at the defaults. Each limit overrides an inherited one on its own.
+type reviewLimitsDocument struct {
+	DiffKiB *int `yaml:"diff_kib"`
+	FileKiB *int `yaml:"file_kib"`
+	Files   *int `yaml:"files"`
 }
 
 type approvalsDocument struct {

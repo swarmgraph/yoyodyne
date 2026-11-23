@@ -1722,7 +1722,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		}
 		return run.fail(err, failureStatus(ctx, err))
 	}
-	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), liftSection(run.state)+run.context, run.scratch, p.Config.Checks), p.Config.Install), ""); err != nil {
+	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), liftSection(run.state)+run.context, run.scratch, p.Config.Checks, p.reviewDiffLimits()), p.Config.Install), ""); err != nil {
 		return run.stop(ctx, err)
 	}
 	return run.verifyReviewAndFinish(ctx)
@@ -2498,7 +2498,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// counted against the budget, so it is re-run rather than re-counted, with
 	// the same session and the same repair input it was given.
 	if state.Phase == runstate.PhaseDeveloping {
-		prompt, err := resumedDeveloperPrompt(state, p.developer().Persona.Text, run.deliveredInvariants().Text(), bundle.Text, run.scratch, p.Config.Checks,
+		prompt, err := resumedDeveloperPrompt(state, p.developer().Persona.Text, run.deliveredInvariants().Text(), bundle.Text, run.scratch, p.Config.Checks, p.reviewDiffLimits(),
 			protectedpath.Protect(p.Config, p.Worktrees.CurrentExports()...), run.repairBudget())
 		if err != nil {
 			return run.fail(err, runstate.StatusFailed)
@@ -2545,28 +2545,28 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 // against it. It is answered first because it is the only input decided after
 // every gate has passed, and every gate that decides another one clears it, so a
 // run still carrying one carries the most recent trigger there is.
-func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, scratchDirectory string, checks []string, protected protectedpath.Set, limit int) (string, error) {
+func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, protected protectedpath.Set, limit int) (string, error) {
 	switch {
 	case state.ReplayConflict != nil && state.ReplayConflict.Reconciliation:
-		return replayConflictReconcilePrompt(invariants, scratchDirectory, checks, *state.ReplayConflict), nil
+		return replayConflictReconcilePrompt(invariants, scratchDirectory, checks, limits, *state.ReplayConflict), nil
 	case state.ReplayConflict != nil && state.BringingPersonMergeUpToDate() && state.UpToDateConflicts > 0:
-		return upToDateConflictPrompt(invariants, scratchDirectory, checks, *state.ReplayConflict, state.UpToDateConflicts), nil
+		return upToDateConflictPrompt(invariants, scratchDirectory, checks, limits, *state.ReplayConflict, state.UpToDateConflicts), nil
 	case state.ReplayConflict != nil:
-		return replayConflictRepairPrompt(invariants, scratchDirectory, checks, *state.ReplayConflict, state.RepairAttempts, limit), nil
+		return replayConflictRepairPrompt(invariants, scratchDirectory, checks, limits, *state.ReplayConflict, state.RepairAttempts, limit), nil
 	case state.PathRefusal != nil:
-		return pathRefusalRepairPrompt(invariants, scratchDirectory, checks, *state.PathRefusal, protected, state.RepairAttempts, limit), nil
+		return pathRefusalRepairPrompt(invariants, scratchDirectory, checks, limits, *state.PathRefusal, protected, state.RepairAttempts, limit), nil
 	case state.ReviewBoundRefusal != nil:
-		return reviewBoundRepairPrompt(invariants, scratchDirectory, checks, *state.ReviewBoundRefusal, state.RepairAttempts, limit), nil
+		return reviewBoundRepairPrompt(invariants, scratchDirectory, checks, limits, *state.ReviewBoundRefusal, state.RepairAttempts, limit), nil
 	case owesVerification(state):
-		return verificationRepairPrompt(invariants, scratchDirectory, *state.Verification, checks, state.RepairAttempts, limit), nil
+		return verificationRepairPrompt(invariants, scratchDirectory, *state.Verification, checks, limits, state.RepairAttempts, limit), nil
 	case state.CheckFailure != nil:
-		return checkRepairPrompt(invariants, scratchDirectory, checks, *state.CheckFailure, state.RepairAttempts, limit), nil
+		return checkRepairPrompt(invariants, scratchDirectory, checks, limits, *state.CheckFailure, state.RepairAttempts, limit), nil
 	case len(state.ReviewFindingDetails) > 0:
-		return repairPrompt(invariants, state.ReviewSummary, scratchDirectory, checks, state.ReviewFindingDetails, state.RepairAttempts, limit)
+		return repairPrompt(invariants, state.ReviewSummary, scratchDirectory, checks, limits, state.ReviewFindingDetails, state.RepairAttempts, limit)
 	case state.ForgeFeedback != nil:
-		return forgeFeedbackRepairPrompt(invariants, scratchDirectory, checks, *state.ForgeFeedback, state.RepairAttempts, limit), nil
+		return forgeFeedbackRepairPrompt(invariants, scratchDirectory, checks, limits, *state.ForgeFeedback, state.RepairAttempts, limit), nil
 	default:
-		return developerPrompt(persona, invariants, liftSection(state)+bundle, scratchDirectory, checks), nil
+		return developerPrompt(persona, invariants, liftSection(state)+bundle, scratchDirectory, checks, limits), nil
 	}
 }
 
@@ -3715,7 +3715,7 @@ func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (
 	if err := a.moveOntoTargetForRepair(ctx); err != nil {
 		return false, errors.Join(cause, err)
 	}
-	if err := a.repair(ctx, replayConflictRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.ReplayConflict, a.state.RepairAttempts+1, limit)); err != nil {
+	if err := a.repair(ctx, replayConflictRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.ReplayConflict, a.state.RepairAttempts+1, limit)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -3745,7 +3745,7 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save the reconciliation attempt: %w", err)
 	}
-	return a.develop(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, conflict), a.state.ProviderSessionID)
+	return a.develop(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), conflict), a.state.ProviderSessionID)
 }
 
 // moveOntoTargetForRepair puts the run's change onto the target with the
@@ -3989,7 +3989,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 					return a.replayStopEnds(chargeErr, err.Error())
 				}
 				a.observeCheckEnded(ctx, err, stillRepairable)
-				if err := a.repair(ctx, reviewBoundRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.ReviewBoundRefusal, a.state.RepairAttempts+1, limit)); err != nil {
+				if err := a.repair(ctx, reviewBoundRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.ReviewBoundRefusal, a.state.RepairAttempts+1, limit)); err != nil {
 					return err
 				}
 				continue
@@ -4024,7 +4024,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 				// the next state: the gate has to have left the check before the
 				// developer's own state can be entered again.
 				a.observeCheckEnded(ctx, err, stillRepairable)
-				if err := a.repair(ctx, pathRefusalRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, refused.refusal, refused.set, a.state.RepairAttempts+1, limit)); err != nil {
+				if err := a.repair(ctx, pathRefusalRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), refused.refusal, refused.set, a.state.RepairAttempts+1, limit)); err != nil {
 					return err
 				}
 				continue
@@ -4047,7 +4047,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 				}
 				a.observeCheckEnded(ctx, err, stillRepairable)
 				if err := a.repair(ctx, verificationRepairPrompt(a.deliveredInvariants().Text(), a.scratch,
-					missing.verification, a.pipeline.Config.Checks, a.state.RepairAttempts+1, limit)); err != nil {
+					missing.verification, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), a.state.RepairAttempts+1, limit)); err != nil {
 					return err
 				}
 				continue
@@ -4070,7 +4070,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			}
 			a.observeCheckEnded(ctx, err, stillRepairable)
 			a.moveToStronger("its checks failed (" + a.state.CheckFailure.Command + ")")
-			if err := a.repair(ctx, checkRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.CheckFailure, a.state.RepairAttempts+1, limit)); err != nil {
+			if err := a.repair(ctx, checkRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.CheckFailure, a.state.RepairAttempts+1, limit)); err != nil {
 				return err
 			}
 			continue
@@ -4115,7 +4115,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			return a.replayStopEnds(chargeErr, "independent review requires repair: "+a.state.ReviewSummary)
 		}
 		a.observeReviewEnded(ctx, decision, nil, stillRepairable)
-		prompt, err := repairPrompt(a.deliveredInvariants().Text(), a.state.ReviewSummary, a.scratch, a.pipeline.Config.Checks, a.state.ReviewFindingDetails, a.state.RepairAttempts+1, limit)
+		prompt, err := repairPrompt(a.deliveredInvariants().Text(), a.state.ReviewSummary, a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), a.state.ReviewFindingDetails, a.state.RepairAttempts+1, limit)
 		if err != nil {
 			return err
 		}
@@ -4219,7 +4219,7 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 	}
 	a.observeCheckEnded(ctx, err, stillRepairable)
 	a.moveToStronger("its checks failed over the whole module (" + a.state.CheckFailure.Command + ")")
-	if err := a.repair(ctx, checkRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.CheckFailure, a.state.RepairAttempts+1, limit)); err != nil {
+	if err := a.repair(ctx, checkRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.CheckFailure, a.state.RepairAttempts+1, limit)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -5114,7 +5114,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 					if background, outlived := outlivedReply(providerResult); outlived {
 						if !sentBackForBackground {
 							sentBackForBackground = true
-							prompt = a.openWithDeveloperRefusals(backgroundWorkPrompt(a.deliveredInvariants().Text(), a.scratch, background, a.pipeline.Config.Checks) + mcpUnreadyNote)
+							prompt = a.openWithDeveloperRefusals(backgroundWorkPrompt(a.deliveredInvariants().Text(), a.scratch, background, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits()) + mcpUnreadyNote)
 							a.sendBackForBackgroundWork(ctx, background)
 							continue
 						}
@@ -5164,7 +5164,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 						reasked = true
 					}
 					sessionID = a.carrySession(providerResult.SessionID, sessionID)
-					prompt = a.openWithDeveloperRefusals(backgroundWorkPrompt(a.deliveredInvariants().Text(), a.scratch, background, a.pipeline.Config.Checks))
+					prompt = a.openWithDeveloperRefusals(backgroundWorkPrompt(a.deliveredInvariants().Text(), a.scratch, background, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits()))
 					a.sendBackForBackgroundWork(ctx, background)
 					continue
 				}
@@ -5178,7 +5178,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 					// account it asks for is exactly where a developer would say it had
 					// raised a proposal — so what the interim reply proposed and the
 					// harness refused opens this prompt too.
-					prompt = a.openWithDeveloperRefusals(accountPrompt(a.deliveredInvariants().Text(), a.scratch, unaccounted.reason, a.pipeline.Config.Checks))
+					prompt = a.openWithDeveloperRefusals(accountPrompt(a.deliveredInvariants().Text(), a.scratch, unaccounted.reason, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits()))
 					a.observe(ctx, deliveryDevelop, "reissued")
 					continue
 				}
@@ -10237,7 +10237,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	if err := p.Store.Save(a.state); err != nil {
 		return "", providerEvidence{}, fmt.Errorf("save reviewing run state: %w", err)
 	}
-	changes, err := p.Worktrees.UnifiedChanges(ctx, a.worktree, gitworktree.DiffLimits{})
+	changes, err := p.Worktrees.UnifiedChanges(ctx, a.worktree, p.reviewDiffLimits())
 	if err != nil {
 		return "", providerEvidence{}, fmt.Errorf("assemble reviewed change: %w", err)
 	}
@@ -11051,7 +11051,7 @@ const selfCheckContractPlaceholder = "{{self-check-contract}}"
 // run's scratch directory named in it. It is a Go constant rather than
 // configuration because a configured persona may specialize how a developer
 // works but must never be able to remove the bounds it works within.
-func developerContract(scratchDirectory string, checks []string) string {
+func developerContract(scratchDirectory string, checks []string, limits gitworktree.DiffLimits) string {
 	contract := strings.ReplaceAll(developerContractTemplate, scratchDirectoryPlaceholder, scratchDirectory)
 	// The self-verification section is built rather than written into the
 	// template above, because it names this project's own declared checks: a
@@ -11059,7 +11059,7 @@ func developerContract(scratchDirectory string, checks []string) string {
 	// would be asking for something nobody can run.
 	// The size limits follow it, because they are the other thing the developer
 	// verifies before submitting (reviewBoundContract).
-	return strings.ReplaceAll(contract, selfCheckContractPlaceholder, selfcheck.Contract(checks)+"\n\n"+reviewBoundContract()) + "\n\n" + toolcatalog.RunContract(domain.RoleDeveloper)
+	return strings.ReplaceAll(contract, selfCheckContractPlaceholder, selfcheck.Contract(checks)+"\n\n"+reviewBoundContract(limits)) + "\n\n" + toolcatalog.RunContract(domain.RoleDeveloper)
 }
 
 const developerContractTemplate = `You are the developer for one bounded Yoyodyne work item.
@@ -11113,9 +11113,9 @@ A proposal is not a report and not a work item. A report says what somebody shou
 // developerPrompt places the immutable contract first, the configured persona
 // second as guidance subordinate to it, then the architectural invariants that
 // constrain the change, and the work item context last.
-func developerPrompt(persona, invariants, bundle, scratchDirectory string, checks []string) string {
+func developerPrompt(persona, invariants, bundle, scratchDirectory string, checks []string, limits gitworktree.DiffLimits) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(personaSection(persona))
 	prompt.WriteString(deliveredInvariantSection(invariants))
@@ -11152,13 +11152,13 @@ func deliveredInvariantSection(invariants string) string {
 // between the reviewer and the developer that must act on it. The harness
 // contract is repeated because it bounds the attempt whether or not the provider
 // actually restored the session it was asked to resume.
-func repairPrompt(invariants, summary, scratchDirectory string, checks []string, findings []runstate.Finding, attempt, limit int) (string, error) {
+func repairPrompt(invariants, summary, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, findings []runstate.Finding, attempt, limit int) (string, error) {
 	encoded, err := json.MarshalIndent(findings, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("encode review findings for repair attempt %d: %w", attempt, err)
 	}
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Independent review: repair required\n\n")
@@ -11209,9 +11209,9 @@ func freshSessionRepairPrompt(repair, persona, bundle string, state runstate.Sta
 // to ask instead of quietly reaching for it again. The harness contract is
 // repeated for the reason both other repair prompts repeat it: it bounds the
 // attempt whether or not the provider actually restored the session.
-func pathRefusalRepairPrompt(invariants, scratchDirectory string, checks []string, refusal runstate.PathRefusal, protected protectedpath.Set, attempt, limit int) string {
+func pathRefusalRepairPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, refusal runstate.PathRefusal, protected protectedpath.Set, attempt, limit int) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Protected paths: repair required\n\n")
@@ -11265,9 +11265,9 @@ func pathRefusalRepairPrompt(invariants, scratchDirectory string, checks []strin
 // The harness contract is repeated for the same reason the review repair repeats
 // it: it bounds the attempt whether or not the provider actually restored the
 // session it was asked to resume.
-func checkRepairPrompt(invariants, scratchDirectory string, checks []string, failure runstate.CheckFailure, attempt, limit int) string {
+func checkRepairPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, failure runstate.CheckFailure, attempt, limit int) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Failing check: repair required\n\n")
@@ -11332,22 +11332,22 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, fai
 // half-applied waiting to be continued, and what is being asked for is a
 // judgement: two changes to the same lines, one of which this developer wrote,
 // reconciled into something that does the work the item asked for.
-func replayConflictRepairPrompt(invariants, scratchDirectory string, checks []string, conflict runstate.ReplayConflict, attempt, limit int) string {
-	return replayConflictPrompt(invariants, scratchDirectory, checks, conflict, "# Integration conflict: repair required\n\n",
+func replayConflictRepairPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, conflict runstate.ReplayConflict, attempt, limit int) string {
+	return replayConflictPrompt(invariants, scratchDirectory, checks, limits, conflict, "# Integration conflict: repair required\n\n",
 		fmt.Sprintf("This is repair attempt %d of %d.", attempt, limit))
 }
 
 // replayConflictReconcilePrompt is the same hand-back made as the run's one
 // reconciliation attempt (activeRun.reconcile), which the developer is told is
 // not one of its repair attempts and will not be offered twice.
-func replayConflictReconcilePrompt(invariants, scratchDirectory string, checks []string, conflict runstate.ReplayConflict) string {
-	return replayConflictPrompt(invariants, scratchDirectory, checks, conflict, "# Integration conflict: bring the change level with the target\n\n",
+func replayConflictReconcilePrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, conflict runstate.ReplayConflict) string {
+	return replayConflictPrompt(invariants, scratchDirectory, checks, limits, conflict, "# Integration conflict: bring the change level with the target\n\n",
 		"This is the run's one attempt to bring your approved change level with the target branch; it is not counted against your repair attempts, and a second conflict after it is not given another one of these.")
 }
 
-func replayConflictPrompt(invariants, scratchDirectory string, checks []string, conflict runstate.ReplayConflict, heading, attempt string) string {
+func replayConflictPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, conflict runstate.ReplayConflict, heading, attempt string) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString(heading)
@@ -11375,9 +11375,9 @@ func replayConflictPrompt(invariants, scratchDirectory string, checks []string, 
 	return prompt.String()
 }
 
-func accountPrompt(invariants, scratchDirectory, reason string, checks []string) string {
+func accountPrompt(invariants, scratchDirectory, reason string, checks []string, limits gitworktree.DiffLimits) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Your reply did not account for the work\n\n")

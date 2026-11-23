@@ -24,8 +24,10 @@ import (
 
 // MaxReviewInputBytes bounds the system contract and evidence handed to a
 // reviewer. The change diff and work item context are each bounded upstream;
-// this is the backstop that keeps their sum bounded too.
-const MaxReviewInputBytes = 768 << 10
+// this is the backstop that keeps their sum bounded too. It is fixed, and held
+// in internal/gitworktree beside the limits a project may set on the diff, so
+// the highest diff limit can be derived from it (reviewlimits.go there).
+const MaxReviewInputBytes = gitworktree.MaxReviewInputBytes
 
 // maxCheckOutputBytes bounds how much of each stream of a check's output is
 // quoted into the review input. Check output is unbounded in principle, and the

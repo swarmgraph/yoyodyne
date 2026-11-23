@@ -15,16 +15,29 @@ import (
 // itself bounded.
 const maxReviewBoundFilesNamed = 20
 
+// reviewDiffLimits is the limits on the reviewer's copy of a change, as the
+// project's configuration sets them (review_limits). The size check below, the
+// rendering a review is shown, and the limits the developer's contract states
+// all read them from here, so a change the check lets through is the change the
+// reviewer is shown whole, and the numbers the developer is told are the ones it
+// is held to. They are the
+// project's and never a run's: nothing in a run's own state changes them, and a
+// run reads them from the configuration it runs under.
+func (p Pipeline) reviewDiffLimits() gitworktree.DiffLimits {
+	return p.Config.ReviewLimits.DiffLimits()
+}
+
 // gateReviewBound measures the change the way the reviewer's copy of it is
 // rendered, before any check is run on it, and refuses one whose source or test
 // files that copy would keep out.
 //
 // Such a change cannot be approved: a source or test file the patch does not
 // show refuses an approval whatever the reviewer thinks of the rest, and the
-// bound is the harness's, so no review round changes it; only a smaller change
-// does, which is why the first refusal goes back to the developer once
-// (repairLoop). The bound is measured here, not found after the checks have
-// passed and a review round has been spent on a change that could not land. Measuring it costs one rendering of the
+// bound is the project's, not the run's, so no review round changes it; only a
+// smaller change does, which is why the first refusal goes back to the
+// developer once (repairLoop). The bound is measured here, not found after the
+// checks have passed and a review round has been spent on a change that could
+// not land. Measuring it costs one rendering of the
 // diff, which is the reading the protected-path gate in front of it already
 // makes of the same worktree.
 //
@@ -40,7 +53,7 @@ func (a *activeRun) gateReviewBound(ctx context.Context) error {
 	if a.state.Document != nil {
 		return nil
 	}
-	changes, err := p.Worktrees.UnifiedChanges(ctx, a.worktree, gitworktree.DiffLimits{})
+	changes, err := p.Worktrees.UnifiedChanges(ctx, a.worktree, p.reviewDiffLimits())
 	if err != nil {
 		return fmt.Errorf("measure the change against the review bound: %w", err)
 	}
@@ -191,9 +204,9 @@ func (a *activeRun) recordReviewBoundRefusal(refused reviewBoundRefusal) {
 // change fit starts from, and it says that a second refusal stops the run, so a
 // developer that cannot make the change smaller says so rather than trying
 // again.
-func reviewBoundRepairPrompt(invariants, scratchDirectory string, checks []string, refusal runstate.ReviewBoundRefusal, attempt, limit int) string {
+func reviewBoundRepairPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, refusal runstate.ReviewBoundRefusal, attempt, limit int) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Too large to review: repair required\n\n")
@@ -212,10 +225,12 @@ func reviewBoundRepairPrompt(invariants, scratchDirectory string, checks []strin
 // reviewBoundContract is the section of the developer's contract that states
 // the size limits the run is held to, beside what the developer verifies before
 // submitting. It is built from the limits the reviewer's copy is rendered with,
-// so the numbers the developer is told are the ones the size check compares.
-func reviewBoundContract() string {
+// the project's review_limits as reviewDiffLimits reads them, so the numbers the
+// developer is told are the ones the size check compares.
+func reviewBoundContract(limits gitworktree.DiffLimits) string {
+	resolved := limits.Resolved()
 	return fmt.Sprintf(`# How large a change the reviewer can be shown
 
 Before any check runs, the harness measures your change the way the reviewer's copy of it is rendered. Every source and test file has to fit in that copy whole. The limits are: %d KiB of diff for the whole change; %d KiB for one new file; and %d new files. A change that would keep a source or test file out of the copy is refused before it is checked or reviewed. Test data and generated files — under a testdata or fixtures directory, golden files, lock files, files marked as generated — are not held to them. The first refusal on a run is handed back to you, with each file kept out and its size, and spends one repair attempt; a second refusal stops the run and goes to the development manager. Keep generated and vendored files out of the change, and check its size before you hand it over.`,
-		gitworktree.DefaultMaxDiffBytes>>10, gitworktree.DefaultMaxDiffFileBytes>>10, gitworktree.DefaultMaxDiffFiles)
+		resolved.MaxTotalBytes>>10, resolved.MaxFileBytes>>10, resolved.MaxFiles)
 }
