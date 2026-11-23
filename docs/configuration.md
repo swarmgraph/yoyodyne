@@ -7660,7 +7660,7 @@ target is still at the commit the candidate was built on. If the target has
 moved, no merge is asked for: the candidate is built again on the target as it
 stands and earns its checks and review again, and no repair attempt is spent.
 GitHub refusing the merge because the pull request is not up to date with the
-target is treated the same way. Just before asking, the queue also asks GitHub
+target, or because the target moved during the merge, is treated the same way. Just before asking, the queue also asks GitHub
 whether it would merge the pull request now; while it would not yet — a
 required check still running, or GitHub still working out whether the pull
 request can merge — or while its answer cannot be read, nothing is asked for,
@@ -7935,7 +7935,8 @@ candidate's own event stream under the product's merge queues.
 the dashboard has a section for them, both from the shared read model: each
 entry in the order it is worked, named by its work item's identifier and title,
 with its queue mode, where it stands — waiting, verifying, failed, waiting on the
-target, verified, landing, held by the forge, uncertain, landed, handed back, or
+target, verified, landing, waiting for GitHub to be ready to merge it, held by
+the forge, uncertain, landed, handed back, or
 released — and why, and what the queue's last pass found. Only a landing the
 queue confirmed on the target reads as landed: an approval, or a candidate that
 passed its gate, never does, and a merge asked of the target or the forge whose
@@ -7953,7 +7954,8 @@ execution:
 
 Past it, the entry is on the attention line, in the problems list, and in the
 factory health check as a `merge-queue-overdue` entry naming what it waits on.
-A merge GitHub holds whose required checks all ended with one not passing,
+A merge GitHub holds, or a candidate it is not ready to merge, whose required
+checks all ended with one not passing,
 cancelled included, is shown so at once, whatever the bound, because GitHub
 will not make it by itself. Only the entry the queue is working, or the head of
 the queue waiting for its candidate, is judged: the changes behind it wait on

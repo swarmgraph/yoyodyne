@@ -239,26 +239,29 @@ type MergeRefused struct {
 	// about the change, and the refusal names the setting
 	// (MergeQueueRequiredRemedy).
 	QueueRequired bool
-	// Behind says the forge refused because the pull request is not up to date
-	// with its base branch: the base moved after the head was built.
+	// Behind says the forge refused because the base branch moved: the pull
+	// request is not up to date with it, or it moved during the merge itself.
 	Behind bool
 }
 
-// MergeBehind reports a merge the forge refused because the pull request is
-// not up to date with its base branch, wherever in err the refusal is wrapped.
+// MergeBehind reports a merge the forge refused because the base branch moved
+// (MergeRefused.Behind), wherever in err the refusal is wrapped.
 func MergeBehind(err error) bool {
 	var refused MergeRefused
 	return errors.As(err, &refused) && refused.Behind
 }
 
-// notUpToDate recognizes a refusal for a head behind its base, from the merge
-// state the forge reports or, where that could not be read, from its words.
+// notUpToDate recognizes a refusal for a base branch that moved, from the merge
+// state the forge reports or from its words. GitHub answers a base that moved
+// while it was merging with "Base branch was modified", and its merge state
+// just afterwards is commonly UNKNOWN.
 func notUpToDate(status, reason string) bool {
 	if strings.EqualFold(strings.TrimSpace(status), "BEHIND") {
 		return true
 	}
 	normalized := strings.ToLower(reason)
-	return strings.Contains(normalized, "not up to date") ||
+	return strings.Contains(normalized, "base branch was modified") ||
+		strings.Contains(normalized, "not up to date") ||
 		strings.Contains(normalized, "out of date") ||
 		strings.Contains(normalized, "out-of-date")
 }

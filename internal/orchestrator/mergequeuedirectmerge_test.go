@@ -355,3 +355,53 @@ func TestAnUnreadableMergeStateAsksForNoMergeAndTheNextPassLandsTheCandidate(t *
 		})
 	}
 }
+
+// A merge GitHub never answered, and GitHub then not ready to make it, is taken
+// up by the passes after: it lands once GitHub is ready, and is withdrawn past
+// the limit where it never is.
+func TestAMergeGitHubNeverAnsweredAndThenWouldNotMakeIsTakenUpAgain(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{"BLOCKED", "UNKNOWN", ""} {
+		for _, lands := range []bool{true, false} {
+			name := nonEmpty(state, "unread") + " then withdrawn"
+			if lands {
+				name = nonEmpty(state, "unread") + " then landed"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				f, outage, clock, generation := gitHubOutageFixture(t)
+				f.forge.MergeStatus = "CLEAN"
+				f.promoter.Mergeable = f.forge.Forge
+				repair := &recordingRepair{}
+				f.promoter.Repair = repair
+				f.promoter.Withdrawer = &withdrawingForge{forge: f.forge.Forge}
+				outage.set("merge", 1)
+				f.assertWaitingForGitHub(1)
+
+				f.forge.MergeStatus = state
+				clock.advance(time.Hour)
+				for range 2 {
+					waiting, err := f.promote()
+					if err != nil || !waiting.NotMergeable || waiting.Waiting == "" || waiting.ForgeHeldSince == nil || waiting.Unresolved != "" || waiting.Landed {
+						t.Fatalf("Promote() = %#v, %v; want it waiting for GitHub to be ready, within the limits", waiting, err)
+					}
+				}
+				if lands {
+					f.forge.MergeStatus = "CLEAN"
+					if landed, err := f.promote(); err != nil || !landed.Landed || !landed.Completed {
+						t.Fatalf("Promote() once GitHub is ready = %#v, %v; want it landed", landed, err)
+					}
+					f.assertLandedOnce(generation)
+					return
+				}
+				if pass := f.passAt(3 * time.Hour); pass.Outcome != runstate.MergeQueuePassHandedBack || repair.count() != 1 {
+					t.Fatalf("Pass() = %#v, handed back %d; want it withdrawn past the limit", pass, repair.count())
+				}
+				if len(f.forge.MergeRequests()) != 0 {
+					t.Fatal("a merge reached GitHub, want none")
+				}
+			})
+		}
+	}
+}

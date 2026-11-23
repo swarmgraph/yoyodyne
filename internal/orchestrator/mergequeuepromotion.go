@@ -1648,7 +1648,8 @@ func (q *queuePromotion) observe(ctx context.Context, record runstate.MergeQueue
 // again here would be deciding it. The exception is a request that went
 // unanswered while the queue was waiting for GitHub on this entry
 // (mergequeuegithubwait.go): GitHub not being reachable is why, so it is asked
-// for again in place.
+// for again, a direct merge by a fresh attempt and anything else in place. A
+// merge asked for after the local target moved is asked for again in place.
 func (q *queuePromotion) notMade(ctx context.Context, last runstate.MergeQueueMutationRecord) error {
 	attempt := q.attempt()
 	interrupted := last.Settled.Observed
@@ -1662,6 +1663,21 @@ func (q *queuePromotion) notMade(ctx context.Context, last runstate.MergeQueueMu
 		return q.pushCandidate(ctx)
 	case interrupted && q.gitHubWait != nil && last.Mutation == runstate.MergeQueueOpenPullRequest:
 		return q.openPullRequest(ctx)
+	case interrupted && last.Mutation == runstate.MergeQueueRequestMerge && attempt.Path.MovesLocalTargetFirst():
+		// The local target was moved and nothing takes that back, so the merge
+		// is asked for in place, on this pass or a later one, with the limits a
+		// candidate GitHub would not merge yet has.
+		if err := q.mutateTarget(ctx, runstate.MergeQueueRequestMerge); err != nil || !q.notMergeable {
+			return err
+		}
+		return q.awaitMergeable(ctx)
+	case interrupted && q.gitHubWait != nil && last.Mutation == runstate.MergeQueueRequestMerge && attempt.Path == runstate.MergeQueueLandThroughPullRequest:
+		// Set aside before anything is read again: the wait for GitHub ends with
+		// this call whatever it meets, such as GitHub not being ready to merge
+		// yet or the session being stopped, and the fresh attempt it leaves is
+		// taken up by any later pass. It finds the candidate pushed and its pull
+		// request open.
+		return q.setAside(attempt, fmt.Sprintf("the merge asked for while GitHub could not be reached was not made (%s), so it is asked for again by a fresh attempt on the same candidate", last.Settled.Detail), false)
 	case interrupted && q.gitHubWait != nil && last.Mutation == runstate.MergeQueueRequestMerge:
 		return q.mutateTarget(ctx, runstate.MergeQueueRequestMerge)
 	case !interrupted && last.Mutation == runstate.MergeQueuePushCandidate && attempt.Requests(runstate.MergeQueuePushCandidate) == 1:

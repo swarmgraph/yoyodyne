@@ -505,6 +505,8 @@ func TestGitHubMergeDirectlyReportsAHeadBehindItsBase(t *testing.T) {
 	}{
 		{name: "state behind", stderr: "X Pull request #7 is not mergeable", state: `{"mergeStateStatus":"BEHIND"}`, behind: true},
 		{name: "words only", stderr: "GraphQL: Head branch is not up to date with the base branch (mergePullRequest)", state: "", behind: true},
+		{name: "base moved during the merge", stderr: "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)", state: `{"mergeStateStatus":"UNKNOWN"}`, behind: true},
+		{name: "base moved during the merge, state unread", stderr: "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)", state: "", behind: true},
 		{name: "checks running", stderr: "X Pull request #7 is not mergeable: the base branch policy prohibits the merge", state: `{"mergeStateStatus":"BLOCKED"}`, behind: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -103,7 +103,7 @@ func MergeQueueOverdue(queues []MergeQueueStanding) []Attention {
 // setStep names what the queue is doing with an entry now and since when,
 // from the records its state was read from. Generations is nil where the
 // landing record placed the entry, and reading is GitHub's latest account of
-// the merge it holds, where one was read.
+// the merge it holds or is not ready to make, where one was read.
 func setStep(read *QueueEntryStanding, entry runstate.MergeQueueEntry, landing runstate.MergeQueueLanding, generations []runstate.MergeQueueGeneration, reading *runstate.MergeQueueForgeReading) {
 	at := func(moment time.Time) {
 		if !moment.IsZero() {
@@ -153,10 +153,15 @@ func setStep(read *QueueEntryStanding, entry runstate.MergeQueueEntry, landing r
 			at(withdrawal.IntendedAt)
 		}
 		return
-	case QueueEntryForgeHolds:
+	case QueueEntryForgeHolds, QueueEntryAwaitsForge:
+		since := runstate.MergeQueueRequestMerge
 		read.Step = fmt.Sprintf("waiting for GitHub to merge pull request %d", attempt.PullRequest)
-		if requested, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); asked && requested.Settled != nil {
-			at(requested.Settled.At)
+		if read.State == QueueEntryAwaitsForge {
+			since = runstate.MergeQueueOpenPullRequest
+			read.Step = fmt.Sprintf("waiting for GitHub to be ready to merge pull request %d", attempt.PullRequest)
+		}
+		if settled, recorded := attempt.Mutation(since); recorded && settled.Settled != nil {
+			at(settled.Settled.At)
 		}
 		if reading != nil && reading.PullRequest == attempt.PullRequest && reading.Unread == "" && len(reading.FailedChecks) > 0 && len(reading.PendingChecks) == 0 {
 			read.forgeWontMerge = fmt.Sprintf("GitHub's required %s %s ended without passing (failed, or cancelled with nothing failed) at the reading of %s, and no required check is still running, so GitHub will not merge pull request %d until somebody runs the check again, takes the entry up again, or hands it back",
@@ -388,6 +393,8 @@ func waitingOnWords(entry QueueEntryStanding) string {
 		return "the queue's worker beginning to land it"
 	case QueueEntryForgeHolds:
 		return "GitHub merging it: " + entry.Why
+	case QueueEntryAwaitsForge:
+		return "GitHub being ready to merge it: " + entry.Why
 	case QueueEntryUncertain, QueueEntryLanding, QueueEntryRecording:
 		return entry.Why
 	}

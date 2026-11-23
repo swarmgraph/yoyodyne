@@ -118,6 +118,19 @@ func TestEachQueueStepIsShownWithTheMomentItBegan(t *testing.T) {
 	}}
 	assertStep(t, "landing", readQueueOf(t, entry, []runstate.MergeQueueGeneration{generation}, &landing, nil), "landing, attempt 1: pushing the candidate to the forge", pushed)
 
+	opened := pushed.Add(5 * time.Second)
+	landing.Attempts[0].Mutations = append(landing.Attempts[0].Mutations, runstate.MergeQueueMutationRecord{
+		Mutation: runstate.MergeQueueOpenPullRequest, RequestedAt: pushed,
+		Settled: &runstate.MergeQueueSettlement{Result: runstate.MergeQueueMutationDone, At: opened},
+	})
+	reading := runstate.MergeQueueForgeReading{PullRequest: 1697, At: opened.Add(time.Minute), WaitingOn: "the required check build", FailedChecks: []string{"build"}}
+	awaits := readQueueOf(t, entry, []runstate.MergeQueueGeneration{generation}, &landing, &reading)
+	if awaits.State != QueueEntryAwaitsForge || !strings.Contains(awaits.Why, "waiting on: the required check build") || !strings.Contains(awaits.forgeWontMerge, "required check build ended without passing") {
+		t.Fatalf("entry GitHub is not ready to merge = %#v, want GitHub's answer beside it and its failed check marked", awaits)
+	}
+	assertStep(t, "GitHub not ready", awaits, "waiting for GitHub to be ready to merge pull request 1697", opened)
+	landing.Attempts[0].Mutations = landing.Attempts[0].Mutations[:1]
+
 	queued := pushed.Add(10 * time.Second)
 	landing.Attempts[0].Mutations = append(landing.Attempts[0].Mutations, runstate.MergeQueueMutationRecord{
 		Mutation: runstate.MergeQueueRequestMerge, RequestedAt: pushed,
