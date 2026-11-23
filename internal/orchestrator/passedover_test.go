@@ -22,7 +22,7 @@ type waitingWork struct {
 	err   error
 }
 
-func (w waitingWork) Read(context.Context, domain.AgentRole) (ConversationWorkReading, error) {
+func (w waitingWork) Read(context.Context, domain.AgentRole, StandingRulings) (ConversationWorkReading, error) {
 	if w.err != nil {
 		return ConversationWorkReading{Section: "## Work waiting in your conversation\n\nunreadable"}, w.err
 	}

@@ -112,6 +112,9 @@ type PendingWrite struct {
 	// document ahead of it that the harness holds it back behind.
 	DocumentKind string `json:"document_kind,omitempty"`
 	WaitsBehind  string `json:"waits_behind,omitempty"`
+	// WaitsForRoom is a document kept until there is room among the waiting
+	// documents; see runstate.PendingWrite.WaitsForRoom and keptForRoom.
+	WaitsForRoom bool `json:"waits_for_room,omitempty"`
 }
 
 // writeRecord is one written document and whether confirmation and delivery finished
@@ -263,8 +266,9 @@ func (s *Session) Writes() []PendingWrite {
 		// A document held for sending is its owner's to release, not the
 		// operator's to decide, until the work item its hold names closes.
 		// Nor is one the harness holds back behind another copy of itself still
-		// publishing: that wait ends by itself, and nobody is asked to end it.
-		if !record.decided && record.pending.Publication == nil && !record.heldForSending() && record.pending.WaitsBehind == "" {
+		// publishing, or one kept until there is room among the waiting documents:
+		// each wait ends by itself, and nobody is asked to end it.
+		if !record.decided && record.pending.Publication == nil && !record.heldForSending() && record.pending.WaitsBehind == "" && !record.keptForRoom() {
 			pending = append(pending, record.pending)
 		}
 	}
@@ -475,6 +479,12 @@ func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]Pendi
 		if err != nil {
 			return pending, err
 		}
+		// A document written while every waiting place is taken is kept until one
+		// is settled, rather than refused (refuseWriteCount): one already waiting
+		// under this identifier holds its place for it.
+		if write.Hold == nil && !s.documentWaiting(strings.TrimSpace(write.ID)) && s.waitingWrites() >= runstate.MaxPendingWrites {
+			record.pending.WaitsForRoom = true
+		}
 		if err := s.emit(execution.EventDocumentDrafted, record.pending); err != nil {
 			return pending, fmt.Errorf("record a written document: %w", err)
 		}
@@ -497,6 +507,17 @@ func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]Pendi
 		record.unanswered = false
 	}
 	return pending, s.carryResults(answers.String())
+}
+
+// documentWaiting reports whether a revision of the document already holds a
+// waiting place.
+func (s *Session) documentWaiting(artifactID string) bool {
+	for _, record := range s.writes {
+		if !record.decided && !record.heldApart() && strings.TrimSpace(record.pending.Write.ID) == artifactID {
+			return true
+		}
+	}
+	return false
 }
 
 // ApproveWrite carries out the operator's approval of a document, under the
@@ -995,22 +1016,23 @@ func (p PendingWrite) recordedSummary() map[string]any {
 // be the one the operator was shown in an earlier one.
 func (p PendingWrite) recorded() runstate.PendingWrite {
 	return runstate.PendingWrite{
-		Publication: p.Publication,
-		Intent:      string(p.Write.Intent),
-		ID:          p.ID,
-		Turn:        p.Turn,
-		WrittenAt:   p.WrittenAt,
-		Action:      string(p.Write.Action),
-		Artifact:    strings.TrimSpace(p.Write.ID),
-		Kind:        string(p.Write.Kind),
-		Title:       strings.TrimSpace(p.Write.Title),
-		Supports:    p.Write.Supports,
-		Directory:   strings.TrimSpace(p.Write.Directory),
-		Body:        p.Write.Body,
-		Section:     strings.TrimSpace(p.Write.Section),
-		Reason:      strings.TrimSpace(p.Write.Reason),
-		Answers:     p.Write.Answers,
-		Hold:        p.Write.Hold,
+		Publication:  p.Publication,
+		Intent:       string(p.Write.Intent),
+		ID:           p.ID,
+		Turn:         p.Turn,
+		WrittenAt:    p.WrittenAt,
+		Action:       string(p.Write.Action),
+		Artifact:     strings.TrimSpace(p.Write.ID),
+		Kind:         string(p.Write.Kind),
+		Title:        strings.TrimSpace(p.Write.Title),
+		Supports:     p.Write.Supports,
+		Directory:    strings.TrimSpace(p.Write.Directory),
+		Body:         p.Write.Body,
+		Section:      strings.TrimSpace(p.Write.Section),
+		Reason:       strings.TrimSpace(p.Write.Reason),
+		Answers:      p.Write.Answers,
+		Hold:         p.Write.Hold,
+		WaitsForRoom: p.WaitsForRoom,
 		// An invariant's own fields, carried so the invariant approved later is
 		// the one written.
 		EstablishedBy: p.Write.EstablishedBy,
@@ -1034,6 +1056,7 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 		RevisedPath:    revisedPath(recorded),
 		DocumentKind:   recorded.DocumentKind,
 		WaitsBehind:    recorded.WaitsBehind,
+		WaitsForRoom:   recorded.WaitsForRoom,
 		Write: artifact.Write{
 			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),
