@@ -424,3 +424,47 @@ func TestEachWritersOwnFieldOrderIsReadWhole(t *testing.T) {
 		})
 	}
 }
+
+// An item whose notes run past 133 KB — years of older decisions recorded
+// before append boundaries were, then hundreds of notes that a pass left it —
+// is read with its newest note whole, within the 32 KiB its results may be
+// carried in, and the older excerpts are what is cut, with the cut said.
+func TestReadingAnItemWithVeryLongNotesReturnsItsNewestNoteWhole(t *testing.T) {
+	t.Parallel()
+	var legacy strings.Builder
+	for turn := range 400 {
+		fmt.Fprintf(&legacy, "Noted by the Lead Product Manager in conversation chat-1, after turn %d.\n\nReason: an older decision about the slot work, number %d.\n\n", turn, turn)
+	}
+	var passes []string
+	for pass := range 200 {
+		passes = append(passes, fmt.Sprintf("Passed over by the development manager's recurring pass development-manager-sweep#%d at 11:01 PST on November 15, 2026: this item (P0) was first of the 38 items it was handed from the work waiting in the development manager's conversation, and the pass did not take it; it took none of the others. Reason: Switching on the developer-slot pairs still waits on giving older runs their slot.", 1000+pass))
+	}
+	const newest = "Noted by the Lead Product Manager in conversation chat-1, after turn 6176.\n\nReason: Tells the development manager the reviewer fallback this item waited on has landed.\n\nAdopting the four developer-slot pairs live can go ahead when the development manager judges it ready."
+	notes := legacy.String() + framedTrackerNotes(append(passes, newest)...)
+	if len(notes) <= 133<<10 {
+		t.Fatalf("fixture is %d bytes, want more than 133 KB of notes", len(notes))
+	}
+	item := beads.WorkItem{ID: "yoyodyne-ifd.435.14.7", Title: "Adopt the developer-slot pairs", Notes: beads.PlainNotes(notes), FramedNotes: notes}
+	rendered := renderWorkItemEvidence(item, goal.Set{})
+	carried := boundText(rendered, maxPendingResultBytes)
+	if !strings.Contains(carried, newest) {
+		t.Fatalf("read of %d bytes, carried as %d, lost the newest note:\n%s", len(rendered), len(carried), carried[max(0, len(carried)-2000):])
+	}
+	if len(rendered) > maxTrackerItemBytes+maxTrackerExcerptBytes+1024 {
+		t.Errorf("read is %d bytes, want it within the item and excerpt bounds", len(rendered))
+	}
+	for _, want := range []string{"oldest excerpts", "are cut to keep this read within its bound", "after turn 399.", "are cut; treat them as unread rather than absent"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("read lacks %q", want)
+		}
+	}
+	if strings.Contains(rendered, "after turn 0.") {
+		t.Errorf("read kept the oldest excerpt while cutting newer ones")
+	}
+	// The continuous end opens on a whole note, not part way through one.
+	_, tail, _ := strings.Cut(rendered, "Continuous end of notes:\n")
+	_, tail, _ = strings.Cut(tail, "treat them as unread rather than absent]\n\n")
+	if !strings.HasPrefix(tail, "Passed over by ") && !strings.HasPrefix(tail, "Noted by ") {
+		t.Errorf("continuous end opens part way through a note: %q", tail[:min(len(tail), 120)])
+	}
+}
