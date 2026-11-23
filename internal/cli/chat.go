@@ -1126,7 +1126,15 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// authority to ask is decided in the chat package's table rather than
 		// here, and a reader nobody may ask is never asked.
 		RepositoryReader: conversationRepositoryReader(parts),
-		LogReader:        logread.Reader{StateRoot: parts.stateRoot, ProductID: parts.config.Product.ID, RedactValues: parts.redactValues},
+		// Where the architect's removal of the needs-design label looks for a
+		// design landed naming the item: the designs home at the commit HEAD names,
+		// in whichever repository the product's intent lives in.
+		LandedDesigns: chat.GitLandedDesigns{
+			Process:   parts.runner,
+			Directory: parts.config.Product.IntentRoot(parts.repository),
+			Home:      parts.config.Product.Designs,
+		},
+		LogReader: logread.Reader{StateRoot: parts.stateRoot, ProductID: parts.config.Product.ID, RedactValues: parts.redactValues},
 		// The one MCP call path, through which a role asks the harness to call
 		// a tool on its agent's own configured list. Nil where the project
 		// declares no MCP server, so the role is told nothing about MCP.

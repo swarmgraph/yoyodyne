@@ -266,9 +266,14 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // The development manager's `keep_version` records which of two machines'
 // versions of a held item stands, the design's rule that such an item is hers
 // to decide (docs/designs/working-alongside-other-contributors.md, section 5).
+//
+// The architect's `label` takes the needs-design label off an item once the
+// design it waits on is readable by its developer, and does nothing else: it is
+// the ruling of 2026-10-11 recorded in docs/designs/needs-design-gate.md, held
+// under work-item.needs-design.remove rather than the unscoped label.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
-	domain.RoleArchitect:          {"amendment"},
+	domain.RoleArchitect:          {"label", "amendment"},
 	domain.RoleDevelopmentManager: {"brake", "keep_version", "label", "queue", "team_conflict"},
 }
 

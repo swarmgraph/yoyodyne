@@ -22,6 +22,9 @@ func (s *Session) trackerTool(verb string) capability.Capability {
 	if s.authority().LaneScoped(verb) {
 		return laneCapabilities[verb]
 	}
+	if verb == actionLabel && s.authority().LabelsOnlyDesignHold {
+		return capability.WorkItemDesignHoldRemove
+	}
 	return trackerCapabilities[verb]
 }
 

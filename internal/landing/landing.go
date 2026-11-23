@@ -24,6 +24,11 @@
 // of its own because it answers the same question the other two do — what
 // becomes of the work item — and because the reviewer has the same verb, so the
 // two roles say one thing one way.
+//
+// A fourth is the developer raising that the item waits on a design question
+// that is the architect's to answer. It ends the run the same way and returns
+// the item labelled needs-design rather than parked
+// (docs/designs/needs-design-gate.md).
 package landing
 
 import (
@@ -94,9 +99,19 @@ const (
 	// exhaustion before anything reached her. Both spend runs to say what one
 	// verdict says.
 	OutcomeEscalate Outcome = "escalate"
+	// OutcomeNeedsDesign is the developer raising that the item cannot be built
+	// well until a design question is answered, and that the question is the
+	// architect's (docs/designs/needs-design-gate.md). Like an escalation it ends
+	// the run in the round it was raised, integrates nothing, and spends no
+	// repair attempt; unlike one it is not a decision for the development
+	// manager. The item goes back open, labelled needs-design with the
+	// developer's question in its notes, and the label holds it from every start
+	// the harness chooses until the architect's design is readable. Why is the
+	// question.
+	OutcomeNeedsDesign Outcome = "needs-design"
 )
 
-var outcomes = []Outcome{OutcomeDischarged, OutcomeEvidence, OutcomeEscalate}
+var outcomes = []Outcome{OutcomeDischarged, OutcomeEvidence, OutcomeEscalate, OutcomeNeedsDesign}
 
 // Outcomes is the closed vocabulary a claim may carry, as a caller outside this
 // package reads it. It answers with a copy, because a package-level slice is a
@@ -143,7 +158,7 @@ func (c Claim) Made() bool { return c.Outcome != "" }
 // closing one by accident — a value this vocabulary does not recognize is refused
 // before it is ever stored, and this is the derivation every closure site reads.
 func (c Claim) Discharges() bool {
-	return c.Outcome != OutcomeEvidence && c.Outcome != OutcomeEscalate
+	return c.Outcome != OutcomeEvidence && c.Outcome != OutcomeEscalate && c.Outcome != OutcomeNeedsDesign
 }
 
 // Escalates reports the claim that asks the development manager to decide what
@@ -151,6 +166,11 @@ func (c Claim) Discharges() bool {
 // the two answer different things: an escalation withholds the closure like a
 // landing of evidence does, and unlike one it routes the item to somebody.
 func (c Claim) Escalates() bool { return c.Outcome == OutcomeEscalate }
+
+// RaisesDesign reports the claim that the item waits on the architect's design.
+// It withholds the closure as an escalation does, and returns the item labelled
+// rather than parked.
+func (c Claim) RaisesDesign() bool { return c.Outcome == OutcomeNeedsDesign }
 
 // Impediment is the work item a leave-open claim named, and is empty for every
 // other claim. A claim that does not discharge its item and names none is the
@@ -161,7 +181,10 @@ func (c Claim) Impediment() string { return strings.TrimSpace(c.BlockedBy) }
 // default for a landing that does not discharge, and it is stated as the absence
 // of the marker rather than as a third outcome so that a claim can never ask for
 // an undischarged item to sit in the queue with nothing holding it back.
-func (c Claim) Parks() bool { return !c.Discharges() && c.Impediment() == "" }
+//
+// A raise for design does not park: the needs-design label is what holds the
+// item, and only the architect's removal of it releases the item.
+func (c Claim) Parks() bool { return !c.Discharges() && !c.RaisesDesign() && c.Impediment() == "" }
 
 // Validate reports every contract violation in the claim at once.
 func (c Claim) Validate() error {
@@ -222,6 +245,10 @@ func (c Claim) Describe() string {
 	}
 	if c.Discharges() {
 		return "The developer claims this change discharges the work item.\nWhy: " + folded(c.Why)
+	}
+	if c.RaisesDesign() {
+		return "The developer raised that this work item needs the architect's design before it can be built. " +
+			"Nothing was integrated, and the item goes back labelled needs-design with this question until her design is readable.\nQuestion: " + folded(c.Why)
 	}
 	if c.Escalates() {
 		return "The developer claims this work item cannot be met as it stands and has raised it to the development manager to decide. " +
@@ -341,4 +368,12 @@ There is a third outcome, for the item that cannot be met at all as it stands �
 
 "escalate" ends the run where you raised it and puts the item in front of the development manager as a decision — replan, park, resequence, or redirect — with your account as the whole of what she reads about it. Nothing is integrated, and the item is parked until she decides, so it is not picked up again in the meantime. Raise it as soon as you are sure rather than after attempting the work anyway: the point of the verb is that saying so costs one round instead of a run, and it takes no "blocked_by" — an impediment you can name as a work item is the evidence landing above, and this is the answer for when nothing in the backlog is what the item is waiting on.
 
-Escalating is not how you report being unable to finish. It is a claim about the item rather than about your run: the work as specified cannot be done by anybody, not that this attempt did not manage it. Something that stopped you is a failure, and you report it the way your role already reports one.`
+Escalating is not how you report being unable to finish. It is a claim about the item rather than about your run: the work as specified cannot be done by anybody, not that this attempt did not manage it. Something that stopped you is a failure, and you report it the way your role already reports one.
+
+There is a fourth outcome, for the item that can be met but not yet decided: what done means turns on a choice about how the change should behave that nobody has made, and that belongs to the architect rather than to you — which of two behaviours a caller gets, what a format must be, how a failure is meant to be handled:
+
+` + "```" + `yoyodyne-landing
+{"outcome":"needs-design","why":"the question the design must answer, in one or two sentences the architect can answer without asking you"}
+` + "```" + `
+
+"needs-design" ends the run where you raised it, as "escalate" does. Nothing is integrated, no repair attempt is spent, and what you changed stays on the run's branch. The item goes back open and labelled needs-design with your question written on it, and the label holds it from every run the harness would start until the architect's design for it is readable and she takes the label off. Raise it as soon as you see the question rather than building around a guess: a developer never settles a design question by deciding it in code. Use "escalate" instead where the item could not be met whatever was decided, and the evidence landing where what it waits on is another work item.`
