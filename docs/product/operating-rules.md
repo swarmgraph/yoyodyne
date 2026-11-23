@@ -60,6 +60,11 @@ revisions:
       at: 2026-11-22T17:33:30.655186Z
       reason: 'yoyodyne-ifd.437.86: records the operator''s direction of about 09:35 PST on November 22, 2026, that work items target about 300 to 600 changed lines of code and tests together, combining pieces under about 150 lines and splitting anything over about 1,200, so every role sizes its work to it now; the shipped per-project default is the architect''s ruling under that item. It is a rule he gave; no goal is added, removed or changed, so the goals admit and refuse exactly the work they did before.'
       intent: consistent
+    - action: amended
+      by: product-manager
+      at: 2026-11-22T20:46:07.676838Z
+      reason: 'yoyodyne-ifd.434.53: records the operator''s change of November 22, 2026 at 09:53 PST (pull request 2619) that ended the dedicated reliability seat, leaving one seat with no preference and one dedicated to cost. Four rules still described that seat on main after the earlier revision (document-6675.1) failed to land as written; this drops it from them and changes nothing else. It is a rule he gave; no goal is added, removed or changed, so the goals admit and refuse exactly the work they did before.'
+      intent: consistent
 approvals:
     - revision: 1
       by: product-manager
@@ -101,6 +106,10 @@ approvals:
       by: product-manager
       at: 2026-11-22T17:33:30.655186Z
       reason: yoyodyne-ifd.437.86 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
+    - revision: 11
+      by: product-manager
+      at: 2026-11-22T20:46:07.676838Z
+      reason: yoyodyne-ifd.434.53 - approved by the Lead Product Manager, who recorded this amendment as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked
 ---
 
 # Operating rules
@@ -115,17 +124,17 @@ Lead Product Manager.
 - An approval of a brief, goals, or any other product document is recorded with the harness's approve command, never by editing a document by hand. (directive e82486d6)
 - A work item's notes are append-only: nothing rewrites, reorders, or removes an earlier note; a correction is a new note. (da04b051)
 - The delivery workflow is configurable: the graph of what happens to a change is project-owned data, and the capability behind each step stays trusted code that no configuration widens. (18dfadd1, 2026-08-31)
-- Anything that blocks reliable execution is a defect: admitted with the reliability label at priority 0 or 1 ahead of feature work, and a developer seat prefers it. (5268040c, 2026-09-14; a43f7677 and d83b6391 for the seats)
+- Anything that blocks reliable execution is a defect: admitted with the reliability label at priority 0 or 1 ahead of feature work. (5268040c, 2026-09-14)
 - A bug is priority 0 only if it materially degrades usability, or raises the factory's total cost by 25% or more once weighted by how often it happens. A stalled factory counts as degraded usability when the stall is frequent or likely to become so; a stall hit once, as an edge case, does not. Any other defect that blocks reliable execution is priority 1. (the operator, 2026-11-15, recorded on yoyodyne-q2l)
 - Work that is not a bug is priority 0 only when the operator says so. (the operator, 2026-11-15, recorded on yoyodyne-q2l)
 - When the operator asks for another priority 0 feature while one he asked for is still unfinished, the Lead Product Manager asks him whether to lower the first before admitting the second at priority 0. (the operator, 2026-11-15, recorded on yoyodyne-q2l)
 - A work item targets about 300 to 600 changed lines, counting code and its tests together, lines added plus lines deleted. A piece expected under about 150 lines is combined with a neighbour that touches the same code, and anything expected over about 1,200 lines is split. The Lead Product Manager sizes the work she admits to this range, the development manager sizes the pieces she splits, and the architect sizes the build pieces she names; work already in flight is not split again. (the operator, 2026-11-22, recorded on yoyodyne-ifd.437.86)
 - A run is never killed for a flaky network or a sleeping laptop: a transport that drops or a machine that sleeps is waited out, and only a person or a bound on the work itself ends a run. (fb5a74a9)
 - Slack, the dashboard, the scheduler, and maintenance are parts of one product: started, stopped, restarted, and moved onto a new build together, by the product and not by a person. (6de828a8)
-- Developer seats are tagged, and one seat is dedicated to reliability work. (a43f7677, d83b6391)
-- A developer seat dedicated to one kind of work takes that work first, ahead of reliability work of any priority elsewhere, because reliability work has a seat of its own; when that kind of work has nothing ready, the seat takes the ordinary order, so it never sits idle while other ready work waits. (the Lead Product Manager, 2026-10-28, on the operator's direction that day; recorded on yoyodyne-ifd.428.130)
+- Developer seats are tagged, and a seat may be dedicated to one kind of work. (a43f7677, d83b6391; the dedicated reliability seat was ended by the operator on 2026-11-22)
+- A developer seat dedicated to one kind of work takes that work first; when that kind of work has nothing ready, the seat takes the ordinary order, so it never sits idle while other ready work waits. (the Lead Product Manager, 2026-10-28, on the operator's direction that day; recorded on yoyodyne-ifd.428.130)
 - A developer seat that prefers labels takes ready work carrying any of its labels ahead of priority 0 work carrying none of them, with no exception after a wait. A priority 0 item that no seat's labels cover starts when some seat has none of its own labelled work ready. When a ready priority 0 item is not moving and the Lead Product Manager thinks it should, she tells the operator, in her reply to him or his assistant and in her recurring pass's account, naming the item, how long it has waited, and why it should move. (the operator, 2026-11-21, recorded on yoyodyne-ifd.428.189; it replaces the one-hour exception the architect's ruling proposed)
-- Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, the reliability seat and any dedicated seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
+- Work on a change a run has already written and kept, such as a decided repair or continuation, or a merge being tried again, is taken first by any freed developer seat, any dedicated seat included, ahead of fresh work of any priority. (the operator, 2026-10-25, recorded on yoyodyne-ifd.428.126.2.1)
 - When the intake brake trips, it summons the development manager to decide, never the operator; the operator is told and may release it. (789c052c)
 - A developer run never runs the tracker's command directly; the harness reads and writes the tracker on its behalf. (from CLAUDE.md, moved here by the item beside this one)
 - No role writes the word "gate" in anything a person reads. For a check a change must pass, name the check; for a step only a person can take, say so in those words, such as "a step only you can take" or "waiting on you". One kind of wording is exempt until it is reworded: names the harness stores and checks, such as the fixed reason "human-gate" a role gives when only a person can take a step, which a role still writes exactly as stored. (the operator, 2026-11-08, recorded on yoyodyne-ifd.437.19; narrowed by the Lead Product Manager on 2026-11-09 so it no longer contradicts the stored names; the exemption for the approved brief and goals documents ended on 2026-11-09, once all three were reworded under yoyodyne-v3cy and yoyodyne-av7p)
