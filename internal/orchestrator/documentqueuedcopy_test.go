@@ -46,6 +46,24 @@ func earlierQueuedCopy(t *testing.T, repository string, pipeline Pipeline, store
 	return state
 }
 
+// heldBack fails unless the conversation's saved record holds one write, not
+// confirmed, held back behind the copy of its document ahead of it and so
+// waiting for nobody's decision.
+func heldBack(t *testing.T, conversations *runstate.ConversationStore, identity runstate.ConversationIdentity, earlierWrite string) {
+	t.Helper()
+	saved, err := conversations.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.PendingWrites) != 1 {
+		t.Fatalf("saved writes = %+v, want the revision", saved.PendingWrites)
+	}
+	write := saved.PendingWrites[0]
+	if write.Publication != nil || write.AwaitsDecision() || !strings.Contains(write.WaitsBehind, earlierWrite) {
+		t.Fatalf("saved write = %+v, want it held back behind %s and waiting for no decision", write, earlierWrite)
+	}
+}
+
 // documentRunsOf is every run recorded for the recovery design except skip.
 func documentRunsOf(t *testing.T, store *runstate.Store, skip string) []runstate.State {
 	t.Helper()
@@ -74,7 +92,7 @@ func TestARevisionWrittenWhileAnEarlierCopyWaitsInTheMergeQueueWaitsAndIsPublish
 	repository, _, provider, pipeline, store := documentPipeline(t)
 	pipeline.Config.Execution.DocumentLandings = 2
 	earlier := earlierQueuedCopy(t, repository, pipeline, store)
-	options, _ := publicationConversation(t, pipeline, provider)
+	options, conversations := publicationConversation(t, pipeline, provider)
 	session, err := chat.Open(options)
 	if err != nil {
 		t.Fatal(err)
@@ -88,10 +106,13 @@ func TestARevisionWrittenWhileAnEarlierCopyWaitsInTheMergeQueueWaitsAndIsPublish
 	if len(provider.RequestsForRole(domain.RoleReviewer)) != 0 {
 		t.Fatal("a review was spent on a revision whose earlier copy still waits in the merge queue")
 	}
-	writes := session.Writes()
-	if len(writes) != 1 || writes[0].Publication != nil {
-		t.Fatalf("writes = %+v, want the revision recorded and not confirmed", writes)
+	// The revision is recorded and not confirmed, and it waits for the copy
+	// ahead of it rather than for anybody's approval, so the operator is not
+	// shown it as a decision.
+	if writes := session.Writes(); len(writes) != 0 {
+		t.Fatalf("writes = %+v, want nothing put to the operator while the revision waits behind the earlier copy", writes)
 	}
+	heldBack(t, conversations, runstate.ConversationIdentity{Agent: "architect", Role: domain.RoleArchitect}, "document-1.1")
 
 	if _, err := session.Send(context.Background(), "What is waiting?"); err != nil {
 		t.Fatal(err)

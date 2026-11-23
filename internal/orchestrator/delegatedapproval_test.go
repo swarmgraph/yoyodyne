@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
@@ -376,4 +377,151 @@ func TestAConsistentMarkShortOfADirectingItemIsNotSentToTheOperator(t *testing.T
 	if strings.Contains(saved.PendingTrackerResults, "Tell the operator") || strings.Contains(saved.PendingTrackerResults, "all the same") {
 		t.Fatalf("the Lead Product Manager was told to take her own gap to the operator: %q", saved.PendingTrackerResults)
 	}
+}
+
+// approvedRules is an operating-rules document every revision so far was
+// approved as the Lead Product Manager's.
+const approvedRules = `---
+id: operating-rules
+kind: rules
+title: Operating rules
+status: active
+revisions:
+    - action: created
+      by: product-manager
+      at: 2026-09-29T00:00:00Z
+      reason: 'yoyodyne-ifd.433.17: the standing rules the operator gave'
+      intent: consistent
+approvals:
+    - revision: 0
+      by: product-manager
+      at: 2026-09-29T00:00:00Z
+      reason: yoyodyne-ifd.433.17 - approved by the Lead Product Manager, who recorded this creation as consistent with intent
+---
+# Operating rules
+
+## Rules
+
+- A work item's notes are append-only.
+`
+
+// The operating-rules revisions held for the operator: a revision the Lead
+// Product Manager marks consistent, naming the item that directed it, written
+// while an earlier copy of the same document is still being published. The
+// harness holds it back until that copy is settled, and that wait is nobody's
+// decision, so it is not put to the operator while it lasts, however long the
+// copy ahead takes. Once the copy ahead is handed back, the revision is
+// approved as hers and lands through one reviewed run.
+func TestAConsistentRulesRevisionHeldBehindAnEarlierCopyIsNotPutToTheOperator(t *testing.T) {
+	t.Parallel()
+
+	repository, _, provider, pipeline, store := documentPipeline(t)
+	pipeline.Config.Execution.DocumentLandings = 2
+	pipeline.Config.Approvals.Goals = domain.ApprovalHuman
+	if err := os.MkdirAll(filepath.Join(repository, "docs", "product"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "docs", "product", "operating-rules.md"), []byte(approvedRules), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicationGit(t, repository, "add", ".")
+	publicationGit(t, repository, "commit", "-m", "approved operating rules")
+	policy := artifact.Policy{Brief: domain.ApprovalHuman, Goals: domain.ApprovalHuman, Designs: domain.ApprovalAutomatic, SpecificationsHome: pipeline.Config.Product.Specifications}
+
+	// An earlier revision, from another conversation, passed and waits in the
+	// merge queue.
+	candidate, approved, err := artifact.StoreFor(repository, pipeline.Config.Product).PrepareConfirmation(domain.RoleProductManager, artifact.Write{Action: artifact.WriteRevise, ID: "operating-rules", Body: "# Operating rules\n\n## Rules\n\n- A work item's notes are append-only.\n- A bug is priority 0 only if it degrades usability.", Reason: "yoyodyne-q2l: records the operator's rule for priority 0 bugs", Intent: artifact.IntentConsistent}, policy, "", time.Now())
+	if err != nil || !approved || !candidate.ProductManagerApproved() {
+		t.Fatalf("the earlier revision: %v, %v", approved, err)
+	}
+	earlier := runstate.DocumentPublication{ConversationID: "chat-earlier", WriteID: "document-5632.1", Turn: 5632, Owner: domain.RoleProductManager, AuthorBackend: string(domain.BackendClaudeCode), AuthorModel: "opus", Candidate: candidate}
+	now := newScheduleHarness().now
+	admitted := now.Add(time.Minute)
+	state := runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: earlier.RunID(), ProductID: pipeline.Config.Product.ID, RepositoryID: string(pipeline.Config.Product.RepositoryID), WorkItemID: earlier.RunID(), WorkItemTitle: "Publishing Operating rules", Backend: domain.BackendClaudeCode, Status: runstate.StatusSucceeded, Phase: runstate.PhaseCleaningUp, Document: &earlier, StartedAt: now, UpdatedAt: admitted, CompletedAt: &admitted,
+		MergeQueue:  &runstate.MergeQueueAdmissionRecord{EntryID: earlierEntry, Order: 1, Repository: "yoyodyne", TargetBranch: "main", Mode: runstate.MergeQueueHarness, ApprovedHead: strings.Repeat("a", 40), AdmittedAt: admitted},
+		PullRequest: &runstate.PullRequest{Remote: "origin", Branch: "yoyodyne/earlier", Number: 2158, URL: "https://example.invalid/pull/2158", HeadCommit: strings.Repeat("a", 40)}}
+	pending := state
+	pending.Status, pending.Phase, pending.CompletedAt, pending.MergeQueue, pending.PullRequest, pending.UpdatedAt = runstate.StatusPending, "", nil, nil, nil, now
+	lease, err := store.ReserveDocumentLanding(context.Background(), pending, pipeline.Config.Execution.DocumentLandingLimit())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+
+	original := provider.Respond
+	wrote := false
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleProductManager && wrote {
+			return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: "Noted."}, nil
+		}
+		if request.Role == domain.RoleProductManager {
+			wrote = true
+			return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: fmt.Sprintf("Recorded.\n%s\n{\"documents\":[{\"action\":\"revise\",\"id\":\"operating-rules\",\"body\":%q,\"reason\":\"yoyodyne-ifd.434.53: records the operator's slot direction; no goal changes\",\"intent\":\"consistent\"}]}\n```",
+				artifact.WriteFence, "# Operating rules\n\n## Rules\n\n- A work item's notes are append-only.\n- One developer seat is dedicated to reliability work.")}, nil
+		}
+		return original(request)
+	}
+	options, conversations := publicationConversation(t, pipeline, provider)
+	options.Role, options.Agent, options.DocumentPolicy = domain.RoleProductManager, "product-manager", policy
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Record the slot direction."); err != nil {
+		t.Fatal(err)
+	}
+	if writes := session.Writes(); len(writes) != 0 {
+		t.Fatalf("the revision was put to the operator while it waited behind the earlier copy: %+v", writes)
+	}
+	identity := runstate.ConversationIdentity{Agent: "product-manager", Role: domain.RoleProductManager}
+	heldBack(t, conversations, identity, "document-5632.1")
+	saved, err := conversations.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind := saved.PendingWrites[0].DocumentKind; kind != string(artifact.KindRules) {
+		t.Fatalf("recorded kind = %q, want the kind of the document the revision changes", kind)
+	}
+	if runs := rulesRunsOf(t, store, state.RunID); len(runs) != 0 {
+		t.Fatalf("runs = %+v, want none while the earlier copy waits", runs)
+	}
+
+	if _, err := store.Update(context.Background(), state.RunID, runstate.MergeQueueEntryLost{Blocker: "the merge queue handed the earlier copy back", Failure: "its group check failed", At: admitted.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Carry on."); err != nil {
+		t.Fatal(err)
+	}
+	if writes := session.Writes(); len(writes) != 0 {
+		t.Fatalf("the revision was put to the operator once the earlier copy was settled: %+v", writes)
+	}
+	landed := rulesRunsOf(t, store, state.RunID)
+	if len(landed) != 1 || landed[0].Status != runstate.StatusSucceeded || landed[0].Integration == nil {
+		t.Fatalf("runs = %+v, want the revision landed through one reviewed run", landed)
+	}
+	content := publicationGit(t, repository, "show", "main:docs/product/operating-rules.md")
+	if !strings.Contains(content, "reason: yoyodyne-ifd.434.53 - approved by the Lead Product Manager") || strings.Contains(content, "by: operator") || !strings.Contains(content, "dedicated to reliability work") {
+		t.Fatalf("the landed rules do not carry the revision and her approval:\n%s", content)
+	}
+}
+
+// rulesRunsOf is every run recorded for the operating rules except skip.
+func rulesRunsOf(t *testing.T, store *runstate.Store, skip string) []runstate.State {
+	t.Helper()
+	recorded, err := store.Recorded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runs []runstate.State
+	for _, each := range recorded {
+		if each.Document != nil && each.Document.Candidate.Artifact.ID == "operating-rules" && each.RunID != skip {
+			runs = append(runs, each)
+		}
+	}
+	return runs
 }
