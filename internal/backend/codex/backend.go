@@ -177,6 +177,17 @@ func profileArgs(profile, name string, writable []string, denied string) []strin
 	}
 }
 
+// servicesDenied is the harness's services folder, which a developer's profile
+// refuses, and empty for every other role. A developer is refused it whichever
+// profile it is held to: the read-only one reads the whole machine too. One
+// whose folder cannot be found is an error, and is not started.
+func servicesDenied(request backend.RunRequest, repository string) (string, error) {
+	if request.Role != domain.RoleDeveloper {
+		return "", nil
+	}
+	return execution.ServicesDirectoryDeniedTo(request.ScratchDirectory, request.RunID, repository)
+}
+
 // profileName is the name one invocation defines and selects profile under:
 // the profile's own name and sixteen random bytes, so no configuration file can
 // have named it in advance (see the profiles above). A resumed session is given
@@ -616,13 +627,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
 		}
 	}
-	// A developer's is refused the services folder whichever profile it is held
-	// to: the read-only one reads the whole machine too.
-	denied := ""
-	if request.Role == domain.RoleDeveloper {
-		if denied, err = execution.ServicesDirectoryDeniedTo(request.ScratchDirectory, request.RunID, repository); err != nil {
-			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
-		}
+	denied, err := servicesDenied(request, repository)
+	if err != nil {
+		return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
 	}
 	name, err := profileName(profile)
 	if err != nil {
