@@ -977,12 +977,117 @@ func TestAPathOutsideTheReleaseCutFolderIsRefused(t *testing.T) {
 	}
 	defer root.Close()
 	for _, name := range []string{"../outside", "..", "", "a/b"} {
-		removed, err := f.cutter.clearCheckout(context.Background(), root, name)
-		if err == nil || !strings.Contains(err.Error(), "the folder release checkouts are made in") || len(removed) != 0 {
-			t.Errorf("clearing %q = %v, %v, want it refused and named", name, removed, err)
+		cleared := f.cutter.clearCheckout(context.Background(), root, name)
+		if cleared.err == nil || !strings.Contains(cleared.err.Error(), "the folder release checkouts are made in") || len(cleared.removed) != 0 {
+			t.Errorf("clearing %q = %+v, want it refused and named", name, cleared)
 		}
 	}
 	if _, err := os.Stat(outside); err != nil {
 		t.Errorf("a folder outside the folder release checkouts are made in was removed: %v", err)
+	}
+}
+
+// A worktree Git still holds locked, as a killed checkout leaves it, is cleared
+// though its .git file, or the whole folder, is already gone.
+func TestALockedWorktreeHalfRemovedIsClearedAndTheCutGoesOn(t *testing.T) {
+	t.Parallel()
+	for _, gone := range []string{".git", "."} {
+		t.Run(gone, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, true)
+			path := filepath.Join(f.cutter.WorkRoot, "v0.6.0")
+			git(t, f.repository, "worktree", "add", "-q", "--detach", path, f.named)
+			git(t, f.repository, "worktree", "lock", "--reason", "initializing", path)
+			if err := os.RemoveAll(filepath.Join(path, gone)); err != nil {
+				t.Fatal(err)
+			}
+			step := f.cutter.Pass(context.Background())
+			if step.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+f.named {
+				t.Fatalf("step = %+v, want what was left cleared and the release cut", step)
+			}
+			if entries, _ := os.ReadDir(f.cutter.WorkRoot); len(entries) != 0 {
+				t.Errorf("the folder release checkouts are made in still holds %v", entries)
+			}
+		})
+	}
+}
+
+// timingOutGates answers the release script as one that ran past its bound,
+// after during has had the checkout.
+type timingOutGates struct {
+	*countingRunner
+	during func(path string) error
+}
+
+func (r timingOutGates) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if command.Name != "bash" {
+		return r.countingRunner.Run(ctx, command, observer)
+	}
+	if err := r.during(command.Dir); err != nil {
+		return execution.ProcessResult{}, err
+	}
+	return execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1}, nil
+}
+
+// Release checks that time out leave no folder behind, and the recorded refusal
+// says what was removed.
+func TestReleaseChecksThatTimeOutLeaveNoFolderAndSayWhatWasRemoved(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	f.cutter.Runner = timingOutGates{f.runner, func(path string) error {
+		return os.WriteFile(filepath.Join(path, "built"), []byte("x"), 0o644)
+	}}
+	step := f.cutter.Pass(context.Background())
+	path := filepath.Join(f.cutter.WorkRoot, "v0.6.0")
+	records := f.records(t)
+	if len(records) != 1 || !strings.Contains(records[0].Detail, "timed_out") ||
+		!strings.Contains(records[0].Detail, "the harness removed the checkout "+path+", so the next pass starts clean") || !strings.Contains(step.Detail, records[0].Detail) {
+		t.Errorf("step = %+v, records = %+v, want the timeout and what was removed said", step, records)
+	}
+	if entries, _ := os.ReadDir(f.cutter.WorkRoot); len(entries) != 0 {
+		t.Errorf("release checks that timed out left %v behind", entries)
+	}
+}
+
+// A checkout that cannot be cleared after the release checks fail is said in
+// the refusal, which does not then claim the next pass starts clean.
+func TestACheckoutThatCannotBeClearedIsSaidInTheRefusal(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	leftover := f.leftover(t)
+	outside := t.TempDir()
+	f.cutter.Runner = timingOutGates{f.runner, func(path string) error {
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+		return os.Symlink(outside, path)
+	}}
+	f.cutter.Pass(context.Background())
+	records := f.records(t)
+	if len(records) != 1 {
+		t.Fatalf("records = %+v, want one refusal", records)
+	}
+	detail := records[0].Detail
+	if !strings.Contains(detail, "the harness removed the leftover folder "+leftover) || !strings.Contains(detail, leftover+" is a link") ||
+		strings.Contains(detail, "starts clean") {
+		t.Errorf("detail = %q, want what was removed and what could not be, and no claim the path is clear", detail)
+	}
+	if _, err := os.Lstat(leftover); err != nil {
+		t.Errorf("the link was removed: %v", err)
+	}
+}
+
+// The same red check is said on the item once, though one pass had more to
+// clear than the other.
+func TestTheSameRedCheckIsSaidOnceWhateverWasCleared(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, true)
+	f.gate(t, "red")
+	f.leftover(t)
+	f.cutter.Pass(context.Background())
+	f.moveMain(t)
+	f.cutter.Pass(context.Background())
+	if f.runner.gateRuns() != 2 || len(f.tracker.noted()) != 1 {
+		t.Errorf("%d runs of the release checks said %q, want two runs said once", f.runner.gateRuns(), f.tracker.noted())
 	}
 }

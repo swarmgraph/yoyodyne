@@ -397,16 +397,20 @@ func (c *Cutter) cut(ctx context.Context, cuts []runstate.ReleaseCut, item beads
 		return c.handBack(ctx, cuts, refused, digest, fmt.Sprintf("%s on origin/%s names commit %s, but %s", notes, branch, short(commit), why))
 	}
 
-	result, err := c.gates(ctx, version, commit, text)
+	result, cleared, err := c.gates(ctx, version, commit, text)
 	if err != nil {
-		return failed(step, fmt.Sprintf("the gates for %s at %s could not be run: %v", version, short(commit), err))
+		return failed(step, fmt.Sprintf("the gates for %s at %s could not be run: %v%s", version, short(commit), err, cleared.after("; ")))
 	}
 	said := lastWords(result)
 	switch {
 	case result.Status == execution.ProcessFailed && result.ExitCode == preparationExit:
-		return c.handBack(ctx, cuts, refused, digest, said)
+		return c.handBack(ctx, cuts, refused, digest, said+cleared.after("; "))
 	case result.Status != execution.ProcessSucceeded:
-		refused.Detail = runstate.BoundReleaseCutText(fmt.Sprintf("the gates for %s at %s were red, so no tag was written: %s", version, short(commit), said))
+		// What was cleared comes ahead of the first ": ", which sameRefusal
+		// compares after: what the checks said is the refusal, and the same red
+		// gate is the same one whatever had to be cleared around it.
+		around := strings.ReplaceAll(oneline.Fold(cleared.after("; "), maxDetailBytes), ": ", ", ")
+		refused.Detail = runstate.BoundReleaseCutText(fmt.Sprintf("the gates for %s at %s were red, so no tag was written%s: %s", version, short(commit), around, said))
 		// A red gate goes on the release item, once for each thing it says, and
 		// not to the channel: it is the pass's to try again, not anybody's to act on.
 		refused.Reported = true
@@ -415,7 +419,7 @@ func (c *Cutter) cut(ctx context.Context, cuts []runstate.ReleaseCut, item beads
 	}
 	checked := checkedCommit(result.Stdout)
 	if checked != commit {
-		return failed(step, fmt.Sprintf("the gates for %s passed on %q, not on %s, which its notes on origin/%s name; nothing was tagged", version, checked, short(commit), branch))
+		return failed(step, fmt.Sprintf("the gates for %s passed on %q, not on %s, which its notes on origin/%s name; nothing was tagged%s", version, checked, short(commit), branch, cleared.after("; ")))
 	}
 	verdict, definition, err := Stamp(text)
 	if err != nil {
@@ -806,43 +810,44 @@ func (c *Cutter) report(cut runstate.ReleaseCut) error {
 // branch holds them: the commit they name is older than the notes, so its own
 // tree does not carry them. The notes are written beside the worktree rather
 // than in it, so its tree stays the commit's. Both are removed afterwards
-// however the gates ended.
-func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (execution.ProcessResult, error) {
+// however the gates ended, and what that cleared is returned beside how they
+// ended so a failed cut can say it.
+func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (result execution.ProcessResult, cleared clearing, err error) {
 	if err := os.MkdirAll(c.WorkRoot, 0o700); err != nil {
-		return execution.ProcessResult{}, fmt.Errorf("create %s: %w", c.WorkRoot, err)
+		return result, cleared, fmt.Errorf("create %s: %w", c.WorkRoot, err)
 	}
 	// The directory is resolved once and then held, so the notes land in it
 	// whatever replaces the path afterwards.
 	resolved, err := filepath.EvalSymlinks(c.WorkRoot)
 	if err != nil {
-		return execution.ProcessResult{}, fmt.Errorf("resolve %s: %w", c.WorkRoot, err)
+		return result, cleared, fmt.Errorf("resolve %s: %w", c.WorkRoot, err)
 	}
 	root, err := repowrite.OpenPinnedRoot(resolved)
 	if err != nil {
-		return execution.ProcessResult{}, fmt.Errorf("open %s: %w", c.WorkRoot, err)
+		return result, cleared, fmt.Errorf("open %s: %w", c.WorkRoot, err)
 	}
 	defer root.Close()
 	notesName := version + ".notes.md"
 	if err := root.WriteFile(notesName, []byte(notes), 0o600, false); err != nil {
-		return execution.ProcessResult{}, fmt.Errorf("write the notes the gates read beside the cut's worktree: %w", err)
+		return result, cleared, fmt.Errorf("write the notes the gates read beside the cut's worktree: %w", err)
 	}
 	defer func() { _ = root.Remove(notesName) }()
 	path := filepath.Join(c.WorkRoot, version)
 	// Whatever an interrupted or failed cut left at the path is removed before
 	// this one is made; it holds nothing but a checkout of a commit and what the
 	// gates built.
-	removed, err := c.clearCheckout(ctx, root, version)
-	if err != nil {
-		return execution.ProcessResult{}, err
+	if cleared = c.clearCheckout(ctx, root, version); cleared.err != nil {
+		return result, cleared, errors.New("no checkout was made")
 	}
+	// Making the checkout can fail or time out part way and leave a folder too,
+	// so the clearing covers it as well as the gates.
+	defer func() {
+		last := c.clearCheckout(context.WithoutCancel(ctx), root, version)
+		cleared = clearing{removed: append(cleared.removed, last.removed...), err: last.err}
+	}()
 	if _, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "add", "--detach", path, commit); err != nil {
-		// A checkout that failed or timed out part way leaves a folder Git may
-		// not know as a worktree, so it is cleared here rather than by the next
-		// pass.
-		again, clearErr := c.clearCheckout(context.WithoutCancel(ctx), root, version)
-		return execution.ProcessResult{}, errors.Join(withRemoved(err, append(removed, again...)), clearErr)
+		return result, cleared, err
 	}
-	defer func() { _, _ = c.clearCheckout(context.WithoutCancel(ctx), root, version) }()
 	environ := execution.ForgeEnvironment(c.Environ)
 	environ = append(environ,
 		"YOYODYNE_RELEASE_CUT=automatic",
@@ -851,59 +856,92 @@ func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (exec
 		// store is the primary checkout's.
 		"BEADS_DIR="+filepath.Join(c.Repository, ".beads"),
 	)
-	return c.Runner.Run(ctx, execution.Command{
+	result, err = c.Runner.Run(ctx, execution.Command{
 		Name:    "bash",
 		Args:    []string{filepath.Join(path, "scripts", "cut-release.sh"), version},
 		Dir:     path,
 		Env:     environ,
 		Timeout: CutTimeout,
 	}, nil)
+	return result, cleared, err
+}
+
+// clearing is what clearing a cut's checkout removed, and why its path is not
+// clear where it is not.
+type clearing struct {
+	removed []string
+	err     error
+}
+
+// after says what was cleared, following separator, or nothing where there was
+// nothing to clear.
+func (d clearing) after(separator string) string {
+	said := ""
+	if len(d.removed) > 0 {
+		said = separator + "the harness removed " + strings.Join(d.removed, " and ")
+		if d.err == nil {
+			said += ", so the next pass starts clean"
+		}
+	}
+	if d.err != nil {
+		said += fmt.Sprintf("%sthe harness could not clear its checkout folder, because %v", separator, d.err)
+	}
+	return said
 }
 
 // clearCheckout leaves nothing at the cut's checkout for version, the folder
-// of that name in the held directory release checkouts are made in, and
-// returns what it removed.
-// A worktree Git knows is removed through Git, the lock an interrupted
-// "worktree add" leaves included. A folder Git does not know as a worktree, as
-// a checkout that timed out part way leaves, is removed from inside the held
-// directory, so nothing outside it is reached. A name that is not one entry of
-// that directory, a link, or a worktree Git still lists after removing it is
-// refused and named, and nothing is deleted.
-func (c *Cutter) clearCheckout(ctx context.Context, root *repowrite.PinnedRoot, version string) ([]string, error) {
+// of that name in the held directory release checkouts are made in, and says
+// what it removed. A worktree Git knows is removed through Git. A folder Git
+// does not know as a worktree, as a checkout that timed out part way leaves, is
+// removed from inside the held directory, so nothing outside it is reached. A
+// name that is not one entry of that directory, a link, or a worktree Git still
+// lists after removing it is refused and named rather than deleted.
+func (c *Cutter) clearCheckout(ctx context.Context, root *repowrite.PinnedRoot, version string) clearing {
 	path := filepath.Join(c.WorkRoot, version)
 	if version == "" || version == "." || version == ".." || strings.ContainsAny(version, `/\`) {
-		return nil, fmt.Errorf("%s lies outside %s, the folder release checkouts are made in, so the harness removed nothing there", path, c.WorkRoot)
+		return clearing{err: fmt.Errorf("%s lies outside %s, the folder release checkouts are made in, so nothing there was removed", path, c.WorkRoot)}
 	}
 	info, err := root.Lstat(version)
-	if errors.Is(err, fs.ErrNotExist) {
-		_, _ = c.git(ctx, c.Repository, gitTimeout, "worktree", "prune")
-		return nil, nil
+	missing := errors.Is(err, fs.ErrNotExist)
+	if err != nil && !missing {
+		return clearing{err: fmt.Errorf("read %s: %w", path, err)}
 	}
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+	if !missing && info.Mode()&fs.ModeSymlink != 0 {
+		return clearing{err: fmt.Errorf("%s is a link, not a folder the harness made, so the harness removed nothing there and cannot cut %s while it is in the way", path, version)}
 	}
-	if info.Mode()&fs.ModeSymlink != 0 {
-		return nil, fmt.Errorf("%s is a link, not a folder the harness made, so the harness removed nothing there and cannot cut %s while it is in the way", path, version)
-	}
-	var removed []string
-	if _, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "remove", "--force", "--force", path); err == nil {
-		removed = append(removed, "the worktree "+path)
+	// A "worktree add" that was killed leaves its worktree locked. Git will not
+	// prune a locked entry, nor remove one whose folder or .git file is already
+	// gone, so the lock goes first whatever is left of the folder.
+	_, _ = c.git(ctx, c.Repository, gitTimeout, "worktree", "unlock", path)
+	var cleared clearing
+	if !missing {
+		if _, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "remove", "--force", "--force", path); err == nil {
+			cleared.removed = append(cleared.removed, "the checkout "+path)
+		}
 	}
 	_, _ = c.git(ctx, c.Repository, gitTimeout, "worktree", "prune")
-	if exists, err := root.Exists(version); err != nil || !exists {
-		return removed, err
+	exists, err := root.Exists(version)
+	if err != nil {
+		cleared.err = fmt.Errorf("read %s: %w", path, err)
+		return cleared
+	}
+	if !exists {
+		return cleared
 	}
 	known, err := c.knownWorktree(ctx, filepath.Join(root.Path(), version))
-	if err != nil {
-		return removed, fmt.Errorf("could not tell whether Git knows %s as a worktree, so the harness removed nothing there: %w", path, err)
+	switch {
+	case err != nil:
+		cleared.err = fmt.Errorf("Git did not say whether it knows %s as a checkout, so the folder was left: %w", path, err)
+	case known:
+		cleared.err = fmt.Errorf("%s is a checkout Git knows and would not remove, so the folder was left", path)
+	default:
+		if err := root.RemoveAll(version); err != nil {
+			cleared.err = fmt.Errorf("the leftover folder %s could not be removed: %w", path, err)
+		} else {
+			cleared.removed = append(cleared.removed, "the leftover folder "+path)
+		}
 	}
-	if known {
-		return removed, fmt.Errorf("%s is a worktree Git knows and would not remove, so the harness removed nothing there", path)
-	}
-	if err := root.RemoveAll(version); err != nil {
-		return removed, fmt.Errorf("remove the leftover folder %s: %w", path, err)
-	}
-	return append(removed, "the leftover folder "+path), nil
+	return cleared
 }
 
 // knownWorktree reports whether Git lists a worktree at path, which is the
@@ -926,15 +964,6 @@ func (c *Cutter) knownWorktree(ctx context.Context, path string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// withRemoved adds to a cut's failure what the harness removed after it, so
-// the message says the path is clear rather than leaving anyone to clear it.
-func withRemoved(err error, removed []string) error {
-	if len(removed) == 0 {
-		return err
-	}
-	return fmt.Errorf("%w; the harness removed %s, so the next pass starts clean", err, strings.Join(removed, " and "))
 }
 
 func (c *Cutter) tag(ctx context.Context, version, commit string) error {
