@@ -418,3 +418,71 @@ func TestRedactorWithoutShapesLeavesSecretShapedTextAlone(t *testing.T) {
 		t.Fatalf("a process run with an empty redactor did not return its output byte for byte:\n got %q\nwant %q", result.Stderr, want)
 	}
 }
+
+// A configuration value that names a store, a mode, or a kind of thing is an
+// ordinary word, not a credential, so a line showing one reaches whoever reads
+// it exactly as written: in a file a session reads from the repository, and in
+// a document a role writes in its reply, both of which pass through these
+// shapes inside a provider's JSON output.
+func TestRedactorLeavesAnOrdinaryConfigurationValueAsWritten(t *testing.T) {
+	t.Parallel()
+
+	streamLine := func(t *testing.T, text string) string {
+		t.Helper()
+		line, err := json.Marshal(map[string]any{
+			"type":    "user",
+			"message": map[string]any{"content": []map[string]any{{"type": "tool_result", "content": text}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(line)
+	}
+
+	for _, text := range []string{
+		"      credential: keychain           # or file; never a path",
+		"credential: keychain",
+		"credentials: macos-keychain",
+		`{"credential": "keychain"}`,
+		"token: placeholder_value",
+		"servers:\n  slack:\n    credential:\n      keychain\n",
+		"api_key: environment.variable",
+	} {
+		for _, line := range []string{text, streamLine(t, text)} {
+			redactor := NewRedactor().WithSecretShapes()
+			if got := redactor.Redact(line); got != line {
+				t.Errorf("Redact() changed an ordinary configuration value:\n got %s\nwant %s", got, line)
+			}
+			if spans := redactor.Spans(line); len(spans) != 0 {
+				t.Errorf("Spans(%q) = %v, want none", line, spans)
+			}
+		}
+	}
+}
+
+// Leaving ordinary words alone does not let a real credential through: a
+// value with a digit, a capital, or a symbol in it, as every generated token,
+// key, and password has, is still removed.
+func TestRedactorStillRemovesACredentialBesideAnOrdinaryValue(t *testing.T) {
+	t.Parallel()
+
+	secret := sampleKey("", "S2V5Y2hhaW4", 24)
+	for _, test := range []struct {
+		line, secret, kept string
+	}{
+		{line: "credential: keychain\ntoken: " + secret, secret: secret, kept: "credential: keychain"},
+		{line: "password: hunter2hunter2", secret: "hunter2hunter2"},
+		{line: "credential: Keychainpass", secret: "Keychainpass"},
+		{line: "secret: lower-case-then.9", secret: "lower-case-then.9"},
+		{line: "api_key: double--hyphen", secret: "double--hyphen"},
+		{line: "client_secret: trailing-hyphen-", secret: "trailing-hyphen-"},
+	} {
+		got := NewRedactor().WithSecretShapes().Redact(test.line)
+		if strings.Contains(got, test.secret) || !strings.Contains(got, redactedMarker) {
+			t.Errorf("the credential survived redaction:\n%s", got)
+		}
+		if !strings.Contains(got, test.kept) {
+			t.Errorf("redaction removed %q:\n%s", test.kept, got)
+		}
+	}
+}

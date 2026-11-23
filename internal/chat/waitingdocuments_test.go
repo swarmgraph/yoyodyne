@@ -480,3 +480,32 @@ func TestTheListingSaysADocumentWaitingInTheMergeQueueIsThere(t *testing.T) {
 		t.Fatalf("the listing does not say the document waits in the merge queue:\n%s", listed)
 	}
 }
+
+// Secret masking runs over a role's reply before the harness reads it, so a
+// value in a document it took for a credential arrives as the marker. The role
+// is told which lines carry it rather than the document being published with
+// nobody told; a document with no marker in it is answered as before.
+func TestARoleIsToldWhichLinesOfItsDocumentMaskingChanged(t *testing.T) {
+	t.Parallel()
+
+	session, _ := standingSession(t, nil)
+	clean := writeAgain(t, session, landedWrite("rules", "# Rules\n\ncredential: keychain"))
+	if strings.Contains(clean, "secret masking") {
+		t.Fatalf("a document with no marker in it was said to be masked:\n%s", clean)
+	}
+
+	told := writeAgain(t, session, landedWrite("rules-masked", "# Rules\n\nsetting: kept\ntoken: [REDACTED]"))
+	recorded := latestRecord(session)
+	for _, want := range []string{
+		"Document " + recorded.pending.ID + " carries [REDACTED] where secret masking removed a value",
+		"- body line 4: token: [REDACTED]\n",
+		"revise the document",
+	} {
+		if !strings.Contains(told, want) {
+			t.Errorf("the role was not told %q:\n%s", want, told)
+		}
+	}
+	if strings.Contains(told, "body line 3") {
+		t.Errorf("a line with no marker was named:\n%s", told)
+	}
+}

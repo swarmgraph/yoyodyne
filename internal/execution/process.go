@@ -949,7 +949,7 @@ func (r Redactor) Spans(text string) [][2]int {
 	}
 	if r.shapes {
 		for _, shape := range secretShapes {
-			for _, found := range shape.pattern.FindAllStringIndex(text, -1) {
+			for _, found := range shape.find(text) {
 				spans = append(spans, [2]int{found[0], found[1]})
 			}
 		}
