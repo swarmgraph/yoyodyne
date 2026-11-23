@@ -3714,12 +3714,18 @@ went with it.
 
 ## A change too large for the reviewer to be shown
 
-The reviewer is shown a copy of the change with three limits: 256 KiB of diff
-for the whole change, 64 KiB for one new file, and 200 new files. Every source
-and test file has to fit in that copy whole, because a review cannot approve a
-file it was not shown; test data and generated files are not held to the
-limits. The developer is told these limits when its run starts, beside the
-execution record it must hand over.
+The reviewer is shown a copy of the change with three limits, which the project
+sets under `review_limits`: by default 256 KiB of diff for the whole change, 64
+KiB for one new file, and 200 new files
+([configuration](configuration.md#how-large-a-change-the-reviewer-is-shown)
+says how, and within what bounds). Every source and test file has to fit in that
+copy whole, because a review cannot approve a file it was not shown; test data
+and generated files are not held to the limits. The developer is told the
+project's limits when its run starts, beside the execution record it must hand
+over, and they are the same numbers the size check and the reviewer's copy use.
+A run never has limits of its own: a change to them applies to runs that start
+after it lands, and a run the size check stopped can then be run again under
+the new limits.
 
 Before any check runs, the harness measures the change the way the reviewer's
 copy is rendered (`internal/orchestrator/reviewbound.go`). The first time a

@@ -14,11 +14,14 @@ import (
 	"unicode"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
-const defaultMaxBytes = 256 << 10
+// defaultMaxBytes is held in internal/gitworktree, where the configuration adds
+// it to the diff limit a project sets (reviewlimits.go there).
+const defaultMaxBytes = gitworktree.WorkItemContextBytes
 
 // maxExcerptSourceBytes bounds the file an excerpt is chosen from. Choosing
 // sections of a document means reading the whole of it, and past this size that

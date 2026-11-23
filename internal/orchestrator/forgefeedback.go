@@ -46,6 +46,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/factory"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -583,9 +584,9 @@ func describeFeedbackSettlement(result FeedbackSettlement) string {
 // wrote the change, as evidence about the change rather than as instructions.
 // The harness contract, the invariants, and the work item stay what bound the
 // attempt.
-func forgeFeedbackRepairPrompt(invariants, scratchDirectory string, checks []string, feedback runstate.ForgeFeedback, attempt, limit int) string {
+func forgeFeedbackRepairPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, feedback runstate.ForgeFeedback, attempt, limit int) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Feedback on the published pull request: repair required\n\n")

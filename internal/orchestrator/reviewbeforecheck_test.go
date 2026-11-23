@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -127,7 +128,7 @@ func TestCheckFailingAfterAReviewKeepsTheReviewersFindings(t *testing.T) {
 		// A developer started fresh on the run is briefed from the same record.
 		freshState := state
 		freshState.ProviderSessionID = ""
-		repair, err := resumedDeveloperPrompt(freshState, "", "", "# Assigned work item\n", scratchForTest, []string{reviewThenBrokenCheck}, protectedpath.Protect(firstPipeline.Config), 3)
+		repair, err := resumedDeveloperPrompt(freshState, "", "", "# Assigned work item\n", scratchForTest, []string{reviewThenBrokenCheck}, gitworktree.DiffLimits{}, protectedpath.Protect(firstPipeline.Config), 3)
 		if err != nil {
 			t.Fatalf("resumedDeveloperPrompt() error = %v", err)
 		}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/composition"
 	"github.com/mason-bryant/yoyodyne/internal/fenced"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/selfcheck"
 )
@@ -249,9 +250,9 @@ func (e missingVerification) Error() string {
 // The harness contract is repeated for the reason the other repair prompts
 // repeat it: it bounds the attempt whether or not the provider actually restored
 // the session it was asked to resume.
-func verificationRepairPrompt(invariants, scratchDirectory string, verification runstate.Verification, checks []string, attempt, limit int) string {
+func verificationRepairPrompt(invariants, scratchDirectory string, verification runstate.Verification, checks []string, limits gitworktree.DiffLimits, attempt, limit int) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Execution evidence: repair required\n\n")

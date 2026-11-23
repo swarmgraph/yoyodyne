@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 )
 
 // outlivedReply reports a developer turn whose session was still running work
@@ -80,9 +81,9 @@ func (a *activeRun) acceptDespiteBackgroundWork(account execution.AfterReply) {
 // backgroundWorkPrompt is what a developer sent back for background work is
 // asked. It says what was left running and what became of it, that the change
 // itself is untouched, and what a turn has to do before it ends.
-func backgroundWorkPrompt(invariants, scratchDirectory string, account execution.AfterReply, checks []string) string {
+func backgroundWorkPrompt(invariants, scratchDirectory string, account execution.AfterReply, checks []string, limits gitworktree.DiffLimits) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Your turn ended while your own background work was still running\n\n")

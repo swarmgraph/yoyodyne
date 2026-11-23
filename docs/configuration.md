@@ -2840,6 +2840,58 @@ project that declares the checks it was written against; a project with checks
 of its own is asked for the record on every change, which is the stricter of the
 two answers and the one that costs nothing to be wrong about.
 
+### How large a change the reviewer is shown
+
+The reviewer is shown a copy of the change held to three limits, and the size
+check in front of the checks measures the change against the same three, so a
+change the check lets through is the change the reviewer is shown whole. A merge
+queue candidate's own review is rendered under them too
+([work](work.md) says what each does). The developer is told the same three
+numbers when its run starts. A project sets them under
+`review_limits`; each one left out keeps its default:
+
+```yaml
+review_limits:
+  diff_kib: 192   # the whole patch, in KiB
+  file_kib: 96    # one uncommitted new file, in KiB
+  files: 300      # how many new files are rendered one by one
+```
+
+| Key | Default | Lowest | Highest |
+| --- | --- | --- | --- |
+| `review_limits.diff_kib` | 256 | 64 | 512, and 256 for now (see below) |
+| `review_limits.file_kib` | 64 | 16 | 128 |
+| `review_limits.files` | 200 | 50 | 400 |
+
+The bounds are held in the harness's code, beside the limits
+(`internal/gitworktree/reviewlimits.go`), and no configuration moves them. A
+value outside its bound, or written as zero, is refused as the configuration
+loads, naming the limit and the bound, so a change to the file carrying one
+fails `yoyo config validate` and is never run under.
+
+Everything one review is shown together is held to 768 KiB, and that limit is
+fixed. The diff limit and the work item context limit may come to at most 512
+KiB together, which leaves 256 KiB for everything else the reviewer is shown. A
+pair that comes to more is refused as the configuration loads, naming both
+values and the 512 KiB. The work item context limit is fixed at 256 KiB, so for
+now the most a project may set for the diff is 256 KiB, its default. A value
+from 257 to 512 is inside the diff limit's own bound and is refused for the pair.
+
+The two limits fitting together does not promise that every review fits 768 KiB:
+a change of a great many small files also carries long lists of its files. A
+review that does not fit is stopped before the reviewer is asked. A test in
+`internal/review` rebuilds the largest review this repository would send and
+reports its figures; it does not require them to fit. [The ruling on the
+reviewer's size limits](decisions/review-size-limits.md) says what is to be
+built so that no review is stopped that way.
+
+The limits are the project's, never one run's. Nothing gives a single run
+larger limits, and a change to them applies to runs that start after it lands;
+a run the size check stopped can then be run again under the new limits. They
+are among the values the development manager may apply under
+[section 6 of the portable agent configuration design](designs/portable-agent-configuration.md#6-values-the-harness-recommends-applied-by-a-role),
+by the same reviewed change to this file.
+
 ### What a check leaves running
 
 Every command the harness runs is the leader of a process group of its own, and

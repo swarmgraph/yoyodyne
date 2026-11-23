@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 )
@@ -674,6 +675,25 @@ func (r *resolution) apply(applied layer) error {
 			r.origins["outside_files.hosts"] = applied.origin
 		}
 		setValue(r.origins, "outside_files.max_bytes", outside.MaxBytes, &r.config.OutsideFiles.MaxBytes, applied.origin)
+	}
+	if limits := document.ReviewLimits; limits != nil {
+		for _, limit := range []struct {
+			key      string
+			supplied *int
+			target   *int
+		}{
+			{gitworktree.ReviewLimitDiffKey, limits.DiffKiB, &r.config.ReviewLimits.DiffKiB},
+			{gitworktree.ReviewLimitFileKey, limits.FileKiB, &r.config.ReviewLimits.FileKiB},
+			{gitworktree.ReviewLimitFilesKey, limits.Files, &r.config.ReviewLimits.Files},
+		} {
+			// The effective form reads zero as a limit left out, so a layer that
+			// writes zero is refused here, where the two can still be told apart,
+			// rather than quietly given the default.
+			if limit.supplied != nil && *limit.supplied == 0 {
+				return errors.New(gitworktree.ReviewLimitProblem("review_limits", limit.key, 0))
+			}
+			setValue(r.origins, "review_limits."+limit.key, limit.supplied, limit.target, applied.origin)
+		}
 	}
 	if document.MCP != nil {
 		r.config.MCP = copyMCP(*document.MCP)
