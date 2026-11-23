@@ -148,6 +148,33 @@ func git(t *testing.T, dir string, args ...string) string {
 // naming the first, as a release's notes land after the commit they name.
 func newFixture(t *testing.T, notes bool) *fixture {
 	t.Helper()
+	return buildFixture(t, notes, true)
+}
+
+// publication writes the release workflow and release-body script a commit
+// carries; reading notes from main is what lets a tag there publish notes that
+// landed after it.
+func publication(t *testing.T, repository string, fromMain bool) {
+	t.Helper()
+	workflow, body := "run: bash scripts/release-body.sh \"$TAG\" body.md\n", "notes=\"docs/releases/$1.md\"\n"
+	if fromMain {
+		workflow = "run: RELEASE_NOTES_FROM=\"origin/$DEFAULT_BRANCH\" bash scripts/release-body.sh \"$TAG\" body.md\n"
+		body += "notes_from=\"${RELEASE_NOTES_FROM:-origin/main}\"\n"
+	}
+	for path, text := range map[string]string{releaseWorkflow: workflow, releaseBodyScript: body} {
+		if err := os.MkdirAll(filepath.Join(repository, filepath.Dir(path)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repository, path), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// buildFixture is newFixture, with the commit the notes name carrying a
+// release workflow that reads notes from main, or one from before it did.
+func buildFixture(t *testing.T, notes, publishes bool) *fixture {
+	t.Helper()
 	base := t.TempDir()
 	f := &fixture{
 		repository: filepath.Join(base, "repository"),
@@ -179,9 +206,17 @@ echo "checked commit: $(git -C "$(dirname "$0")/.." rev-parse HEAD)"
 	if err := os.WriteFile(filepath.Join(f.repository, "scripts", "cut-release.sh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	publication(t, f.repository, publishes)
 	git(t, f.repository, "add", "-A")
 	git(t, f.repository, "commit", "-qm", "the commit a release would name")
 	f.named = f.head(t)
+	if !publishes {
+		// The fix that reads notes from main lands after the named commit, as
+		// the release-step fix landed after abb18900.
+		publication(t, f.repository, true)
+		git(t, f.repository, "add", "-A")
+		git(t, f.repository, "commit", "-qm", "the release reads its notes from main")
+	}
 	if notes {
 		f.landNotes(t, strings.ReplaceAll(stamped, "NAMED", f.named))
 	}
@@ -604,6 +639,110 @@ func TestNotesNamingACommitNotOnMainAreHandedBack(t *testing.T) {
 			}
 			if filed := f.reports.all(); len(filed) != 1 || !strings.Contains(filed[0].Message, "which is not on origin/main") {
 				t.Errorf("reports = %+v, want the release handed back once, saying why", filed)
+			}
+		})
+	}
+}
+
+// Notes naming a commit from before the release workflow read notes from main
+// would publish a release with no notes, since the notes land after the commit
+// they name: the cut is refused before any gate runs, the release item is told
+// why once, and nothing is tagged however often main moves.
+func TestNotesNamingACommitThatCannotPublishThemAreHandedBack(t *testing.T) {
+	t.Parallel()
+	f := buildFixture(t, true, false)
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "names commit "+f.named[:12]) ||
+		!strings.Contains(step.Detail, "published without its notes") || !strings.Contains(step.Detail, "does not read notes from main") {
+		t.Fatalf("step = %+v, want the cut refused because the named commit cannot publish its notes", step)
+	}
+	if f.runner.gateRuns() != 0 || f.originTag(t) != "" || git(t, f.repository, "tag", "--list") != "" {
+		t.Fatalf("a commit that cannot publish its notes ran the gates or was tagged")
+	}
+	notes := f.tracker.noted()
+	if len(notes) != 1 || !strings.HasPrefix(notes[0], "calc-fvn: The harness did not cut v0.6.0") || !strings.Contains(notes[0], "published without its notes") {
+		t.Errorf("notes = %q, want the release item told plainly why", notes)
+	}
+	if filed := f.reports.all(); len(filed) != 1 || !strings.Contains(filed[0].Message, "published without its notes") {
+		t.Errorf("reports = %+v, want the release handed back once", filed)
+	}
+	f.moveMain(t)
+	f.cutter.Pass(context.Background())
+	if f.originTag(t) != "" || len(f.tracker.noted()) != 1 || len(f.reports.all()) != 1 {
+		t.Errorf("after main moved: tag %q, %d notes, %d reports, want no tag and nothing said again", f.originTag(t), len(f.tracker.noted()), len(f.reports.all()))
+	}
+
+	// Notes naming a commit that carries the fix are cut there.
+	fixed := strings.SplitN(git(t, f.repository, "rev-list", "--reverse", f.named+"..HEAD"), "\n", 2)[0]
+	f.renameNotes(t, fixed)
+	cut := f.cutter.Pass(context.Background())
+	if cut.Outcome != runstate.StepRan || f.originTag(t) != "refs/tags/v0.6.0 "+fixed {
+		t.Errorf("notes naming a commit that publishes them = %+v, origin %q, want it cut there", cut, f.originTag(t))
+	}
+}
+
+// An intent recorded for a commit that cannot publish its notes, as one
+// recorded before that was checked, writes no tag and goes stale.
+func TestAnIntentOnACommitThatCannotPublishItsNotesGoesStale(t *testing.T) {
+	t.Parallel()
+	f := buildFixture(t, true, false)
+	f.intent(t, f.named)
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "published without its notes") {
+		t.Fatalf("step = %+v, want the intent refused", step)
+	}
+	if f.originTag(t) != "" || git(t, f.repository, "tag", "--list") != "" {
+		t.Fatalf("an intent on a commit that cannot publish its notes was tagged")
+	}
+	if records := f.records(t); len(records) != 1 || records[0].State != runstate.ReleaseCutStale {
+		t.Errorf("records = %+v, want the intent stale", records)
+	}
+}
+
+// A parked release item is the Lead Product Manager's to release: the pass
+// tags nothing for it, finishes no cut recorded for it, and writes nothing on
+// it, not even what an earlier pass owed it.
+func TestAParkedReleaseIsNeitherCutNorWrittenOn(t *testing.T) {
+	t.Parallel()
+	const reason = "Lead PM: the release would lack its notes; release once the release step is fixed"
+	for _, test := range []struct {
+		name  string
+		setup func(t *testing.T, f *fixture)
+	}{
+		{"notes ready to cut", func(*testing.T, *fixture) {}},
+		{"a cut recorded and not yet tagged", func(t *testing.T, f *fixture) { f.intent(t, f.named) }},
+		{"a refusal not yet said", func(t *testing.T, f *fixture) {
+			if err := f.cuts.Put(runstate.ReleaseCut{
+				SchemaVersion: runstate.ReleaseCutSchemaVersion, ProductID: "calc", Version: "v0.6.0",
+				WorkItemID: "calc-fvn", Commit: f.named, MainCommit: f.head(t), State: runstate.ReleaseCutRefused,
+				Detail: "the gates were red", CutBy: "an earlier pass", RecordedAt: f.now, UpdatedAt: f.now,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, true)
+			f.tracker.items[0].Parking = domain.WorkItemParking(reason)
+			test.setup(t, f)
+			for turn := 0; turn < 2; turn++ {
+				step := f.cutter.Pass(context.Background())
+				if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "v0.6.0 is parked") || !strings.Contains(step.Detail, reason) {
+					t.Fatalf("pass %d = %+v, want it skipped naming the parking", turn, step)
+				}
+				f.moveMain(t)
+			}
+			if f.runner.gateRuns() != 0 || f.originTag(t) != "" || git(t, f.repository, "tag", "--list") != "" {
+				t.Errorf("a parked release ran the gates or was tagged")
+			}
+			if notes, filed := f.tracker.noted(), f.reports.all(); len(notes) != 0 || len(filed) != 0 {
+				t.Errorf("a parked release was written on: notes %q, reports %+v", notes, filed)
+			}
+
+			f.tracker.items[0].Parking = ""
+			if released := f.cutter.Pass(context.Background()); f.originTag(t) != "refs/tags/v0.6.0 "+f.named {
+				t.Errorf("once released = %+v, want the pass to act on it again", released)
 			}
 		})
 	}
