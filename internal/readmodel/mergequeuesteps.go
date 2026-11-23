@@ -20,12 +20,24 @@ package readmodel
 // line as the development manager's to move: finding what holds the head of the
 // queue, and taking it up again or handing it back, is a judgement about run
 // reliability, and both are commands she has.
+//
+// So is an entry the queue's worker has stopped on the same way on its last
+// three passes or more: the same entry, the same words, and nothing else
+// recorded between them. A stopped pass is the worker meeting something it
+// cannot get past, and every pass already tries again, so the same stop three
+// times over is the trying again having changed nothing; no move the harness
+// has left will change it either. It reads off the queue's pass history
+// (runstate's recordPassHistory) and clears at the first pass that ends any
+// other way. It is the operator's instead only where the stopped pass recorded,
+// from the type of the error it stopped on, an act only a person can take, and
+// then for that reason (ownership's mergeQueueOverdueRule).
 
 import (
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -53,11 +65,25 @@ type QueueEntryOverdue struct {
 	BoundSeconds int64 `json:"bound_seconds,omitempty"`
 	// WaitingOn is what the entry is waiting on, in ordinary words.
 	WaitingOn string `json:"waiting_on"`
+	// StoppedPasses is how many passes in a row the queue's worker stopped on
+	// the entry for the same reason, where that is why it is a problem, and
+	// zero otherwise; Since is then when the first of them ended, and
+	// StoppedBecause the reason, in the words the worker recorded it in.
+	StoppedPasses  int    `json:"stopped_passes,omitempty"`
+	StoppedBecause string `json:"stopped_because,omitempty"`
+	// PersonOnly is the act only a person can take that the stop waits on,
+	// where the stopped pass recorded one, which makes the entry the
+	// operator's for that reason.
+	PersonOnly ownership.PersonOnlyReason `json:"person_only,omitempty"`
 }
 
 // Says is the entry as a sentence: which entry, its step and since when, why
 // it is a problem, and what it waits on.
 func (o QueueEntryOverdue) Says() string {
+	if o.StoppedPasses > 0 {
+		return fmt.Sprintf("merge queue entry %d for %s (place %d, %s %s) has stopped the queue the same way on %d passes in a row since %s, and the harness trying again has not changed it; every change behind it waits; it stops because %s",
+			o.Order, o.TargetBranch, o.Place, o.WorkItemID, o.Title, o.StoppedPasses, localMoment(o.Since), o.StoppedBecause)
+	}
 	why := "GitHub will not make this merge by itself"
 	if o.BoundSeconds > 0 {
 		why = "past the " + boundWords(time.Duration(o.BoundSeconds)*time.Second) + " a step may take before it is a problem"
@@ -336,6 +362,19 @@ func placeTheHead(open []QueueEntryStanding, left time.Time, standing MergeQueue
 // run's, on the development manager's list of stopped runs already, and an
 // entry passed over waits on the one ahead of it, which is the one marked.
 func overdueSteps(queue *MergeQueueStanding, open []QueueEntryStanding, now time.Time, bound time.Duration) {
+	// A stop that repeats is a problem whatever the time, and is said ahead of
+	// anything else about the entry, because it is why the entry is not moving.
+	for index := range open {
+		entry := &open[index]
+		if stop := entry.repeatedStop; stop != nil {
+			entry.Overdue = &QueueEntryOverdue{
+				TargetBranch: queue.TargetBranch, EntryID: entry.EntryID, Order: entry.Order, Place: entry.Place,
+				WorkItemID: entry.WorkItemID, Title: entry.Title, Step: entry.Step, Since: stop.since,
+				WaitingOn:     "somebody finding and clearing what stops the queue's worker on it, or handing it back",
+				StoppedPasses: stop.passes, StoppedBecause: stop.says, PersonOnly: stop.personOnly,
+			}
+		}
+	}
 	if now.IsZero() {
 		return
 	}
@@ -344,6 +383,9 @@ func overdueSteps(queue *MergeQueueStanding, open []QueueEntryStanding, now time
 	}
 	for index := range open {
 		entry := &open[index]
+		if entry.Overdue != nil {
+			continue
+		}
 		mark := func(boundSeconds int64, waitingOn string) {
 			overdue := QueueEntryOverdue{
 				TargetBranch: queue.TargetBranch, EntryID: entry.EntryID, Order: entry.Order, Place: entry.Place,
@@ -392,4 +434,55 @@ func waitingOnWords(entry QueueEntryStanding) string {
 		return entry.Why
 	}
 	return entry.Why
+}
+
+// repeatedStopsBeforeProblem is how many passes in a row have to stop on one
+// entry for one reason before it is said as a problem: the first stop may be
+// passing, and the passes after it are the harness trying again.
+const repeatedStopsBeforeProblem = 3
+
+// queueRepeatedStop is the queue's worker stopping on one entry for one reason
+// on its latest passes: how many, when the first of them ended, and why.
+type queueRepeatedStop struct {
+	entryID    string
+	passes     int
+	since      time.Time
+	says       string
+	personOnly ownership.PersonOnlyReason
+}
+
+// repeatedStopOf is the stop the queue's latest passes all ended on, where at
+// least repeatedStopsBeforeProblem of them in a row stopped on the same entry
+// for the same reason, and nil otherwise. Any other pass breaks the run, so a
+// pass that gets past the stop, or stops on something else, clears it. The
+// reason is said in the latest pass's own words where that pass is the newest
+// in the history, because the history keeps each pass's words shortened.
+func repeatedStopOf(history []runstate.MergeQueuePass, latest *runstate.MergeQueuePass) *queueRepeatedStop {
+	if len(history) == 0 {
+		return nil
+	}
+	newest := history[len(history)-1]
+	if newest.Outcome != runstate.MergeQueuePassStopped || newest.EntryID == "" {
+		return nil
+	}
+	first := len(history) - 1
+	for first > 0 {
+		before := history[first-1]
+		if before.Outcome != newest.Outcome || before.EntryID != newest.EntryID || before.Says != newest.Says || before.PersonOnly != newest.PersonOnly {
+			break
+		}
+		first--
+	}
+	passes := len(history) - first
+	if passes < repeatedStopsBeforeProblem {
+		return nil
+	}
+	says := newest.Says
+	if latest != nil && latest.At.Equal(newest.At) && latest.EntryID == newest.EntryID && latest.Says != "" {
+		says = latest.Says
+	}
+	if strings.TrimSpace(says) == "" {
+		says = "of something its pass recorded no words for"
+	}
+	return &queueRepeatedStop{entryID: newest.EntryID, passes: passes, since: history[first].At.UTC(), says: says, personOnly: newest.PersonOnly}
 }
