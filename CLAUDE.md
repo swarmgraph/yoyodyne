@@ -20,6 +20,13 @@ reads the first and Codex the second. A change goes into both, byte for byte;
 needs, where the build cache goes, how tests wait, and what `make test` checks
 besides the Go code.
 
+Run Go commands through `make`, which compiles with `-trimpath`. When you run
+one directly, such as a focused `go test`, add `-trimpath` to it
+(`go test -trimpath ./internal/beads -run TestA`): without it every package is
+compiled again for your worktree's own folder rather than read from the build
+cache every worktree shares
+([where the build cache goes](docs/developing-yoyo.md#where-the-build-cache-goes)).
+
 A package with very large files carries a `README.md` code map
 (`internal/orchestrator`, `internal/chat`): read it before paging through
 `pipeline.go` or `chat.go`, and keep it current when you move what it names.

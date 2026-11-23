@@ -2,6 +2,7 @@ package orchestratortest
 
 import (
 	"go/build"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,7 +42,7 @@ func TestThePackageImportsNothingFromTheOrchestrator(t *testing.T) {
 			t.Errorf("%s imports %s", via[path], path)
 			continue
 		}
-		dependency, err := build.Import(path, ".", 0)
+		dependency, err := importPackage(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
@@ -56,4 +57,11 @@ func TestThePackageImportsNothingFromTheOrchestrator(t *testing.T) {
 	if len(via) == 0 {
 		t.Fatal("found no import of this module's packages, so the walk proved nothing")
 	}
+}
+
+// importPackage reads a package of this module by its folder, found from the
+// test's working folder. go/build cannot find one by its import path in a test
+// built with -trimpath, which does not know where Go is.
+func importPackage(path string) (*build.Package, error) {
+	return build.ImportDir(filepath.Join("..", "..", "..", filepath.FromSlash(strings.TrimPrefix(path, modulePath+"/"))), 0)
 }
