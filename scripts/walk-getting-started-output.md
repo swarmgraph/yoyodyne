@@ -12,7 +12,7 @@ install or getting-started sections move. Re-run `make getting-started` and repl
 this file rather than citing it if they have — and note that since
 yoyodyne-ifd.121.6 the walkthrough is a merge gate in its own right: the
 `getting-started` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
-runs it on every pull request. So this file is a readable snapshot of what the
+runs it on every pull request but one made only of governed documents. So this file is a readable snapshot of what the
 walkthrough prints, and CI rather than this file is what stands behind the
 claim that the documented path works.
 
@@ -32,7 +32,8 @@ unchanged because the walk's own output did not change.
 
 **The digest ceremony below is spent.** It existed because this file was the only
 evidence the reduced README still worked, and pinning it to a hash is what made
-that evidence checkable. CI now runs the walkthrough on every pull request, so a
+that evidence checkable. CI now runs the walkthrough on every pull request
+but one made only of governed documents, so a
 README that breaks the documented path fails a gate rather than falsifying a
 digest nobody re-hashes. Read the rows below as ifd.121.5's record of what it
 walked, not as a claim about the file as it now stands.

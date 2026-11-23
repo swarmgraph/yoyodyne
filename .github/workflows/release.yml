@@ -58,7 +58,7 @@ jobs:
 
       # `dist-verify` builds every platform's archive and then asserts the
       # runner's own binary reports the tag. It is the same target CI runs on
-      # every change, so a tag push is a rerun of a path already exercised
+      # every change but one made only of governed documents, so a tag push is a rerun of a path already exercised
       # rather than its first execution.
       - name: Build the release binaries and verify they name the tag
         run: make dist-verify VERSION="$TAG"
@@ -67,7 +67,8 @@ jobs:
       # this tag, so the two tell one story instead of two. The composition is a
       # script rather than inline YAML because inline YAML in a tag-triggered
       # workflow first executes against a real published release; that one is
-      # exercised by scripts/release-notes-test.sh on every change, including
+      # exercised by scripts/release-notes-test.sh on every change
+      # but one made only of governed documents, including
       # what it does for a tag whose notes file does not exist.
       #
       # A release is tagged at the commit its notes name and the notes land on

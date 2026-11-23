@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   # Each of these three runs one declared check on every pull request and merge
-  # group, under the job name this repository's configuration lists as required.
+  # group but one made only of governed documents, under the job name this repository's configuration lists as required.
   #
   # Every job here starts with the same step, written once below and reused by
   # name in the others. It reads the paths a pull request or merge group
@@ -187,7 +187,7 @@ jobs:
         if: steps.documents.outputs.only != 'true'
         run: make build
 
-      # The release path runs here, on every change, rather than first executing
+      # The release path runs here, on every change but one made only of governed documents, rather than first executing
       # during a tag push where a failure means a botched or absent release.
       # This is the same `make dist` a release runs: it cross-compiles every
       # platform in PLATFORMS, packages and checksums them, then unpacks the

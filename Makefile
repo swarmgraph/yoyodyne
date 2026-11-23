@@ -391,7 +391,8 @@ doccheck: cachecheck
 # The README's "Getting started" executed against a throwaway project that is
 # neither this one nor written in Go, so that section is verified rather than
 # asserted. It is the gate on a change to the README's install or
-# getting-started sections, and CI runs it on every change: the `getting-started` job
+# getting-started sections, and CI runs it on every change but one made only of governed documents:
+# the `getting-started` job
 # in .github/workflows/ci.yml installs `bd` and calls this target, so the gate
 # is enforced rather than left to somebody remembering it.
 #
@@ -478,7 +479,7 @@ dist: clean-dist
 	@# it by name, and `make release` reports the cut's checksums from it. A
 	@# rename that missed them would otherwise surface as a published release
 	@# with no checksums, or a cut that prints none, so it fails here instead --
-	@# in the target CI runs on every change.
+	@# in the target CI runs on every change but one made only of governed documents.
 	@if [ ! -f $(DIST)/checksums.txt ]; then \
 		echo "dist: no $(DIST)/checksums.txt; the checksum step wrote somewhere the release does not read" >&2; \
 		exit 1; \
@@ -489,7 +490,7 @@ dist: clean-dist
 # than no release, because every report filed against it is unattributable.
 # This unpacks the archive for whatever platform it is running on and asks the
 # binary what it is, so the check that guards a release is the same one CI runs
-# on every change rather than a copy of it that first executes at a tag push.
+# on every change but one made only of governed documents, rather than a copy of it that first executes at a tag push.
 dist-verify: dist
 	@set -e; \
 	goos=$$($(GO) env GOOS); goarch=$$($(GO) env GOARCH); \
