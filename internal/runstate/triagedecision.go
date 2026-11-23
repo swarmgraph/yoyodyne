@@ -442,7 +442,9 @@ func (s *TriageStore) RecordDecision(ctx context.Context, workItemID string, dec
 //
 // The returned record is what stands afterwards: where the earlier decision was
 // kept, it is that decision the record holds about the run, which is how a
-// caller tells the development manager so.
+// caller tells the development manager so. Where the new decision put an end to
+// a repair or re-run still to be carried out, the returned record names it in
+// Replaced, so the caller can tell her that too.
 func (s *Store) RecordTriageDecision(ctx context.Context, workItemID string, decision TriageDecision, at time.Time) (TriageCounters, error) {
 	return s.Triage().recordDecisionBeside(ctx, workItemID, decision, at, func(standing TriageDecision, counters TriageCounters) bool {
 		return s.stillToCarryOut(workItemID, standing, counters)
@@ -510,16 +512,26 @@ func (s *TriageStore) recordDecisionBeside(ctx context.Context, workItemID strin
 	if err != nil {
 		return TriageCounters{}, err
 	}
-	return s.update(ctx, workItemID, when, func(counters *TriageCounters) error {
+	var replaced *TriageDecision
+	counters, err := s.update(ctx, workItemID, when, func(counters *TriageCounters) error {
+		replaced = nil
 		// Asked under the item's lock and of the record as it stands under it,
 		// so the decision found standing is the one the write would replace.
-		if stillToCarryOut != nil && prepared.KeepsStanding() {
+		if stillToCarryOut != nil {
 			if standing, found := counters.DecisionOf(prepared.RunID); found && stillToCarryOut(standing, *counters) {
-				return errNoTriageChange
+				if prepared.KeepsStanding() {
+					return errNoTriageChange
+				}
+				kept := standing
+				replaced = &kept
 			}
 		}
 		return counters.recordDecision(prepared)
 	})
+	if err == nil {
+		counters.Replaced = replaced
+	}
+	return counters, err
 }
 
 // prepareTriageDecision trims what a caller supplied and dates the decision from

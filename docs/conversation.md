@@ -3017,7 +3017,13 @@ with no `waits_on` is waiting for exactly that, so the repair or re-run stays
 the decision on the item's record and the harness still carries it out. What
 she is told as she records the wait says so, and says what to record instead if
 she meant the wait to cancel it: a wait naming the work item it waits on, a
-`rescope`, or an `escalate`, each of which replaces it. While such a decision
+`rescope`, or an `escalate`, each of which replaces it. Whatever she records
+that does replace a repair or re-run not yet carried out, what she is told says
+that too: which one it replaced, decided when, that the harness will not now
+carry it out, and that she decides it again if she meant it to stand. The
+decision is one per run whichever of the run's entries she was answering, so a
+wait naming work that she records about a run's pull request ends a re-run she
+decided about the same run's stoppage. While such a decision
 waits to be carried out, the run's pull request is not listed to her again as
 an unfinished publication either; it comes back only if the harness is refused
 carrying the decision out, or once it has been carried out and the publication
