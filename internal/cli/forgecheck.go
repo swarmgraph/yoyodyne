@@ -215,6 +215,7 @@ func forgeCheckerFrom(parts components, answers publish.ResponseCache) orchestra
 	reconciler.RetryAtNextCheck = true
 	reconciler.Forge = &orchestrator.ForgeQuestions{}
 	reconciler.TrackerShare = trackerShareFrom(parts)
+	reconciler.BatchRoute = batchRouteFrom(parts)
 	return reconciler
 }
 
@@ -452,4 +453,18 @@ func printTeamFeedbackRepairs(stdout, stderr io.Writer, repairs []orchestrator.T
 			fmt.Fprintf(stderr, "%s: repair from %s on pull request #%d: %s\n", repair.WorkItemID, repair.FeedbackID, repair.PullRequest, repair.Failure)
 		}
 	}
+}
+
+// batchRouteFrom is the harness's own batch pull request: nil unless the project
+// enables it and sets execution.upstream_branch, which runs none of it. A record
+// that cannot be opened leaves the route off for this check rather than failing it.
+func batchRouteFrom(parts components) *orchestrator.BatchRoute {
+	if !parts.config.Execution.BatchRouteOn() {
+		return nil
+	}
+	store, err := runstate.NewBatchRecordStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return nil
+	}
+	return &orchestrator.BatchRoute{Settings: parts.config.Execution.BatchPullRequest, Records: store}
 }

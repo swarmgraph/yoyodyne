@@ -913,6 +913,15 @@ func standingSources(configPath string) readmodel.Sources {
 			sources.TeamBranchUpdates = store
 		}
 	}
+	// The harness's own batch pull request, which only a project that enables it
+	// and sets execution.upstream_branch has. With either off nothing is read.
+	if cfg.Execution.BatchRouteOn() {
+		batch := cfg.Execution.BatchPullRequest
+		sources.BatchRoute = &batch
+		if store, err := runstate.NewBatchRecordStore(stateRoot, cfg.Product.ID); err == nil {
+			sources.BatchRecords = store
+		}
+	}
 	// The product's supervisor and its record of the parts, so a part the
 	// supervisor has left down is said here with its reason.
 	if store, err := runstate.NewConfigReaderStore(stateRoot, cfg.Product.ID); err == nil {
