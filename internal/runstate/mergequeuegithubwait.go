@@ -15,8 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 const mergeQueueGitHubWaitName = "github-wait.json"
@@ -59,14 +60,8 @@ func (w MergeQueueGitHubWait) validate() error {
 // bounded keeps what the wait carries from GitHub's side within the bounds
 // every recorded failure is held to.
 func (w ForgeWait) bounded() ForgeWait {
-	w.Step = BoundedMergeQueueText(strings.Join(strings.Fields(w.Step), " "))
-	if len(w.Step) > MaxRecordedTextBytes {
-		w.Step = w.Step[:MaxRecordedTextBytes]
-	}
-	w.Failure = strings.Join(strings.Fields(w.Failure), " ")
-	if len(w.Failure) > MaxRetryFailureBytes {
-		w.Failure = strings.ToValidUTF8(w.Failure[:MaxRetryFailureBytes], "")
-	}
+	w.Step = oneline.Bound(BoundedMergeQueueText(w.Step), MaxRecordedTextBytes)
+	w.Failure = oneline.Bound(w.Failure, MaxRetryFailureBytes)
 	w.Since, w.NextTryAt = w.Since.UTC(), w.NextTryAt.UTC()
 	return w
 }
