@@ -569,13 +569,20 @@ type PendingWrite struct {
 	// not waiting for anybody's approval. It is cleared when the document is
 	// confirmed or put to the operator. At most MaxHandedBackReasonBytes.
 	WaitsBehind string `json:"waits_behind,omitempty"`
+	// ReturnsHold is set while the revision is held for the development manager
+	// after returned runs; see DocumentReturnsHold. ReturnedFindings is what the
+	// last returned run said, kept on a revision written after the stop. At most
+	// MaxHandedBackReasonBytes.
+	ReturnsHold      *DocumentReturnsHold `json:"returns_hold,omitempty"`
+	ReturnedFindings string               `json:"returned_findings,omitempty"`
 }
 
 // AwaitsDecision reports a document that waits for somebody's approval: not
-// confirmed for publication, not held for sending by its owner, and not held
-// back by the harness behind another copy of itself.
+// confirmed for publication, not held for sending by its owner, not held for the
+// development manager after returned runs, and not held back by the harness
+// behind another copy of itself.
 func (w PendingWrite) AwaitsDecision() bool {
-	return w.Publication == nil && !w.Held() && strings.TrimSpace(w.WaitsBehind) == ""
+	return w.Publication == nil && w.ReturnsHold == nil && !w.Held() && strings.TrimSpace(w.WaitsBehind) == ""
 }
 
 // HandedBackDocument is one revision a reviewed run handed back to its author
@@ -1081,6 +1088,15 @@ func (c Conversation) Validate() error {
 		if len(write.Body) > MaxPendingWriteBytes {
 			problems = append(problems, fmt.Errorf("pending_writes[%d] is %d bytes, limit is %d",
 				i, len(write.Body), MaxPendingWriteBytes))
+		}
+		if write.ReturnsHold != nil {
+			if err := write.ReturnsHold.Validate(); err != nil {
+				problems = append(problems, fmt.Errorf("pending_writes[%d]: %w", i, err))
+			}
+		}
+		if len(write.ReturnedFindings) > MaxHandedBackReasonBytes {
+			problems = append(problems, fmt.Errorf("pending_writes[%d] keeps %d bytes of findings, limit is %d",
+				i, len(write.ReturnedFindings), MaxHandedBackReasonBytes))
 		}
 		if len(write.WaitsBehind) > MaxHandedBackReasonBytes {
 			problems = append(problems, fmt.Errorf("pending_writes[%d] says what it waits behind in %d bytes, limit is %d",

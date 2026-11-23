@@ -112,6 +112,9 @@ type PendingWrite struct {
 	// document ahead of it that the harness holds it back behind.
 	DocumentKind string `json:"document_kind,omitempty"`
 	WaitsBehind  string `json:"waits_behind,omitempty"`
+	// ReturnsHold and ReturnedFindings are runstate.PendingWrite's.
+	ReturnsHold      *runstate.DocumentReturnsHold `json:"returns_hold,omitempty"`
+	ReturnedFindings string                        `json:"returned_findings,omitempty"`
 }
 
 // writeRecord is one written document and whether confirmation and delivery finished
@@ -264,7 +267,8 @@ func (s *Session) Writes() []PendingWrite {
 		// operator's to decide, until the work item its hold names closes.
 		// Nor is one the harness holds back behind another copy of itself still
 		// publishing: that wait ends by itself, and nobody is asked to end it.
-		if !record.decided && record.pending.Publication == nil && !record.heldForSending() && record.pending.WaitsBehind == "" {
+		// One held after returned runs is the development manager's to decide.
+		if !record.decided && record.pending.Publication == nil && record.pending.ReturnsHold == nil && !record.heldForSending() && record.pending.WaitsBehind == "" {
 			pending = append(pending, record.pending)
 		}
 	}
@@ -475,6 +479,7 @@ func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]Pendi
 		if err != nil {
 			return pending, err
 		}
+		record.pending.ReturnedFindings = s.returnedFindings(strings.TrimSpace(write.ID))
 		if err := s.emit(execution.EventDocumentDrafted, record.pending); err != nil {
 			return pending, fmt.Errorf("record a written document: %w", err)
 		}
@@ -742,6 +747,9 @@ func (s *Session) awaitingWriteDecision(writeID string) (*writeRecord, error) {
 		}
 		if record.pending.Publication != nil {
 			return nil, fmt.Errorf("document %s was already confirmed, under policy or as a change the Lead Product Manager approved, and is waiting for its reviewed run; if it has landed by another route, record that with /landed %s <commit>, and to stop offering it use /drop %s <reason>", trimmed, trimmed, trimmed)
+		}
+		if record.pending.ReturnsHold != nil {
+			return nil, fmt.Errorf("document %s is held for the development manager after %d returned runs of it, so it is not awaiting the operator's decision", trimmed, runstate.MaxDocumentReturns)
 		}
 		return record, nil
 	}
@@ -1017,6 +1025,9 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Scope:         p.Write.Scope,
 		DocumentKind:  p.DocumentKind,
 		WaitsBehind:   p.WaitsBehind,
+
+		ReturnsHold:      p.ReturnsHold,
+		ReturnedFindings: p.ReturnedFindings,
 	}.RecordRevisedPath(p.RevisedPath)
 }
 
@@ -1034,6 +1045,9 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 		RevisedPath:    revisedPath(recorded),
 		DocumentKind:   recorded.DocumentKind,
 		WaitsBehind:    recorded.WaitsBehind,
+
+		ReturnsHold:      recorded.ReturnsHold,
+		ReturnedFindings: recorded.ReturnedFindings,
 		Write: artifact.Write{
 			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),

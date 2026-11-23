@@ -1075,6 +1075,9 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// conflict in bringing the target branch up to date with the team's
 		// branch. Wired for that role alone.
 		TeamConflicts: conversationTeamConflicts(parts, role),
+		// Where her release or decline of a document held after returned runs is
+		// recorded, in its writer's conversation. Wired for that role alone.
+		ReturnedDocuments: conversationReturnedDocuments(parts, role),
 		// The hand that carries out her retry or retirement of a stopped document
 		// publication, which has no work item to record either on. Wired for that
 		// role alone.

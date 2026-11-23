@@ -447,3 +447,22 @@ func TestEveryPassIsPutTheHeldLineAndAnOverdueProbeReturnsToTheDocket(t *testing
 		t.Errorf("the overdue probe is not on the docket ahead of the hold:\n%s", second)
 	}
 }
+
+// A document held after returned runs is on the development manager's pass
+// beside her docket.
+func TestHeldDocumentsAreDeliveredOnTheDevelopmentManagersPass(t *testing.T) {
+	t.Parallel()
+
+	held := readmodel.HeldDocuments([]runstate.Conversation{{ConversationID: "chat-writer", Role: domain.RoleArchitect, PendingWrites: []runstate.PendingWrite{{
+		ID: "document-4.1", Artifact: "held-design", Body: "# Held", Reason: "revised",
+		ReturnsHold: &runstate.DocumentReturnsHold{Why: "it was written against the same copy", HeldAt: time.Now()},
+	}}}})
+	window := sweepDocket{docketer: failingDocketer{}, standing: func() readmodel.Standing {
+		return readmodel.Standing{DocumentsHeld: held}
+	}}.StartPass(nil).Window()
+	for _, want := range []string{"## Documents held for your decision", "chat-writer/document-4.1", "held-design", "the architect's", "it was written against the same copy"} {
+		if !strings.Contains(window, want) {
+			t.Errorf("her pass does not say %q:\n%s", want, window)
+		}
+	}
+}

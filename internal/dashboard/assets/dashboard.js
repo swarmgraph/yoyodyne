@@ -810,6 +810,10 @@ var standingWarningAgeSeconds = 5 * 60;
         (standing.documents_waiting_for_slot || []).forEach(function (wait) {
           detail += "; " + wait.says;
         });
+        // And a revision held for the development manager after returned runs.
+        (standing.documents_held || []).forEach(function (held) {
+          detail += "; " + held.says;
+        });
       }
       if (line.list === "needs_human") {
         tiles.appendChild(needsHumanTile(line.label, standing.needs_human));

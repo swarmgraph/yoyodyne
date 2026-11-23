@@ -263,13 +263,17 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // is deciding what becomes of work that stopped moving and is held under
 // work.triage, as `queue` is.
 //
+// The development manager's `held_document` releases or declines a document held
+// after three returned runs (docs/designs/document-landing-route.md, point 7).
+// It decides stopped work, so it is held under work.triage.
+//
 // The development manager's `keep_version` records which of two machines'
 // versions of a held item stands, the design's rule that such an item is hers
 // to decide (docs/designs/working-alongside-other-contributors.md, section 5).
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
 	domain.RoleArchitect:          {"amendment"},
-	domain.RoleDevelopmentManager: {"brake", "keep_version", "label", "queue", "team_conflict"},
+	domain.RoleDevelopmentManager: {"brake", "held_document", "keep_version", "label", "queue", "team_conflict"},
 }
 
 func TestConversationAuthorityDecidesWhatItDecidedBeforeTheConversion(t *testing.T) {
