@@ -164,8 +164,15 @@ func workItemIsTheRoles(item beads.WorkItem, scope orchestrator.PassScope) bool 
 }
 
 // messageLines is what is waiting in the scope's conversations to be told:
-// tracker results and handoffs not yet delivered, notices, and proposals,
-// concerns, and writes held for its next turn.
+// handoffs, notices, and proposals, concerns, and writes held for its next turn.
+//
+// A handoff is read as the conversation's count of them (runstate.Conversation
+// Told), not as the pending results text it was added to. That text also holds
+// the results of the role's own last actions — its lane report, its memory
+// notes, each with a version that rises every time — so reading it made every
+// pass that wrote one look like a new message to the next check, and no such
+// role's pass could ever be skipped. The role's own results are still delivered
+// on its next started pass.
 func (p passChanges) messageLines(scope orchestrator.PassScope) ([]string, error) {
 	conversations, err := p.scopeConversations(scope)
 	if err != nil {
@@ -174,12 +181,12 @@ func (p passChanges) messageLines(scope orchestrator.PassScope) ([]string, error
 	var lines []string
 	for _, conversation := range conversations {
 		pending, _ := json.Marshal(struct {
-			Results   string
+			Told      uint64
 			Notices   []string
 			Proposals []runstate.PendingProposal
 			Concerns  []runstate.PendingConcern
 			Writes    []runstate.PendingWrite
-		}{conversation.PendingTrackerResults, conversation.PendingNotices, conversation.PendingProposals, conversation.PendingConcerns, conversation.PendingWrites})
+		}{conversation.Told, conversation.PendingNotices, conversation.PendingProposals, conversation.PendingConcerns, conversation.PendingWrites})
 		lines = append(lines, conversation.ConversationID+"|"+orchestrator.DigestLines([]string{string(pending)}))
 	}
 	return lines, nil
