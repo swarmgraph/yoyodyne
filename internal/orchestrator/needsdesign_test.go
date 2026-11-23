@@ -54,7 +54,7 @@ func TestSchedulerStartsANeedsDesignItemOnlyOnceTheLabelIsRemoved(t *testing.T) 
 		t.Fatalf("backlog = %d admitted, %d pullable, want it queued and unpullable", schedule.Admitted, schedule.Pullable)
 	}
 
-	// The architect removes the label, and the next pull takes the item.
+	// The label comes off, and the next pull takes the item.
 	harness.mu.Lock()
 	harness.Items[0].Labels = []string{"reliability"}
 	harness.mu.Unlock()

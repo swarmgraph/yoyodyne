@@ -236,7 +236,7 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 	case backlog.HeldForDesign:
 		return ownedGroup(WaitGroup{Kind: kind,
 			WaitsOn: "wait on the " + domain.RoleArchitect.Title() + "'s design, labelled " + domain.NeedsDesignLabel,
-			Next:    "she makes each design readable to the developer who will pull the item and removes the label"},
+			Next:    "she writes each design as a document naming the item, and the development manager removes the label, for now, once it has landed"},
 			ownership.KindHeldWork, ownership.Record{NeedsDesign: true})
 	case backlog.HeldCovered:
 		return ownedGroup(WaitGroup{Kind: kind,

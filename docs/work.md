@@ -1144,6 +1144,38 @@ another work item has the evidence landing above for exactly that; this verb is
 the answer for when nothing in the backlog is what the item is waiting on, and
 the parking is what holds it while the decision is pending.
 
+A developer has one more way to end the run in the round it is working in: an
+item that can be met, but whose conditions for done turn on a choice about
+behaviour nobody has made and that is the architect's to make
+([the design](designs/needs-design-gate.md)):
+
+````
+```yoyodyne-landing
+{"outcome":"needs-design","why":"should a replacement interrupted mid-write leave the old file or nothing at all?"}
+```
+````
+
+It costs what an escalation costs — no checks, no review, no repair attempt,
+nothing integrated, the branch and worktree kept — and the run is recorded as
+having succeeded, with the stop recorded as `work-item-needs-design`. What
+differs is where the item goes. It is not parked and nothing is docketed for the
+development manager: it goes back open, labelled `needs-design`, with the
+developer's question on its notes, and the label holds it from every start the
+harness chooses until the architect's design for it lands and the development
+manager, for now, removes the label. A later run starts from the target branch, not from the kept change.
+
+The same label is put on in conversation by the Lead Product Manager, the
+development manager, and a program manager inside its lane, with the question
+as the reason, and no other role's conversation can label an item at all. The
+architect changes no work item, so she can neither put the label on nor take it
+off, and text in the item's own design field takes nothing off. Under the design
+the harness will remove the label when a document in `docs/designs` naming the
+item among the items it answers lands on the target branch. Until that is built
+the development manager removes it, with a `label` action whose reason says
+which document and which commit landed. The roles that may put it on are told to
+leave the removal to the development manager; the harness does not yet refuse a
+removal by the Lead Product Manager or by a program manager in its lane.
+
 It is not the answer for a run that could not finish. That is a failure and is
 reported as one. Nor is it an alternative to repair: a change that has work left
 to do is a repair however much of it there is, and an escalation says that no
@@ -1452,9 +1484,9 @@ thirteen in the same order, and a test fails when the two lists differ:
 5. **Parking** withholds an item the Lead Product Manager parked however far the
    queue drains, and only her `unpark` releases it.
 6. **The needs-design label** withholds an item labelled `needs-design` from
-   every start the harness chooses until the architect's design for it is
-   readable, and only the architect's removal of the label releases it; a run
-   already going on the item carries on, and one you name is not held.
+   every start the harness chooses until a document in docs/designs naming the
+   item lands and the label comes off, which the development manager does by
+   hand for now; a run already going on the item carries on, and one you name is not held.
 7. **A hold** withholds an item whose stopped run left its change on a branch,
    or whose publication did not finish, until the development manager's
    decision is carried out, the escalation is answered, or `yoyo reconcile`
@@ -1725,8 +1757,9 @@ until each is parked in fact, one `park` each.
 **Work waiting on a design is held the way parked work is.** An item labelled
 `needs-design` is held from every start the harness chooses — the pull, a
 re-run the development manager decided, and the pipeline's own start, which
-catches a label applied after a pull chose the item — until the architect's
-design for it is readable and she removes the label
+catches a label applied after a pull chose the item — until a document in
+docs/designs naming the item among the items it answers lands on the target
+branch and the development manager, for now, removes the label
 ([the design](designs/needs-design-gate.md)). The queue marks it on its line and
 says what it waits on, and a pull passes it over as **waiting on the architect's
 design**, naming her as the one to move. Labelling an item whose run is already

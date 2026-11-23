@@ -214,6 +214,9 @@ func (noTracker) Release(context.Context, string, string) (beads.WorkItem, error
 func (noTracker) Complete(context.Context, string, string) (beads.WorkItem, error) {
 	return beads.WorkItem{}, errNoTracker
 }
+func (noTracker) ReturnForDesign(context.Context, string, string) (beads.WorkItem, error) {
+	return beads.WorkItem{}, errNoTracker
+}
 func (noTracker) Reopen(context.Context, string, string, domain.WorkItemParking) (beads.WorkItem, error) {
 	return beads.WorkItem{}, errNoTracker
 }
