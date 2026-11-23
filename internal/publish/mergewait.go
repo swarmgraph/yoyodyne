@@ -48,6 +48,9 @@ type HeldMergeCheck struct {
 	// ID is the check run, which for an Actions job is the job a re-run names;
 	// zero for a status a third-party service posts.
 	ID int64 `json:"id,omitempty"`
+	// Unstarted is a pending check GitHub has queued or is expecting and has
+	// not begun to run.
+	Unstarted bool `json:"unstarted,omitempty"`
 }
 
 // The states a required check can stand in.
@@ -77,6 +80,28 @@ func (w MergeWait) PendingRequired() []string {
 		}
 	}
 	return pending
+}
+
+// UnstartedRequired names every required check GitHub has not begun to run:
+// one it reports queued or expected, and one of the checks the project names
+// (named) that GitHub reports nothing for at all, which is how a check whose
+// workflow run never started stands.
+func (w MergeWait) UnstartedRequired(named []string) []string {
+	var unstarted []string
+	reported := map[string]bool{}
+	for _, check := range w.Required {
+		reported[check.Name] = true
+		if check.State == RequiredCheckPending && check.Unstarted {
+			unstarted = append(unstarted, check.Name)
+		}
+	}
+	for _, name := range named {
+		if name = strings.TrimSpace(name); name != "" && !reported[name] {
+			reported[name] = true
+			unstarted = append(unstarted, name)
+		}
+	}
+	return unstarted
 }
 
 // WaitingOn says in plain words what GitHub's account says the merge is
@@ -280,6 +305,7 @@ func decodeMergeWait(number int, stdout string) (MergeWait, error) {
 				switch conclusion := strings.ToLower(strings.TrimSpace(context.Conclusion)); {
 				case !strings.EqualFold(context.Status, "COMPLETED"):
 					check.State = RequiredCheckPending
+					check.Unstarted = !strings.EqualFold(context.Status, "IN_PROGRESS")
 				case conclusion == "success" || conclusion == "neutral" || conclusion == "skipped":
 					check.State, check.Conclusion = RequiredCheckPassed, conclusion
 				default:
@@ -293,6 +319,7 @@ func decodeMergeWait(number int, stdout string) (MergeWait, error) {
 					check.State, check.Conclusion = RequiredCheckPassed, state
 				case "pending", "expected":
 					check.State = RequiredCheckPending
+					check.Unstarted = state == "expected"
 				default:
 					check.State, check.Conclusion = RequiredCheckFailed, state
 				}

@@ -26,13 +26,18 @@ import (
 const MaxMergeQueueCheckReruns = 32
 
 // MergeQueueCheckRerun is one check on a candidate's pull request the queue
-// asked the forge to run again, and how it had ended.
+// asked the forge to run again, and how it had ended. A required check the
+// forge never started, or skipped, is asked for again the same way
+// (orchestrator's mergequeuecheckstart.go): Commit is then the candidate it
+// was asked for on, and Why says what the queue saw, in plain words.
 type MergeQueueCheckRerun struct {
 	PullRequest int       `json:"pull_request"`
 	Check       string    `json:"check"`
 	CheckRun    int64     `json:"check_run"`
 	Conclusion  string    `json:"conclusion"`
 	At          time.Time `json:"at"`
+	Commit      string    `json:"commit,omitempty"`
+	Why         string    `json:"why,omitempty"`
 }
 
 // mergeQueueCheckReruns is the record of one entry's re-runs.
@@ -85,6 +90,7 @@ func (s *MergeQueueStore) RecordCheckRerun(ctx context.Context, key MergeQueueKe
 	}
 	rerun.At = rerun.At.UTC()
 	rerun.Check = BoundedMergeQueueText(rerun.Check)
+	rerun.Why = BoundedMergeQueueText(rerun.Why)
 	reruns = append(reruns, rerun)
 	return s.writeSide(ctx, key, name, mergeQueueCheckReruns{EntryID: entryID, Reruns: reruns})
 }
