@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-22T16:31:57.846848Z
       reason: 'Brings the design into line with main 939bc805: names internal/developerslot as the existing owner of slot assignment and retires the orchestrator''s free slot count rather than moving it; adds the GitHub identity path (githubidentity.go) as a fifth continuation path with its own closing copy and take up count; notes the planned packages do not exist yet; rewords hyphenated words. Part of the review of every design against the code.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T16:52:31.888087Z
+      reason: 'Replaces the revision the reviewer returned: the rule forbade methods of the tracker''s package that run storage already calls. Calls that answer only from the values they are given are allowed by a named list, and the planned check resolves types so it sees methods and embedded types in every file. The byte count formatter meets the same test, so it joins the list. Written from reads of the code at main 4e6572cd; the files not read are named as unread. Part of the review of every design against the code.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-22T16:31:57.846848Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3477, for document-3477.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-23T16:52:31.888087Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3697, for document-3697.1 under the automatic approval policy
 ---
 # How internal/orchestrator is split, one admitted change at a time
 
@@ -89,25 +98,42 @@ Inside `internal/runstate`, storage is kept apart from reading meaning. Storage 
 
 ### What run storage may take from the tracker's package
 
-Run storage also keeps records about the tracker under the harness's state directory: the shared reading of the tracker's listings, each tracker call that ran out of time, and what maintenance measured, cleaned and squashed in the tracker's store. At be20dec3 six files hold these: `trackerreading.go`, `trackerslowcall.go`, `trackerstoremeasurement.go`, `trackerstorecleanup.go`, `trackerexportcleanup.go` and `trackerstoresquash.go`. Each imports `internal/beads`. The three read at that commit (`trackerreading.go`, `trackerslowcall.go` and `trackerstoresquash.go`) take only types and constants from it, such as the work item, the slow call, and a squash with its stage names, and none of them calls the tracker.
+Run storage also keeps records about the tracker under the harness's state directory, such as each tracker call that ran out of time, what maintenance measured in the tracker's store, and each decision to rebuild that store. Those records hold the tracker client's own types, so files in `internal/runstate` import `internal/beads`. At 4e6572cd the files read for this revision were `trackerslowcall.go`, `trackerslowcallsummary.go`, `trackerstoremeasurement.go` and `trackerstorerebuild.go`. None of them runs the tracker's command. The other files that import `internal/beads` were not read for it.
 
-That is allowed, and this is the rule:
+This is the rule:
 
-- A file in `internal/runstate` may take types and constants from `internal/beads`, to store what the tracker client hands it in the client's own shape.
-- It never calls a function or method of `internal/beads`, never runs the tracker's command, and never decides anything about the tracker's store. Calling the tracker is the client's, under guarantee 7 of [one owner for each guarantee](one-owner-for-each-guarantee.md). Deciding when the store is measured, cleaned or squashed is maintenance's (`internal/maintain`), as [keeping the tracker store small](tracker-store-size.md) says. Run storage only records what they did.
-- `internal/beads` imports nothing from `internal/runstate`. Where the client hands a record to a store here, it does so through an interface it declares, and the command line connects the two.
+- Run storage may take types and constants from `internal/beads`, to store what the tracker client hands it in the client's own shape.
+- It may call a function or method of `internal/beads` only where the answer depends on nothing but the values the call is given: the arguments, and for a method the value it is called on. Such a call reads no file, starts no process, asks no tracker and changes nothing. Each one allowed is named in the list below.
+- It never calls anything else of `internal/beads`, and never runs the tracker's command. Calling the tracker is the client's, under guarantee 7 of [one owner for each guarantee](one-owner-for-each-guarantee.md).
+- It never decides anything about the tracker's store. Deciding when the store is measured, cleaned or rebuilt is maintenance's (`internal/maintain`), as [keeping the tracker store small](tracker-store-size.md) says. Run storage only records what was done, and reads those records back.
+- `internal/beads` imports nothing from `internal/runstate`. Where the client hands a record to a store here, it does so through an interface it declares, as `SlowCallRecorder` is, and the command line connects the two.
 
-A check in `make test` holds this: each file in `internal/runstate` uses from `internal/beads` only the names of types and constants, and `internal/beads` does not import `internal/runstate`. It goes in with a list of the files that do more, and the list may only shrink. The item that builds the check reads the three files not read at be20dec3 first; any call to the tracker it finds there moves out in that item, to `internal/beads`, or to `internal/maintain` where it decides something about the store.
+The list of allowed calls starts with these:
 
-This is a design decision, not an invariant: the rule that a guarantee is kept only by its owner, proposed in [one owner for each guarantee](one-owner-for-each-guarantee.md), already binds work that never mentions it.
+| Called | What it answers |
+| --- | --- |
+| `ValidIssueID` | whether a work item id is well formed |
+| `SayBytes` | a byte count in words a person reads |
+| `StoreMeasurement.Stage` and `StoreMeasurement.Measured` | one stage of a recorded measurement, and whether it has any |
+| `StoreExport.Unchanged` | whether a recorded export matched the one before it |
+| `StoreRebuild.Passed` and `StoreRebuild.FirstDifference` | whether a recorded rebuild passed, and the first record that differed |
+| `SlowCall.Held` | whether a recorded slow call found another process with the store open; run storage reaches it through the type it embeds |
+
+A check in `make test` is to hold this; it is not built. It resolves the type behind every function and method call in the files of `internal/runstate` that are not tests, so it sees a method, and one reached through an embedded type, whether or not the file imports `internal/beads`. It refuses a call into `internal/beads` that is not on the list, and refuses any import of `internal/runstate` by `internal/beads`. A call that does more than the rule allows may stand only on a second list, of exceptions, which may only shrink.
+
+The item that builds the check runs it over the whole package first, because not every file was read for this revision. For each further call it finds: where the answer depends only on the values given, the item adds it to the list in the check, and the architect adds it to the table here; otherwise the call moves out in that item, to `internal/beads`, or to `internal/maintain` where it decides something about the store, or, where the move is too large for the item, it goes on the list of exceptions with the reason.
+
+This is a design decision, not an invariant: the rule that a guarantee is kept only by its owner, recorded as [each guarantee has one owner](../decisions/invariants/each-guarantee-has-one-owner.md), already binds work that never mentions it.
 
 Rejected:
 
 - Giving run storage types of its own and converting at each caller. The work item is the tracker's largest type, and a copy of it would drift from the original with nobody owning the difference.
+- Forbidding every function and method. Run storage would have to repeat what a recorded value means, such as whether a rebuild passed, and the two copies could come to disagree.
+- Allowing any method of a stored type without a list. A method added later could run the tracker or read the store, and nothing would notice run storage calling it.
 - Moving these stores into `internal/beads`. They are files under the harness's state directory, written through the confined writer this package owns, and the table of constructors below already places every product store, the tracker listings included, here.
 - Moving the shared types into a package of their own. It would add a package for no protection the check above does not already give.
 
-A reviewer can check that no file in `internal/runstate` calls into `internal/beads`, and that `internal/beads` does not import `internal/runstate`.
+Once the check is built, a reviewer can check that it passes, that every call it allows answers only from the values it is given, that its list of exceptions has not grown, and that `internal/beads` does not import `internal/runstate`. Until then a reviewer can check that a change adds no call from `internal/runstate` into `internal/beads` that fails the rule.
 
 ## The shared continuation operations
 
