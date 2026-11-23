@@ -1048,8 +1048,9 @@ func TestDocumentReconciliationNamesItsOwner(t *testing.T) {
 
 // A project that keeps its intent in a companion intent repository, read by a
 // pipeline with no access to it (no IntentWorktrees): a design its automatic
-// policy confirms is not put to the operator, is not landed in the project's
-// repository, and opens no run; it stays confirmed and saved, and the owning
+// policy confirms is not put to the operator to confirm again, is not landed in
+// the project's repository, and opens no run; it stays confirmed and saved,
+// recorded as waiting for a person to put it in that repository, and the owning
 // role is told once what holds it.
 func TestCompanionIntentDocumentIsHeldConfirmedRatherThanPutToTheOperator(t *testing.T) {
 	t.Parallel()
@@ -1102,6 +1103,12 @@ func TestCompanionIntentDocumentIsHeldConfirmedRatherThanPutToTheOperator(t *tes
 	}
 	if len(saved.PendingWrites) != 1 || saved.PendingWrites[0].Publication == nil {
 		t.Fatalf("the confirmed document was not kept: %+v", saved.PendingWrites)
+	}
+	// What is left is a person putting it in the companion repository, and the
+	// record says where, so the status can list that as the operator's step.
+	placement := saved.PendingWrites[0].AwaitsPlacement
+	if placement == nil || placement.Repository != intent || placement.Path != "docs/designs/held-design.md" || placement.Since.IsZero() {
+		t.Fatalf("placement = %+v, want the companion repository %s, the design's file, and since when", placement, intent)
 	}
 	told := provider.RequestsForRole(domain.RoleArchitect)[1].Prompt + saved.PendingTrackerResults
 	if strings.Count(told, "companion intent repository") != 1 {

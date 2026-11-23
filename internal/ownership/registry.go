@@ -163,7 +163,8 @@ type Record struct {
 
 	// Hand is the capability the harness lacks that the record itself names: a
 	// report handling's or a development manager's escalation's, recorded for a
-	// decision of a role's that needs the operator's hand. Command is what a
+	// decision of a role's that needs the operator's hand, or a waiting
+	// document's that only a person can put in place. Command is what a
 	// person types to carry that decision out, where the record names it more
 	// exactly than the gap's own words do.
 	Hand    HandNeed
@@ -723,7 +724,17 @@ func laneHumanBlockRule(r Record) (Answer, bool) {
 // is no reason on his closed list, so it stays its owning role's, as the
 // ownership design's "A role's decision that needs the operator's hand" says,
 // and the remedy names his act.
+//
+// A document already confirmed or approved that waits only for a person to put
+// it in a repository the harness cannot reach is no decision of his at all: the
+// owning role finished it, and his hand carries the placement out. That holds
+// for a document stating the product's intent too, since somebody already
+// decided it.
 func documentApprovalRule(r Record) (Answer, bool) {
+	if r.Hand == HandDocumentPlacement {
+		answer, ok := roleOwned(r.Role, "put the finished document in the repository it is kept in; the entry clears once it is found there", "document placement")
+		return withHand(answer, ok, HandDocumentPlacement, r.Command)
+	}
 	if r.FundamentalIntent {
 		answer, ok := operator(OperatorFundamentalIntent, "approve or decline the document", "yoyo agent chat approve|decline")
 		answer.ReasonDetail = intentDocumentReason(r.DocumentKind)

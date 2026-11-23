@@ -50,6 +50,16 @@ func TestARolesDecisionThatNeedsTheOperatorsHandKeepsTheRoleAsOwner(t *testing.T
 			closedBy: "yoyodyne-ifd.433.21",
 			types:    "yoyo agent chat architect --message \"approve document-7.1\"",
 		},
+		{
+			// A finished design the harness cannot land is the architect's
+			// finished work, product intent or not: nobody is asked to decide it.
+			name:   "a finished document waiting for a person to put it in place",
+			kind:   KindDocumentApproval,
+			record: Record{Role: domain.RoleArchitect, FundamentalIntent: true, Hand: HandDocumentPlacement, Command: "commit the text confirmed as document-7.1 to docs/designs/x.md"},
+			owner:  MoverArchitect,
+			need:   HandDocumentPlacement,
+			types:  "docs/designs/x.md",
+		},
 	}
 	for _, c := range cases {
 		answer := Resolve(c.kind, c.record)

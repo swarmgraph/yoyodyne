@@ -6262,7 +6262,14 @@ has the rule.
   `.yoyodyne/config.yaml` (`operational-configuration`, until
   yoyodyne-ifd.434.8's build lands), a document a role wrote from a
   conversation whose kind's approval setting asks for a person
-  (`document-confirmation`, until yoyodyne-ifd.433.21). A raise of an item's
+  (`document-confirmation`, until yoyodyne-ifd.433.21), and a document a role
+  finished and the harness confirmed that waits only for a person to put it in
+  a repository the harness cannot reach, such as a companion intent repository
+  missing from its configured path (`document-placement`; no item is admitted
+  to close it). That last entry names the document, the item it answers, the
+  repository and file it goes to, and how long it has waited; the item it
+  answers is not listed as waiting on the architect's design meanwhile, and the
+  entry clears by itself once the document's conversation finds it there. A raise of an item's
   cap once the development manager has used her own five is not among them:
   the Lead Product Manager grants it, and it waits under her name. An entry whose
   hand names no item is also told to the Lead Product

@@ -139,6 +139,7 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		publishing, release := withoutDeadline(ctx)
 		delivery, err := publisher.PublishDocument(publishing, *record.pending.Publication)
 		release()
+		record.awaitPlacement(err, s.options.clock().Now())
 		var revised *runstate.DocumentLinksRevisedError
 		if errors.As(err, &revised) {
 			// No run was opened. A document it links to changed after it was
@@ -225,6 +226,23 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		}
 	}
 	return s.record()
+}
+
+// awaitPlacement records, from what one publication answered, whether the
+// confirmed document now waits only for a person to put it in a repository the
+// harness cannot reach, so the status can list that step as the operator's with
+// where the document goes. The first time it is found waiting is kept across
+// later offers that answer the same; any other answer clears it.
+func (r *writeRecord) awaitPlacement(err error, now time.Time) {
+	var placement *runstate.DocumentPlacementError
+	if !errors.As(err, &placement) {
+		r.pending.AwaitsPlacement = nil
+		return
+	}
+	if waiting := r.pending.AwaitsPlacement; waiting != nil && waiting.Repository == placement.Repository && waiting.Path == placement.Path {
+		return
+	}
+	r.pending.AwaitsPlacement = &runstate.DocumentPlacement{Repository: placement.Repository, Path: placement.Path, Since: now}
 }
 
 // withoutDeadline is the context a document's run is given: it ends when the
