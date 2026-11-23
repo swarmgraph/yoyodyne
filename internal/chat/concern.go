@@ -473,6 +473,106 @@ func (c PendingConcern) render(theme console.Theme, withOptions bool) string {
 	return theme.Severity(console.Severity(severity), theme.Questions(rendered.String()))
 }
 
+// answeredHeading opens what the role's next turn is told about one answered
+// concern. The notice in the activity list names it, so the two can be matched.
+func answeredHeading(id string) string {
+	return "# The operator answered concern " + id
+}
+
+// answeredBriefing is what the role's next turn is told about an answer: the
+// concern whole, as it was put to the operator, and what they answered. The
+// answer alone is not enough to act on. An option such as "add the goal as
+// drafted" means the draft in the concern's detail, and a turn handed only the
+// option and the subject writes the decision from the subject, putting words
+// in front of the operator that they never chose.
+//
+// Every field is given in full and as written. Text that came from the role is
+// indented under the harness's own labels, with nothing inside a line changed,
+// so the role can quote it word for word.
+func (c PendingConcern) answeredBriefing(answer string) string {
+	var told strings.Builder
+	told.WriteString(answeredHeading(c.ID) + "\n\n")
+	told.WriteString("This is the concern exactly as it was put to the operator, and the operator's answer. " +
+		"Act on these words rather than on the concern's subject: where the answer chooses an option, " +
+		"what was chosen is that option as the detail and the question describe it, nothing shorter or looser.\n\n")
+	told.WriteString("Kind: " + string(c.Concern.Kind) + "\n\n")
+	told.WriteString("Subject:\n" + verbatim(c.Concern.Subject) + "\n")
+	if goal := strings.TrimSpace(c.Concern.Goal); goal != "" {
+		told.WriteString("Goal:\n" + verbatim(goal) + "\n")
+	}
+	told.WriteString("Detail:\n" + verbatim(c.Concern.Detail) + "\n")
+	told.WriteString("Question:\n" + verbatim(c.Concern.Question) + "\n")
+	chosen := 0
+	if len(c.Concern.Options) > 0 {
+		told.WriteString("Options offered:\n")
+		for index, option := range c.Concern.Options {
+			fmt.Fprintf(&told, "    %d. %s\n", index+1, strings.TrimSpace(option))
+			if chosen == 0 && strings.TrimSpace(option) == strings.TrimSpace(answer) {
+				chosen = index + 1
+			}
+		}
+		told.WriteString("\n")
+	}
+	if chosen > 0 {
+		fmt.Fprintf(&told, "The operator chose option %d:\n%s\n", chosen, verbatim(answer))
+	} else {
+		told.WriteString("The operator answered in their own words:\n" + verbatim(answer) + "\n")
+	}
+	told.WriteString("\n")
+	return told.String()
+}
+
+// unpairedBriefing is what the role's next turn is told instead, when the
+// concern an answer was given to cannot be handed over whole. It says so first
+// and tells the role not to act on the answer alone, because an answer
+// separated from what it answers is how a decision comes to be written from a
+// title. The answer is still given, so the role can ask the operator about it.
+func (c PendingConcern) unpairedBriefing(answer, why string) string {
+	var told strings.Builder
+	told.WriteString(answeredHeading(c.ID) + ", and it could not be paired with its concern\n\n")
+	fmt.Fprintf(&told, "The harness could not give you concern %s as it was put to the operator: %s. ", c.ID, why)
+	told.WriteString("So this answer could not be paired with the concern it answers. " +
+		"Do not write anything the answer decides from the concern's subject or from memory. " +
+		"Ask the operator what they decided, or raise the concern again in full and let them answer that.\n\n")
+	if subject := strings.TrimSpace(c.Concern.Subject); subject != "" {
+		told.WriteString("Subject, for finding it:\n" + verbatim(subject) + "\n")
+	}
+	told.WriteString("What the operator said:\n" + verbatim(boundText(answer, maxUnpairedAnswerBytes)) + "\n\n")
+	return told.String()
+}
+
+// maxUnpairedAnswerBytes bounds the answer an unpaired briefing repeats. That
+// briefing is the one given when the whole account would not fit, so it must
+// stay small itself.
+const maxUnpairedAnswerBytes = 4 << 10
+
+// missingParts names the parts of a concern an answer cannot be paired without.
+// A concern recorded through Validate has all of them; one restored from a
+// record that lost any of them is one the role cannot be told whole.
+func (c PendingConcern) missingParts() []string {
+	var missing []string
+	for _, part := range []struct{ name, value string }{
+		{"subject", c.Concern.Subject},
+		{"detail", c.Concern.Detail},
+		{"question", c.Concern.Question},
+	} {
+		if strings.TrimSpace(part.value) == "" {
+			missing = append(missing, part.name)
+		}
+	}
+	return missing
+}
+
+// verbatim indents text under a label without changing anything inside a line,
+// unlike indent, which trims every line. Only blank lines at either end go.
+func verbatim(text string) string {
+	var indented strings.Builder
+	for _, line := range strings.Split(strings.Trim(text, "\r\n"), "\n") {
+		indented.WriteString("    " + strings.TrimRight(line, "\r") + "\n")
+	}
+	return indented.String()
+}
+
 // answered is what the record keeps about a concern the operator settled: the
 // concern itself and what they said.
 type answeredConcern struct {

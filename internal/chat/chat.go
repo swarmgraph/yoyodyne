@@ -3582,7 +3582,25 @@ func (s *Session) Answer(concernID, answer string) error {
 		return fmt.Errorf("record the answer to concern %s: %w", record.pending.ID, err)
 	}
 	record.answered = true
-	s.notice("the operator answered concern %s (%s), saying: %s", record.pending.ID, record.pending.Concern.Subject, trimmed)
+	s.notice("the operator answered concern %s (%s); the concern in full and the answer are below, under %q",
+		record.pending.ID, record.pending.Concern.Subject, strings.TrimPrefix(answeredHeading(record.pending.ID), "# "))
+	// The answer goes with the results the role has not been told rather than in
+	// the notice, which is one line cut at maxNoticeBytes and the first thing
+	// dropped when activity piles up; see answeredBriefing for why the whole
+	// concern goes with it.
+	told := record.pending.answeredBriefing(trimmed)
+	if missing := record.pending.missingParts(); len(missing) > 0 {
+		told = record.pending.unpairedBriefing(trimmed, "the record of it has no "+strings.Join(missing, ", no "))
+	} else if len(s.state.PendingTrackerResults)+len(told) > maxPendingResultBytes {
+		// The bound keeps the front of what is carried, so the shorter account goes
+		// ahead of the rest rather than after it, where the cut would take it.
+		unpaired := record.pending.unpairedBriefing(trimmed, "the concern and the answer together are more than the next turn can be given")
+		s.state.PendingTrackerResults = unpaired + s.state.PendingTrackerResults
+		told = ""
+	}
+	if err := s.carryResults(told); err != nil {
+		return fmt.Errorf("carry the answer to concern %s to the %s: %w", record.pending.ID, RoleTitle(s.state.Role), err)
+	}
 	return nil
 }
 

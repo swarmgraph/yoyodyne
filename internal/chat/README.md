@@ -262,6 +262,13 @@ provider's executable that cannot run) is `internal/modelfailover`.
 later process can deliver them; `turnPrompt` includes them; `takeTurn`
 removes them from the record once a turn has delivered them.
 
+### How does the operator's answer to a concern reach the role?
+`Answer` carries it the same way, with `carryResults`: the concern whole
+(subject, goal, detail, question, every option) and the option chosen or the
+operator's own words, from `answeredBriefing` (`concern.go`). Where the concern
+is missing a part, or would not fit, `unpairedBriefing` says the answer could
+not be paired with its concern instead.
+
 ### How are a work item's full text and its runs shown to a role?
 `readActionTarget` and `renderWorkItemEvidence` (`tracker.go`);
 `inherited.go` adds the block the item is under through a waiting parent, and
