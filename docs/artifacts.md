@@ -384,7 +384,11 @@ complete candidate are saved before the run starts, so a restart continues
 the same run rather than losing the document or landing it twice.
 
 Each role keeps one waiting revision per document, and at most eight waiting
-documents; a ninth is refused with that reason, and nothing is recorded. A new
+documents. A ninth is not refused: the harness keeps it, counted with the held
+documents among the four it keeps apart, tells the role it is kept and does not
+need writing again, and sends it at the first message after one of the eight is
+settled. Only a document beyond both limits is refused, with that reason, and
+nothing is recorded. A new
 revision of a document already waiting takes that document's place rather than
 another, and where it goes depends on the revision before it:
 
@@ -539,7 +543,8 @@ memory writes continue. The role receives the refusal reason and the identifiers
 and names of any waiting documents in a further round of the same message. If
 that round submits another refused document, its refusal waits in the durable
 conversation for the role's next turn instead of starting another round. The
-limit remains eight waiting documents; a refusal confirms none of them.
+limit remains eight waiting documents, with up to four more kept until there is
+room; a refusal confirms none of them.
 
 A revision is the same action, carrying the document whole, which may be up to
 128 KiB, or carrying one section. A role reads a file longer than one read

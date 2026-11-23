@@ -85,11 +85,22 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		// so it is let go only while there is room among the documents waiting
 		// for publication; confirming it beyond that would cut an earlier one
 		// from the saved record (undecidedWrites).
-		if record.pending.Write.Hold != nil && record.pending.Publication == nil && s.waitingWrites() >= runstate.MaxPendingWrites {
-			if err := s.tellHeldForRoom(record); err != nil {
+		if record.heldApart() && s.waitingWrites() >= runstate.MaxPendingWrites {
+			tell := s.tellHeldForRoom
+			if record.keptForRoom() {
+				tell = s.tellKeptForRoom
+			}
+			if err := tell(record); err != nil {
 				return err
 			}
 			continue
+		}
+		// A document kept because the waiting places were full takes the place
+		// that has come free, and goes on as any other document does.
+		if record.keptForRoom() {
+			if err := s.letInForRoom(record); err != nil {
+				return err
+			}
 		}
 		if record.heldForSending() {
 			lifted, err := s.liftedHold(ctx, record)

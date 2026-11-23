@@ -97,7 +97,7 @@ func TestRecurringWorkExcludesParkedFinishedAndOtherRoles(t *testing.T) {
 		{ID: "item-other", Status: "open", Executor: domain.ConversationWith(domain.RoleProductManager)},
 		{ID: "item-developer", Status: "open"},
 	}}
-	reading, err := (sweepConversationWork{items: listing}).Read(context.Background(), domain.RoleArchitect)
+	reading, err := (sweepConversationWork{items: listing}).Read(context.Background(), domain.RoleArchitect, nil)
 	message := reading.Section
 	if err != nil || !strings.Contains(message, "Live design (item-live) [P2, open]") {
 		t.Fatalf("Read() = %q, %v", message, err)
@@ -113,12 +113,12 @@ func TestRecurringWorkDistinguishesEmptyFromUnreadable(t *testing.T) {
 	t.Parallel()
 	listing := &passWorkListing{}
 	work := sweepConversationWork{items: listing}
-	reading, err := work.Read(context.Background(), domain.RoleArchitect)
+	reading, err := work.Read(context.Background(), domain.RoleArchitect, nil)
 	if err != nil || !strings.Contains(reading.Section, "Nothing is waiting") || len(reading.Items) != 0 {
 		t.Fatalf("empty queue = %+v, %v", reading, err)
 	}
 	listing.err = errors.New("tracker listing failed")
-	reading, err = work.Read(context.Background(), domain.RoleArchitect)
+	reading, err = work.Read(context.Background(), domain.RoleArchitect, nil)
 	if err == nil || !strings.Contains(reading.Section, "tracker listing failed") || strings.Contains(reading.Section, "Nothing is waiting") || len(reading.Items) != 0 {
 		t.Fatalf("unreadable queue = %+v, %v", reading, err)
 	}
@@ -156,8 +156,10 @@ func TestRecurringWorkIsReadAgainForEachTurn(t *testing.T) {
 	if _, err := trigger.Fire(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if listing.reads != 2 || len(role.messages) != 2 {
-		t.Fatalf("reads = %d, turns = %d, want a fresh reading on both turns", listing.reads, len(role.messages))
+	// One reading for each turn, and one once the pass is over for the
+	// architect's standing rulings (orchestrator/standingrulings.go).
+	if listing.reads != 3 || len(role.messages) != 2 {
+		t.Fatalf("reads = %d, turns = %d, want a fresh reading on both turns and one after the pass", listing.reads, len(role.messages))
 	}
 	if !strings.Contains(role.messages[0], "item-live") || strings.Contains(role.messages[1], "item-live") || !strings.Contains(role.messages[1], "Nothing is waiting") {
 		t.Fatalf("the second turn kept the old queue: %v", role.messages)
@@ -173,7 +175,7 @@ func TestRecurringWorkNamesItsItemsInOrder(t *testing.T) {
 		{ID: "item-p1", Status: "open", Priority: 1, Executor: architect},
 		{ID: "item-p0", Status: "open", Priority: 0, Executor: architect},
 	}}
-	reading, err := (sweepConversationWork{items: listing}).Read(context.Background(), domain.RoleArchitect)
+	reading, err := (sweepConversationWork{items: listing}).Read(context.Background(), domain.RoleArchitect, nil)
 	if err != nil || len(reading.Items) != 2 || reading.Items[0] != (runstate.DeliveredWork{ID: "item-p0", Priority: 0}) || reading.Items[1].ID != "item-p1" || reading.Items[1].Priority != 1 {
 		t.Fatalf("Read() = %+v, %v, want the P0 item first", reading.Items, err)
 	}

@@ -536,6 +536,16 @@ type Sweep struct {
 	// It is absent on a pass handed none, on a program manager instance's pass,
 	// and on every record written before passes carried it.
 	Delivered []DeliveredWork `json:"delivered,omitempty"`
+	// RulingsStanding is the work waiting in the role's conversation that this
+	// pass was not handed because the role's ruling on each item stands: its
+	// newest note is that ruling, and nothing about the item, the documents it
+	// cites, or the reports naming it has changed since the task's last
+	// completed pass. Rulings is what the next pass is compared with: the items
+	// whose newest note was the role's ruling once this pass's turns were over.
+	// Both are absent on a pass of a role that keeps no standing rulings, and on
+	// every record written before passes carried them.
+	RulingsStanding []string         `json:"rulings_standing,omitempty"`
+	Rulings         []RulingSnapshot `json:"rulings,omitempty"`
 	// Compactions are the times the provider compacted the session one of this
 	// pass's turns was running in, in the order they happened, with the sizes
 	// before and after where the provider reported them. A turn starts a
@@ -1238,6 +1248,7 @@ func (s Sweep) Validate() error {
 			problems = append(problems, fmt.Errorf("delivered[%d] cannot both repeat a written note and have its note unwritten", i))
 		}
 	}
+	problems = append(problems, s.validateRulings()...)
 	if len(s.Model) > MaxSweepModelBytes {
 		problems = append(problems, fmt.Errorf("model is %d bytes, limit is %d", len(s.Model), MaxSweepModelBytes))
 	}

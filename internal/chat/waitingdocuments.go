@@ -229,6 +229,8 @@ func (s *Session) waitingReason(record *writeRecord, behind *writeRecord, behind
 	switch {
 	case behind != nil:
 		return fmt.Sprintf("its earlier revision %s is being published in run %s, and this one is sent once that run ends", behind.pending.ID, behindRun)
+	case record.keptForRoom():
+		return fmt.Sprintf("this conversation already has %d documents waiting for publication, so the harness keeps it and sends it at the first message after one of them is settled; it does not need writing again", runstate.MaxPendingWrites)
 	case record.heldForSending():
 		hold := record.pending.Write.Hold
 		return fmt.Sprintf("you held sending it until %s closes (%s)", strings.TrimSpace(hold.UntilClosed), strings.TrimSpace(hold.Reason))

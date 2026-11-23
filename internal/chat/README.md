@@ -206,7 +206,10 @@ rendered by `renderDocumentRefusal` and handed back to the role with
 `carryResults` in `Send`. Accepted writes become `PendingWrite` through
 `recordWrites`, each answered to the role as it is recorded.
 `waitingdocuments.go` holds the rules on waiting documents: one waiting
-revision per document and at most eight waiting documents per role
+revision per document and at most eight waiting documents per role, a
+document written while all eight are taken being kept until one is settled
+rather than refused (`refuseWriteCount`, `keptForRoom` and `letInForRoom` in
+`sendinghold.go`)
 (`placeRevision` decides whether a new revision replaces an unstarted one,
 waits behind a running one, or follows one a run handed back; `takePlace`
 carries that out, reading each run through the publisher's

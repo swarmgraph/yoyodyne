@@ -16,6 +16,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -73,7 +76,8 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Roles:              roleConversation{configPath: configPath, stderr: stderr, config: parts.config},
 		MissingReportLimit: parts.config.Execution.MissingReportLimit(),
 		ConversationWork: sweepConversationWork{
-			items: withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
+			items:      withTrackerRecords(chatTracker(parts.runner, parts.repository), parts.trackerListings, parts.trackerSlowCalls),
+			repository: parts.repository,
 		},
 		// Where the note goes on an item first in a pass's order that the pass
 		// did not take, so the item itself says it was passed over.
@@ -283,19 +287,40 @@ type sweepConversationWork struct {
 	items interface {
 		List(ctx context.Context, status string) ([]beads.WorkItem, error)
 	}
+	// repository is where the documents a waiting item cites are read from, for
+	// the snapshot of a ruling that stands (orchestrator/standingrulings.go).
+	repository string
 }
 
 // Read is the section a pass's turn carries and the items it names, in the
 // order it names them: the section lists at most contextbundle's bound, and
 // the pass is judged against what it was shown rather than what it was not.
-func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole) (orchestrator.ConversationWorkReading, error) {
+// For a role that keeps standing rulings, an item whose ruling stands is left
+// out of both and named in Standing.
+func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole, standing orchestrator.StandingRulings) (orchestrator.ConversationWorkReading, error) {
 	items, err := w.items.List(ctx, "")
 	if err != nil {
 		problem := fmt.Errorf("read the work waiting in the %s's conversation: %w", role.Title(), err)
 		return orchestrator.ConversationWorkReading{Section: contextbundle.ConversationWorkSection(nil, problem.Error())}, problem
 	}
 	waiting := readmodel.ConversationWork(items, role)
-	reading := orchestrator.ConversationWorkReading{Section: contextbundle.ConversationWorkSection(waiting, "")}
+	var reading orchestrator.ConversationWorkReading
+	if orchestrator.KeepsStandingRulings(role) {
+		kept := waiting[:0:0]
+		for _, item := range waiting {
+			ruling, ruled := orchestrator.RulingSnapshotOf(item, role, w.citedDigest(item))
+			if ruled {
+				reading.Rulings = append(reading.Rulings, ruling)
+				if standing.Holds(ruling) {
+					reading.Standing = append(reading.Standing, item.ID)
+					continue
+				}
+			}
+			kept = append(kept, item)
+		}
+		waiting = kept
+	}
+	reading.Section = contextbundle.ConversationWorkSection(waiting, "")
 	unfinished := map[string]struct{}{}
 	for _, item := range items {
 		if item.Status != "closed" {
@@ -306,6 +331,26 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole) 
 		reading.Items = append(reading.Items, runstate.DeliveredWork{ID: item.ID, Priority: item.Priority, HeldOutside: heldOutside(item, unfinished)})
 	}
 	return reading, nil
+}
+
+// citedDigest is a digest of the documents an item cites by file, as they stand
+// in the repository: each path with a digest of its content, or with "missing"
+// or "unreadable" where it cannot be read, so a document that appears, changes,
+// or goes away changes the digest.
+func (w sweepConversationWork) citedDigest(item beads.WorkItem) string {
+	var lines []string
+	for _, path := range orchestrator.CitedDocuments(item) {
+		content, err := os.ReadFile(filepath.Join(w.repository, filepath.FromSlash(path)))
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			lines = append(lines, path+"|missing")
+		case err != nil:
+			lines = append(lines, path+"|unreadable")
+		default:
+			lines = append(lines, path+"|"+orchestrator.DigestLines([]string{string(content)}))
+		}
+	}
+	return orchestrator.DigestLines(lines)
 }
 
 // heldOutside is what outside the woken role holds an item, as the tracker
@@ -1335,6 +1380,9 @@ func renderSweep(recorded runstate.Sweep) string {
 	if handed := describeDelivered(recorded); handed != "" {
 		fmt.Fprintf(&rendered, "  %s\n", handed)
 	}
+	if left := describeRulingsStanding(recorded); left != "" {
+		fmt.Fprintf(&rendered, "  %s\n", left)
+	}
 	// Each time the provider compacted a session the pass ran in, because the
 	// detail it dropped is only in the conversation's record from then on.
 	for _, compaction := range recorded.Compactions {
@@ -1507,6 +1555,25 @@ func describeDelivered(recorded runstate.Sweep) string {
 	}
 	return fmt.Sprintf("handed %d %s of the work waiting in the %s's conversation, in order: %s",
 		len(recorded.Delivered), noun, recorded.Role.Title(), strings.Join(named, "; "))
+}
+
+// describeRulingsStanding says which waiting items a pass was not handed
+// because the role's ruling on each stands, and nothing for a pass that left
+// none out.
+func describeRulingsStanding(recorded runstate.Sweep) string {
+	if len(recorded.RulingsStanding) == 0 {
+		return ""
+	}
+	named := recorded.RulingsStanding
+	if len(named) > maxRenderedDelivered {
+		named = append(append([]string(nil), named[:maxRenderedDelivered]...), fmt.Sprintf("and %d further", len(recorded.RulingsStanding)-maxRenderedDelivered))
+	}
+	noun := "items"
+	if len(recorded.RulingsStanding) == 1 {
+		noun = "item"
+	}
+	return fmt.Sprintf("left out %d %s waiting in the %s's conversation because the %s's ruling on each stands and nothing about it had changed since the last pass: %s",
+		len(recorded.RulingsStanding), noun, recorded.Role.Title(), recorded.Role.Title(), strings.Join(named, ", "))
 }
 
 func nonEmptySweepProblem(problem string) string {

@@ -237,7 +237,10 @@ func TestRecordingFitsAStoredReasonThatIsOverItsLimit(t *testing.T) {
 	}
 }
 
-func TestTheNinthWaitingDocumentIsRefusedWithTheReason(t *testing.T) {
+// A document written while every waiting place is taken is kept, not refused,
+// and the role is told it does not need writing again; only documents beyond
+// the allowance kept apart for them are refused.
+func TestTheNinthWaitingDocumentIsKeptUntilThereIsRoom(t *testing.T) {
 	t.Parallel()
 
 	var records []*writeRecord
@@ -249,13 +252,61 @@ func TestTheNinthWaitingDocumentIsRefusedWithTheReason(t *testing.T) {
 	}
 	session, _ := standingSession(t, standings, records...)
 
-	err := session.refuseWrites(context.Background(), []artifact.Write{landedWrite("rules-ninth", "# Rules")})
-	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%d documents would be waiting", runstate.MaxPendingWrites+1)) || !strings.Contains(err.Error(), fmt.Sprintf("limit is %d per role", runstate.MaxPendingWrites)) || !strings.Contains(err.Error(), `"withdraw"`) {
-		t.Fatalf("refuseWrites(ninth) = %v, want it refused with the limit and what to do", err)
+	ninth := landedWrite("rules-ninth", "# Rules")
+	if err := session.refuseWrites(context.Background(), []artifact.Write{ninth}); err != nil {
+		t.Fatalf("refuseWrites(ninth) = %v, want it kept until there is room", err)
+	}
+	var over []artifact.Write
+	for index := 0; index <= runstate.MaxHeldWrites; index++ {
+		over = append(over, landedWrite(fmt.Sprintf("rules-over-%d", index), "# Rules"))
+	}
+	err := session.refuseWrites(context.Background(), over)
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("limit of %d per role", runstate.MaxPendingWrites)) || !strings.Contains(err.Error(), "full too") || !strings.Contains(err.Error(), `"withdraw"`) {
+		t.Fatalf("refuseWrites(%d more) = %v, want it refused with the limits and what to do", len(over), err)
 	}
 	// A new revision of a document already waiting takes no new place.
 	if err := session.refuseWrites(context.Background(), []artifact.Write{landedWrite("rules-1", "# Rules, revised")}); err != nil {
 		t.Fatalf("a new revision of a waiting document was refused: %v", err)
+	}
+
+	pending, err := session.recordWritesWithoutToolAudit([]artifact.Write{ninth})
+	if err != nil || len(pending) != 1 || !pending[0].WaitsForRoom {
+		t.Fatalf("recorded = %+v, %v, want the ninth kept until there is room", pending, err)
+	}
+	kept := session.writes[len(session.writes)-1]
+	if told := session.state.PendingTrackerResults; !strings.Contains(told, "so the harness keeps it and sends it at the first message after one of them is settled; it does not need writing again") {
+		t.Fatalf("the role was told %q", told)
+	}
+	for _, write := range session.Writes() {
+		if write.ID == kept.pending.ID {
+			t.Fatal("a document kept for room is put to the operator")
+		}
+	}
+	recorded, err := session.options.Store.Load(session.options.identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := recorded.PendingWrites[len(recorded.PendingWrites)-1]; last.ID != kept.pending.ID || !last.WaitsForRoom || !last.Held() {
+		t.Fatalf("the record keeps %+v, want the kept document counted apart", last)
+	}
+
+	// While every place is still taken it stays kept; once one is settled it
+	// takes that place.
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !kept.keptForRoom() {
+		t.Fatal("the kept document was let in while every place was taken")
+	}
+	records[0].decided = true
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if kept.keptForRoom() || kept.decided {
+		t.Fatalf("kept = %+v, want it let in once a place came free", kept.pending)
+	}
+	if told := session.state.PendingTrackerResults; !strings.Contains(told, "One of them is settled, so it now takes that place") {
+		t.Fatalf("the role was told %q", told)
 	}
 }
 
