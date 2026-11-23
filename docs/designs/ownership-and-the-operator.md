@@ -74,6 +74,10 @@ revisions:
       by: architect
       at: 2026-11-23T13:25:24.148891Z
       reason: 'Answers the reviewer''s report-af1282f0 and the developer''s report-bc97796a on the ownership label build (yoyodyne-75sv): new runs refused because the main checkout holds uncommitted changes were owned by the harness, which can only try again. The stall row now gives them to the Lead Product Manager to classify, as the stale build row already does for a build move stopped the same way. Nothing else in the section changes. Written against main at 5a72871a.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T18:35:44.866625Z
+      reason: 'Approved amendment-6dd848b7 and the reviewer''s report-06e848c9: the table gains the concern kind (yoyodyne-o4gg, on main). It also gains fifteen kinds the registry has rules for and the table left out, and the rows for owed steps, publications, stoppages, held work and steps set aside for a person now say what the code does. What is not yet built, and the two sections still to follow, are said under the table. Read from main at 0bbabbeaadf8, and the kinds, empty slot and stale build at f5a6bccc.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -155,6 +159,11 @@ approvals:
       by: harness
       at: 2026-11-23T13:25:24.148891Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3670, for document-3670.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 17
+      by: harness
+      at: 2026-11-23T18:35:44.866625Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3725, for document-3725.1 under the automatic approval policy
 ---
 # Who owns what, and when it reaches the operator
 
@@ -227,24 +236,52 @@ her pass, and she files it against the registry.
 | --- | --- |
 | amendment | the role that owns the target document, which decides it as described under *Who decides a proposed change*; the operator only for an amendment to the brief or the goals recorded as `intent: fundamental` or recorded with no intent, reason `fundamental-intent` |
 | waiting document | for a brief, goals, non-goals or operating rules document waiting on approval, the operator, reason `fundamental-intent`, because a document filed under `docs/product` waits on him only when it changes what the goals admit or refuse, or does not say whether it does; for any other document waiting on approval, the role that owns it, with the operator's approval as the act that ends it, carried as `hand` while its kind's approval policy needs him (yoyodyne-ifd.433.21), and never with the operator as its owner |
+| concern | a question a role stopped to ask about work it would not propose because of what the goals admit: the operator, reason `fundamental-intent`, whichever role asked, because each answer decides what the goals admit or refuse (yoyodyne-o4gg) |
 | directive | the Lead Product Manager, who ends it or carries it into a document or item; where settling it would change what the goals admit, what reaches the operator is her drafted change to the goals, as an amendment, not the directive |
-| report | the Lead Product Manager, who handles it; a critical whose remedy is a role's names that role; the operator only when her handling names a reason from the closed list; a handling recorded before such handlings were refused, which names the operator without a reason from the closed list, goes back to the role that recorded it, to handle again (yoyodyne-ifd.432.25.9), and never to the operator |
-| owed step | the harness |
-| publication | the harness while it can replay, re-arm, or wait on a red target; the development manager for a merge handed back; the operator only where the forge refuses the harness's token, reason `repository-setting` |
+| report | the Lead Product Manager, who handles it; a report addressed to a role, whatever its severity, that role, and a critical report whose remedy is a role's, that role; the operator only when her handling names a reason from the closed list; a handling recorded before such handlings were refused, which names the operator without a reason from the closed list, goes back to the role that recorded it, to handle again (yoyodyne-ifd.432.25.9), and never to the operator |
+| operator action | a finding a report's handling or the development manager's escalation put to the operator: the operator, with the reason from the closed list it records; where it records a role's decision that needs his hand, the role that decided, with the `hand`; where it records neither, the role that recorded it, to decide again |
+| program manager's entry blocked on a person | the operator, with the reason from the closed list the entry records; the Lead Product Manager where it records none, to correct the program manager's report |
+| product decision | the Lead Product Manager's decision that an item with a run going is replaced, narrowed or retired: the development manager, who stops the run or lets it finish |
+| owed step | the harness; the development manager where what is left is to decide what becomes of a run's kept work; the operator only where the forge refuses the harness's account, reason `repository-setting` |
+| publication | the harness while it can replay, re-arm, or wait on a red target; the forge while it holds the merge until its requirements are met; the development manager for a merge handed back or dropped, and for a pull request waiting on a person that the harness cannot bring up to date; the operator where the forge refuses the harness's token, reason `repository-setting`, and where the project's merge setting leaves the merge to a person, reason `human-gate` |
+| entry held too long at one step of the merge queue | the development manager |
 | degraded service, failing task | the harness or the supervisor; the task's role where the task failed on its own work; the operator only where the remedy is a credential, reason `credential` |
+| part whose build cannot read the configuration | the harness, which restarts it on a build that can |
+| more than one copy of a part running | the development manager |
+| tracker that does not answer, supervisor that cannot read the machine's certificate store, factory that has started no work and finished no pass for too long | the harness |
+| check that could not run, place kept for a check whose processes may still be running, run record that cannot be read | the development manager |
+| pass whose findings left no trace | the role whose pass it was |
 | hold | the operator for a hold or pause he placed, reason `own-hold`; the development manager for the brake's hold on new work, and the Lead Product Manager once the development manager escalates it, with the operator told; the harness for its own pause on new work for lack of provider capacity, which it lifts at the provider's reset or after a successful check of the provider |
 | outage, provider's usage limit | nobody, since a provider outage or a provider's usage limit lifts on the provider's clock; the operator for an expired login, reason `credential`, and for a provider's program that cannot be found on the machine the harness runs on, reason `install` |
+| account close to its usage limit | nobody, since the limit lifts on the provider's clock |
+| run or conversation stopped or waiting on the provider's capacity | the harness for a run it asks the provider about again, or pulls again once the limit resets; the development manager for a run the refusal stopped; nobody for a refused turn, which is served by asking again once the limit lifts |
 | stall | the harness for a stalled queue, shown as a degraded service once the harness has left it down; for a run whose AI session went silent, the harness the first time and the development manager after that; for new runs refused because uncommitted changes in the main checkout stop them, the Lead Product Manager, to classify the changes as the stale build row says, and never the harness, whose only move is to try again: changes a harness process left behind she files as a defect for the development manager to clear, and changes the operator is making by hand she tells him about in her reply and her pass; never the operator as owner |
+| empty developer slot | for a hold on new work, whoever the hold's own row names; the harness where a rule keeps the ready work out until something ends; the development manager for a slot still counted as taken, for ready work every item of which was passed over, for a free slot beside runs waiting on the forge's checks, and for a cause the scheduler could not name |
 | stale build | a watch session or supervisor still running an older build than the one main holds: the harness while the session or the supervisor moves itself onto the new build; the development manager when that move is stuck, or when the build of main fails so there is nothing to move onto; the Lead Product Manager when uncommitted changes in the main checkout stop the move, to classify them; the harness when no supervisor is running; never the operator (yoyodyne-ifd.431.13) |
-| stoppage | the development manager |
+| stoppage | the harness where it continues the run itself or carries out a decision already recorded; for a run that was writing a document, the role that owns the document; otherwise the development manager |
 | escalation | the role it names; the operator only when it carries a reason from the closed list |
-| held work | the owner of the group it is held in |
-| a step set aside for a person (`human-gate`) | the operator, reason `human-gate` |
+| held work | the owner of the group it is held in: the harness for work waiting on other work to land or on a recorded decision to be carried out; the Lead Product Manager for parked work; the architect for work labelled as needing design; nobody where what holds it could not be read; otherwise the development manager |
+| a step set aside for a person (`human-gate`) | the operator, reason `human-gate`; the Lead Product Manager where the item's wording of the step cannot be read, to correct it |
 | conversation-carried item | the role its executor marker names |
 | diverged target | the operator, reason `diverged-history` |
 | follow-up | the owner the follow-up recorded when it was written, which the rule for what it is about resolved then; the operator only with a reason from the closed list; a follow-up the operator or his assistant records is never owned by the operator, and is the Lead Product Manager's unless it names another role |
 | intake question | as the query's `questions` setting says, in [scheduled message intake](scheduled-message-intake.md): the Lead Product Manager by default; the operator only under `questions: person`, which only he can set, reason `human-gate` |
 | pile or queue age | the role that works that pile or queue |
+
+The code also treats a diverged target as one cause of a stall and an
+escalation as one source of an operator action; the owner is the same either
+way. What the code does not yet do: new runs refused over uncommitted changes
+in the main checkout are still given to the harness, a missing provider
+program is still given the reason `credential`, and the intake question has no
+rule until the piece that raises one is built.
+
+The table is wider than two other parts of this design, which the next
+revisions bring into line. The list of kinds under *One registry, one
+resolver* does not name every kind above. The closed list's wording for
+`fundamental-intent` does not mention a concern, and its wording for
+`human-gate` does not mention a merge the project's setting leaves to a
+person. Neither adds a reason: answering a concern decides what the goals
+admit, and the merge is a step the project set aside for a person.
 
 ## Who decides a proposed change
 
