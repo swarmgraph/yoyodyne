@@ -59,6 +59,80 @@ func TestAStopRequestIsReadableByTheProcessWorkingOnTheRun(t *testing.T) {
 	}
 }
 
+// A stop asked for again keeps when it was first asked for, which is what the
+// bound on how long a stop waits counts from, and takes the newer request's
+// words. On Nov 11 the development manager recorded a stop at 04:10 PST and
+// again at 04:57 PST, and the second request replaced the first: nothing on
+// record said she had asked at 04:10, and the clock started again at 04:57.
+func TestAStopAskedForAgainKeepsWhenItWasFirstAskedFor(t *testing.T) {
+	t.Parallel()
+
+	store := newStopStore(t, t.TempDir())
+	runID := "run-" + repeatHex(32)
+	first := StopRequest{
+		SchemaVersion: StopSchemaVersion,
+		ProductID:     domain.ProductID("yoyodyne"),
+		RunID:         runID,
+		WorkItemID:    "yoyodyne-fo4v",
+		RequestedAt:   time.Date(2026, 11, 11, 12, 10, 0, 0, time.UTC),
+		Reason:        "superseded by the approved change",
+	}
+	if err := store.RecordStop(first); err != nil {
+		t.Fatalf("RecordStop() error = %v", err)
+	}
+	again := first
+	again.RequestedAt = first.RequestedAt.Add(47 * time.Minute)
+	again.RequestedBy = "the development manager"
+	again.Decision = TriageDecisionStop
+	again.Reason = "recording the stop once more"
+	if err := store.RecordStop(again); err != nil {
+		t.Fatalf("second RecordStop() error = %v", err)
+	}
+	read, requested, err := store.StopRequested(runID)
+	if err != nil || !requested {
+		t.Fatalf("StopRequested() = %t, %v, want the request", requested, err)
+	}
+	if !read.RequestedAt.Equal(first.RequestedAt) {
+		t.Fatalf("requested at = %s, want the first request's %s kept", read.RequestedAt, first.RequestedAt)
+	}
+	if read.Reason != again.Reason || read.RequestedBy != again.RequestedBy || read.Decision != TriageDecisionStop {
+		t.Fatalf("request = %#v, want the newer request's words", read)
+	}
+}
+
+// A run in flight with a stop on file is said to be stopping, with when it
+// ends at the latest, and once that has passed it is said to be overdue in
+// plain words; a run whose checks passed keeps its change, and an ended run
+// says nothing.
+func TestARunWithAStopOnFileIsSaidToBeStopping(t *testing.T) {
+	t.Parallel()
+
+	asked := time.Date(2026, 11, 11, 12, 10, 0, 0, time.UTC)
+	request := StopRequest{RequestedAt: asked, RequestedBy: "the development manager"}
+	running := State{Status: StatusRunning, Phase: PhaseDeveloping}
+
+	if says := running.StoppingSays(request, asked.Add(2*time.Minute)); !strings.HasPrefix(says, "stopping: the development manager asked it to stop at "+LocalStamp(asked)) ||
+		!strings.Contains(says, "no later than "+LocalStamp(asked.Add(StopTakesEffectWithin))) {
+		t.Fatalf("within the bound = %q, want it said to be stopping and by when", says)
+	}
+	says := running.StoppingSays(request, asked.Add(45*time.Minute))
+	for _, want := range []string{"stopping, overdue:", "still running 45 minutes later", "past the 10 minutes", "has not carried the stop out"} {
+		if !strings.Contains(says, want) {
+			t.Fatalf("past the bound = %q, want it to say %q", says, want)
+		}
+	}
+	passed := running
+	passed.ChecksPassed = &ChecksPassed{Attempt: 0}
+	if says := passed.StoppingSays(request, asked.Add(45*time.Minute)); !strings.Contains(says, "kept for its review") {
+		t.Fatalf("checks passed = %q, want the change said to be kept for its review", says)
+	}
+	ended := running
+	ended.Status = StatusCancelled
+	if says := ended.StoppingSays(request, asked.Add(time.Minute)); says != "" {
+		t.Fatalf("ended run = %q, want nothing said", says)
+	}
+}
+
 // A run's stop request lives beside its state in the same directory, so the
 // scan that discovers runs must keep ignoring it. A record mistaken for a run
 // would be a run nobody could load.
