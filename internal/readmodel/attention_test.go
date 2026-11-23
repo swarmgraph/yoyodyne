@@ -192,6 +192,12 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		}),
 			`document document-4.1, a new goals document v2-goals ("V2 goals") written by the ` + domain.RoleProductManager.Title() +
 				" in conversation chat-1, waits for the operator's approval, since " + localMoment(moment.Add(-time.Hour))},
+		AttentionConcern: {concernAttention(ConcernWait{
+			ConcernID: "c5.1", ConversationID: "chat-1", Agent: "product-manager", Role: domain.RoleProductManager,
+			Kind: "unplaceable", Subject: "A billing page", Detail: "no goal names billing", Question: "Should the goals name billing?", Turn: 5,
+		}),
+			`concern c5.1, "A billing page", raised by the ` + domain.RoleProductManager.Title() +
+				" in conversation chat-1 about work it cannot place: it serves no goal it can find, waits for the operator's answer"},
 		AttentionUnreadableRun: {unreadableRunAttention(UnreadableRun{
 			RunID: "run-unreadable", Path: "/state/runs/run-unreadable.json", Reason: "invalid run state: stop_class is invalid",
 		}),

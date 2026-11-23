@@ -75,6 +75,7 @@ const (
 	AttentionUnreadableRun     = ownership.KindUnreadableRun
 	AttentionCapacityBlocked   = ownership.KindCapacityBlocked
 	AttentionMergeQueueOverdue = ownership.KindMergeQueueOverdue
+	AttentionConcern           = ownership.KindConcern
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -135,6 +136,7 @@ func (a Attention) Label() string {
 		AttentionUnreadableRun:     "unreadable run",
 		AttentionCapacityBlocked:   "held on provider capacity",
 		AttentionMergeQueueOverdue: "merge queue not moving",
+		AttentionConcern:           "question waiting for your answer",
 	}[a.Kind]
 }
 
@@ -346,6 +348,10 @@ type Attention struct {
 	// wrote it, and since when, on an AttentionDocumentApproval entry; the
 	// conversation and the document's identifier there are the ID.
 	DocumentApproval *DocumentApproval `json:"document_approval,omitempty"`
+	// Concern is the unanswered concern, the role and conversation that raised
+	// it, and the answers it offered, on an AttentionConcern entry; the
+	// conversation and the concern's identifier there are the ID.
+	Concern *ConcernWait `json:"concern,omitempty"`
 	// UnreadableRun is the run record that would not read, its file, and what
 	// refused it, on an AttentionUnreadableRun entry; the run is the ID.
 	UnreadableRun *UnreadableRun `json:"unreadable_run,omitempty"`
@@ -788,6 +794,10 @@ func (a Attention) What() string {
 		if a.DocumentApproval != nil {
 			return a.DocumentApproval.Says()
 		}
+	case AttentionConcern:
+		if a.Concern != nil {
+			return a.Concern.Says()
+		}
 	case AttentionUnreadableRun:
 		if a.UnreadableRun != nil {
 			return a.UnreadableRun.Says()
@@ -996,6 +1006,10 @@ func (a Attention) Whose() string {
 	case AttentionDocumentApproval:
 		if a.DocumentApproval != nil {
 			return a.DocumentApproval.whose(a.Mover)
+		}
+	case AttentionConcern:
+		if a.Concern != nil {
+			return a.Concern.whose(a.Mover)
 		}
 	case AttentionUnreadableRun:
 		return a.Mover.Possessive() + " — " + unreadableRunWhose
@@ -1479,6 +1493,10 @@ func (a Attention) ownershipRecord() ownership.Record {
 			record.Role, record.FundamentalIntent = a.DocumentApproval.Owner, a.DocumentApproval.ProductIntent
 			record.DocumentKind = a.DocumentApproval.DocumentKind
 			record.Command = a.DocumentApproval.approveCommand()
+		}
+	case AttentionConcern:
+		if a.Concern != nil {
+			record.Role = a.Concern.Role
 		}
 	case AttentionCapacityBlocked:
 		if a.CapacityBlocked != nil {

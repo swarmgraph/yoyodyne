@@ -1522,6 +1522,15 @@ input[type="checkbox"]:focus-visible {
   padding-left: 0.4rem;
 }
 
+/* A decision's account: what changes, why, what each choice leads to, and why
+   it is the owner's, under its line rather than behind Detail. */
+.account-lines {
+  margin: 0.25rem 0 0.25rem;
+  padding-left: 1.2rem;
+  list-style: square;
+  overflow-wrap: anywhere;
+}
+
 .detail-toggle {
   margin-left: 0.5rem;
   font-size: 0.8rem;

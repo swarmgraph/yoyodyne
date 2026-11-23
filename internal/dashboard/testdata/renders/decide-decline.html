@@ -13,8 +13,8 @@
       <div class="popup-card">
         <div class="popup-head">
           <div>
-            <h2 id="decide-heading" class="popup-title">document to approve</h2>
-            <p id="decide-note" class="popup-note">1 of 1 · read 14:05:09</p>
+            <h2 id="decide-heading" class="popup-title">question to answer</h2>
+            <p id="decide-note" class="popup-note">1 of 2 · read 14:05:09</p>
           </div>
           <button type="button" id="decide-close" class="popup-close">Close</button>
         </div>
@@ -23,19 +23,43 @@
           <dl id="decide-fields" class="card-fields">
             <div class="card-field card-field-prose">
               <dt>What</dt>
-              <dd>document document-2328.1, a revision of v1-non-goals ("V1 non-goals") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold</dd>
+              <dd>concern c4807.1, "A billing page for hosted customers", raised by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122 about work it cannot place: it serves no goal it can find, waits for the operator's answer</dd>
             </div>
             <div class="card-field card-field-prose">
-              <dt>Document written</dt>
-              <dd>V1 non-goals</dd>
+              <dt>What changes</dt>
+              <dd>whether the Lead Product Manager goes on to propose: A billing page for hosted customers; it asks: Should the goals admit hosted billing, or is it out of scope?</dd>
             </div>
             <div class="card-field card-field-prose">
-              <dt>The document</dt>
-              <dd>A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.</dd>
+              <dt>If you approve</dt>
+              <dd>answer that it should go ahead, with `yoyo chat --message "answer c4807.1 &lt;your answer&gt;"`, or with an offered answer's number (1. Add a goal for hosted billing; 2. Leave it out of scope); the Lead Product Manager acts on your answer at its next turn</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>If you decline</dt>
+              <dd>answer that it should not; the work is not proposed, and the Lead Product Manager is told</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Why it is yours</dt>
+              <dd>the work serves no goal the Lead Product Manager can find, so going ahead widens what the goals admit, which makes it a change to the fundamental goals, which only the operator decides</dd>
+            </div>
+            <div class="card-field card-field-id">
+              <dt>How to answer</dt>
+              <dd>yoyo chat --message "answer c4807.1 &lt;your answer&gt;"</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>Work it asks about</dt>
+              <dd>A billing page for hosted customers</dd>
+            </div>
+            <div class="card-field card-field-prose">
+              <dt>The whole concern</dt>
+              <dd>No goal names billing, and the non-goals rule out a hosted control plane.
+
+It asks: Should the goals admit hosted billing, or is it out of scope?
+1. Add a goal for hosted billing
+2. Leave it out of scope</dd>
             </div>
             <div class="card-field card-field-prose">
               <dt>Why</dt>
-              <dd>The operator decided on October 11 that the dashboard may take his own decisions.</dd>
+              <dd>work it cannot place: it serves no goal it can find</dd>
             </div>
             <div class="card-field">
               <dt>Raised by</dt>
@@ -47,12 +71,12 @@
             </div>
             <div class="card-field card-field-id">
               <dt>Id</dt>
-              <dd>document-2328.1</dd>
+              <dd>c4807.1</dd>
             </div>
           </dl>
           <div id="decide-actions" class="decide-actions">
-            <button type="button" data-act="approve">Approve</button>
-            <button class="decide-quiet" type="button" data-act="decline">Decline</button>
+            <button class="decide-quiet" type="button" data-act="previous">Previous</button>
+            <button class="decide-quiet" type="button" data-act="next">Next</button>
             <button class="decide-quiet" type="button" data-act="ask">Ask first</button>
           </div>
           <p id="decide-outcome" class="decide-outcome" role="status">Done as mason-bryant: declined the proposed change amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d to v1-goals, under the Lead Product Manager's authority, because: the goal already says this</p>

@@ -2829,7 +2829,7 @@ var standingWarningAgeSeconds = 5 * 60;
   // ---- deciding
 
   // The pop-up the band's "Your decisions" tile opens: what the attention line
-  // names as the operator's and a verb approves or declines, from the
+  // names as the operator's and a verb approves, declines, or answers, from the
   // standing's operator_decisions, one at a time. Approve and Decline post the act to
   // /api/acts/decide and Ask first posts the question to /api/acts/ask; the
   // dashboard checks who the session is and carries each out with the
@@ -2894,7 +2894,7 @@ var standingWarningAgeSeconds = 5 * 60;
     item.appendChild(head);
     var value = el("dd");
     value.appendChild(el("span", "figure", String(waiting.length)));
-    value.appendChild(el("span", "unit", plural(waiting.length, "thing") + " waiting on your approve or decline"));
+    value.appendChild(el("span", "unit", plural(waiting.length, "thing") + " waiting on your decision"));
     if (standing.operator_decisions_problem) {
       value.appendChild(el("span", "detail", "not fully read: " + standing.operator_decisions_problem));
     }
@@ -2913,13 +2913,60 @@ var standingWarningAgeSeconds = 5 * 60;
     return button;
   }
 
+  // accountLines is a decision's account in the read model's own words, one
+  // part to a line, as yoyo status prints it under the entry.
+  function accountLines(account) {
+    if (!account) {
+      return [];
+    }
+    var lines = [];
+    var add = function (label, text) {
+      if (text) {
+        lines.push(label + ": " + text);
+      }
+    };
+    add("What changes", account.changes);
+    add("Before", account.before);
+    add("After", account.after);
+    add("Why", account.why + ((account.serves || []).length > 0 ? " (serves " + account.serves.join(", ") + ")" : ""));
+    add("If you approve", account.if_approved);
+    add("If you decline", account.if_declined);
+    add("Why it is yours", account.why_yours);
+    if ((account.missing || []).length > 0) {
+      lines.push("Not in its record: " + account.missing.join("; "));
+    }
+    return lines;
+  }
+
   function decisionFields(decision) {
     var fields = document.getElementById("decide-fields");
     clear(fields);
     var add = function (label, value, className) { fields.appendChild(field(label, value, className)); };
     add("What", decision.says, "card-field-prose");
-    add(decision.kind === "amendment" ? "Document" : decision.kind === "document" ? "Document written" : "Work proposed", decision.subject, "card-field-prose");
-    add(decision.kind === "amendment" ? "Proposed change" : decision.kind === "document" ? "The document" : "Description", decision.detail, "card-field-prose");
+    var account = decision.account;
+    if (account) {
+      add("What changes", account.changes, "card-field-prose");
+      if (account.before) {
+        add("Before", account.before, "card-field-prose");
+      }
+      if (account.after) {
+        add("After", account.after, "card-field-prose");
+      }
+      add("If you approve", account.if_approved, "card-field-prose");
+      add("If you decline", account.if_declined, "card-field-prose");
+      add("Why it is yours", account.why_yours, "card-field-prose");
+      if ((account.missing || []).length > 0) {
+        add("Not in its record", account.missing.join("; "), "card-field-prose");
+      }
+      if ((account.serves || []).length > 0) {
+        add("Serves", account.serves.join(", "), "card-field-id");
+      }
+    }
+    if (decision.answer) {
+      add("How to answer", decision.answer, "card-field-id");
+    }
+    add(decision.kind === "amendment" ? "Document" : decision.kind === "document" ? "Document written" : decision.kind === "concern" ? "Work it asks about" : "Work proposed", decision.subject, "card-field-prose");
+    add(decision.kind === "amendment" ? "Proposed change" : decision.kind === "document" ? "The whole document" : decision.kind === "concern" ? "The whole concern" : "Description", decision.detail, "card-field-prose");
     add("Why", decision.why, "card-field-prose");
     if (decision.asking) {
       add("Why it waits on you", decision.asking, "card-field-prose");
@@ -2951,8 +2998,13 @@ var standingWarningAgeSeconds = 5 * 60;
       actions.appendChild(actButton("previous", "Previous", true));
       actions.appendChild(actButton("next", "Next", true));
     }
-    actions.appendChild(actButton("approve", "Approve"));
-    actions.appendChild(actButton("decline", "Decline", true));
+    // A concern is answered in its conversation rather than approved or
+    // declined, so it is offered the question alone, and "How to answer" above
+    // gives the command.
+    if (decision.kind !== "concern") {
+      actions.appendChild(actButton("approve", "Approve"));
+      actions.appendChild(actButton("decline", "Decline", true));
+    }
     actions.appendChild(actButton("ask", "Ask first", true));
     if (decideForm === "decline") {
       var reason = el("div", "decide-form");
@@ -3018,7 +3070,7 @@ var standingWarningAgeSeconds = 5 * 60;
         section("decide", "error", standing.operator_decisions_problem, whatToDoAboutTheStanding());
         return;
       }
-      section("decide", "empty", "Nothing the attention line names as yours waits on your approve or decline, as of " + clock(standing.observed_at) + ".");
+      section("decide", "empty", "Nothing the attention line names as yours waits on your decision, as of " + clock(standing.observed_at) + ".");
       return;
     }
     var index = 0;
@@ -3255,6 +3307,24 @@ var standingWarningAgeSeconds = 5 * 60;
       entries.forEach(function (entry, index) {
         var line = el("li", entry.count > 1 ? "grouped" : null);
         line.appendChild(el("span", "answer-line", entry.line));
+        // A decision of the owner's carries its account under the line, and a
+        // button that opens it whole in the decisions pop-up.
+        var account = accountLines(entry.account);
+        if (account.length > 0) {
+          var parts = el("ul", "account-lines");
+          account.forEach(function (part) { parts.appendChild(el("li", null, part)); });
+          line.appendChild(parts);
+        }
+        if (entry.decision) {
+          var whole = opener("data-decide", entry.decision, el("button", "detail-toggle", "Read it whole and decide"));
+          whole.setAttribute("type", "button");
+          whole.addEventListener("click", function () {
+            decideShown = entry.decision;
+            decideForm = "";
+            showDecide({ element: whole, kind: "data-decide", key: entry.decision });
+          });
+          line.appendChild(whole);
+        }
         if ((entry.detail || []).length > 0) {
           line.appendChild(detailToggle("entry-" + at + "-" + index, entry.detail));
         }

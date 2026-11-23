@@ -638,6 +638,23 @@ func renderHand(entries []Attention) string {
 	var rendered strings.Builder
 	for _, waiting := range entries {
 		fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.CitedHand())
+		rendered.WriteString(renderAccount(waiting))
+	}
+	return rendered.String()
+}
+
+// renderAccount is a decision entry's account (Attention.Account), one part to
+// a line under the entry, so the operator can decide from the line alone. An
+// entry that is no decision of his has none. The lines are indented under the
+// entry, so the brief rendering drops them with it.
+func renderAccount(waiting Attention) string {
+	account, ok := waiting.Account()
+	if !ok {
+		return ""
+	}
+	var rendered strings.Builder
+	for _, line := range account.Lines() {
+		rendered.WriteString("    " + line + "\n")
 	}
 	return rendered.String()
 }
@@ -659,6 +676,7 @@ func renderWaiting(entries []Attention) string {
 		}
 		whose := waiting.CitedWhose()
 		fmt.Fprintf(&rendered, "  %s — %s%s\n", waiting.CitedWhat(), whose, operatorsBecause(waiting, whose))
+		rendered.WriteString(renderAccount(waiting))
 	}
 	rendered.WriteString(remainder(further, "thing waiting on somebody"))
 	return rendered.String()
@@ -667,9 +685,14 @@ func renderWaiting(entries []Attention) string {
 // operatorsBecause closes one of the operator's entries on the reason from his
 // closed list that the ownership registry gave it, so every entry under his
 // head says why it is his. It is empty on every entry that is not his, and on
-// one whose sentence already names the reason in the same words.
+// one whose sentence already names the reason in the same words, and on a
+// decision whose account says it.
 func operatorsBecause(waiting Attention, whose string) string {
 	says := waiting.Ownership.ReasonSays()
+	if _, accounted := waiting.Account(); accounted {
+		// The account under the entry closes on the same reason (DecisionAccount.WhyYours).
+		return ""
+	}
 	if says == "" || strings.Contains(whose, says) {
 		return ""
 	}

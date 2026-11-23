@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -617,4 +618,16 @@ func TestContractStatesTheConcernProtocolItEnforces(t *testing.T) {
 // contract asks for them.
 func concernReply(prose string, concerns ...string) string {
 	return prose + "\n\n" + concernFence + "\n{\"concerns\":[" + strings.Join(concerns, ",") + "]}\n```\n"
+}
+
+// The read model lists an unanswered concern on the operator's decision list
+// in the words the conversation puts it in; it cannot import this package, so
+// this holds its copy of the kinds' wording to the one here.
+func TestTheDecisionListNamesEachConcernKindInTheConversationsWords(t *testing.T) {
+	t.Parallel()
+	for _, kind := range append(append([]ConcernKind(nil), concernKinds...), "unheard-of") {
+		if got, want := readmodel.ConcernHeadline(string(kind)), kind.Headline(); got != want {
+			t.Errorf("concern kind %q: the decision list says %q, the conversation %q", kind, got, want)
+		}
+	}
 }
