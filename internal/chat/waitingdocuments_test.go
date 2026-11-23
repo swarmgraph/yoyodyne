@@ -277,6 +277,12 @@ func TestTheNinthWaitingDocumentIsKeptUntilThereIsRoom(t *testing.T) {
 	if told := session.state.PendingTrackerResults; !strings.Contains(told, "so the harness keeps it and sends it at the first message after one of them is settled; it does not need writing again") {
 		t.Fatalf("the role was told %q", told)
 	}
+	if note := session.rulingNote(kept.pending); !strings.Contains(note, "kept until there is room among the documents waiting") || strings.Contains(note, "sent for publication") {
+		t.Fatalf("the note on an answered item says %q", note)
+	}
+	if listed := session.renderWaitingDocuments(); !strings.Contains(listed, "documents held for sending and documents kept until there is room are counted apart") {
+		t.Fatalf("the list says %q", listed)
+	}
 	for _, write := range session.Writes() {
 		if write.ID == kept.pending.ID {
 			t.Fatal("a document kept for room is put to the operator")

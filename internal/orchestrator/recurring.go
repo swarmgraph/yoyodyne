@@ -175,14 +175,14 @@ type RecurringConversationWork interface {
 // priority. A reading that failed carries the section saying so and no items.
 //
 // Standing is the waiting items left out because the role's ruling on each
-// stands, and Rulings the snapshot of every waiting item whose newest note is
-// the role's ruling (RulingSnapshotOf), left out or not; both are empty for a
-// role that keeps no standing rulings (standingrulings.go).
+// stands, and States every waiting item as this reading found it, left out or
+// not; both are empty for a role that keeps no standing rulings
+// (standingrulings.go).
 type ConversationWorkReading struct {
 	Section  string
 	Items    []runstate.DeliveredWork
 	Standing []string
-	Rulings  []runstate.RulingSnapshot
+	States   []WaitingState
 }
 
 // RecurringItemNotes appends a note to a work item, which is the one tracker
@@ -1409,10 +1409,10 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// The items whose ruling stands are left out of every turn's reading of the
 	// waiting work (standingrulings.go).
 	keepsRulings := t.ConversationWork != nil && f.agent == "" && KeepsStandingRulings(task.Role)
-	var standing StandingRulings
+	var watch rulingWatch
 	if keepsRulings {
 		var problem string
-		standing, problem = t.standingRulings(name)
+		watch.standing, problem = t.standingRulings(name)
 		if problem != "" {
 			problems = append(problems, problem)
 		}
@@ -1428,9 +1428,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			}
 		}
 		if t.ConversationWork != nil && f.agent == "" {
-			work, err := t.ConversationWork.Read(ctx, task.Role, standing)
+			readAt := t.now()
+			work, err := t.ConversationWork.Read(ctx, task.Role, watch.standing)
 			if err != nil {
 				problems = append(problems, err.Error())
+			}
+			if err == nil && keepsRulings {
+				watch.note(work, readAt)
 			}
 			section := work.Section
 			if said := standingRulingsSaid(task.Role, work.Standing); said != "" {
@@ -1793,10 +1797,12 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// The rulings the next pass is compared with, read once the pass's own
 	// notes are written so they are part of what the next pass sees unchanged.
 	if keepsRulings && recorded.Turns > 0 {
-		if work, err := t.ConversationWork.Read(ctx, task.Role, nil); err != nil {
-			problems = append(problems, fmt.Sprintf("the work waiting in the %s's conversation could not be read again once the pass was over, so the next pass is handed every item, its rulings included: %v", task.Role.Title(), err))
-		} else {
-			recorded.Rulings = stampedRulings(work.Rulings, t.now())
+		var problem string
+		recorded.Rulings, problem = t.closingRulings(ctx, task.Role, watch, func(id string) bool {
+			return tookRuled(id, recorded.Delivered, actedOn, merged)
+		})
+		if problem != "" {
+			problems = append(problems, problem)
 		}
 	}
 	// Bounded, because the record's own bound on this prose refuses a record that

@@ -428,7 +428,7 @@ func (s *Session) renderWaitingDocuments() string {
 	var out strings.Builder
 	out.WriteString("# Your waiting documents\n\n")
 	waiting, _ := s.waitingAndHeld()
-	fmt.Fprintf(&out, "%d of %d places for waiting documents are taken; documents held for sending are counted apart, at most %d.\n", waiting, runstate.MaxPendingWrites, runstate.MaxHeldWrites)
+	fmt.Fprintf(&out, "%d of %d places for waiting documents are taken; documents held for sending and documents kept until there is room are counted apart, at most %d together.\n", waiting, runstate.MaxPendingWrites, runstate.MaxHeldWrites)
 	listed := 0
 	for _, record := range s.writes {
 		if record.decided {

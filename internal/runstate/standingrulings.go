@@ -14,10 +14,11 @@ import (
 const RulingNoteOpening = "Design or ruling for this item written as "
 
 // RulingSnapshot is one work item whose newest note is the woken role's ruling
-// on it, as a pass saw the item once its turns were over: the item, a digest of
+// on it, as the last pass to deal with the item saw it: the item, a digest of
 // everything about it the role would read again (its text, notes, status,
 // priority, labels, when it last changed, and the documents it cites), and when
-// the snapshot was taken. The task's next pass leaves the item out where its
+// the snapshot was taken. Passes that leave the item out carry it forward
+// unchanged. The task's next pass leaves the item out where its
 // digest is unchanged and no report naming it was filed since
 // (internal/orchestrator/standingrulings.go).
 type RulingSnapshot struct {

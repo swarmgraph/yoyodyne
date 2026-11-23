@@ -153,6 +153,8 @@ func (s *Session) rulingNote(pending PendingWrite) string {
 	fmt.Fprintf(&note, "%s\n\n", s.trackerProvenance(fmt.Sprintf("%s%s (%s, document %s)", runstate.RulingNoteOpening, strings.TrimSpace(write.ID), title, pending.ID), write.Reason))
 	if hold := write.Hold; hold != nil {
 		fmt.Fprintf(&note, "It is finished and kept ready to send. Sending it for publication waits until %s closes: %s\n\n", strings.TrimSpace(hold.UntilClosed), strings.TrimSpace(hold.Reason))
+	} else if pending.WaitsForRoom {
+		note.WriteString("It is finished and kept until there is room among the documents waiting for publication, and is sent then. Until it is published, the text below is what it says.\n\n")
 	} else {
 		note.WriteString("It is finished and sent for publication. Until it is published, the text below is what it says.\n\n")
 	}

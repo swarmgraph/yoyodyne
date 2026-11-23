@@ -317,13 +317,11 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole, 
 	if orchestrator.KeepsStandingRulings(role) {
 		kept := waiting[:0:0]
 		for _, item := range waiting {
-			ruling, ruled := orchestrator.RulingSnapshotOf(item, role, w.citedDigest(item))
-			if ruled {
-				reading.Rulings = append(reading.Rulings, ruling)
-				if standing.Holds(ruling) {
-					reading.Standing = append(reading.Standing, item.ID)
-					continue
-				}
+			state := orchestrator.WaitingStateOf(item, role, w.citedContents(item))
+			reading.States = append(reading.States, state)
+			if state.Ruled && standing.Holds(state.Snapshot) {
+				reading.Standing = append(reading.Standing, item.ID)
+				continue
 			}
 			kept = append(kept, item)
 		}
@@ -342,24 +340,24 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole, 
 	return reading, nil
 }
 
-// citedDigest is a digest of the documents an item cites by file, as they stand
-// in the repository: each path with a digest of its content, or with "missing"
+// citedContents is the documents an item cites by file, as they stand in the
+// repository: each path with a digest of its content, or with "missing"
 // or "unreadable" where it cannot be read, so a document that appears, changes,
 // or goes away changes the digest.
-func (w sweepConversationWork) citedDigest(item beads.WorkItem) string {
-	var lines []string
+func (w sweepConversationWork) citedContents(item beads.WorkItem) map[string]string {
+	cited := map[string]string{}
 	for _, path := range orchestrator.CitedDocuments(item) {
 		content, err := os.ReadFile(filepath.Join(w.repository, filepath.FromSlash(path)))
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			lines = append(lines, path+"|missing")
+			cited[path] = "missing"
 		case err != nil:
-			lines = append(lines, path+"|unreadable")
+			cited[path] = "unreadable"
 		default:
-			lines = append(lines, path+"|"+orchestrator.DigestLines([]string{string(content)}))
+			cited[path] = orchestrator.DigestLines([]string{string(content)})
 		}
 	}
-	return orchestrator.DigestLines(lines)
+	return cited
 }
 
 // heldOutside is what outside the woken role holds an item, as the tracker
@@ -1592,7 +1590,7 @@ func describeRulingsStanding(recorded runstate.Sweep) string {
 	if len(recorded.RulingsStanding) == 1 {
 		noun = "item"
 	}
-	return fmt.Sprintf("left out %d %s waiting in the %s's conversation because the %s's ruling on each stands and nothing about it had changed since the last pass: %s",
+	return fmt.Sprintf("left out %d %s waiting in the %s's conversation because the %s's ruling on each stands and nothing about it had changed since it was dealt with: %s",
 		len(recorded.RulingsStanding), noun, recorded.Role.Title(), recorded.Role.Title(), strings.Join(named, ", "))
 }
 

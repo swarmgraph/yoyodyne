@@ -539,9 +539,10 @@ type Sweep struct {
 	// RulingsStanding is the work waiting in the role's conversation that this
 	// pass was not handed because the role's ruling on each item stands: its
 	// newest note is that ruling, and nothing about the item, the documents it
-	// cites, or the reports naming it has changed since the task's last
-	// completed pass. Rulings is what the next pass is compared with: the items
-	// whose newest note was the role's ruling once this pass's turns were over.
+	// cites, or the reports naming it has changed since the pass that dealt
+	// with it. Rulings is what the next pass is compared with: the snapshots this
+	// pass carried forward for the items it left out, and those of the ruled
+	// items it dealt with.
 	// Both are absent on a pass of a role that keeps no standing rulings, and on
 	// every record written before passes carried them.
 	RulingsStanding []string         `json:"rulings_standing,omitempty"`
