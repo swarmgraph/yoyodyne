@@ -102,10 +102,16 @@ func bundles() []Bundle {
 			Role: domain.RoleArchitect,
 			Owns: "the designs, the decision records, and the architectural invariants",
 			Holds: []capability.Capability{
-				// The architect reads the tracker and writes none of it: its conversation
-				// authority is read and survey, and the work it would otherwise file is
-				// proposed to the product manager instead.
+				// The architect reads the tracker and writes none of it beyond the one
+				// agreement note below: its conversation authority is read and survey,
+				// and the work it would otherwise file is proposed to the product
+				// manager instead.
 				capability.WorkItemRead,
+				// The one write the architect has on an item: the note recording that
+				// she checked a revision of a design against it and found they agree.
+				// The harness writes the note from her action; she writes no other
+				// part of the item.
+				capability.WorkItemAgreementNote,
 				capability.ReportFile,
 				capability.RepositoryRead,
 				capability.RepositoryList,
