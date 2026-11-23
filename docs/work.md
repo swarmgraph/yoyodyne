@@ -2827,8 +2827,9 @@ Under each change the queue has not finished with, a `now:` line says what the
 queue is doing with it and the time that step began, in your zone: waiting for
 its candidate to be built, starting its checks, running a named check (check 2
 of 4, say), waiting for or under its independent review, waiting to begin
-landing, landing, waiting for GitHub to merge its pull request, recording its
-landing, handed back, or passed over and the rule that chose another entry
+landing, landing, waiting for GitHub to be ready to merge its pull request (with what
+GitHub last said it waits on), waiting for GitHub to merge one whose merge it
+holds, recording its landing, handed back, or passed over and the rule that chose another entry
 first. A step tried again says which try it is on and why the last one was set
 aside. The time is read off the queue's own records; where none records when a
 step began, the line says so rather than guessing. The head of the queue,
@@ -2837,7 +2838,7 @@ queue.
 
 A change whose step has run longer than `execution.merge_queue_step_overdue_after`
 (two hours by default) is marked as a problem for the development manager to
-move, under the step, naming what it waits on; so is a merge GitHub holds whose
+move, under the step, naming what it waits on; so is a merge GitHub holds, or a candidate it is not ready to merge, whose
 required checks have all ended with one not passing, failed or cancelled, which
 GitHub will not make by itself however long the queue waits. The same problem
 is on the attention line, in the problems list, and in the factory health check
@@ -2914,13 +2915,18 @@ What can happen to a queued change instead:
   reconcile it.
 - **The candidate touches a protected path its item does not grant.** It is
   handed back before any check runs on it.
-- **The forge drops the candidate's merge, or holds it queued longer than
-  `triage.stuck_merge_age`.** The limit counts from when the harness asked
-  the forge for the merge, which happens only once the entry reaches the head
-  of the queue, so waiting behind other entries never counts toward it. The
-  merge is withdrawn, and once the forge confirms it is withdrawn the change is
-  handed back to its run, kept, for the development manager to decide on. The
-  withdrawal says how long the forge held the merge and how long the entry was
+- **GitHub is not ready to merge the candidate, or the forge drops or holds its
+  merge, longer than `triage.stuck_merge_age` allows.** The harness asks GitHub
+  to merge a candidate directly and only once GitHub is ready to, so the
+  ordinary wait is for that, and the limit counts from when the candidate's
+  pull request was opened. For a merge the forge holds it counts from when the
+  harness asked for the merge. Either counts again from a request for a check
+  GitHub had not started, and either happens only once the entry reaches the
+  head of the queue, so waiting behind other entries never counts toward it. A
+  merge the forge dropped is withdrawn without waiting for the limit. Where a
+  merge is held it is withdrawn, and once the forge confirms that, or at once
+  where none was asked for, the change is handed back to its run, kept, for the development manager to decide on. The
+  withdrawal says how long GitHub held the merge or would not make it, and how long the entry was
   in the queue before that.
 - **The candidate's reviewer answers with no verdict that can be read.** The
   reply is read as a run's review reply is (see above), so a verdict with words

@@ -14,8 +14,9 @@ package orchestrator
 // nothing.
 //
 // Where GitHub holds a merge the queue asked for (mergequeuepromotion.go,
-// awaitForge), a required check GitHub has not started within checkStartLimit
-// of the merge being asked for is asked for again once
+// awaitForge), or would not yet merge a candidate directly (awaitMergeable), a required check GitHub has not started within checkStartLimit
+// of the merge being asked for, or of the candidate's pull request being
+// opened where no merge was asked for yet, is asked for again once
 // (answerUnstartedChecks), and triage.stuck_merge_age is counted again from
 // the request. The driver withdraws the merge only once that second wait is
 // over, and hands it back as a failure outside the change: no repair attempt
@@ -160,8 +161,9 @@ func names(checks []runstate.CICheckEvidence) []string {
 }
 
 // answerUnstartedChecks asks GitHub once more for a required check it has not
-// started on a merge it holds, once checkStartLimit has passed since the merge
-// was asked for, and from then counts the limit on the held merge's wait again
+// started on a merge it holds, or on a candidate it would not yet merge
+// directly, once checkStartLimit has passed since the merge was asked for or
+// the pull request opened, and from then counts the limit on the held merge's wait again
 // from the request. Once a request stands and GitHub has still not started the
 // check, NeverStarted says so, and the driver withdraws the merge as a failure
 // outside the change once that second wait is over. A merge whose checks
@@ -196,9 +198,13 @@ func (q *queuePromotion) answerUnstartedChecks(ctx context.Context, reading runs
 	if unstarted == "" || q.now().Sub(*q.outcome.ForgeHeldSince) < startLimit(q.stuckAge()) {
 		return nil
 	}
+	since, stays := "the merge being asked for", "the merge"
+	if q.outcome.NotMergeable {
+		since, stays = "the pull request being opened", "the entry"
+	}
 	rerun := runstate.MergeQueueCheckRerun{
 		PullRequest: attempt.PullRequest, Check: unstarted, Conclusion: notStartedConclusion, At: q.now(), Commit: attempt.Candidate,
-		Why: fmt.Sprintf("GitHub had not started the required check %s on pull request %d within %s of the merge being asked for", unstarted, attempt.PullRequest, waitedFor(q.now().Sub(*q.outcome.ForgeHeldSince))),
+		Why: fmt.Sprintf("GitHub had not started the required check %s on pull request %d within %s of %s", unstarted, attempt.PullRequest, waitedFor(q.now().Sub(*q.outcome.ForgeHeldSince)), since),
 	}
 	if err := q.p.Reruns.RecordCheckRerun(ctx, q.key, q.entry.EntryID, rerun); err != nil {
 		return fmt.Errorf("record asking GitHub to start %s on pull request %d: %w", unstarted, attempt.PullRequest, err)
@@ -209,7 +215,7 @@ func (q *queuePromotion) answerUnstartedChecks(ctx context.Context, reading runs
 	if err != nil {
 		answer = fmt.Sprintf("GitHub would not run it again (%v)", err)
 	}
-	q.outcome.Waiting += fmt.Sprintf("; %s, so the harness asked for it again: %s; the merge stays at the head of the queue and waits the limit once more from now", rerun.Why, answer)
+	q.outcome.Waiting += fmt.Sprintf("; %s, so the harness asked for it again: %s; %s stays at the head of the queue and waits the limit once more from now", rerun.Why, answer, stays)
 	return nil
 }
 
