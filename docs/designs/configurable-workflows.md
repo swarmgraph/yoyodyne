@@ -70,6 +70,10 @@ revisions:
       by: architect
       at: 2026-11-19T16:42:24.315135Z
       reason: Replaces every use of the retired word for a required check in this design's prose with the check or the step it means, as the register of terms asks of the documents on its retired-word row; part of the item replacing coined vocabulary in the architect's documents (yoyodyne-ifd.437.21). Written whole from main 0bf2289a. No decision in the design changes.
+    - action: amended
+      by: architect
+      at: 2026-11-23T11:11:55.95629Z
+      reason: 'yoyodyne-y06u: the workflow visualizer design (workflow-diagrams) is on main; this design now points to it and states that a fixed description of Go code is not a workflow, is refused by the runnable loader and drives nothing, and that drawing a definition is not the visual authoring left for later. No decision changes. Written from main e22b582a.'
 approvals:
     - policy: approvals.designs
       revision: 12
@@ -91,6 +95,11 @@ approvals:
       by: harness
       at: 2026-11-19T16:42:24.315135Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3104, for document-3104.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 16
+      by: harness
+      at: 2026-11-23T11:11:55.95629Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3663, for document-3663.1 under the automatic approval policy
 ---
 # Configurable workflows: a declarative runtime over trusted actions
 
@@ -107,6 +116,8 @@ A capability is authority the harness exercises on the role's behalf, never auth
 ## Definitions and validation
 
 The schema is a state machine, not a DAG: sequential steps, conditional transitions on typed action outcomes, bounded loops, durable waits (`$wait`, a runtime destination no definition can replace), and named terminals. No expressions, no parallel joins, no arbitrary code; action parameters are typed literals and configuration references only. Loading produces a compiled, normalized, digest-pinned definition or a complete failure before any work is claimed. Validation covers the structural set (known schema and actions, every outcome handled, every destination real, no unreachable steps, every cycle crossing a declared budget or trusted wait) and the safety set (capability compatibility, automatic integration requiring checks and an independent reviewer, no project shell outside the configured-check action, bounded size). `yoyo workflow validate` and `show --effective` are the inspection surface; a binding names a project file or a built-in template explicitly, and nothing is silently merged.
+
+A definition can also be drawn. [Drawing a project's workflows](workflow-diagrams.md) sets `yoyo workflow draw` and a dashboard page that draw the effective definitions, and adds fixed descriptions of intake, the merge queue and what happens after a change lands, which are still Go code rather than definitions. A fixed description is not a workflow: it carries `describes: code`, the loader for runnable definitions refuses it, only the description loader accepts its extra fields, and no code chooses a step from it. Drawing adds nothing a definition may configure, and it is not the visual authoring the conversion order below leaves for demonstrated need: it shows a definition and never edits one.
 
 ## Actions and evidence
 
