@@ -5820,12 +5820,20 @@ Summary, today, since 00:00 PDT on Sunday October 25 (read at 20:00 PDT):
   each with the time it landed.
 - **In progress** is each run with the newest result about its change: the
   checks passing or failing, a protected file refused, or the review's
-  verdict, and "no check or review result yet" before any of them.
+  verdict, and "no check or review result yet" before any of them. After the
+  runs come the approved changes waiting to land in a merge queue, each with
+  its place, such as "waiting to land: number 2 of 13 in the merge queue for
+  main", and where the queue is in the middle of verifying or landing it, that
+  too. A change the queue handed back is not listed: the run or role it went
+  back to has it.
 - **Blocked** is everything waiting on somebody other than you, each with who
   it waits on and what happens next, as [the ownership
   registry](#who-owns-each-kind-of-entry) answers for it. **Ended without
   landing** is the runs that stopped in the period, one line per cause, each
-  cause in the same words the rest of the harness uses for it.
+  cause in the same words the rest of the harness uses for it. A run whose
+  approved change is waiting in the merge queue has not stopped and is never
+  counted here; if the queue loses the change, the run fails and is counted
+  then.
 - **Needs your decision** is only what is yours: an entry the registry gives
   you for a reason on its closed list, and a decision a role made that needs
   your hand to carry out. Nothing else is put to you here.
@@ -7349,14 +7357,20 @@ without landing. It uses the existing closed list, extended with the bounds in
 inventory's causes outside the work. Other refusals retain their gate names.
 The refusal record still controls refunds; a stop class changes no budget
 or recovery rule. An older record with no class reads as `unknown`, without
-inferring a cause from its prose or its leftover check findings. Status prints
+inferring a cause from its prose or its leftover check findings. A run that
+succeeded by handing its approved change to the merge queue, which has not yet
+landed it or handed it back, has no stop cause at all, because it has not
+stopped: Slack says it once, in the item's thread, as waiting to land, naming
+the queue and the entry it waits as, and posts no line saying the run ended.
+Status prints
 `stop cause`, the docket names it, and the run's Slack reason carries its name.
 `yoyo status --json` carries the shared read model's `throughput.windows`, whose
 `stops_by_cause` counts endings today and in the last seven local days, including
 successful escalations that landed nothing. These counts cover the whole run
 history even when the displayed history is narrowed or limited. The dashboard's
-Throughput section prints the same counts. In-flight waits and successful
-landings count as no stop.
+Throughput section prints the same counts. In-flight waits, successful
+landings, and approved changes waiting in the merge queue count as no stop; the
+windows count the last under `queued`.
 
 `stopped` covers every ending the harness hands to somebody: an unrepaired
 review, a check that kept failing, refused protected paths, a replay the target

@@ -129,3 +129,27 @@ func TestOldRunSummariesKeepTheReasonWhileTheirCauseReadsAsUnknown(t *testing.T)
 		}
 	}
 }
+
+// A run that succeeded by handing its change to the merge queue, which has not
+// landed it or handed it back, has not stopped: neither its record nor its
+// listing names a stop cause, and no stop is written for it. The same run with a
+// blocker, or failed once the queue lost its entry, has stopped.
+func TestARunWaitingInTheMergeQueueRecordsNoStop(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	queued := State{Status: StatusSucceeded, Phase: PhaseCleaningUp, MergeQueue: &MergeQueueAdmissionRecord{EntryID: "mqe-1", Order: 34, TargetBranch: "main"}}
+	summary := store.summarize(queued)
+	if queued.RecordedStopClass() != "" || summary.StopClass != "" || summary.RecordedStopClass() != "" || queued.stoppedNow() {
+		t.Fatalf("a queued run reads as stopped: record %q, listing %q/%q, stopped %t", queued.RecordedStopClass(), summary.StopClass, summary.RecordedStopClass(), queued.stoppedNow())
+	}
+	blocked := queued
+	blocked.Blocker = "handed to the development manager"
+	if blocked.RecordedStopClass() != StopUnknown {
+		t.Fatalf("a queued run with a blocker records %q, want %q", blocked.RecordedStopClass(), StopUnknown)
+	}
+	lost := queued
+	lost.Status, lost.StopClass = StatusFailed, StopIntegration
+	if lost.RecordedStopClass() != StopIntegration {
+		t.Fatalf("a run whose queue entry was lost records %q, want %q", lost.RecordedStopClass(), StopIntegration)
+	}
+}

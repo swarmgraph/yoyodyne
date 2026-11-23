@@ -291,6 +291,10 @@ type RunSummary struct {
 	// to the harness's merge queue ends succeeded with nothing integrated, so
 	// without this its listing reads exactly like a run that lost its change.
 	Queued string `json:"queued,omitempty"`
+	// AwaitingMergeQueue reports a run whose change waits in the harness's own
+	// merge queue (State.AwaitingMergeQueue), so RecordedStopClass reads the
+	// listing as the record does: waiting to land, not stopped.
+	AwaitingMergeQueue bool `json:"awaiting_merge_queue,omitempty"`
 	// DocumentItem is the work item a document run is recorded against
 	// (State.DocumentItemSays), and empty for every other run.
 	DocumentItem string `json:"document_item,omitempty"`
@@ -590,6 +594,7 @@ func (s *Store) summarize(state State) RunSummary {
 		Outstanding:         state.Outstanding(),
 		MergeQueued:         state.PullRequest != nil && state.PullRequest.MergeQueued,
 		Queued:              state.MergeQueueSays(),
+		AwaitingMergeQueue:  state.AwaitingMergeQueue(),
 		DocumentItem:        state.DocumentItemSays(),
 		ResumingIntegration: state.ResumingIntegration(),
 		AccountAlias:        state.AccountAlias,
