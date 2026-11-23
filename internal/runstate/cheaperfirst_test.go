@@ -102,3 +102,53 @@ func TestTheTrialsComparisonCountsEachArm(t *testing.T) {
 		t.Fatalf("stronger arm = %+v", stronger)
 	}
 }
+
+// Each developer attempt's model is recorded once, in order: an attempt made
+// again after an interruption replaces its own entry rather than adding one,
+// and the slice handed in is never written to.
+func TestEachAttemptsModelIsRecordedOnceInOrder(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	first := NoteAttemptModel(nil, 0, "sonnet", at)
+	again := NoteAttemptModel(first, 0, "sonnet", at.Add(time.Minute))
+	repaired := NoteAttemptModel(again, 1, "opus", at.Add(2*time.Minute))
+	if len(first) != 1 || first[0].At != at {
+		t.Fatalf("first = %+v, want the first attempt as it was first recorded", first)
+	}
+	if len(again) != 1 || again[0].At != at.Add(time.Minute) {
+		t.Fatalf("again = %+v, want the first attempt made again in place of its entry", again)
+	}
+	want := []AttemptModel{{Attempt: 0, Model: "sonnet", At: at.Add(time.Minute)}, {Attempt: 1, Model: "opus", At: at.Add(2 * time.Minute)}}
+	if len(repaired) != len(want) || repaired[0] != want[0] || repaired[1] != want[1] {
+		t.Fatalf("attempts = %+v, want %+v", repaired, want)
+	}
+}
+
+// The narrow update a resumed repair moves a run with writes the move once: a
+// run that already records one, or took no part in the trial, is left alone.
+func TestAMoveToTheStrongerModelIsWrittenOnce(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	moved := CheaperFirst{Arm: CheaperFirstCheaper, Reason: "eligible", Move: &ModelMove{At: at, From: "sonnet", To: "opus", Reason: "make race failed", RepairAttempt: 1}}
+	update := MovedToStronger{Record: moved, Model: "opus", ModelReason: "moved", Effort: "high", EffortDescription: "high", At: at}
+
+	started := trialRun("run-1", CheaperFirstCheaper)
+	next, changed, err := ApplyUpdate(started, update)
+	if err != nil || !changed || next.CheaperFirst.Move == nil || next.DeveloperModel != "opus" || next.ProviderEffort != "high" {
+		t.Fatalf("ApplyUpdate() = %+v, %v, %v; want the move and the stronger model written", next.CheaperFirst, changed, err)
+	}
+	if started.CheaperFirst.Move != nil {
+		t.Fatal("the update wrote through to the record it was handed")
+	}
+	if _, changed, err := ApplyUpdate(next, update); err != nil || changed {
+		t.Fatalf("ApplyUpdate() again = %v, %v; want nothing changed on a run already moved", changed, err)
+	}
+	if _, changed, err := ApplyUpdate(State{RunID: "run-2"}, update); err != nil || changed {
+		t.Fatalf("ApplyUpdate() outside the trial = %v, %v; want nothing changed", changed, err)
+	}
+	if _, _, err := ApplyUpdate(started, MovedToStronger{Record: CheaperFirst{Arm: CheaperFirstCheaper}}); err == nil {
+		t.Fatal("ApplyUpdate() with no move was not refused")
+	}
+}

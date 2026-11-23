@@ -135,6 +135,7 @@ var structuredStrings = map[string]string{
 	"cheaper_first.first_review":                  "a review decision from the fixed vocabulary",
 	"cheaper_first.move.from":                     "a model selector from the configuration",
 	"cheaper_first.move.to":                       "a model selector from the configuration",
+	"cheaper_first.attempts[].model":              "a model selector from the configuration",
 	"status":                                      "an enumeration",
 	"phase":                                       "an enumeration",
 	"stop_class":                                  "an enumeration, refused at the save when it names no class",
