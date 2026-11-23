@@ -4965,6 +4965,7 @@ execution:
   reviewer_models:
     documents: stronger   # stronger (the default) or cheaper
     code: stronger        # stronger only, which is the default
+    compare_documents: false  # default false; see the trial below
 ```
 
 **What it does.** A run that publishes a document is reviewed on the model
@@ -4990,12 +4991,36 @@ reviewer agent's provider names no cheaper model.
 **Before this repository turns it on.** The design moves document reviews to
 the cheaper model only after at least 30 document publications have been
 reviewed on both models and the cheaper reviewer refused what the stronger
-refused. Nothing in the harness yet runs that comparison, so this repository
-keeps both kinds on the stronger model.
+refused. Until then this repository keeps both kinds on the stronger model,
+and the comparison is made with `compare_documents`.
 
-`reviewer_models` is a new key: a part of the product still running a build
-from before it refuses a file that carries it until it moves onto a newer
-build.
+**The trial: `compare_documents`.** With it on, every review of a document
+publication that reaches a verdict is made once more on the cheaper model
+that `model_kinds` names for the reviewer's provider, over the same change and
+the same evidence. The second review is the same reviewer role, under its own
+contract and persona, in a session of its own; it is never the role that
+wrote the document. Its verdict is recorded on the run beside the review that
+decided, and nothing reads it to decide anything: whether the publication
+lands is the stronger reviewer's verdict alone, and a second review that fails
+is recorded as reaching no verdict without stopping the run. What it costs is
+recorded in the cost log against the run and its item as a review. It is not
+counted as one of the run's review rounds. A review made on a reviewer
+endpoint pair names its own model and is not compared, and a review in the
+merge queue is not compared either.
+
+`yoyo model-trial reviews` lists each publication reviewed both ways: both
+verdicts, whether they agree, how many pairs agree, and how many times the
+cheaper reviewer approved what the stronger refused, against the 30
+publications the design asks for. Setting `documents: cheaper` on those
+figures is the development manager's decision.
+
+The file refuses `compare_documents` on while `documents` is `cheaper`, which
+leaves no stronger review to compare with, and while a reviewer agent's
+provider names no cheaper model.
+
+`reviewer_models` and `reviewer_models.compare_documents` are new keys: a part
+of the product still running a build from before them refuses a file that
+carries them until it moves onto a newer build.
 
 ### The reading helper
 

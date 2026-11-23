@@ -118,3 +118,59 @@ func TestTheDevelopmentManagerMayApplyTheReviewerModels(t *testing.T) {
 		t.Fatalf("RoleMayApply = %v, want it applicable", err)
 	}
 }
+
+func TestComparingDocumentReviewsIsOffByDefaultAndNamesTheCheaperModelWhenOn(t *testing.T) {
+	t.Parallel()
+
+	off := loadProject(t, minimalProjectConfig, nil).Config
+	if off.Execution.ReviewerModels.CompareDocuments {
+		t.Fatal("compare_documents is on for a project stating nothing")
+	}
+	if model, ok := off.DocumentComparisonModel(off.Agents["reviewer"]); ok {
+		t.Fatalf("a project stating nothing compares document reviews on %q", model)
+	}
+
+	resolved := loadProject(t, minimalProjectConfig+`execution:
+  reviewer_models:
+    compare_documents: true
+`, nil)
+	on := resolved.Config
+	model, ok := on.DocumentComparisonModel(on.Agents["reviewer"])
+	if !ok || model != "sonnet" {
+		t.Fatalf("DocumentComparisonModel = %q, %v; want Claude Code's cheaper model sonnet", model, ok)
+	}
+	if resolved.Origins["execution.reviewer_models.compare_documents"] == "" {
+		t.Fatal("no origin recorded for execution.reviewer_models.compare_documents")
+	}
+	if err := RoleMayApply("execution.reviewer_models.compare_documents"); err != nil {
+		t.Fatalf("RoleMayApply = %v, want the development manager able to set it", err)
+	}
+}
+
+func TestComparingDocumentReviewsIsRefusedWithNothingStrongerOrNoCheaperModel(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, config, want string
+	}{
+		{"documents already cheaper", minimalProjectConfig + `execution:
+  reviewer_models:
+    documents: cheaper
+    compare_documents: true
+`, "execution.reviewer_models.compare_documents is on while documents names the cheaper model"},
+		{"no cheaper model", minimalProjectConfig + `agents:
+  reviewer:
+    role: reviewer
+    backend: codex
+    model: gpt-5
+execution:
+  reviewer_models:
+    compare_documents: true
+`, `execution.reviewer_models.compare_documents is on, but provider codex, which reviewer agent "reviewer" runs on, names no cheaper model`},
+	} {
+		_, err := loadProjectError(t, tc.config, nil)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: refusal = %v\nwant it to say %q", tc.name, err, tc.want)
+		}
+	}
+}

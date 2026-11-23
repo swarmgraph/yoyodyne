@@ -22,6 +22,9 @@ func runModelTrial(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if len(args) > 0 && args[0] == "defect" {
 		return recordTrialDefect(ctx, args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "reviews" {
+		return showReviewComparison(args[1:], stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "show" {
 		args = args[1:]
 	}
@@ -83,9 +86,38 @@ func recordTrialDefect(ctx context.Context, args []string, stdout, stderr io.Wri
 	return 0
 }
 
+// showReviewComparison lists each document publication reviewed both on the
+// stronger model, which decided, and on the cheaper one, which did not
+// (execution.reviewer_models.compare_documents).
+func showReviewComparison(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("model-trial reviews", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
+	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	positional, err := parseArguments(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) > 0 {
+		fmt.Fprintf(stderr, "model-trial reviews does not take %q\n", positional[0])
+		printModelTrialUsage(stderr)
+		return 2
+	}
+	listing := readmodel.ReadReviewComparison(standingSources(*configPath))
+	if *jsonOutput {
+		return writeJSON(stdout, stderr, listing)
+	}
+	fmt.Fprintln(stdout, listing.Render())
+	if listing.Problem != "" {
+		return 1
+	}
+	return 0
+}
+
 func printModelTrialUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `Usage: yoyo model-trial [show] [options]
        yoyo model-trial defect <run-id> --note <text> [options]
+       yoyo model-trial reviews [options]
 
 Shows the trial of starting developer runs on the cheaper model: with
 execution.developer_cheaper_first on, eligible runs alternate between starting
@@ -99,9 +131,15 @@ many runs moved to the stronger model, and the defects found after landing.
 that started on the cheaper model it stops the trial at once: every eligible
 run after it starts on the developer's configured model.
 
+"reviews" lists each document publication whose review was made a second
+time on the cheaper model, with execution.reviewer_models.compare_documents
+on: both verdicts, whether they agree, how many agree, and how many times the
+cheaper reviewer approved what the stronger refused. The stronger reviewer's
+verdict alone decides whether a publication lands.
+
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
-  --json            emit machine-readable JSON (show only)
+  --json            emit machine-readable JSON (show and reviews only)
   --note <text>     what the defect is and where it was found (defect only)`)
 }
 
