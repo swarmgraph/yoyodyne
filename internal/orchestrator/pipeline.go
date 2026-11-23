@@ -2518,6 +2518,13 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		if state.ProviderSessionID == "" {
 			prompt = withInstallSection(prompt, p.Config.Install)
 		}
+		// A run that started on the cheaper model and is resumed to repair a
+		// failed review or failed checks moves to the stronger model here, as the
+		// repair loop moves it, and the move is saved before the stronger model is
+		// asked for anything (cheaperfirst.go).
+		if err := run.moveResumedRepairToStronger(ctx); err != nil {
+			return run.fail(err, runstate.StatusFailed)
+		}
 		// The attempt this run was owed is made again, which is the same state
 		// again: the transition a pause or a death takes in the definition, taken
 		// here by whichever process picks the run up rather than by the one that
@@ -4933,6 +4940,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			return err
 		}
 	}
+	a.noteAttemptModel()
 	reasked := false
 	sentBackForBackground := false
 	// The attempt's MCP asking, counted across every turn this develop resumes

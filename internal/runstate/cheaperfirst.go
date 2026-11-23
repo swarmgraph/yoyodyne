@@ -49,6 +49,10 @@ type CheaperFirst struct {
 	FirstReview string `json:"first_review,omitempty"`
 	// Move is the run's one move from the cheaper model to the stronger.
 	Move *ModelMove `json:"move,omitempty"`
+	// Attempts is the model each of the run's developer attempts asked for, in
+	// the order they started, whether the repair loop started the attempt or a
+	// hand-back continued the run (NoteAttemptModel).
+	Attempts []AttemptModel `json:"attempts,omitempty"`
 	// DefectAfterLanding is a defect somebody traced to this run's change after
 	// it landed. On a run that started cheaper it stops the trial.
 	DefectAfterLanding *LandedDefect `json:"defect_after_landing,omitempty"`
@@ -69,6 +73,59 @@ type ModelMove struct {
 	// not price the run.
 	SpentBeforeUSD float64 `json:"spent_before_usd,omitempty"`
 	SpentKnown     bool    `json:"spent_known,omitempty"`
+}
+
+// AttemptModel is the model one developer attempt asked for. Attempt is the
+// run's repair count when the attempt started: 0 is the first attempt, and 1
+// on is the repair attempt of that number.
+type AttemptModel struct {
+	Attempt int       `json:"attempt"`
+	Model   string    `json:"model"`
+	At      time.Time `json:"at"`
+}
+
+// NoteAttemptModel returns attempts with the attempt numbered attempt recorded
+// as asking for model. An attempt made again after an interruption is the same
+// attempt, so it replaces the entry already there rather than adding a second.
+// The slice it is given is never written to.
+func NoteAttemptModel(attempts []AttemptModel, attempt int, model string, at time.Time) []AttemptModel {
+	noted := append([]AttemptModel{}, attempts...)
+	entry := AttemptModel{Attempt: attempt, Model: model, At: at}
+	if last := len(noted) - 1; last >= 0 && noted[last].Attempt == attempt {
+		noted[last] = entry
+		return noted
+	}
+	return append(noted, entry)
+}
+
+// MovedToStronger records a run's one move to the stronger model made before a
+// repair attempt the run was resumed into, rather than one its repair loop
+// starts and saves with the attempt (orchestrator's
+// moveResumedRepairToStronger): the trial's record carrying the move, and the
+// model and effort the run asks for from that attempt on. A stored run that
+// already records a move, or records no trial, changes nothing.
+type MovedToStronger struct {
+	Record            CheaperFirst
+	Model             string
+	ModelReason       string
+	Effort            string
+	EffortDescription string
+	At                time.Time
+}
+
+func (u MovedToStronger) apply(state *State) (bool, error) {
+	if u.Record.Move == nil {
+		return false, errors.New("a move to the stronger model must say what moved")
+	}
+	if state.CheaperFirst == nil || state.CheaperFirst.Move != nil {
+		return false, nil
+	}
+	record := u.Record
+	state.CheaperFirst = &record
+	state.DeveloperModel, state.DeveloperModelReason = u.Model, u.ModelReason
+	state.ProviderEffort, state.ProviderEffortDescription = u.Effort, u.EffortDescription
+	state.UpdatedAt = u.At
+	return true, nil
 }
 
 // LandedDefect is a defect traced to a run's change after it landed.

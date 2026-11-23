@@ -10,6 +10,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
@@ -58,9 +59,16 @@ type feedbackFixture struct {
 
 func newFeedbackFixture(t *testing.T) *feedbackFixture {
 	t.Helper()
+	return newFeedbackFixtureWith(t, beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}, nil)
+}
+
+// newFeedbackFixtureWith is newFeedbackFixture over the given item, with
+// configure applied to the pipeline before its run starts.
+func newFeedbackFixtureWith(t *testing.T, item beads.WorkItem, configure func(*orchestrator.Pipeline)) *feedbackFixture {
+	t.Helper()
 	repository, worktreeRoot, store := testharness.RestartableFixture(t)
 	remote := testharness.AddBareRemote(t, repository)
-	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	tracker := &orchestratortest.Tracker{Item: item}
 	fixture := &feedbackFixture{repository: repository, worktreeRoot: worktreeRoot, store: store, tracker: tracker}
 	attempt := 0
 	fixture.provider = orchestratortest.RoleBackend(func(request backend.RunRequest) error {
@@ -75,6 +83,9 @@ func newFeedbackFixture(t *testing.T) *feedbackFixture {
 	fixture.forge.OnEnsure = func() { fixture.ensuredAfter = append(fixture.ensuredAfter, len(fixture.provider.Requests)) }
 	pipeline := testharness.Publishing(testharness.Automatic(testharness.NewSharedPipeline(t, repository, worktreeRoot, store, tracker, fixture.provider, []string{"exit 0"}), fixture.provider), fixture.forge)
 	pipeline.Config.Approvals.Integration = domain.ApprovalHuman
+	if configure != nil {
+		configure(&pipeline)
+	}
 	fixture.pipeline = pipeline
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
@@ -257,6 +268,53 @@ func TestARequestedChangeStartsARepairRoundOnTheSameRun(t *testing.T) {
 	again := fixture.check(t, reader, reports, 1, 3)
 	if again.New != 0 || again.RepairStarted {
 		t.Fatalf("second check = %#v, want nothing new", again)
+	}
+}
+
+// A run that started on the cheaper model and was approved on it is moved to
+// the stronger model for the round answering changes a person asked for on its
+// pull request, as a repair its own loop starts would be, and its record says
+// which model each attempt used. The round is resumed through the pipeline
+// rather than started in the repair loop, which is the path that once kept the
+// cheaper model (internal/orchestrator's cheaperfirst.go).
+func TestARequestedChangeOnARunThatStartedCheaperIsRepairedOnTheStrongerModel(t *testing.T) {
+	t.Parallel()
+	fixture := newFeedbackFixtureWith(t, beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open", Priority: 2}, func(pipeline *orchestrator.Pipeline) {
+		pipeline.Config.Execution.DeveloperCheaperFirst = config.DeveloperCheaperFirst{Enabled: true}
+	})
+	if record := fixture.run.CheaperFirst; record == nil || record.Arm != runstate.CheaperFirstCheaper || record.Move != nil {
+		t.Fatalf("cheaper-first record = %+v, want a run started cheaper and not yet moved", record)
+	}
+	reader := &feedbackReader{reading: publish.FeedbackReading{
+		Reviews: []publish.FeedbackReview{{ID: 31, Author: "ada", State: publish.ReviewChangesRequested, Body: "Please rename the flag.", At: fixture.after(5)}},
+	}}
+	reports := &collectedReports{}
+	if settled := fixture.check(t, reader, reports, 1, 3); !settled.RepairStarted {
+		t.Fatalf("settlement = %#v, want a repair round started", settled)
+	}
+	repairer := fixture.reconciler(t, reader, reports, 1, 3)
+	repairer.Continue = fixture.pipeline.Continue
+	if hosted, err := repairer.ContinueFeedbackRepairs(context.Background()); err != nil || len(hosted) != 1 || hosted[0].Failure != "" {
+		t.Fatalf("ContinueFeedbackRepairs() = %#v, %v, want the round hosted", hosted, err)
+	}
+
+	developer := fixture.developerRequests()
+	if len(developer) != 2 || developer[0].Model != "sonnet" || developer[1].Model != "opus" {
+		models := make([]string, 0, len(developer))
+		for _, request := range developer {
+			models = append(models, request.Model)
+		}
+		t.Fatalf("developer attempts asked for %v, want the cheaper sonnet first and the round on the stronger opus", models)
+	}
+	repaired := testharness.LoadRun(t, fixture.store, fixture.run.RunID)
+	record := repaired.CheaperFirst
+	if record == nil || record.Move == nil || record.Move.From != "sonnet" || record.Move.To != "opus" || record.Move.RepairAttempt != 1 ||
+		!strings.Contains(record.Move.Reason, "changes were asked for on its pull request #") {
+		t.Fatalf("cheaper-first record = %+v, want the move to opus for repair attempt 1 naming the pull request", record)
+	}
+	if len(record.Attempts) != 2 || record.Attempts[0].Attempt != 0 || record.Attempts[0].Model != "sonnet" ||
+		record.Attempts[1].Attempt != 1 || record.Attempts[1].Model != "opus" {
+		t.Fatalf("attempt models = %+v, want attempt 0 on sonnet and repair attempt 1 on opus", record.Attempts)
 	}
 }
 

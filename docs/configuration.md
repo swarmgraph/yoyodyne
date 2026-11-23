@@ -4908,9 +4908,13 @@ execution:
 eligible item starts on its provider's cheaper model. At its first failed
 review or failed checks it moves once to the stronger model, before the repair
 attempt that answers the failure, and keeps the stronger for every attempt
-after. The run records the move: when, from which model to which, why, and
-what the run had spent when it moved. A run whose stronger model is the only
-one it ever used never moves.
+after. That is so however the repair starts: in the run's own repair loop, in
+a repair the development manager decides after the merge queue hands the
+change back, or in a round answering changes a person asked for on its pull
+request. The run records the move: when, from which model to which, why, and
+what the run had spent when it moved. It also records which model each of its
+developer attempts asked for. A run whose stronger model is the only one it
+ever used never moves.
 
 **Which items are eligible.** A priority 0 item never is, and neither is an
 item carrying any high risk label, whatever the file says: those two rules are
