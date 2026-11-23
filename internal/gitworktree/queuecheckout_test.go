@@ -168,3 +168,59 @@ func TestARetriedCandidateCheckoutGetsALongerLimit(t *testing.T) {
 		t.Fatalf("doubled limit = %s with a first limit of %s, want it capped at %s but never below the first", got, base, maxQueueCheckoutRetryLimit)
 	}
 }
+
+// An add killed before it wrote the checkout's .git file leaves a registration
+// `git worktree remove` cannot find by the path and `git worktree prune` skips
+// while it is locked as initializing. Removing the checkout clears it too, so
+// the next add at the same path is not refused over it.
+func TestRemovingACheckoutClearsTheRegistrationOfAnAddKilledBeforeItsGitFile(t *testing.T) {
+	t.Parallel()
+
+	repository, head := queueRepository(t)
+	manager, err := New(Options{
+		Runner:         execution.OSProcessRunner{},
+		RepositoryRoot: repository,
+		WorktreeRoot:   filepath.Join(t.TempDir(), "worktrees"),
+		Timeout:        testGitBudget,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	path := filepath.Join(manager.worktreeRoot, queueCandidateDirectoryName(testQueueEntry))
+	runGit(t, repository, "worktree", "add", "--detach", path, head)
+	// Put the entry back the way a kill early in the add leaves it: still
+	// locked as initializing, no index, HEAD not yet written, and no .git file
+	// in the checkout.
+	entry := strings.TrimSpace(gitLine(t, path, "rev-parse", "--absolute-git-dir"))
+	for _, name := range []string{"index", "HEAD"} {
+		if err := os.Remove(filepath.Join(entry, name)); err != nil {
+			t.Fatalf("Remove(%s) error = %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(entry, "HEAD"), nil, 0o644); err != nil {
+		t.Fatalf("WriteFile(HEAD) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(entry, "locked"), []byte("initializing\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(locked) error = %v", err)
+	}
+	if err := os.Remove(filepath.Join(path, ".git")); err != nil {
+		t.Fatalf("Remove(.git) error = %v", err)
+	}
+
+	ctx, lease, err := manager.leaseRegistry(context.Background())
+	if err != nil {
+		t.Fatalf("leaseRegistry() error = %v", err)
+	}
+	removeErr := manager.removeCheckout(ctx, path)
+	_ = lease.release()
+	if removeErr != nil {
+		t.Fatalf("removeCheckout() error = %v", removeErr)
+	}
+	if _, err := os.Lstat(entry); !os.IsNotExist(err) {
+		t.Fatalf("Lstat(%s) = %v, want the killed add's registration removed", entry, err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("Lstat(%s) = %v, want the half-made checkout removed", path, err)
+	}
+	runGit(t, repository, "worktree", "add", "--detach", path, head)
+}
