@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-10-26T23:02:00.569465Z
       reason: 'Answers the last part of report-a7df0a29: this section said no Slack message went out on October 23 and 24, but the diagnosis shows the license step was posted and sent to the operator once and never repeated. Only that sentence changes. Read whole at main c2a456dc.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T17:36:29.457926Z
+      reason: Answers the reviewer's refusal of document-3713.1. That text said nothing reads a follow-up's deadlines. The check before a scheduled pass reads both, so a passed deadline stops a pass being skipped. The section now says that, says what is still missing, and names the code read at main e78f63e889a3. The eight pieces are unchanged. The new rule is that no route bringing a wait back today is removed until piece 4 puts a late follow-up on its owner's list and then the manager's.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-10-26T23:02:00.569465Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1818, for document-1818.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-23T17:36:29.457926Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3716, for document-3716.1 under the automatic approval policy
 ---
 # Follow-ups: every wait has an owner, a check the harness runs, and two deadlines
 
@@ -235,6 +244,19 @@ No invariant is added by this design. [Fewer lifecycle states](fewer-lifecycle-s
 
 ## Build
 
+### What is built
+
+Read at main e78f63e889a3 in `internal/orchestrator/followups.go`, `internal/followup/checkrun/runner.go`, `internal/followup/checkrun/environment.go`, `internal/cli/passchanges.go` and `internal/orchestrator/passskip.go`, on November 23, 2026. The rest of this design describes what is to be built, not what exists, except as follows.
+
+- **The record and its store** exist, and the check runner runs each open follow-up's check when it is due: every 5 minutes, or every 10 for environment and command checks. The two intervals are fixed in code; the settings under `follow_ups` are not read yet.
+- **The scheduler writes a follow-up for two kinds of hold**: checks the machine could not run, where the cause is an Xcode license or a tool missing from the search path, and a provider whose login lapsed. When the check passes, the follow-up closes and the hold is released, and the release is said on the watch log. A cause the scheduler does not recognise keeps the trial run it had before. Other code that may write a follow-up was not read for this section.
+- **Environment checks run.** There are three: the Xcode license, a tool on the search path, and a provider's login. A check with nothing in the harness to run it is recorded as one that could not be run, and never passes. The architect's reading at 1cfeaa92b6c3 found that only two of the sixteen checks have anything to run them; where the runner is assembled was not read again.
+- **The deadlines are written and have one reader here.** A hold's follow-up is given the priority 0 deadlines, 1 hour and 4 hours, from code. The check that decides whether a scheduled pass may be skipped reads both deadlines of every open follow-up the pass's role owns. Each deadline that passes is one change, so it stops that role's next scheduled pass being skipped. It starts no pass for a follow-up the operator owns, and once a pass has completed with the deadline already past, that deadline is no longer a change.
+- **What is not done when a deadline passes**: in the code read, nothing puts the follow-up on its owner's list of things to look at, sends it to the owner's manager, or files a bug. A pass that is started because a deadline passed is not shown, by this check, which follow-up it was.
+- The commands in piece 6 and the surfaces in piece 5 were not read for this section, and nothing here says whether they exist.
+
+### The pieces
+
 These are the pieces; turning them into work items is the development manager's.
 
 1. **The store and the record**: the follow-up record, the field saying whether a wait keeps a stop listed, its store in the state directory through the confined writer, the closed list of checks, the registry kind `follow-up`, and the tests on reasons and on the check list.
@@ -247,6 +269,10 @@ These are the pieces; turning them into work items is the development manager's.
 8. **The role contracts and personas** say that a wait is recorded as a follow-up and that a sentence in a note is not one.
 
 Piece 1 comes first. Pieces 2, 3 and 6 depend on it. Piece 4 depends on 2. Pieces 5 and 7 depend on 3 and 4. Piece 8 can go with 3. Where piece 3 meets a special path that [fewer lifecycle states](fewer-lifecycle-states.md) removes, such as the brake's decision on every pass, it writes the follow-up and leaves the removal to that design's piece, which depends on it.
+
+### Until piece 4 has landed
+
+Piece 3 may make more acts write a follow-up before piece 4 has landed, and it removes no route that brings a wait back today. A follow-up whose check never passes would otherwise stop only one scheduled pass from being skipped at each deadline. The role would not be shown it, its manager would not hear of it, and one the operator owns would start no pass at all. Each existing route, such as a stop staying on the development manager's list or a report staying on its role's list, is removed only by a change that lands after piece 4 puts a late follow-up on its owner's list and then on the manager's.
 
 ## What a reviewer can check
 
