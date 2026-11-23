@@ -1670,6 +1670,9 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		Pipeline: &pipeline,
 		Queue:    parts.mergeQueues,
 		Lander:   parts.worktrees,
+		// A step of a pass that cannot reach GitHub waits for it, and the wait
+		// outlives the process (mergequeuegithubwait.go).
+		GitHubWaits: parts.mergeQueues,
 		Harness: queuemode.Harness{
 			PullRequests:       parts.config.Approvals.Publishing == domain.ApprovalAutomatic,
 			CheckConfiguration: runstate.NewMergeQueueCheckConfiguration(parts.config.Checks).Digest,

@@ -221,13 +221,23 @@ func TestADelayedOrAmbiguousWithdrawalIsObservedAndNeverAssumed(t *testing.T) {
 				}
 				return nil
 			}
+			// GitHub not answering at all is waited out (mergequeuegithubwait.go)
+			// and is not one of its answers; an answer that does not say is kept
+			// and left standing as unresolved.
+			answers := 1
+			if answer == "no answer" {
+				answers = 0
+			}
 			uncertain, err := f.withdraw()
-			if err != nil || uncertain.Withdrawn || uncertain.Unresolved == "" {
+			if answer == "no answer" && (err != nil || uncertain.Withdrawn || uncertain.GitHubWait == nil || uncertain.Unresolved != "") {
+				t.Fatalf("Withdraw() = %#v, %v; want it waiting for GitHub with the withdrawal standing", uncertain, err)
+			}
+			if answer != "no answer" && (err != nil || uncertain.Withdrawn || uncertain.Unresolved == "") {
 				t.Fatalf("Withdraw() = %#v, %v; want it left standing as unresolved", uncertain, err)
 			}
 			attempt, _ := f.landing().Current()
-			if attempt.Withdrawal == nil || attempt.Withdrawal.Settled != nil || len(attempt.Withdrawal.Answers) != 1 || attempt.Withdrawal.Answers[0].Rejected {
-				t.Fatalf("withdrawal = %#v, want it unsettled with one answer that did not say", attempt.Withdrawal)
+			if attempt.Withdrawal == nil || attempt.Withdrawal.Settled != nil || len(attempt.Withdrawal.Answers) != answers || (answers > 0 && attempt.Withdrawal.Answers[0].Rejected) {
+				t.Fatalf("withdrawal = %#v, want it unsettled with %d answers that did not say", attempt.Withdrawal, answers)
 			}
 			f.assertStillArmed()
 			if recovered, err := f.recover(); err != nil || recovered.Handback != nil {
@@ -239,7 +249,7 @@ func TestADelayedOrAmbiguousWithdrawalIsObservedAndNeverAssumed(t *testing.T) {
 			if err != nil || !confirmed.Withdrawn {
 				t.Fatalf("Withdraw() once the forge answers = %#v, %v; want it confirmed", confirmed, err)
 			}
-			if attempt, _ := f.landing().Current(); attempt.Withdrawal.Settled == nil || len(attempt.Withdrawal.Answers) != 1 {
+			if attempt, _ := f.landing().Current(); attempt.Withdrawal.Settled == nil || len(attempt.Withdrawal.Answers) != answers {
 				t.Fatalf("withdrawal = %#v, want the earlier answer kept and the withdrawal settled", attempt.Withdrawal)
 			}
 		})
@@ -288,8 +298,8 @@ func TestALandingThatRacesTheWithdrawalIsCompletedOnceAndNeverReplayed(t *testin
 			}
 			first, err := f.withdraw()
 			if when == "while it stood unconfirmed" {
-				if err != nil || first.Unresolved == "" {
-					t.Fatalf("Withdraw() = %#v, %v; want the withdrawal left standing", first, err)
+				if err != nil || first.GitHubWait == nil || first.Unresolved != "" {
+					t.Fatalf("Withdraw() = %#v, %v; want the withdrawal left standing, waiting for GitHub", first, err)
 				}
 				f.forge.PerformQueuedMerge(t)
 				calls := withdrawer.count()
@@ -365,9 +375,11 @@ func TestAWithdrawalStoppedAroundAnyRequestOrRecordIsFinishedFromWhatItShows(t *
 				return false, errStopped
 			}
 			if at.forgeDown {
+				// An answer that does not say whether the forge withdrew is kept;
+				// GitHub not answering at all is waited out and keeps none.
 				withdrawer.answer = func(call int) error {
 					if call == 1 {
-						return orchestratortest.ConnectionReset("disable auto-merge")
+						return errors.New("the forge did not say whether it withdrew the merge")
 					}
 					return nil
 				}
@@ -762,8 +774,8 @@ func TestAWithdrawalConfirmedByAPromotionIsReleasedByTheNextRecovery(t *testing.
 		}
 		return nil
 	}
-	if standing, err := f.withdraw(); err != nil || standing.Unresolved == "" {
-		t.Fatalf("Withdraw() = %#v, %v; want the withdrawal left standing", standing, err)
+	if standing, err := f.withdraw(); err != nil || standing.GitHubWait == nil || standing.Unresolved != "" {
+		t.Fatalf("Withdraw() = %#v, %v; want the withdrawal left standing, waiting for GitHub", standing, err)
 	}
 	// The promotion finishes the standing withdrawal, and cannot tell what it
 	// was for, so it records nothing past the confirmation.

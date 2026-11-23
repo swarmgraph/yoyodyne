@@ -3006,6 +3006,34 @@ boundary ran under a flat deadline and ended the run on the first timeout, which
 in two days killed three runs — two of them holding an approved change and a
 lifted worktree.
 
+### The merge queue's own passes
+
+With `execution.merge_queue` on, a run does not land its own change; the
+queue's passes do, and they meet GitHub at the same steps: pushing the
+candidate and reading its branch, opening its pull request, checking where the
+remote target stands before the merge, asking for the merge and asking
+afterwards whether it was made, confirming the target carries it, bringing the
+local target onto it, and withdrawing a merge. **A step that cannot reach GitHub
+is waited out, not charged.** The entry is neither handed back nor recorded as
+refused, and the queue is not stopped: the pass ends waiting, and the next tries
+the same step again on the same Fibonacci intervals a run's merge step uses,
+then carries on from it once GitHub answers. A push or merge that went
+unanswered is looked at first and asked for again only where GitHub shows it
+was not made, so nothing is pushed or merged twice.
+
+`yoyo status` and the dashboard label such a pass `waiting for GitHub to be
+reachable again` and say what the queue was doing, how many tries have failed
+since when, and when it next tries, in local time with the zone named. The
+wait is kept beside the queue, so a watch session that restarts mid-wait takes
+it up at the try it had reached rather than starting again. A refusal about
+the change — a failing check, a conflict, a push refused for its content, a
+merge GitHub will not make — is an answer and is handled as it always was.
+
+GitHub refusing the harness's login can look like no answer at all, so a wait
+that has failed fifteen tries in a row, about half an hour, files one warning
+for the development manager and says on status that something other than the
+network may be wrong. It goes on waiting all the same.
+
 ### The read a dispatch makes before there is a run
 
 Both of the reads above are a run's own, and everything this section says about

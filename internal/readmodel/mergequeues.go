@@ -172,6 +172,16 @@ func modeWords(mode runstate.MergeQueueMode) string {
 	return "a queue this build does not know"
 }
 
+// passLabel is what a pass came to as every surface labels it: a pass waiting
+// because a step could not reach GitHub says so, and when the queue next tries
+// is in what the pass says (runstate.MergeQueueGitHubWait.Says).
+func passLabel(pass runstate.MergeQueuePass) string {
+	if pass.Outcome == runstate.MergeQueuePassWaiting && pass.GitHubWait != nil {
+		return "waiting for GitHub to be reachable again"
+	}
+	return passWords(pass.Outcome)
+}
+
 // passWords is what a pass of the queue's worker came to, in ordinary words.
 func passWords(outcome runstate.MergeQueuePassOutcome) string {
 	switch outcome {
@@ -326,7 +336,7 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey, now time.Tim
 	if pass, found, err := queues.LastPass(key); err != nil {
 		problems = append(problems, fmt.Sprintf("the last pass of the queue for %s could not be read: %v", key.TargetBranch, err))
 	} else if found {
-		standing.LastPass, standing.LastPassLabel = &pass, passWords(pass.Outcome)
+		standing.LastPass, standing.LastPassLabel = &pass, passLabel(pass)
 	}
 	entries, err := queues.Entries(key)
 	if err != nil {
