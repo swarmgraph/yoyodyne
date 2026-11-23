@@ -9,10 +9,12 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -190,5 +192,30 @@ func TestAForgeWhoseCertificateCannotBeVerifiedIsNotReadAsAnUnmergedPullRequest(
 	}
 	if f.local("main") != base {
 		t.Fatal("the target moved while the forge could not be read")
+	}
+	if pass.PersonOnly != "" {
+		t.Fatalf("the pass records %q as only a person's to act on, want nothing: a certificate is not a credential the forge refused", pass.PersonOnly)
+	}
+}
+
+// An error a pass stops on that is the forge refusing the harness's token,
+// however it is wrapped, records a credential only a person can give, so a stop
+// that repeats is put to the operator for that reason rather than to a role;
+// any other error, a certificate the machine cannot verify among them, records
+// nothing.
+func TestAStopOnARefusedForgeTokenRecordsACredential(t *testing.T) {
+	t.Parallel()
+
+	refused := fmt.Errorf("push the candidate: gh failed with exit code 1: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)
+	if got := stopPersonOnly(fmt.Errorf("land merge queue entry 45: %w", refused)); got != ownership.PersonCredential {
+		t.Fatalf("stopPersonOnly(a refused token) = %q, want a credential", got)
+	}
+	for _, err := range []error{
+		errors.New("tls: failed to verify certificate: x509: OSStatus -26276"),
+		errors.New("the forge refused the harness's token access"),
+	} {
+		if got := stopPersonOnly(err); got != "" {
+			t.Fatalf("stopPersonOnly(%v) = %q, want nothing: only the error's type says a person has to act", err, got)
+		}
 	}
 }
