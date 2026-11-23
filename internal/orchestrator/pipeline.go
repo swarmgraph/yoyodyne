@@ -7889,14 +7889,29 @@ func (a *activeRun) gateProtectedPaths(ctx context.Context) ([]string, error) {
 		granted = []string{outsidefile.PinnedPath(landing.Record), landing.Record}
 	}
 	refused := protected.Refused(changed, granted)
+	// A granted configuration file is admitted except for its intake section,
+	// which no grant reaches, so that section is compared even where the path
+	// passed (intakeChanges).
+	intakeFiles, intakeSettings, err := a.intakeChanges(ctx, changed, refused)
+	if err != nil {
+		return nil, err
+	}
+	if len(intakeFiles) > 0 {
+		refused = append(refused, intakeFiles...)
+		sort.Strings(refused)
+	}
 	if len(refused) == 0 {
 		// The change in the worktree is within its scope now, so a refusal an
 		// earlier attempt was handed no longer describes it.
 		a.state.PathRefusal = nil
 		return changed, nil
 	}
+	refusal := boundedPathRefusal(refused, granted)
+	if len(intakeSettings) > 0 {
+		refusal.Intake = boundedIntakeSettings(intakeSettings)
+	}
 	return nil, phaseError{status: runstate.StatusFailed, cause: pathRefusal{
-		refusal: boundedPathRefusal(refused, granted),
+		refusal: refusal,
 		set:     protected,
 	}}
 }
@@ -7927,8 +7942,12 @@ type pathRefusal struct {
 }
 
 func (e pathRefusal) Error() string {
-	return fmt.Sprintf("change touches protected paths this work item does not grant: %s",
+	message := fmt.Sprintf("change touches protected paths this work item does not grant: %s",
 		strings.Join(e.refusal.Paths, ", "))
+	if len(e.refusal.Intake) > 0 {
+		message += "; it changes the " + protectedpath.IntakeSection + " section of the configuration, which no grant reaches: " + strings.Join(e.refusal.Intake, ", ")
+	}
+	return message
 }
 
 // checkFailure is a deterministic check that ran and failed. It is its own error
@@ -11156,7 +11175,11 @@ func pathRefusalRepairPrompt(invariants, scratchDirectory string, checks []strin
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Protected paths: repair required\n\n")
-	fmt.Fprintf(&prompt, "Your change touches paths this work item does not grant, so it was refused before any check ran and before it reached a reviewer. This is repair attempt %d of %d. Continue the change already in your worktree instead of starting over, and take these paths back out of it.\n\n", attempt, limit)
+	if len(refusal.Intake) > 0 {
+		fmt.Fprintf(&prompt, "Your change alters the %s section of the project configuration, which no grant reaches, so it was refused before any check ran and before it reached a reviewer, even though this work item may grant the file. This is repair attempt %d of %d. Continue the change already in your worktree instead of starting over, and put that section, and any other refused path below, back as it was.\n\n", protectedpath.IntakeSection, attempt, limit)
+	} else {
+		fmt.Fprintf(&prompt, "Your change touches paths this work item does not grant, so it was refused before any check ran and before it reached a reviewer. This is repair attempt %d of %d. Continue the change already in your worktree instead of starting over, and take these paths back out of it.\n\n", attempt, limit)
+	}
 	prompt.WriteString("Refused paths:\n\n")
 	for _, refused := range refusal.Paths {
 		prompt.WriteString("- " + refused + "\n")
@@ -11183,6 +11206,13 @@ func pathRefusalRepairPrompt(invariants, scratchDirectory string, checks []strin
 	}
 	if len(protectedpath.RoleDefinitionsAmong(refusal.Paths)) > 0 {
 		prompt.WriteString("\n" + protectedpath.RoleInstruction + "\n")
+	}
+	if len(refusal.Intake) > 0 {
+		prompt.WriteString("\nChanged in the " + protectedpath.IntakeSection + " section of the configuration:\n\n")
+		for _, setting := range refusal.Intake {
+			prompt.WriteString("- " + setting + "\n")
+		}
+		prompt.WriteString("\n" + protectedpath.IntakeInstruction + "\n")
 	}
 	prompt.WriteString("\nRestore each refused path to what it held before your change, finish the work you were assigned within the paths that are yours, and finish with a concise summary of what you changed. The harness compares your change against those paths again afterwards; the checks, review, and integration stay out of reach until the change touches nothing it was not granted.")
 	return prompt.String()
@@ -11417,6 +11447,13 @@ func renderPathRefusalBlockerNotes(outcome Outcome, refused pathRefusal, limit i
 	if roles := protectedpath.RoleDefinitionsAmong(refused.refusal.Paths); len(roles) > 0 {
 		lines = append(lines, "Role definitions: "+strings.Join(roles, ", "),
 			"No grant reaches "+protectedpath.RoleDefinitions+"/, so a change carrying one is a change to take back out rather than a missing grant; a person changes a role definition by hand and the operator activates it.")
+	}
+	// The intake section is the third: the file may be granted, and the section
+	// in it still is not, so the note names the settings and says no grant
+	// settles it.
+	if len(refused.refusal.Intake) > 0 {
+		lines = append(lines, "Changed in the "+protectedpath.IntakeSection+" section of the configuration: "+strings.Join(refused.refusal.Intake, ", "),
+			"No grant reaches the "+protectedpath.IntakeSection+" section, even where the item grants the configuration file, so this is a change to take back out rather than a missing grant; the operator changes that section by editing the file himself.")
 	}
 	if len(refused.refusal.Grants) > 0 {
 		lines = append(lines, "Granted by this work item: "+strings.Join(refused.refusal.Grants, ", "))
