@@ -47,6 +47,12 @@ const (
 	// conversation, where the project's approval setting for its kind asks for a
 	// person.
 	HandDocumentConfirmation HandNeed = "document-confirmation"
+	// HandDocumentPlacement is putting a document its owning role finished, and
+	// the harness confirmed, into the repository it is kept in, where the harness
+	// cannot reach that repository to land it: a companion intent repository
+	// missing from where the configuration says it is, or one a build older than
+	// the reviewed run into it is serving.
+	HandDocumentPlacement HandNeed = "document-placement"
 	// HandCapCrossing was crossing one work item's triage cap once the
 	// development manager had used every crossing she may record herself. The
 	// harness now carries that out: past her five the Lead Product Manager grants
@@ -82,11 +88,16 @@ var handGaps = map[HandNeed]handGap{
 		types:    "yoyo agent chat <agent> --message \"approve <document>\"",
 		closedBy: "yoyodyne-ifd.433.21",
 	},
+	HandDocumentPlacement: {
+		missing:  "landing a finished document in a repository it cannot reach",
+		types:    "the commit that puts the document at its path on the target branch of the repository the entry names",
+		closedBy: "",
+	},
 }
 
 // HandNeeds is the whole set, in the order a refusal names it.
 func HandNeeds() []HandNeed {
-	return []HandNeed{HandAmendmentDecision, HandOperationalConfiguration, HandDocumentConfirmation}
+	return []HandNeed{HandAmendmentDecision, HandOperationalConfiguration, HandDocumentConfirmation, HandDocumentPlacement}
 }
 
 // Valid reports whether a need is in the set.
