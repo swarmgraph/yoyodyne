@@ -3,11 +3,13 @@ package readmodel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -594,6 +596,103 @@ func TestAnApprovedChangeStillInTheMergeQueueHoldsItsItem(t *testing.T) {
 	}
 	if strings.Contains(reason, "development manager") {
 		t.Errorf("the hold says %q, which sends the reader to a role that owes nothing here", reason)
+	}
+}
+
+// A hold that is an approved change waiting its turn says so on the hold, so
+// the health check can list it as the harness's wait; once the queue hands the
+// change back, the run is a stoppage like any other and the hold no longer says
+// it is queued, because the development manager owes a decision on it.
+func TestOnlyAChangeStillInTheMergeQueueIsHeldAsQueued(t *testing.T) {
+	t.Parallel()
+
+	queued := queuedRun("run-queued", "yoyodyne-queued", 40)
+	handedBack := queuedRun("run-handed-back", "yoyodyne-handed-back", 41)
+	handedBack.Status = runstate.StatusFailed
+	handedBack.Blocker = "the merge queue handed the change back: its candidate did not pass the configured checks"
+	held := heldForAPerson([]runstate.State{queued, handedBack}, nil, nothingDecided, asRecorded)
+
+	if hold, ok := held.Holding("yoyodyne-queued"); !ok || !hold.MergeQueued {
+		t.Errorf("the queued change's hold = %+v, want it marked as waiting in the merge queue", hold)
+	}
+	hold, ok := held.Holding("yoyodyne-handed-back")
+	if !ok {
+		t.Fatal("the handed-back change holds nothing, want it held as a stoppage")
+	}
+	if hold.MergeQueued {
+		t.Errorf("the handed-back change's hold = %+v, want it no longer marked as waiting in the merge queue", hold)
+	}
+}
+
+// queueLandings is stoppages whose merge queue records can be read too, as the
+// run store's can, keyed by the entry's order.
+type queueLandings struct {
+	fakeStoppages
+	handbacks  map[uint64]runstate.MergeQueueHandback
+	unreadable map[uint64]error
+}
+
+func (q queueLandings) MergeQueueLanding(admitted runstate.MergeQueueAdmissionRecord) (runstate.MergeQueueLanding, bool, error) {
+	if err := q.unreadable[admitted.Order]; err != nil {
+		return runstate.MergeQueueLanding{}, false, err
+	}
+	handback, found := q.handbacks[admitted.Order]
+	return runstate.MergeQueueLanding{EntryID: admitted.EntryID, Handback: &handback}, found, nil
+}
+
+// The queue hands a change to the development manager three ways that never
+// reach the run's record: no single run answers for the failed candidate, the
+// run no longer has what a repair needs, and the entry is set aside. Each is
+// held as her decision, saying what the queue did. A hand-back the queue has
+// still to write on its run stays the harness's, and a record that could not be
+// read says that and names nobody.
+func TestAHandBackOnTheQueuesRecordAloneIsTheDevelopmentManagersToDecide(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	handback := func(continuation runstate.MergeQueueContinuation) runstate.MergeQueueHandback {
+		return runstate.MergeQueueHandback{At: at, Continuation: continuation, Reason: "make test failed on the candidate"}
+	}
+	setAside := handback(runstate.MergeQueueContinueRepair)
+	setAside.SetAside, setAside.SetAsideAt = "its run's record refused the hand-back", &at
+	source := queueLandings{
+		handbacks: map[uint64]runstate.MergeQueueHandback{
+			1: handback(runstate.MergeQueueUnattributed), 2: handback(runstate.MergeQueueMissingPrerequisite), 3: setAside,
+			5: handback(runstate.MergeQueueContinueRepair), 6: handback(runstate.MergeQueueLandedOutside),
+		},
+		unreadable: map[uint64]error{7: errors.New("the landing record is torn")},
+	}
+	for order := uint64(1); order <= 7; order++ {
+		source.runs = append(source.runs, queuedRun(fmt.Sprintf("run-%d", order), fmt.Sprintf("yoyodyne-%d", order), order))
+	}
+	held, err := HeldForAPerson(context.Background(), source, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("HeldForAPerson() error = %v", err)
+	}
+	for item, says := range map[string]string{
+		"yoyodyne-1": "no single change can be named as the cause",
+		"yoyodyne-2": "its run no longer has what a repair starts from",
+		"yoyodyne-3": "set it aside: its run's record refused the hand-back",
+	} {
+		hold, _ := held.Holding(item)
+		if hold.MergeQueued || hold.Decided || !hold.MergeQueueHandedBack || !hold.Since.Equal(at) {
+			t.Errorf("%s hold = %+v, want a hand-back the development manager decides, since the queue made it", item, hold)
+		}
+		if !strings.Contains(hold.Reason, says) || !strings.Contains(hold.Reason, "make test failed on the candidate") || strings.Contains(hold.Reason, "harness moves next") {
+			t.Errorf("%s hold says %q, want what the queue did and nothing naming the harness as next", item, hold.Reason)
+		}
+	}
+	for _, item := range []string{"yoyodyne-4", "yoyodyne-5", "yoyodyne-6"} {
+		if hold, _ := held.Holding(item); !hold.MergeQueued || !hold.Decided || hold.MergeQueueHandedBack {
+			t.Errorf("%s hold = %+v, want it still the harness's", item, hold)
+		}
+	}
+	if hold, _ := held.Holding("yoyodyne-7"); !hold.MergeQueued || !strings.Contains(hold.Reason, "could not be read (the landing record is torn)") || strings.Contains(hold.Reason, "moves next") {
+		t.Errorf("the unread entry's hold = %+v, want it held and saying the record could not be read", hold)
+	}
+	queue := backlog.Order([]beads.WorkItem{{ID: "yoyodyne-1", Status: "open"}}, []string{"yoyodyne-1"}, held, nil)
+	if entry := queue.Entries[0]; entry.Ready || !entry.MergeQueueHandedBack || entry.AwaitingMergeQueue || entry.AwaitingCarryOut {
+		t.Errorf("the queue's entry = %+v, want it held as handed back and awaiting a decision", entry)
 	}
 }
 

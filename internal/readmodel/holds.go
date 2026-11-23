@@ -155,6 +155,7 @@ func HeldForAPerson(ctx context.Context, stoppages Stoppages, decisions Decision
 	}
 	decided := standingDecisions(decisions)
 	reasons := heldReasons(runs, escalated, decided, standingStops(decided), Looking(ctx, remains, nil))
+	holdHandedBack(stoppages, reasons, runs, decided)
 	endWaits(ctx, reasons, waited)
 	if err := holdMergeConflicts(stoppages, reasons); err != nil {
 		return backlog.Holds{}, err
@@ -190,6 +191,49 @@ func holdMergeConflicts(stoppages Stoppages, reasons map[string]backlog.Hold) er
 		reasons[hold.WorkItemID] = backlog.Hold{Reason: hold.Reason(), Decided: hold.Decision != nil, Since: hold.HeldAt}
 	}
 	return nil
+}
+
+// QueueLandings is the merge queue's own record of the entry a run's change was
+// admitted as. It is satisfied by *runstate.Store, and is asked of the stoppages
+// rather than given beside them because every reader already has that store.
+type QueueLandings interface {
+	MergeQueueLanding(admitted runstate.MergeQueueAdmissionRecord) (runstate.MergeQueueLanding, bool, error)
+}
+
+// holdHandedBack corrects the holds read as approved changes still in a merge
+// queue where the queue's own record says it has handed the change back for the
+// development manager to decide. Those handbacks are never written to the run
+// (runstate.MergeQueueHandback.AwaitsDevelopmentManager), so the run's record
+// alone reads as a change still waiting its turn. A handback the queue gives to
+// its run is left as the harness's: the queue has still to write it there, and
+// the run is a stoppage once it has. A record that could not be read leaves the
+// hold standing and says so, rather than saying whose move it is.
+func holdHandedBack(stoppages Stoppages, reasons map[string]backlog.Hold, runs []runstate.State, decided standing) {
+	source, ok := stoppages.(QueueLandings)
+	if !ok {
+		return
+	}
+	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool { return run.WorkItemID != "" }) {
+		hold, held := reasons[workItemID]
+		if !held || !hold.MergeQueued || hold.RunID != run.RunID || run.MergeQueue == nil {
+			continue
+		}
+		landing, found, err := source.MergeQueueLanding(*run.MergeQueue)
+		switch {
+		case err != nil:
+			hold.Reason = unreadQueuedChange(run, err)
+			reasons[workItemID] = hold
+		case found && landing.Completion == nil && landing.Handback != nil && landing.Handback.AwaitsDevelopmentManager():
+			handback := *landing.Handback
+			since := handback.At
+			if handback.IsSetAside() {
+				since = *handback.SetAsideAt
+			}
+			hold = heldFor(run.RunID, handedBackChange(run, handback), decided.of(workItemID, run), since)
+			hold.MergeQueueHandedBack = true
+			reasons[workItemID] = hold
+		}
+	}
 }
 
 // latestStop is the stop an item's triage record stands at, where the decision
@@ -720,7 +764,7 @@ func heldReasons(runs []runstate.State, escalated []runstate.Escalation, decided
 		if !awaitingMergeQueue(run) {
 			continue
 		}
-		reasons[workItemID] = backlog.Hold{Reason: queuedChange(run), Decided: true, Since: run.MergeQueue.AdmittedAt, RunID: run.RunID}
+		reasons[workItemID] = backlog.Hold{Reason: queuedChange(run), Decided: true, Since: run.MergeQueue.AdmittedAt, RunID: run.RunID, MergeQueued: true}
 	}
 	// A stop the development manager decided, last, because it is only ever about
 	// the item's latest run and says the most about what to do with it. Such a run
@@ -1248,6 +1292,28 @@ func queuedChange(run runstate.State) string {
 	return fmt.Sprintf(
 		"run %s's approved change is in the merge queue for %s as entry %d, and neither a landing nor a hand-back is recorded on the run yet, so a fresh run would duplicate an approved change; the harness moves next, and the item stays out of every pull until the queue lands the change or the hand-back is recorded on the run",
 		run.RunID, queued.TargetBranch, queued.Order)
+}
+
+// unreadQueuedChange is queuedChange where the queue's own record of the entry
+// could not be read, so whether it handed the change back is not known.
+func unreadQueuedChange(run runstate.State, problem error) string {
+	queued := run.MergeQueue
+	return fmt.Sprintf(
+		"run %s's approved change was admitted to the merge queue for %s as entry %d, and whether the queue still holds it or has handed it back could not be read (%v); the item stays out of every pull, because a fresh run would duplicate an approved change",
+		run.RunID, queued.TargetBranch, queued.Order, problem)
+}
+
+// handedBackChange is the account of an approved change the merge queue is
+// finished with and did not land, where no run takes it up: which entry it was,
+// and why the queue handed it back.
+func handedBackChange(run runstate.State, handback runstate.MergeQueueHandback) string {
+	queued := run.MergeQueue
+	if handback.IsSetAside() {
+		return fmt.Sprintf("run %s's approved change was entry %d in the merge queue for %s, which landed nothing and set it aside: %s; it had come back from the queue because %s",
+			run.RunID, queued.Order, queued.TargetBranch, handback.SetAside, handback.Reason)
+	}
+	return fmt.Sprintf("run %s's approved change was entry %d in the merge queue for %s, which landed nothing; it was %s: %s",
+		run.RunID, queued.Order, queued.TargetBranch, handbackWords(handback.Continuation), handback.Reason)
 }
 
 // redTargetPublication says why an item whose merge waits on its target's red

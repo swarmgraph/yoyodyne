@@ -622,6 +622,15 @@ func (h MergeQueueHandback) IsSetAside() bool {
 	return h.SetAsideAt != nil
 }
 
+// AwaitsDevelopmentManager reports a handback the queue is finished with and
+// writes nothing to the run's record about, so nothing but the development
+// manager's decision moves the change on: no single run answers for the failed
+// candidate, the run no longer has what a repair continues from, or the entry
+// was set aside.
+func (h MergeQueueHandback) AwaitsDevelopmentManager() bool {
+	return h.Continuation.Reported() || h.IsSetAside()
+}
+
 // MergeQueueConflict is an approved head that would not merge onto the target
 // as it stood, and where.
 type MergeQueueConflict struct {
@@ -1126,6 +1135,19 @@ func (s *MergeQueueStore) Landing(key MergeQueueKey, entryID string) (MergeQueue
 	}
 	defer queueRoot.Close()
 	return s.loadLanding(queueRoot, key, entryID, false)
+}
+
+// MergeQueueLanding is the landing record of the entry a run's change was
+// admitted as, and false where nothing has been recorded for it. It is reached
+// from the run store because a reader holding a run waiting on its queue has to
+// ask the queue's own record whether it still is: some handbacks are never
+// written to the run (MergeQueueHandback.AwaitsDevelopmentManager).
+func (s *Store) MergeQueueLanding(admitted MergeQueueAdmissionRecord) (MergeQueueLanding, bool, error) {
+	queues, err := NewMergeQueueStore(s.stateRoot, s.productID)
+	if err != nil {
+		return MergeQueueLanding{}, false, err
+	}
+	return queues.Landing(admitted.Key(), admitted.EntryID)
 }
 
 // RecordLanding writes an entry's landing record whole. A write may add an

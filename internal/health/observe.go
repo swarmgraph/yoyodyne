@@ -394,6 +394,10 @@ func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 		if !r.keeps(refused.RunID) {
 			continue
 		}
+		if refused.MergeQueued {
+			r.add(queuedChange(refused))
+			continue
+		}
 		anomaly := Anomaly{Classification: ClassHeldStoppage, WorkItem: refused.WorkItemID, Title: refused.Title,
 			Identity: Identity{Run: refused.RunID, Condition: "held-after-stoppage"}, Owner: ownership.MoverDevelopmentManager}
 		if refused.RunID == "" {
@@ -403,10 +407,39 @@ func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 		if refused.RunID != "" {
 			anomaly.Says = fmt.Sprintf("%s is held after run %s stopped", refused.WorkItemID, refused.RunID)
 		}
+		if refused.MergeQueueHandedBack {
+			anomaly.Classification = ClassMergeQueueHandback
+			anomaly.Says = fmt.Sprintf("the merge queue handed back the approved change of %s from run %s, and no run takes it up", refused.WorkItemID, refused.RunID)
+		}
 		anomaly.Says += heldElsewhere(refused)
 		anomaly.Needs = refused.Reason
 		r.add(anomaly)
 	}
+}
+
+// queuedChange is an item held because its run's approved change is still
+// waiting its turn in a merge queue. Nobody owes a decision on it: the harness
+// moves next, by landing the change or recording its hand-back on the run, so it
+// is a wait rather than a problem. An entry that does need a role is said apart
+// from this: one whose step ran past its bound, or whose merge GitHub will not
+// make, is a factory problem the read model raised (readFactory), and one handed
+// back is held for the development manager, as its run's stoppage or, where the
+// hand-back is on the queue's record alone, as a hand-back she decides.
+func queuedChange(refused readmodel.Refused) Anomaly {
+	anomaly := Anomaly{Classification: ClassMergeQueueWait, WorkItem: refused.WorkItemID, Title: refused.Title,
+		Identity: Identity{Run: refused.RunID, Condition: "merge-queue-wait"}, Owner: ownership.MoverHarness}
+	if refused.RunID == "" {
+		anomaly.Identity.Condition += ":" + refused.WorkItemID
+	}
+	anomaly.Says = fmt.Sprintf("%s's approved change is waiting its turn in the merge queue", refused.WorkItemID)
+	if refused.RunID != "" {
+		anomaly.Says = fmt.Sprintf("%s's approved change from run %s is waiting its turn in the merge queue", refused.WorkItemID, refused.RunID)
+	}
+	anomaly.Says += heldElsewhere(refused)
+	// The reason names the queue entry, says the harness moves next, and says
+	// what releases the item.
+	anomaly.Needs = refused.Reason
+	return anomaly
 }
 
 // heldElsewhere is why a held item is not shown as held on the not-startable
@@ -784,9 +817,9 @@ func history(all []Anomaly, passes []runstate.Sweep, now time.Time) {
 // classOrder is the order conditions are listed in: what needs a decision on a
 // run first, then the factory around the runs, then the waits.
 var classOrder = map[Classification]int{
-	ClassSlotReleased: 0, ClassWorkerless: 1, ClassWorkerUncertain: 2, ClassHeldStoppage: 3, ClassUndeliveredMaintenance: 4,
+	ClassSlotReleased: 0, ClassWorkerless: 1, ClassWorkerUncertain: 2, ClassHeldStoppage: 3, ClassMergeQueueHandback: 3, ClassUndeliveredMaintenance: 4,
 	ClassMissingCommand: 5, ClassMissingConfig: 6, ClassServiceDown: 7, ClassOldBuild: 8, ClassExtraCopy: 9,
-	ClassFactoryProblem: 10, ClassDependencyWait: 11, ClassWait: 12, ClassKeptCheckout: 13,
+	ClassFactoryProblem: 10, ClassDependencyWait: 11, ClassWait: 12, ClassMergeQueueWait: 13, ClassKeptCheckout: 14,
 }
 
 func dedupe(found []Anomaly) []Anomaly {
