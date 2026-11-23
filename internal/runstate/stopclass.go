@@ -157,17 +157,26 @@ func (e StopError) Unwrap() error { return e.Cause }
 
 // RecordedStopClass returns unknown for a stopped historical record. It never
 // infers a cause from prose or from evidence left by an earlier attempt.
+//
+// A run that succeeded by handing its approved change to the merge queue, which
+// has neither landed it nor handed it back (State.AwaitingMergeQueue), did not
+// stop: it is waiting to land, and returns no class, as a landed run does. Once
+// the queue lands the change the run is integrated; once the queue loses it the
+// run fails with a class of its own (MergeQueueEntryLost).
 func (s State) RecordedStopClass() StopClass {
-	return recordedStopClass(s.StopClass, s.Status, s.Outcome(), s.Integration != nil)
+	return recordedStopClass(s.StopClass, s.Status, s.Outcome(), s.Integration != nil, s.AwaitingMergeQueue())
 }
 
 func (s RunSummary) RecordedStopClass() StopClass {
-	return recordedStopClass(s.StopClass, s.Status, s.Outcome, s.Integrated)
+	return recordedStopClass(s.StopClass, s.Status, s.Outcome, s.Integrated, s.AwaitingMergeQueue)
 }
 
-func recordedStopClass(class StopClass, status Status, outcome RunOutcome, integrated bool) StopClass {
+func recordedStopClass(class StopClass, status Status, outcome RunOutcome, integrated, queued bool) StopClass {
 	if class != "" {
 		return class
+	}
+	if queued && outcome == OutcomeSucceeded {
+		return ""
 	}
 	if status.Terminal() && (outcome != OutcomeSucceeded || !integrated) {
 		return StopUnknown

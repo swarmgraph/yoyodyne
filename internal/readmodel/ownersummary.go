@@ -11,7 +11,8 @@ package readmodel
 //
 //  1. what landed since a chosen time, code changes apart from documents
 //     published;
-//  2. what is in progress, each with the newest result about its change;
+//  2. what is in progress, each with the newest result about its change, and
+//     each approved change waiting to land in a merge queue, with its place;
 //  3. what is blocked, each with whose move it is and what happens next, and
 //     the runs that ended without landing, one line per cause;
 //  4. what needs the owner's own decision, and only steps only a person can
@@ -91,11 +92,15 @@ type OwnerSummary struct {
 	// is the product changing.
 	Landed    SummaryAnswer `json:"landed"`
 	Published SummaryAnswer `json:"published"`
-	// Moving is each run in progress with the newest result about its change.
+	// Moving is each run in progress with the newest result about its change,
+	// and each approved change waiting to land in a merge queue with its place
+	// there (summarizeQueued).
 	Moving SummaryAnswer `json:"moving"`
 	// Blocked is what waits on somebody other than the owner, each with whose
-	// move it is and the next step, and Failures the runs that ended in the
+	// move it is and the next step, and Failures the runs that stopped in the
 	// period without landing, one line per cause with its count and latest time.
+	// A run whose approved change waits in a merge queue has not stopped and is
+	// never among them (Window.StopsByCause).
 	Blocked  SummaryAnswer `json:"blocked"`
 	Failures SummaryAnswer `json:"failures"`
 	// Decisions is what only the owner can do: the entries the ownership
@@ -416,8 +421,57 @@ func summarizeMoving(in SummaryInputs, now time.Time, names summaryNames) Summar
 		}
 		moving.Entries = append(moving.Entries, entry)
 	}
-	moving.Says = count(len(moving.Entries), "run")
+	runs := len(moving.Entries)
+	queued := summarizeQueued(in.Standing, names)
+	moving.Entries = append(moving.Entries, queued...)
+	moving.Says = count(runs, "run")
+	if len(queued) > 0 {
+		moving.Says += ", and " + count(len(queued), "approved change") + " waiting to land"
+	}
+	if problem := in.Standing.MergeQueuesProblem; problem != "" {
+		moving.Says += "; not every merge queue could be read"
+		moving.Detail = append(moving.Detail, problem)
+	}
 	return moving
+}
+
+// summarizeQueued is each approved change waiting to land in a merge queue,
+// with its place in that queue. Its run ended succeeded when the queue took
+// the change, so it is in progress rather than among the runs that ended
+// without landing (Window.Queued). The place is the entry's position among
+// the changes the queue has not finished with, in the order the queue works
+// them, which is the order `yoyo status` lists the queue in. A change handed
+// back is left out: its run, or the development manager, has it now, and the
+// lines that follow that run say so.
+func summarizeQueued(standing *Standing, names summaryNames) []SummaryEntry {
+	var entries []SummaryEntry
+	for _, queue := range standing.MergeQueues {
+		open := queue.Entries[:min(queue.Open, len(queue.Entries))]
+		for index, queued := range open {
+			if queued.State == QueueEntryHandedBack {
+				continue
+			}
+			says := fmt.Sprintf("waiting to land: number %d of %d in the merge queue for %s", index+1, len(open), queue.TargetBranch)
+			switch queued.State {
+			case QueueEntryWaiting:
+			case QueueEntryRecording:
+				says = "landed through the merge queue for " + queue.TargetBranch + "; recording the landing is not finished"
+			default:
+				says += " (" + queued.Label + ")"
+			}
+			detail := []string{"run " + queued.RunID, fmt.Sprintf("merge queue entry %d", queued.Order)}
+			if queued.Why != "" {
+				detail = append(detail, queued.Why)
+			}
+			entries = append(entries, SummaryEntry{
+				Says:       names.name(queued.WorkItemID, queued.Title) + " — " + says,
+				WorkItemID: queued.WorkItemID,
+				Count:      1,
+				Detail:     detail,
+			})
+		}
+	}
+	return entries
 }
 
 // stageSays is where a run is, in words.
