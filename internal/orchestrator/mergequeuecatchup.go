@@ -148,7 +148,7 @@ func mergeQueueCatchUpNotes(entry runstate.MergeQueueEntry, handback runstate.Me
 	conflict := handback.Conflict
 	return strings.Join([]string{
 		fmt.Sprintf("The merge queue handed this change back because %s moved while it waited as entry %d, and the approved change no longer merges onto it (conflicting: %s).",
-			entry.TargetBranch, entry.Order, nonEmpty(strings.Join(conflict.Paths, ", "), "no paths named")),
+			entry.TargetBranch, entry.Order, nonEmpty(conflictPathsSay(conflict.Paths, conflict.Omitted), "no paths named")),
 		fmt.Sprintf("Run %s gets its one attempt to bring the change up to date with %s: its developer reconciles the conflict on top of %s, the change is checked and reviewed again, and it rejoins the queue by itself. This attempt is not a repair attempt and not a fresh run. If it does not pass its checks and review, the run goes on as any run does, and stops for the development manager once its repair attempts are spent.",
 			entry.RunID, entry.TargetBranch, entry.TargetBranch),
 		marker,
@@ -252,20 +252,37 @@ func (h MergeQueueRunHandback) rebuildCheckout(ctx context.Context, state runsta
 // this says what the conflict was and why.
 func catchUpState(state runstate.State, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback, marker string, now time.Time) runstate.State {
 	conflict := handback.Conflict
-	paths := append([]string(nil), conflict.Paths...)
-	omitted := 0
-	if len(paths) > runstate.MaxConflictedPaths {
-		omitted = len(paths) - runstate.MaxConflictedPaths
-		paths = paths[:runstate.MaxConflictedPaths]
-	}
+	paths, omitted := append([]string(nil), conflict.Paths...), conflict.Omitted
 	recorded := runstate.ReplayConflict{
 		TargetBranch: entry.TargetBranch, TargetCommit: conflict.TargetBase, Paths: paths, Omitted: omitted,
 		Detail: boundedTail(marker+"\n"+conflict.Detail, runstate.MaxConflictDetailBytes),
 		Phase:  runstate.PhaseIntegrating, RecordedAt: now.UTC(),
+		Handback: state.RecordConflictHandback(queueConflictHandback(entry, *conflict, now)),
 	}
 	reason := fmt.Sprintf("the merge queue could not merge entry %d onto %s at %s because %s moved under it (conflicting: %s), so the run was put back for its one attempt to bring the change up to date, checked and reviewed again, and admitted to the queue again; it is not a repair attempt and not a fresh run",
-		entry.Order, entry.TargetBranch, shortCommit(conflict.TargetBase), entry.TargetBranch, nonEmpty(strings.Join(paths, ", "), "no paths named"))
+		entry.Order, entry.TargetBranch, shortCommit(conflict.TargetBase), entry.TargetBranch, nonEmpty(conflictPathsSay(paths, omitted), "no paths named"))
 	return state.PutBackToCatchUpWithMergeQueue(recorded, boundedReason(reason), now)
+}
+
+// queueConflictHandback is the run's record of the queue handing its change
+// back for a conflict, named by the entry, which is handed back once.
+func queueConflictHandback(entry runstate.MergeQueueEntry, conflict runstate.MergeQueueConflict, now time.Time) runstate.ConflictHandback {
+	return runstate.ConflictHandback{
+		ID: entry.EntryID, From: runstate.ConflictFromMergeQueue, At: now.UTC(),
+		TargetBranch: entry.TargetBranch, TargetCommit: conflict.TargetBase,
+		Paths: conflict.Paths, Omitted: conflict.Omitted,
+		Lines: conflict.Lines, LinesUnknown: conflict.LinesUnknown,
+	}
+}
+
+// conflictPathsSay is the conflicting files in one line, with how many more
+// the record does not name.
+func conflictPathsSay(paths []string, omitted int) string {
+	said := strings.Join(paths, ", ")
+	if omitted > 0 {
+		said += fmt.Sprintf(", and %d more", omitted)
+	}
+	return said
 }
 
 // noteCatchUp tells the item once that its run is catching up with the target.

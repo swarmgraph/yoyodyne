@@ -20,6 +20,7 @@ func TestADevelopmentManagerPassCarriesTheModelTrialAndNoOtherRolesDoes(t *testi
 	h.trigger.ModelTrial = func() string {
 		return "# The trial of starting developers on the cheaper model\n\n3 of at least 40 trial runs so far."
 	}
+	h.trigger.ConflictFiles = func() string { return "# The files changes conflicted in\n\nstatus.go in 2" }
 	for range 4 {
 		h.role.answers = append(h.role.answers, scriptedTurn{result: complete("looked")})
 	}
@@ -35,7 +36,10 @@ func TestADevelopmentManagerPassCarriesTheModelTrialAndNoOtherRolesDoes(t *testi
 	if !strings.Contains(carried[""], "3 of at least 40 trial runs so far.") {
 		t.Fatalf("the development manager's pass was not handed the trial:\n%s", carried[""])
 	}
-	if message, fired := carried[instanceName]; fired && strings.Contains(message, "trial runs") {
+	if !strings.Contains(carried[""], "status.go in 2") {
+		t.Fatalf("the development manager's pass was not handed the files in conflict:\n%s", carried[""])
+	}
+	if message, fired := carried[instanceName]; fired && (strings.Contains(message, "trial runs") || strings.Contains(message, "status.go in 2")) {
 		t.Fatalf("the program manager's pass was handed the trial:\n%s", message)
 	}
 }

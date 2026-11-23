@@ -68,7 +68,10 @@ type QueueCandidateConflict struct {
 	BaseCommit   string
 	Head         string
 	Paths        []string
-	Err          error
+	// Lines is how many lines conflict, counted where a candidate was being
+	// built; a conflict found in memory alone is not counted.
+	Lines ConflictLines
+	Err   error
 }
 
 func (c *QueueCandidateConflict) Error() string {
@@ -491,7 +494,7 @@ func (m *Manager) mergeHeads(ctx context.Context, path string, request QueueCand
 			if len(conflicted) == 0 {
 				return QueueCandidate{}, failed
 			}
-			return QueueCandidate{}, &QueueCandidateConflict{TargetBranch: request.TargetBranch, BaseCommit: base, Head: head, Paths: conflicted, Err: failed}
+			return QueueCandidate{}, &QueueCandidateConflict{TargetBranch: request.TargetBranch, BaseCommit: base, Head: head, Paths: conflicted, Lines: m.conflictLines(ctx, path), Err: failed}
 		}
 	}
 	commit, err := m.resolveWorktreeHead(ctx, path)

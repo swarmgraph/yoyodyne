@@ -196,6 +196,12 @@ type Spend struct {
 	SideStreamID   string `json:"side_stream_id,omitempty"`
 	ExchangeID     string `json:"exchange_id,omitempty"`
 	BranchReviewID string `json:"branch_review_id,omitempty"`
+	// Conflict says whether a run's invocation was made for a hand-back of its
+	// change because it no longer merged, and ConflictHandback names the one it
+	// was (conflicthandback.go). Conflict is empty on a line written before this
+	// was recorded, which says nothing either way.
+	Conflict         SpendConflict `json:"conflict,omitempty"`
+	ConflictHandback string        `json:"conflict_handback,omitempty"`
 	// What served the invocation. The backend and the requested model are what
 	// the harness asked for; the resolved model is what the provider reported
 	// actually serving it, which is the only durable evidence where the requested
@@ -401,7 +407,7 @@ func (s Spend) Validate() error {
 	if s.Build != "" && !buildPattern.MatchString(s.Build) {
 		problems = append(problems, errors.New("build is not a revision"))
 	}
-	problems = append(problems, s.subjectProblem(), s.amountProblem(), s.costProblem())
+	problems = append(problems, s.subjectProblem(), s.conflictProblem(), s.amountProblem(), s.costProblem())
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid spend: %w", err)
 	}

@@ -2820,6 +2820,9 @@ func (s *State) recordedTexts() []recordedText {
 	own("kept_checkout", &s.KeptCheckout, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("preserved_work_note_undeliverable", &s.PreservedWorkNoteUndeliverable, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	for index := range s.ConflictHandbacks {
+		nested("conflict_handbacks[].lines_unknown", at("conflict_handbacks", index, "lines_unknown"), &s.ConflictHandbacks[index].LinesUnknown, MaxConflictLinesUnknownBytes)
+	}
 	for index := range s.ReconcileFindings {
 		nested("reconcile_findings[].problem", at("reconcile_findings", index, "problem"), &s.ReconcileFindings[index].Problem, MaxBlockerBytes)
 	}
@@ -4465,6 +4468,11 @@ type State struct {
 	// never counted against the repair attempts. Absent is a run that has not
 	// used it.
 	Reconciliation *Reconciliation `json:"reconciliation,omitempty"`
+	// ConflictHandbacks is each time this run's change was handed back because it
+	// no longer merged, and ConflictSpending which of them the run's spending is
+	// being made for. See conflicthandback.go.
+	ConflictHandbacks []ConflictHandback `json:"conflict_handbacks,omitempty"`
+	ConflictSpending  *ConflictSpending  `json:"conflict_spending,omitempty"`
 	// ChargedReplays counts the replays that stopped on the change rather than on
 	// the target: the replay conflicted, or the replayed change was handed back
 	// for a failing check, a refused path, missing verification, or a repair
@@ -5377,6 +5385,7 @@ func (s State) Validate() error {
 		problems = append(problems, errors.New("up_to_date_conflicts cannot be negative"))
 	}
 	problems = append(problems, s.validateLandingAttempts()...)
+	problems = append(problems, s.validateConflictHandbacks()...)
 	if s.TransientRelaunches < 0 {
 		problems = append(problems, errors.New("transient_relaunches cannot be negative"))
 	}

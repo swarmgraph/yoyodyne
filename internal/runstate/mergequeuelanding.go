@@ -627,6 +627,12 @@ func (h MergeQueueHandback) IsSetAside() bool {
 type MergeQueueConflict struct {
 	TargetBase string   `json:"target_base"`
 	Paths      []string `json:"paths,omitempty"`
+	// Omitted is how many more conflicting files the bound on Paths dropped.
+	Omitted int `json:"omitted,omitempty"`
+	// Lines is how many lines conflict, absent where that is not known, which
+	// LinesUnknown then explains.
+	Lines        *int   `json:"lines,omitempty"`
+	LinesUnknown string `json:"lines_unknown,omitempty"`
 	// Detail is Git's own account of the refusal, bounded.
 	Detail string `json:"detail,omitempty"`
 }
@@ -687,6 +693,9 @@ func (h MergeQueueHandback) validate() []error {
 	}
 	if conflicted && (len(h.Conflict.Detail) > maxMergeQueueEvidenceText || len(h.Conflict.Paths) > MaxConflictedPaths) {
 		problems = append(problems, errors.New("the conflict carries more than a handback keeps"))
+	}
+	if conflicted {
+		problems = append(problems, validConflictLines(h.Conflict.Lines, h.Conflict.LinesUnknown))
 	}
 	if h.TransferTo != "" && (!released || !h.TransferTo.valid()) {
 		problems = append(problems, fmt.Errorf("transfer mode %q is named on a handback that is not a release for a transfer", h.TransferTo))

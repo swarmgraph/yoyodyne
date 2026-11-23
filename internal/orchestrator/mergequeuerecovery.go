@@ -1043,16 +1043,20 @@ func (p MergeQueuePromoter) HandBackConflict(ctx context.Context, key runstate.M
 	if refusal := landing.HeadRewriteRefusal(); refusal != "" {
 		return recovered, fmt.Errorf("merge queue entry %d cannot be handed back: %s", entry.Order, refusal)
 	}
-	paths := boundedPaths(conflict.Paths)
+	paths, omitted := runstate.BoundConflictPaths(conflict.Paths)
 	failure := MergeQueueFailure{
 		Class: runstate.MergeQueueCandidateDefect, Attributed: true, Mover: ownership.MoverOf(domain.RoleDeveloper),
 		Reason: fmt.Sprintf("the approved head %s does not merge onto %s at %s, so no candidate could be built (conflicting: %s)",
-			entry.ApprovedHead, key.TargetBranch, conflict.BaseCommit, nonEmpty(strings.Join(paths, ", "), "no paths named")),
+			entry.ApprovedHead, key.TargetBranch, conflict.BaseCommit, nonEmpty(conflictPathsSay(paths, omitted), "no paths named")),
 	}
 	handback := q.decide(failure)
 	handback.Generation, handback.Binding, handback.Candidate = 0, "", ""
 	handback.TargetBase, handback.Heads = conflict.BaseCommit, []string{entry.ApprovedHead}
-	handback.Conflict = &runstate.MergeQueueConflict{TargetBase: conflict.BaseCommit, Paths: paths, Detail: runstate.BoundedMergeQueueText(conflict.Error())}
+	handback.Conflict = &runstate.MergeQueueConflict{
+		TargetBase: conflict.BaseCommit, Paths: paths, Omitted: omitted,
+		Lines: conflict.Lines.Lines, LinesUnknown: oneline.Fold(conflict.Lines.Unknown, runstate.MaxConflictLinesUnknownBytes),
+		Detail: runstate.BoundedMergeQueueText(conflict.Error()),
+	}
 	q.landing.Handback = handback
 	if err := q.save(); err != nil {
 		q.landing.Handback = nil
@@ -1217,9 +1221,10 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		// promotion meets, recorded the same way so the repair continuation
 		// moves the change onto the target and hands its developer the conflict.
 		state.ReplayConflict = &runstate.ReplayConflict{
-			TargetBranch: entry.TargetBranch, TargetCommit: conflict.TargetBase, Paths: conflict.Paths,
+			TargetBranch: entry.TargetBranch, TargetCommit: conflict.TargetBase, Paths: conflict.Paths, Omitted: conflict.Omitted,
 			Detail: boundedTail(marker+"\n"+conflict.Detail, runstate.MaxConflictDetailBytes),
 			Phase:  runstate.PhaseIntegrating, RecordedAt: h.now().UTC(),
+			Handback: state.RecordConflictHandback(queueConflictHandback(entry, *conflict, h.now())),
 		}
 	} else if outsideFailure(handback.Reason) {
 		// GitHub never started the check, so nothing judged the change: the

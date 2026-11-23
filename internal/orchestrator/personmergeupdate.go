@@ -75,7 +75,7 @@ func (a *activeRun) bringPersonMergeUpToDate(ctx context.Context) (Outcome, erro
 // had, and the count is the run's own rather than the repair attempts. Past
 // runstate.MaxUpToDateConflicts the run stops instead.
 func (a *activeRun) handUpToDateConflict(ctx context.Context, cause error) error {
-	a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
+	a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()), cause)
 	if a.state.UpToDateConflicts >= runstate.MaxUpToDateConflicts {
 		return a.blockOnUpToDateConflicts(cause)
 	}

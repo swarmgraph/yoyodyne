@@ -1224,6 +1224,9 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 	if reask != nil && reask.Backend == "" && !routed {
 		reask.Backend, reask.AccountAlias = reviewBackend, account.Alias
 	}
+	// A candidate of a change brought up to date after a conflict is reviewed
+	// because of that conflict, which its run's record says.
+	conflict, conflictHandback := run.SpendsForConflict()
 	var result review.Result
 	var reviewErr error
 	for {
@@ -1260,6 +1263,9 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 				RunID:          entry.RunID,
 				WorkItemID:     entry.WorkItemID,
 				Billing:        p.Config.AccountBilling(billingAlias),
+
+				Conflict:         conflict,
+				ConflictHandback: conflictHandback,
 			},
 			AccountAlias:     account.Alias,
 			AccountConfigDir: account.Directory,
