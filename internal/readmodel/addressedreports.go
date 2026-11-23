@@ -16,14 +16,72 @@ package readmodel
 // stands out under the Lead Product Manager's head as well as reaching her pass
 // at once. An unaddressed warning or note is left to the pile's count, which is
 // how it has always waited for her.
+//
+// A report addressed to a role is put in front of that role's passes, and each
+// pass records which such reports it was shown and says in its account what it
+// decided about each or that it left it (sweep.ReportDecision). A report that
+// passedOverPasses of its role's passes were shown and said neither about is
+// said so on its entry, with when the latest of them started: a role that keeps
+// acting on the item a report warns about without a word about the report is
+// what nothing showed before.
 
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+// passedOverPasses is how many of its role's passes may be shown a report and
+// say nothing about it before the report's entry says so.
+const passedOverPasses = 3
+
+// PassedOver is how many of a role's passes were shown a report addressed to it
+// and recorded neither a decision about it nor that they left it, and when the
+// latest of them started.
+type PassedOver struct {
+	Role   domain.AgentRole `json:"role"`
+	Passes int              `json:"passes"`
+	Latest time.Time        `json:"latest"`
+}
+
+// ReportsPassedOver is, for every report any recorded pass was shown as
+// addressed to its role, how many of those passes said nothing about it. A pass
+// counts where it took a turn: one that asked the role nothing passed over
+// nothing.
+func ReportsPassedOver(passes []runstate.Sweep) map[string]PassedOver {
+	passed := map[string]PassedOver{}
+	for _, pass := range passes {
+		if pass.Turns == 0 || pass.IsMiss() {
+			continue
+		}
+		for _, id := range pass.Addressed {
+			if pass.Result != nil {
+				if _, said := pass.Result.ReportDecided(id); said {
+					continue
+				}
+			}
+			over := passed[id]
+			over.Role = pass.Role
+			over.Passes++
+			if pass.StartedAt.After(over.Latest) {
+				over.Latest = pass.StartedAt
+			}
+			passed[id] = over
+		}
+	}
+	return passed
+}
+
+// Says is the passing-over as the report's entry closes on it.
+func (p PassedOver) Says() string {
+	return fmt.Sprintf("%d of the %s's passes were shown it and recorded neither a decision about it nor that they left it, the latest starting %s",
+		p.Passes, p.Role.Title(), localMoment(p.Latest))
+}
 
 // addressedReportEnds is what ends the entry, worded once for the line and the
 // channel alike.
@@ -70,18 +128,40 @@ func addressedReportAttention(reported report.Report) Attention {
 	})
 }
 
-// readAddressedReports is the entries for the pile as one reading has it. A
-// pile that could not be read lists none, and the pile's own problem says so.
-func readAddressedReports(reports []report.Report, handlings []report.Handling, pileProblem string) []Attention {
+// readAddressedReports is the entries for the pile as one reading has it,
+// each carrying how its role's passes passed it over where passedOverPasses or
+// more did. A pile that could not be read lists none, and the pile's own
+// problem says so.
+func readAddressedReports(reports []report.Report, handlings []report.Handling, pileProblem string, passedOver map[string]PassedOver) []Attention {
 	if pileProblem != "" {
 		return nil
 	}
 	waiting := AddressedReports(reports, handlings)
 	attention := make([]Attention, 0, len(waiting))
 	for _, reported := range waiting {
-		attention = append(attention, addressedReportAttention(reported))
+		entry := addressedReportAttention(reported)
+		if over, found := passedOver[reported.ID]; found && over.Passes >= passedOverPasses && reported.For != "" && over.Role == reported.Addressee() {
+			entry.PassedOver = &over
+		}
+		attention = append(attention, entry)
 	}
 	return attention
+}
+
+// readPassedOver is how the recorded passes passed over the reports addressed
+// to their roles, and what stopped the reading where something did. Nothing
+// wired to read the passes is a fixture's or an older surface's case, and says
+// nothing.
+func readPassedOver(sources Sources) (map[string]PassedOver, string) {
+	if sources.Sweeps == nil {
+		return nil, ""
+	}
+	passes, _, err := sources.Sweeps.List()
+	problem := ""
+	if err != nil {
+		problem = fmt.Sprintf("the recurring passes could not be read to the end, so a report addressed to a role that its passes keep passing over may not be said: %v", err)
+	}
+	return ReportsPassedOver(passes), problem
 }
 
 // addressedReportSays is the report as the line names it: which report, how
@@ -96,6 +176,16 @@ func addressedReportSays(reported report.Report) string {
 		what += " about " + item
 	}
 	return what + ": " + singleLine(reported.ExpandedMessage(), maxRefusalBytes)
+}
+
+// addressedAttentionSays is the entry as the line names it: the report, and
+// where its role's passes have passed it over, that too.
+func addressedAttentionSays(a Attention) string {
+	said := addressedReportSays(*a.Report)
+	if a.PassedOver != nil {
+		said += " — " + a.PassedOver.Says()
+	}
+	return said
 }
 
 // AddressedReportWhose is whose move a report waiting on a role is and what

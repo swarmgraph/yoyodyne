@@ -306,6 +306,10 @@ type Attention struct {
 	// Report is the report whole, on an AttentionAddressedReport entry; its
 	// identifier is the ID.
 	Report *report.Report `json:"report,omitempty"`
+	// PassedOver is how many of the role's passes were shown the report and
+	// said nothing about it, on an AttentionAddressedReport entry, where enough
+	// did for the entry to say so.
+	PassedOver *PassedOver `json:"passed_over,omitempty"`
 	// ProductDecision is the Lead Product Manager's decision whole, on an
 	// AttentionProductDecision entry; the run it is about is the ID and its item
 	// is WorkItemID.
@@ -734,7 +738,7 @@ func (a Attention) What() string {
 		}
 	case AttentionAddressedReport:
 		if a.Report != nil {
-			return addressedReportSays(*a.Report)
+			return addressedAttentionSays(a)
 		}
 	case AttentionHumanGate:
 		if a.HumanGate != nil {
