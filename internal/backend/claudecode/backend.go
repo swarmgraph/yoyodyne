@@ -342,11 +342,20 @@ var reviewerToolsNote = func() string {
 // prompt: the harness's contract, for a reviewer what its tools are, and what
 // the project named for the role.
 func systemPromptFor(request backend.RunRequest, named string) string {
-	systemPrompt := request.SystemPrompt
+	return systemMessage(request, named).Text()
+}
+
+// systemMessage is that system prompt as the named parts it is made of, so the
+// text the provider is sent and the text recorded for the invocation are the
+// same parts joined. Nothing is sent that this does not return: an empty
+// message means there is no system prompt to append.
+func systemMessage(request backend.RunRequest, named string) backend.SentMessage {
+	parts := backend.PartsOr(request.SystemParts, request.SystemPrompt, backend.SentPart{Name: "system instructions", Origin: backend.OriginHarnessBuild()})
 	if request.Role == domain.RoleReviewer {
-		systemPrompt = appendNamed(systemPrompt, reviewerToolsNote)
+		parts = appendNamedPart(parts, backend.SentPart{Name: "reviewer tools note", Origin: backend.OriginHarnessBuild(), Text: reviewerToolsNote})
 	}
-	return appendNamed(systemPrompt, named)
+	parts = appendNamedPart(parts, backend.SentPart{Name: "skills and instructions the project names", Origin: "the skill and instruction files the project configuration names", Text: named})
+	return backend.SentMessage{Role: backend.SentSystem, Parts: parts}
 }
 
 // reviewerEnvironment is what a reviewer's shell is told beside the
@@ -691,6 +700,17 @@ func adapterVersion() string {
 // versionCheckTimeout is how long the executable is given to say its version.
 const versionCheckTimeout = 10 * time.Second
 
+// installedVersion is what the CLI says its version is, for the record of an
+// invocation, and "(version unknown)" where it would not say: a record of what
+// was sent is worth keeping even when the program will not name itself.
+func (b Backend) installedVersion(ctx context.Context, configDir string) string {
+	result, err := b.Runner.Run(ctx, execution.Command{Name: b.binary(), Args: []string{"--version"}, Env: environmentFor(configDir), Timeout: versionCheckTimeout}, nil)
+	if err != nil || result.Status != execution.ProcessSucceeded || strings.TrimSpace(result.Stdout) == "" {
+		return "(version unknown)"
+	}
+	return strings.TrimSpace(result.Stdout)
+}
+
 func (b Backend) CheckAvailability(ctx context.Context) (backend.Availability, error) {
 	if b.Runner == nil {
 		return backend.Availability{}, errors.New("Claude Code process runner is required")
@@ -974,6 +994,29 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if request.Role == domain.RoleReviewer {
 		for _, variable := range reviewerEnvironment {
 			environment = withEnvironmentValue(environment, variable[0], variable[1])
+		}
+	}
+	// What the provider is about to be sent is recorded first, from the same
+	// parts the arguments and the standard input above were made of; an
+	// invocation that could not be recorded is not started.
+	if request.Recorder != nil {
+		messages := []backend.SentMessage{}
+		if system := systemMessage(request, named); len(system.Parts) > 0 {
+			messages = append(messages, system)
+		}
+		messages = append(messages, backend.SentMessage{Role: backend.SentUser, Parts: backend.PartsOr(request.PromptParts, request.Prompt, backend.SentPart{Name: "first message", Origin: backend.OriginHarnessBuild()})})
+		if err := backend.RecordInvocation(request, backend.SentInvocation{
+			Backend:          string(b.provider()),
+			ProviderVersion:  b.installedVersion(ctx, configDir),
+			Model:            request.Model,
+			Effort:           strings.TrimSpace(request.Effort),
+			Tools:            append([]string(nil), allowedTools...),
+			Posture:          string(posture),
+			WorkingDirectory: request.WorkingDirectory,
+			Resumed:          request.SessionID,
+			Messages:         messages,
+		}); err != nil {
+			return backend.RunResult{}, err
 		}
 	}
 	processResult, err := b.Runner.Run(ctx, execution.Command{
