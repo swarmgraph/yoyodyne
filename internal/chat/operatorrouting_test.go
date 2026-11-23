@@ -199,13 +199,14 @@ func TestAHandlingNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 			)
 			provider := &fakeBackend{results: []backendapi.RunResult{
 				{SessionID: "session-1", FinalText: trackerReply("Recording it.",
-					`{"action":"handle","report":"report-00000000000000000000000000000002","reason":"what became of it"`+testCase.extra+`}`)},
+					`{"action":"handle","report":"report-00000000000000000000000000000002","reason":"what became of it: add the hook to .claude/settings.json by hand"`+testCase.extra+`}`)},
 				{SessionID: "session-1", FinalText: "Recorded."},
 				{SessionID: "session-1", FinalText: "Nothing more."},
 			}}
 			options := testOptions(t, provider)
 			options.Reports = reports
 			options.Tracker = &fakeTracker{}
+			writeRepositoryFile(t, options.Repository, ".claude/settings.json")
 			reply, err := openTestSession(t, options).Send(context.Background(), "deal with the report")
 			if err != nil {
 				t.Fatalf("Send() error = %v", err)

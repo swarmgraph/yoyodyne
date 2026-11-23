@@ -2012,7 +2012,10 @@ name in its own durable cursors, so a second pass, a restarted sink, and every
 poll afterwards send nothing more; `yoyo status` names it under `Needs a human`
 until it ends, which is the record that says it is done — the report handled,
 the change recorded made, the escalated run decided again or its escalation
-ended, every proposal in a batch decided — and the mark is
+ended, every proposal in a batch decided, or the step it asks of you failing its
+check while it waits, which sends it back to the role that recorded it with the
+reason ([where a finding that needs your hand goes](operations.md#where-a-finding-that-needs-your-hand-goes))
+— and the mark is
 dropped with it, so the same report handled as yours again later is a second
 finding, said once more. An escalated stoppage is read here from the runs and
 the triage record alone, without asking the tracker whether the item is still

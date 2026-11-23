@@ -42,7 +42,9 @@ package readmodel
 // affected pass succeeding clears that entry.
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -93,6 +95,12 @@ type OperatorAction struct {
 	// as open for the role that handled it, DecidedBy, to finish
 	// (ReturnedHandlings).
 	Returned bool `json:"returned,omitempty"`
+	// ReturnedWhy is why a handling that gave a reason from the closed list went
+	// back to the role that recorded it anyway: the step it asks of the operator
+	// failed its check while it waited, a path it names gone or never there, or
+	// the hold it names lifted (ownership.RecheckOperatorStep). It is empty on a
+	// handling returned for giving no reason, and on every other finding.
+	ReturnedWhy string `json:"returned_why,omitempty"`
 	// RecordedIn says where the finding is recorded, so the operator can go and
 	// read the whole of it.
 	RecordedIn string `json:"recorded_in"`
@@ -127,9 +135,9 @@ const (
 // EscalatedOperatorActions is the stoppages', and readOperatorActions puts them
 // together for the attention line. A handling naming him with neither is not
 // among them; ReturnedHandlings lists it.
-func OperatorActions(reports []report.Report, handlings []report.Handling) []OperatorAction {
+func OperatorActions(reports []report.Report, handlings []report.Handling, recheck StepRecheck) []OperatorAction {
 	var actions []OperatorAction
-	for _, action := range reportFindings(reports, handlings) {
+	for _, action := range reportFindings(reports, handlings, recheck) {
 		if !action.Returned {
 			actions = append(actions, action)
 		}
@@ -141,10 +149,12 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 // reason from his closed list and no hand, oldest first. Every one recorded
 // before a handling naming him had to give a reason may be one. It was never
 // his: it is listed as open for the role that handled it to finish, by
-// handling the report again, and is never said to him.
-func ReturnedHandlings(reports []report.Report, handlings []report.Handling) []OperatorAction {
+// handling the report again, and is never said to him. A handling whose step
+// failed its check while it waited (StepRecheck) is listed with them, saying
+// why.
+func ReturnedHandlings(reports []report.Report, handlings []report.Handling, recheck StepRecheck) []OperatorAction {
 	var returned []OperatorAction
-	for _, action := range reportFindings(reports, handlings) {
+	for _, action := range reportFindings(reports, handlings, recheck) {
 		if action.Returned {
 			returned = append(returned, action)
 		}
@@ -152,10 +162,63 @@ func ReturnedHandlings(reports []report.Report, handlings []report.Handling) []O
 	return returned
 }
 
+// StepRecheck is what checking again the step a waiting handling asks of the
+// operator needs: the time of the reading and the world the step is checked
+// against. The zero value checks nothing, which is what a caller with no
+// world to look at passes.
+type StepRecheck struct {
+	Now   time.Time
+	World ownership.StepWorld
+}
+
+// OwnHoldStands is whether a hold or pause the operator placed himself stands,
+// read from his pause over provider spending and his hold on intake, for
+// StepWorld.OwnHold: a pause is always his, and an intake hold is his unless
+// the record says the harness's own brake placed it. It is nil where neither
+// switch is wired, which leaves the check unasked.
+func OwnHoldStands(pause OperatorHolds, intake IntakeHolds) func() (bool, error) {
+	if pause == nil && intake == nil {
+		return nil
+	}
+	return func() (bool, error) {
+		var problems []error
+		if pause != nil {
+			_, held, err := pause.Held()
+			if err != nil {
+				problems = append(problems, err)
+			} else if held {
+				return true, nil
+			}
+		}
+		if intake != nil {
+			hold, held, err := intake.Held()
+			if err != nil {
+				problems = append(problems, err)
+			} else if held && hold.HeldBy != runstate.IntakeHolderBrake {
+				return true, nil
+			}
+		}
+		return false, errors.Join(problems...)
+	}
+}
+
+// stepRecheck is what this reading checks a waiting request's step against:
+// the repository it was given, the person's home, and the operator's own
+// switches.
+func (s Sources) stepRecheck() StepRecheck {
+	home, _ := os.UserHomeDir()
+	return StepRecheck{Now: s.now(), World: ownership.StepWorld{
+		Repository: s.Repository,
+		Home:       home,
+		OwnHold:    OwnHoldStands(s.OperatorHolds, s.IntakeHolds),
+	}}
+}
+
 // reportFindings is every handling standing as the latest on its report that
 // names the operator or his hand, as findings oldest first, each marked
-// Returned where it gives neither a closed-list reason nor a hand.
-func reportFindings(reports []report.Report, handlings []report.Handling) []OperatorAction {
+// Returned where it gives neither a closed-list reason nor a hand, or where the
+// step it asks of him fails its check again (ownership.RecheckOperatorStep).
+func reportFindings(reports []report.Report, handlings []report.Handling, recheck StepRecheck) []OperatorAction {
 	handled := report.Handled(handlings)
 	var actions []OperatorAction
 	for _, reported := range report.ByFiling(reports) {
@@ -190,6 +253,18 @@ func reportFindings(reports []report.Report, handlings []report.Handling) []Oper
 					action.DecidedBy = domain.RoleProductManager
 				}
 				action.Ends = returnedHandlingEnds
+			default:
+				// A reason from the list says why only he can act, not that the
+				// step can still be taken; one that fails its check again goes
+				// back to the role that recorded it, saying why.
+				if err := ownership.RecheckOperatorStep(handling.OperatorReason, handling.Reason, handling.PersonOnly, handling.RecordedAt, recheck.Now, recheck.World); err != nil {
+					action.Returned, action.DecidedBy = true, handling.Role
+					if !action.DecidedBy.Valid() {
+						action.DecidedBy = domain.RoleProductManager
+					}
+					action.ReturnedWhy = singleLine(err.Error(), maxRefusalBytes)
+					action.Ends = returnedHandlingEnds
+				}
 			}
 			actions = append(actions, action)
 		}
@@ -237,8 +312,8 @@ func reportFindings(reports []report.Report, handlings []report.Handling) []Oper
 // the answer the held-work derivation gives the same absence: every surface the
 // harness builds wires them, and a fixture that does not is asking about
 // something else.
-func EscalatedOperatorActions(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look) ([]OperatorAction, string) {
-	standing, _, problem := Escalations(runs, decisions, items, look)
+func EscalatedOperatorActions(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look, recheck StepRecheck) ([]OperatorAction, string) {
+	standing, _, problem := Escalations(runs, decisions, items, look, recheck)
 	return standing, problem
 }
 
@@ -274,7 +349,7 @@ type EndedEscalation struct {
 // decided, split into the ones still standing, as findings oldest first, and
 // the ones something has since ended, with what ended each. See
 // EscalatedOperatorActions for the rule.
-func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look) ([]OperatorAction, []EndedEscalation, string) {
+func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItems, look Look, recheck StepRecheck) ([]OperatorAction, []EndedEscalation, string) {
 	if decisions == nil {
 		return nil, nil, ""
 	}
@@ -296,7 +371,7 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 		if !decided || !decision.EscalatesToOperator() {
 			continue
 		}
-		if why, recorded, returnedTo := escalationEnding(run, decision, items, look); why != "" {
+		if why, recorded, returnedTo := escalationEnding(run, decision, items, look, recheck); why != "" {
 			ended = append(ended, EndedEscalation{RunID: run.RunID, WorkItemID: workItemID, Why: why, Recorded: recorded, DecidedAt: decision.DecidedAt, ReturnedTo: returnedTo})
 			continue
 		}
@@ -336,7 +411,7 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 // down the ladder to the development manager, whose decision about the stopped
 // run it always was. Every other ending is asked first, because each says more
 // about where the work now stands than that.
-func escalationEnding(run runstate.State, decision runstate.TriageDecision, items EscalatedItems, look Look) (string, bool, Mover) {
+func escalationEnding(run runstate.State, decision runstate.TriageDecision, items EscalatedItems, look Look, recheck StepRecheck) (string, bool, Mover) {
 	// An ending recorded before this escalation was decided ended an earlier one
 	// of the same run, and says nothing about this one.
 	if ending := run.EscalationEnded; ending != nil && strings.TrimSpace(ending.Why) != "" && !ending.At.Before(decision.DecidedAt) {
@@ -362,7 +437,24 @@ func escalationEnding(run runstate.State, decision runstate.TriageDecision, item
 	if !decision.OperatorReason.Valid() && !decision.Hand.Known() {
 		return unreasonedEscalationEnding(run.RunID), false, MoverDevelopmentManager
 	}
+	// A reason from the list says why only he can act, not that the step can
+	// still be taken; one that fails its check again goes back to her too,
+	// saying why (ownership.RecheckOperatorStep).
+	if decision.OperatorReason.Valid() {
+		if err := ownership.RecheckOperatorStep(decision.OperatorReason, decision.Reason, nil, decision.DecidedAt, recheck.Now, recheck.World); err != nil {
+			return failedStepEscalationEnding(run.RunID, err), false, MoverDevelopmentManager
+		}
+	}
 	return "", false, ""
+}
+
+// failedStepEscalationEnding is what an item is told when its escalation to
+// the operator goes back to the development manager because the step it asks
+// of him failed its check while it waited.
+func failedStepEscalationEnding(runID string, failed error) string {
+	return runstate.BoundEscalationEnding(fmt.Sprintf(
+		"the step it asks of the operator failed its check while it waited, so it is not his: %s; what becomes of run %s is the development manager's decision, and the run is listed under her as a stoppage waiting on that decision",
+		singleLine(failed.Error(), maxRefusalBytes), runID))
 }
 
 // unreasonedEscalationEnding is what an item is told when its escalation to the
@@ -402,7 +494,11 @@ func (a OperatorAction) Whose() string {
 func (a OperatorAction) Says() string {
 	what := fmt.Sprintf("%s needs your hand: %s (found by %s; recorded in %s",
 		a.Subject, singleLine(a.Needs, maxRefusalBytes), a.FoundBy, a.RecordedIn)
-	if a.Returned {
+	switch {
+	case a.Returned && a.ReturnedWhy != "":
+		what = fmt.Sprintf("%s is open for the %s to finish: it was handled as needing the operator, and the step it asks of him failed its check while it waited — %s — so it is not his: %s (recorded in %s",
+			a.Subject, a.DecidedBy.Title(), a.ReturnedWhy, singleLine(a.Needs, maxRefusalBytes), a.RecordedIn)
+	case a.Returned:
 		what = fmt.Sprintf("%s is open for the %s to finish: it was handled as needing the operator with no reason only he can act on, so it is not his: %s (recorded in %s",
 			a.Subject, a.DecidedBy.Title(), singleLine(a.Needs, maxRefusalBytes), a.RecordedIn)
 	}
@@ -424,7 +520,7 @@ func readOperatorActions(reports []report.Report, handlings []report.Handling, p
 	if pileProblem == "" {
 		// The returned handlings are listed with the rest, and the ownership
 		// registry puts each under the role that handled it.
-		actions = reportFindings(reports, handlings)
+		actions = reportFindings(reports, handlings, sources.stepRecheck())
 	}
 	var problem string
 	if sources.Stoppages == nil || sources.Decisions == nil {
@@ -433,7 +529,7 @@ func readOperatorActions(reports []report.Report, handlings []report.Handling, p
 	} else if runs, err := sources.Stoppages.Recorded(); err != nil {
 		problem = fmt.Sprintf("the recorded runs could not be read, so no escalated stoppage can be named: %v", err)
 	} else {
-		escalated, escalatedProblem := EscalatedOperatorActions(runs, sources.Decisions, items, look)
+		escalated, escalatedProblem := EscalatedOperatorActions(runs, sources.Decisions, items, look, sources.stepRecheck())
 		actions = append(actions, escalated...)
 		problem = escalatedProblem
 	}

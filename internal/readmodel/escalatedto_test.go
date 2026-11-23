@@ -37,7 +37,7 @@ func TestAnEscalationToARoleIsNotAFindingForTheOperator(t *testing.T) {
 		"yoyodyne-ifd.403": {Decisions: []runstate.TriageDecision{escalate("run-403a", "", ownership.OperatorCredential)}},
 	}
 
-	escalated, problem := EscalatedOperatorActions(runs, decisions, nil, nil)
+	escalated, problem := EscalatedOperatorActions(runs, decisions, nil, nil, StepRecheck{})
 	if problem != "" || len(escalated) != 1 || escalated[0].WorkItemID != "yoyodyne-ifd.403" {
 		t.Fatalf("EscalatedOperatorActions() = %#v, %q, want only the escalation to the operator", escalated, problem)
 	}
@@ -95,7 +95,7 @@ func TestAnEscalationWithoutAClosedListReasonGoesBackToTheDevelopmentManager(t *
 		t.Fatalf("held work waiting on the development manager = %d, want both kept runs, the one escalated without a reason among them", heldByHer)
 	}
 
-	standingActions, ended, problem := Escalations(runs, sources.Decisions, nil, nil)
+	standingActions, ended, problem := Escalations(runs, sources.Decisions, nil, nil, StepRecheck{})
 	if problem != "" || len(standingActions) != 1 || standingActions[0].RunID != "run-403a" || len(ended) != 1 || ended[0].RunID != "run-153a" || ended[0].Recorded {
 		t.Fatalf("Escalations() = %#v, %#v, %q, want run-403a standing and run-153a ended and not yet recorded", standingActions, ended, problem)
 	}
@@ -127,7 +127,7 @@ func TestAnEndingRecordedOnARunDoesNotEndALaterEscalation(t *testing.T) {
 	}
 	decisions := recordedDecisions{"yoyodyne-ifd.153": {Decisions: []runstate.TriageDecision{again}}}
 
-	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil)
+	standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil, StepRecheck{})
 	if problem != "" || len(ended) != 0 || len(standing) != 1 || standing[0].RunID != "run-153a" {
 		t.Fatalf("Escalations() = %#v, %#v, %q, want the later escalation standing as the operator's", standing, ended, problem)
 	}

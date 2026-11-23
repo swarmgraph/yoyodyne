@@ -27,6 +27,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -1452,7 +1453,20 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 	if err != nil {
 		return nil, fmt.Errorf("read what became of the collected reports: %w", err)
 	}
-	actions := readmodel.OperatorActions(filed, handlings)
+	// The feed holds no repository, so a finding's paths are checked where it is
+	// recorded, on the status line, and by the reconcile sweep; a hold the
+	// operator has since lifted, and a restart the product does itself, are
+	// checked here too, so a request about either is not said to him.
+	var pause readmodel.OperatorHolds
+	if f.Holds != nil {
+		pause = f.Holds
+	}
+	var intake readmodel.IntakeHolds
+	if f.Intake != nil {
+		intake = f.Intake
+	}
+	recheck := readmodel.StepRecheck{Now: f.now(), World: ownership.StepWorld{OwnHold: readmodel.OwnHoldStands(pause, intake)}}
+	actions := readmodel.OperatorActions(filed, handlings, recheck)
 	passFailuresRead := true
 	if f.Runs != nil {
 		passActions, problem := readmodel.PassFailureOperatorActions(readmodel.Sources{Passes: f.Runs.Sweeps(), Reports: f.Reports})
@@ -1464,7 +1478,7 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		}
 		actions = append(actions, passActions...)
 	}
-	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil, nil)
+	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil, nil, recheck)
 	if problem != "" {
 		// A triage record that cannot be read costs that item's finding this
 		// pass and is said here; the pass carries on, and the finding is read

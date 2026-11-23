@@ -937,6 +937,9 @@ func (a Attention) Whose() string {
 			if hand := a.Ownership.Hand; a.Ownership.NeedsHand() {
 				return a.Mover.Possessive() + " — the decision is made and is not the operator's; the harness has no way yet of " + hand.Missing + ", so his hand carries it out: `" + hand.Types + "`; " + a.OperatorAction.Ends
 			}
+			if !a.Mover.IsOperator() && a.OperatorAction.ReturnedWhy != "" {
+				return a.Mover.Possessive() + " — the finding names the operator, but the step it asks of him failed its check while it waited, so it is not his: " + a.OperatorAction.ReturnedWhy + "; " + a.OperatorAction.Ends
+			}
 			if !a.Mover.IsOperator() {
 				return a.Mover.Possessive() + " — the finding names the operator, but it was handled before a handling had to say why a person must act, and it gives no such reason, so it is not his: " + a.Ownership.Remedy + "; " + a.OperatorAction.Ends
 			}
@@ -1442,6 +1445,12 @@ func (a Attention) ownershipRecord() ownership.Record {
 	case AttentionOperatorAction:
 		if action := a.OperatorAction; action != nil {
 			record.Reason = action.Reason
+			if action.Returned {
+				// A handling whose step failed its check again gave a reason that no
+				// longer holds, so the registry reads it as giving none and puts it
+				// back with the role that recorded it.
+				record.Reason = ""
+			}
 			record.FromReport, record.FromEscalation = action.ReportID != "", action.RunID != ""
 			record.Hand, record.Role = action.Hand, action.DecidedBy
 		}

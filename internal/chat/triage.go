@@ -853,6 +853,15 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		s.carryOutFeedbackRepair(ctx, outcome)
 		return
 	}
+	// An escalation to the operator is checked for a step he can take, as a
+	// report handling naming him is (ownership.CheckOperatorStep), before anything
+	// is recorded or blocked.
+	if decision == decisionEscalate && action.escalatedTo() == "" && action.Hand == "" {
+		if err := ownership.CheckOperatorStep(action.OperatorReason, action.Reason, nil, s.stepWorld()); err != nil {
+			outcome.refused(fmt.Errorf("escalating %s to the operator was not recorded and the item was not blocked, because the step it asks of him does not hold: %w", id, err))
+			return
+		}
+	}
 	if action.decidesDocument() {
 		s.carryOutDocumentDecision(ctx, outcome, decision, run)
 		return

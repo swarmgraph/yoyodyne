@@ -987,6 +987,20 @@ func docketerFrom(parts components) *orchestrator.Docketer {
 	}
 }
 
+// ownHoldOf is whether a hold or pause the operator placed himself stands, read
+// from this product's switches; a switch that cannot be opened is left unread.
+func ownHoldOf(parts components) func() (bool, error) {
+	var pause readmodel.OperatorHolds
+	if store, err := runstate.NewOperatorHoldStore(parts.stateRoot); err == nil {
+		pause = store
+	}
+	var intake readmodel.IntakeHolds
+	if store, err := runstate.NewIntakeHoldStore(parts.stateRoot, parts.config.Product.ID); err == nil {
+		intake = store
+	}
+	return readmodel.OwnHoldStands(pause, intake)
+}
+
 func buildReconciler(configPath string) (orchestrator.Reconciler, error) {
 	parts, err := buildComponents(configPath)
 	if err != nil {
@@ -1024,9 +1038,12 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		Store:           parts.store,
 		Repository:      parts.repository,
 		StateRoot:       parts.stateRoot,
-		ConfigFiles:     parts.worktrees,
-		ConfigReaders:   landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
-		Publisher:       forge,
+		// An escalation to the operator naming his own hold is checked against
+		// his pause and his hold on intake while it waits.
+		OwnHold:       ownHoldOf(parts),
+		ConfigFiles:   parts.worktrees,
+		ConfigReaders: landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
+		Publisher:     forge,
 		// A merge of a run's pull request that is not the revision its review
 		// judged is filed as a critical report.
 		Landings: orchestrator.LandingReporter{Reports: parts.reports, Build: buildinfo.Commit(), ProductID: parts.config.Product.ID, RepositoryID: string(parts.config.Product.RepositoryID)},
