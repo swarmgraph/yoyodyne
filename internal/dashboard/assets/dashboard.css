@@ -1474,6 +1474,17 @@ input[type="checkbox"]:focus-visible {
   font-weight: 600;
 }
 
+/* A condition refusing every new run start opens the summary. Its words say
+   so on their own; the border and colour only repeat them. */
+.summary-stopped {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--attention);
+  background: var(--attention-paper);
+  color: var(--attention);
+  font-weight: 600;
+}
+
 .answers {
   display: grid;
   gap: 0.75rem;

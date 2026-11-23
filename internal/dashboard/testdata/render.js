@@ -376,6 +376,9 @@ const pages = [
   // of the page was read.
   { name: "summary-week", token: "t", standing: ok(fixture("standing-busy")), summaryWeek: ok(fixture("summary-week")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), open: [{ act: "summary-week" }] },
   { name: "summary-detail", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), open: [{ detail: "entry-3-0" }] },
+  // The summary opening with a condition that refuses every new run start: a
+  // primary checkout with uncommitted changes in it.
+  { name: "summary-stopped", token: "t", standing: ok(fixture("standing-busy")), summary: ok(fixture("summary-stopped")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "summary-refused", token: "t", standing: ok(fixture("standing-busy")), summary: refused(503, "the dashboard's first reading since it started has been under way for 6s and is not finished yet; the page asks again"), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "throughput-pending", token: "t", standing: ok(fixture("standing-busy")), throughput: pending, spend: ok(fixture("spend-busy")) },
   { name: "throughput-refused", token: "t", standing: ok(fixture("standing-busy")), throughput: refused(503, "the state root could not be resolved"), spend: ok(fixture("spend-busy")) },

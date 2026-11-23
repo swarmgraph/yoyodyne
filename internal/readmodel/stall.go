@@ -189,6 +189,39 @@ func (s Stall) Refusal() string {
 	return s.Says + "; " + s.Clears
 }
 
+// StopsEveryStart reports whether the stall refuses every new run start, a run
+// the operator names included, rather than only the choosing of the next item:
+// the operator's hold on everything, the provider answering nobody or holding
+// every role on a usage window, and the machine refusing runs, such as a
+// primary checkout with uncommitted changes in it. An intake hold, an idle or
+// absent session, and a full machine stop the choosing alone, and are said
+// where the choosing is.
+func (s Stall) StopsEveryStart() bool {
+	switch s.Reason {
+	case ReasonOperatorHold, ReasonProviderAway, ReasonProviderWindow, ReasonSessionBlocked:
+		return true
+	}
+	return false
+}
+
+// StartsStopped is a stall that refuses every new run start, with the
+// ownership registry's answer for who can clear it. It is what the owner
+// summary opens with, ahead of every answer, for as long as it stands.
+type StartsStopped struct {
+	Stall     Stall            `json:"stall"`
+	Ownership ownership.Answer `json:"ownership"`
+}
+
+// startsStoppedBy is the stall as a stop of every new run start, owned as the
+// not-startable line's group for the same stall is, and nil where the stall
+// stops less than that.
+func startsStoppedBy(stall Stall, held switches) *StartsStopped {
+	if !stall.StopsEveryStart() {
+		return nil
+	}
+	return &StartsStopped{Stall: stall, Ownership: ownership.Resolve(ownership.KindStall, stallRecord(stall, held))}
+}
+
 // Waiting is the stall as one thing waiting on a person, where it is one. It
 // carries since-when, in the shape the attention line's other entries already
 // say it: how long something has been waiting on somebody is half of what makes
