@@ -21,8 +21,9 @@
 # A tagged commit whose tree has no notes takes them from the default branch
 # where they landed afterwards, as long as they name that commit; that is how
 # every release the harness cuts is published, since it tags the commit the
-# notes name. A tag with notes in neither place publishes the preamble alone
-# rather than failing. A
+# notes name. A tree with an earlier draft of those notes, one naming another
+# commit, takes them the same way. A tag with notes in neither place publishes
+# the preamble alone rather than failing. A
 # release with thin notes is worth more than a pushed tag with no release behind
 # it, and the tags cut before the notes home existed are exactly the ones that
 # would otherwise turn a rerun of this workflow into a red build.
@@ -73,27 +74,41 @@ esac
 notes="$notes_home/$tag.md"
 # A release covers everything up to a commit its notes name and is tagged at
 # that commit, and the notes land on the default branch after it, so the
-# tagged commit's own tree usually has no notes. Then they are read from the
-# default branch -- RELEASE_NOTES_FROM, origin/main unless the workflow names
-# another -- and used only where they name the commit the tag names, in the
-# words docs/releases/README.md gives: "up to and including commit `<sha>`".
+# tagged commit's own tree has none, or has an earlier draft that names another
+# commit. Then they are read from the default branch -- RELEASE_NOTES_FROM,
+# origin/main unless the workflow names another -- and used only where they name
+# the commit the tag names, in the words docs/releases/README.md gives: "up to
+# and including commit `<sha>`". Notes in the tree that name no commit, or name
+# the tagged one, are the tag's own, and so are any when the tag is not here to
+# compare with; an earlier draft is published, with a warning, only where the
+# default branch has nothing that names the tag.
 notes_from="${RELEASE_NOTES_FROM:-origin/main}"
 fetched=""
 trap '[ -z "$fetched" ] || rm -f "$fetched"' EXIT
+named_in() {
+  grep -oE 'up to and including commit `[0-9a-f]{40}([0-9a-f]{24})?`' "$1" | head -1 | grep -oE '[0-9a-f]{40,64}' || true
+}
+tagged="$(git -C "$repository" rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null || true)"
 source=""
+earlier=""
 if [ -f "$notes" ]; then
   source="$notes"
-else
-  tagged="$(git -C "$repository" rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null || true)"
+  named="$(named_in "$notes")"
+  if [ -n "$tagged" ] && [ -n "$named" ] && [ "$named" != "$tagged" ]; then
+    earlier="$named"
+  fi
+fi
+if [ -z "$source" ] || [ -n "$earlier" ]; then
   fetched="$(mktemp "${TMPDIR:-/tmp}/release-body-notes.XXXXXX")"
   if [ -z "$tagged" ]; then
     printf 'no %s, and no tag %s here to match notes on %s against\n' "$notes" "$tag" "$notes_from" >&2
   elif git -C "$repository" show "$notes_from:docs/releases/$tag.md" > "$fetched" 2>/dev/null; then
-    named="$(grep -oE 'up to and including commit `[0-9a-f]{40}([0-9a-f]{24})?`' "$fetched" | head -1 | grep -oE '[0-9a-f]{40,64}' || true)"
+    named="$(named_in "$fetched")"
     if [ "$named" = "$tagged" ]; then
       printf 'the notes for %s are read from %s, where they landed after %s\n' "$tag" "$notes_from" "$tagged" >&2
       source="$fetched"
       notes="$notes_from:docs/releases/$tag.md"
+      earlier=""
     elif [ -z "$named" ]; then
       printf 'docs/releases/%s.md on %s names no commit, so it is not taken as the notes of %s, which names %s\n' "$tag" "$notes_from" "$tag" "$tagged" >&2
     else
@@ -102,6 +117,10 @@ else
   else
     printf 'docs/releases/%s.md is not on %s either\n' "$tag" "$notes_from" >&2
   fi
+fi
+if [ -n "$earlier" ]; then
+  printf 'release-body: warning: %s names %s, not %s, which %s names, and nothing on %s names it, so the notes in the tagged tree are published as they stand\n' \
+    "$notes" "$earlier" "$tagged" "$tag" "$notes_from" >&2
 fi
 : > "$destination"
 

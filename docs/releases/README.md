@@ -33,8 +33,8 @@ make them wrong, and the tag is cut at that commit, which the notes landed
 after. The harness's cut reads the commit from the notes on `main` and refuses
 notes that name none, or one `main` does not hold
 ([cutting a decided release](../operations.md#cutting-a-decided-release)).
-The release workflow finds no notes in the tagged commit's tree, so it reads
-them from `main` and publishes them as the page's text, taking them only where
+The tagged commit's tree has no notes, or an earlier draft that names another
+commit, so the release workflow reads them from `main` and publishes them as the page's text, taking them only where
 they name the tagged commit. To see the body a page will carry, from a
 checkout that has fetched `main`:
 
@@ -53,10 +53,15 @@ bash scripts/release-body.sh v0.7.0 body.md
 gh release edit v0.7.0 --notes-file body.md
 ```
 
-`v0.7.0`'s notes name a commit from before the release workflow began reading
-notes from `main`, so a tag at that commit needs the manual step above. Naming
-a later commit in the notes, one that has that workflow, makes the step
-unnecessary; which commit v0.7.0 names is for its own release item to decide.
+[`v0.7.0.md`](v0.7.0.md) is listed through a commit, but not yet in the words
+the cut reads, so nothing is tagged from it. An earlier draft of it has been on
+`main` since November 20, 2026, so every commit on `main` from then on holds a
+copy naming some older commit, and until `scripts/release-body.sh` was corrected
+to pass over such a copy it published that one in place of the notes on `main`.
+A tag at a commit from before the correction would publish the old draft. The
+notes therefore name their commit only once there is one that has the
+correction: the release item's next run names such a commit, adds what landed
+up to it, and takes the readiness result again.
 
 ## The shape
 
@@ -115,7 +120,7 @@ characters against the forge's 125,000. [`v0.6.0.md`](v0.6.0.md) therefore
 groups its items into entries by what they changed, each with a short
 account, the goals its items served, and every item's identifier, so nothing
 that shipped goes unnamed and the tracker still holds each item's own text.
-[`v0.7.0.md`](v0.7.0.md), from 804, does the same, carrying v0.6.0's entries
+[`v0.7.0.md`](v0.7.0.md), from 918, does the same, carrying v0.6.0's entries
 and folding what merged since into them or beside them.
 
 A release the Lead Product Manager decides has a work item of its own, titled
