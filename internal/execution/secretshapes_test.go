@@ -387,6 +387,84 @@ func TestRedactorMasksAValueAfterAnEscapedLineBreakAndKeepsTheLineJSON(t *testin
 	}
 }
 
+// A provider key, a JSON web token, or a GitHub token that begins a line of a
+// tool's output arrives on the raw stream line right after an escaped break or
+// tab, which ends in a letter, so there is no word boundary before it. Each is
+// still removed, the escape is kept whole so the line still decodes, and a word
+// that merely ends in n, r, or t right before the same prefix is left alone.
+func TestRedactorMasksPrefixedSecretsAfterAnEscapedLineBreak(t *testing.T) {
+	t.Parallel()
+
+	streamLine := func(t *testing.T, text string) string {
+		t.Helper()
+		line, err := json.Marshal(map[string]any{
+			"type":    "user",
+			"message": map[string]any{"content": []map[string]any{{"type": "tool_result", "content": text}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(line)
+	}
+	decode := func(t *testing.T, line string) string {
+		t.Helper()
+		var decoded struct {
+			Message struct {
+				Content []struct {
+					Content string `json:"content"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(line), &decoded); err != nil {
+			t.Fatalf("redaction left a stream line that is not JSON: %v\n%s", err, line)
+		}
+		return decoded.Message.Content[0].Content
+	}
+
+	secrets := []struct {
+		name   string
+		secret string
+	}{
+		{"Anthropic API key", anthropicAPIKey},
+		{"OpenAI key", openAIKey},
+		{"OpenAI project key", openAIProjectKey},
+		{"JSON web token", chatGPTAccessToken},
+		{"GitHub token", gitHubToken},
+		{"fine-grained GitHub token", gitHubFineGrained},
+	}
+	for _, test := range secrets {
+		for brk, escape := range map[string]string{"\n": `\n`, "\r": `\r`, "\t": `\t`, "\r\n": `\n`} {
+			text := "output:" + brk + test.secret + brk + "next line"
+			line := streamLine(t, text)
+			if !strings.Contains(line, escape+test.secret) {
+				t.Fatalf("%s: the stream line does not put the escape right before the secret:\n%s", test.name, line)
+			}
+			got := decode(t, NewRedactor().WithSecretShapes().Redact(line))
+			if strings.Contains(got, test.secret) {
+				t.Errorf("%s after %q: the secret survived redaction:\n%q", test.name, brk, got)
+			}
+			if want := "output:" + brk + redactedMarker + brk + "next line"; got != want {
+				t.Errorf("%s after %q: Redact() decoded to %q, want %q", test.name, brk, got, want)
+			}
+		}
+	}
+
+	// The same prefixes straight after a word ending in n, r, or t, with no
+	// escape in between, are part of that word and are not secrets.
+	for _, text := range []string{
+		"tasksn" + "sk-" + strings.Repeat("a", 24),
+		"return" + "sk-" + strings.Repeat("A1b2", 6),
+		"filter" + "eyJ" + "hbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2Vy.c2lnbmF0dXJl",
+		"commit" + "gh" + "p_" + strings.Repeat("Ab1", 12),
+		"partn" + "github" + "_pat_" + strings.Repeat("Ab1", 12),
+	} {
+		line := streamLine(t, text)
+		if got := NewRedactor().WithSecretShapes().Redact(line); got != line {
+			t.Errorf("Redact() changed a word that only looks like a secret:\n got %s\nwant %s", got, line)
+		}
+	}
+}
+
 // A redactor that did not ask for the shapes, such as the empty one Git and the
 // tracker run with, leaves secret-shaped text exactly as it was: what they print
 // is data the harness reads back, and a rewritten file, diff, or note is no
