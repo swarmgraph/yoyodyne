@@ -257,6 +257,56 @@ func TestTheReadModelProjectsEachQueueEntryFromItsRecords(t *testing.T) {
 	}
 }
 
+// An entry the development manager set aside is shown as set aside, with who
+// set it aside and why, and as finished with; one whose run is not on her list
+// yet says so.
+func TestASetAsideEntryIsShownWithWhoSetItAsideAndWhy(t *testing.T) {
+	t.Parallel()
+
+	key := runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"}
+	aside := fixtureEntry(1, "yoyodyne-fo4v", "Stuck at the head", runstate.MergeQueueHarness)
+	listing := fixtureEntry(2, "yoyodyne-onxb", "Set aside, not listed yet", runstate.MergeQueueHarness)
+	at := time.Date(2026, 11, 11, 9, 36, 0, 0, time.UTC)
+	setAside := func(entry runstate.MergeQueueEntry, docketed *time.Time) runstate.MergeQueueLanding {
+		landing := runstate.NewMergeQueueLanding(entry)
+		landing.Handback = &runstate.MergeQueueHandback{
+			At: at, Continuation: runstate.MergeQueueReleased, Mover: "development-manager",
+			Reason: "set aside from the head of the queue", ApprovedHead: entry.ApprovedHead,
+			SetAside: "its run's record refuses every hand-back", SetAsideAt: &at,
+			SetAsideBy: "the development manager in conversation chat-1, turn 4", DocketedAt: docketed,
+		}
+		return landing
+	}
+	queues := fixtureQueues{
+		keys:     []runstate.MergeQueueKey{key},
+		entries:  map[string][]runstate.MergeQueueEntry{"main": {aside, listing}},
+		landings: map[string]runstate.MergeQueueLanding{aside.EntryID: setAside(aside, &at), listing.EntryID: setAside(listing, nil)},
+	}
+	standing := ReadStanding(context.Background(), Sources{MergeQueues: queues})
+	if len(standing.MergeQueues) != 1 || len(standing.MergeQueues[0].Entries) != 2 {
+		t.Fatalf("ReadStanding().MergeQueues = %#v", standing.MergeQueues)
+	}
+	queue := standing.MergeQueues[0]
+	if queue.Open != 0 || queue.Finished != 2 {
+		t.Fatalf("queue open %d, finished %d; want a set-aside entry finished with", queue.Open, queue.Finished)
+	}
+	shown := queue.Entries[0]
+	if shown.State != QueueEntrySetAside || shown.SetAsideBy != "the development manager in conversation chat-1, turn 4" ||
+		shown.SetAsideWhy != "its run's record refuses every hand-back" {
+		t.Fatalf("entry = %#v, want it set aside with who and why", shown)
+	}
+	rendered := standing.RenderMergeQueues()
+	for _, line := range []string{
+		"yoyodyne-fo4v Stuck at the head — set aside, in the harness's own queue — set aside by the development manager in conversation chat-1, turn 4: its run's record refuses every hand-back; nothing was written to run " + aside.RunID + ", which keeps its approved commit 111111111111 and its approval, and is on the development manager's list of stopped runs",
+		"yoyodyne-onxb Set aside, not listed yet — set aside, in the harness's own queue — set aside by",
+		"is not on the development manager's list of stopped runs yet; the queue's next pass puts it there",
+	} {
+		if !strings.Contains(rendered, line) {
+			t.Fatalf("rendered queues lack %q:\n%s", line, rendered)
+		}
+	}
+}
+
 // One queue that cannot be listed does not hide the others, and a product
 // with no queue prints nothing at all.
 func TestAnUnlistableQueueIsSaidBesideTheOthersAndNoQueuePrintsNothing(t *testing.T) {

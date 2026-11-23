@@ -839,10 +839,13 @@ func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueH
 
 // handbackOwed reports a handback not yet given to whoever takes it up: its
 // run, or the development manager's docket where no single run can. One its
-// run's record refused is set aside and owed to nobody further.
+// run's record refused is set aside and owed to nobody further. One the
+// development manager set aside is owed her list of stopped runs until it is
+// on it, and never its run.
 func handbackOwed(handback runstate.MergeQueueHandback) bool {
 	return ((handback.GoesToRun() || handback.Continuation == runstate.MergeQueueLandedOutside) && handback.HandedBackAt == nil && !handback.IsSetAside()) ||
-		(handback.Continuation.Reported() && handback.ReportedAt == nil)
+		(handback.Continuation.Reported() && handback.ReportedAt == nil) ||
+		(handback.DecidedSetAside() && handback.DocketedAt == nil)
 }
 
 // MergeQueueHandbackUndelivered is a handback the queue has recorded, so its
@@ -895,6 +898,15 @@ func (q *queuePromotion) handBack(ctx context.Context) error {
 		return nil
 	}
 	at := q.now()
+	if handback.DecidedSetAside() {
+		// Set aside by a decision: the run is put on the development manager's
+		// list as it stands, and nothing is written to its record.
+		if err := q.p.Repair.Report(ctx, q.entry, *handback); err != nil {
+			return MergeQueueHandbackUndelivered{Entry: q.entry, Err: fmt.Errorf("put the run of merge queue entry %d, which was set aside, on the development manager's list: %w", q.entry.Order, err)}
+		}
+		handback.DocketedAt = &at
+		return q.save()
+	}
 	if handback.Continuation.Reported() {
 		if err := q.p.Repair.Report(ctx, q.entry, *handback); err != nil {
 			return MergeQueueHandbackUndelivered{Entry: q.entry, Err: fmt.Errorf("put merge queue entry %d on the development manager's docket: %w", q.entry.Order, err)}
@@ -1228,6 +1240,9 @@ func (h MergeQueueRunHandback) Report(ctx context.Context, entry runstate.MergeQ
 	if h.Tracker == nil {
 		return errors.New("reporting a merge queue handback needs the tracker")
 	}
+	if handback.DecidedSetAside() {
+		return h.reportSetAside(ctx, entry, handback)
+	}
 	failure := fmt.Sprintf("The merge queue handed this change back and no single run can take it up (%s): %s", handback.Continuation, handback.Reason)
 	if handback.IsSetAside() {
 		failure = fmt.Sprintf("The merge queue set this change aside: %s. It had come back from the queue because %s", handback.SetAside, handback.Reason)
@@ -1242,6 +1257,38 @@ func (h MergeQueueRunHandback) Report(ctx context.Context, entry runstate.MergeQ
 		}
 	}
 	_, err := h.Tracker.RecordOutcome(ctx, entry.WorkItemID, failure+" "+mergeQueueHandbackMarker(entry, handback)+".")
+	return err
+}
+
+// reportSetAside puts the run of an entry somebody set aside on the
+// development manager's list of stopped runs, read as its record stands and
+// never written, and says on the item who set it aside and why. The docket
+// keys the entry on the run and the item's note carries the hand-back marker,
+// so asking twice writes each once.
+func (h MergeQueueRunHandback) reportSetAside(ctx context.Context, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) error {
+	marker := mergeQueueHandbackMarker(entry, handback)
+	said := fmt.Sprintf("The merge queue for %s set aside entry %d (%s): %s set it aside because %s. Nothing was written to run %s, which keeps its approved commit %s and its approval; the development manager's \"readmit\" answer naming this entry puts the same change back in the queue.",
+		entry.TargetBranch, entry.Order, entry.EntryID, handback.SetAsideBy, handback.SetAside, entry.RunID, handback.ApprovedHead)
+	if h.Docket != nil {
+		if h.Store == nil {
+			return errors.New("putting the run of an entry that was set aside on the development manager's list needs the run store")
+		}
+		state, err := h.Store.Load(entry.RunID)
+		if err != nil {
+			return fmt.Errorf("read run %s: %w", entry.RunID, err)
+		}
+		if _, err := h.Docket.RecordSetAsideRun(state, said); err != nil {
+			return fmt.Errorf("put run %s on the development manager's list: %w", entry.RunID, err)
+		}
+	}
+	item, err := h.Tracker.Show(ctx, entry.WorkItemID)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", entry.WorkItemID, err)
+	}
+	if strings.Contains(item.Notes, marker) {
+		return nil
+	}
+	_, err = h.Tracker.RecordOutcome(ctx, entry.WorkItemID, said+" "+marker+".")
 	return err
 }
 

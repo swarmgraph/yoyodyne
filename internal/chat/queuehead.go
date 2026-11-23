@@ -11,7 +11,11 @@ package chat
 // made from her conversation, under her name, with her reason, and with one
 // more answer the command does not have: an entry whose approved commit is
 // already on the target branch is recorded as landed outside the queue rather
-// than handed back to a run that has nothing left to do.
+// than handed back to a run that has nothing left to do; and an entry that
+// cannot be handed back at all, whatever the cause, can be set aside, which
+// writes only the queue's record of it and never its run's, and the change of
+// an entry she set aside can be put back in the queue at the same approved
+// commit.
 //
 // It is carried out as it is recorded, as a stop is. Releasing an entry starts
 // no work and asks nothing of a provider; what it changes is the queue's own
@@ -35,9 +39,18 @@ const (
 	// harness refuses unless the target branch already holds its approved
 	// commit.
 	queueLanded = "landed"
+	// queueSetAside sets the entry aside for an entry that cannot be handed
+	// back, whatever the cause: only the queue's record of the entry is
+	// written, never its run's, and the run comes to her docket as a stopped run
+	// keeping its approved commit and its approval.
+	queueSetAside = "set-aside"
+	// queueReadmit puts the change of an entry she set aside back in the queue:
+	// the same approved commit is admitted again behind everything waiting,
+	// and the queue builds, checks and reviews its candidate as any entry's.
+	queueReadmit = "readmit"
 )
 
-var queueDecisions = []string{queueReturn, queueLanded}
+var queueDecisions = []string{queueReturn, queueLanded, queueSetAside, queueReadmit}
 
 // QueueHeads releases the entry at the head of a merge queue. It reports, in
 // the words the reply carries, what became of the entry, or why nothing did.
@@ -50,7 +63,11 @@ type QueueHeadRelease struct {
 	EntryID    string
 	WorkItemID string
 	Landed     bool
-	Reason     string
+	SetAside   bool
+	// Readmit puts a set-aside entry's change back in the queue, and names an
+	// entry that was set aside rather than the head.
+	Readmit bool
+	Reason  string
 	// By is who released it, written by the conversation from its own facts
 	// rather than taken from the reply, so it cannot name anybody else.
 	By string
@@ -70,7 +87,7 @@ func (a TrackerAction) queueProblems() []error {
 	switch decision := strings.TrimSpace(a.Decision); {
 	case decision == "":
 		problems = append(problems, fmt.Errorf("queue requires \"decision\", one of %s", strings.Join(queueDecisions, ", ")))
-	case decision != queueReturn && decision != queueLanded:
+	case decision != queueReturn && decision != queueLanded && decision != queueSetAside && decision != queueReadmit:
 		problems = append(problems, fmt.Errorf("queue decision %q is not a decision; the decisions are %s", decision, strings.Join(queueDecisions, ", ")))
 	}
 	return problems
@@ -89,6 +106,8 @@ func (s *Session) releaseQueueHead(ctx context.Context, outcome *TrackerOutcome)
 		EntryID:    strings.TrimSpace(action.Entry),
 		WorkItemID: strings.TrimSpace(action.ID),
 		Landed:     strings.TrimSpace(action.Decision) == queueLanded,
+		SetAside:   strings.TrimSpace(action.Decision) == queueSetAside,
+		Readmit:    strings.TrimSpace(action.Decision) == queueReadmit,
 		Reason:     strings.TrimSpace(action.Reason),
 		By:         fmt.Sprintf("the %s in conversation %s, turn %d", RoleTitle(s.state.Role), s.state.ConversationID, s.state.Turns),
 	})

@@ -7801,6 +7801,26 @@ head holds the others back, and the release is refused while anything the queue
 asked the forge for could still land the change. `yoyo status` shows an entry
 released as landed as landed outside the queue, with who released it and why.
 
+Her third answer, `set-aside`, is for an entry that cannot be handed back
+whatever the cause, such as a run whose own record refuses what a hand-back
+writes. It writes only the queue's record of the entry and never the run's: the
+run keeps its approved commit, its checks and its approval as they stand, and
+comes to her docket as a stopped run naming that commit, and the work item gets
+a note saying who set the entry aside and why. It is refused for an entry that
+is not the head, one the queue does not have, and one whose approved commit the
+target already holds, which is recorded as landed instead. `yoyo status` and the
+dashboard show the entry as set aside, with who set it aside and why.
+
+Once whatever stopped it is fixed, her `readmit` answer, naming the entry she
+set aside, puts the same approved commit back in the queue as a new entry
+behind everything already waiting. Nothing is redone and nothing is charged to
+the run: the queue builds, checks and reviews the new entry's candidate as it
+does every entry's, the run's record is made to name the new entry, the work
+item gets a note saying who put it back and why, and the run leaves her docket.
+It is refused for an entry that was not set aside, one whose run has moved on
+from that commit, and one whose change the target already carries; asking
+again for a change already put back names the entry that holds it.
+
 **Who works the queues.** A `yoyo work` session works every queue with an entry
 in it beside its pulls, one pass per queue at a time, each in its own
 goroutine, and never inside a developer slot. A queue is worked by one process
