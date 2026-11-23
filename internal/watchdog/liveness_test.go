@@ -45,7 +45,7 @@ func TestTheStallAndStaleDerivationsReachNoProviderCall(t *testing.T) {
 	for len(queue) > 0 {
 		path := queue[0]
 		queue = queue[1:]
-		pkg, err := build.Import(path, ".", 0)
+		pkg, err := importPackage(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
@@ -76,13 +76,20 @@ func TestTheStallAndStaleDerivationsReachNoProviderCall(t *testing.T) {
 func TestTheLivenessSweepRecognisesAProviderInvocation(t *testing.T) {
 	t.Parallel()
 
-	pkg, err := build.Import(modulePath+"/internal/chat", ".", 0)
+	pkg, err := importPackage(modulePath + "/internal/chat")
 	if err != nil {
 		t.Fatalf("read internal/chat: %v", err)
 	}
 	if !buildsRunRequest(t, filepath.Join(pkg.Dir, "chat.go")) {
 		t.Fatal("internal/chat/chat.go asks a provider for a turn and the sweep does not see it, so a clean sweep proves nothing")
 	}
+}
+
+// importPackage reads a package of this module by its folder, found from the
+// test's working folder. go/build cannot find one by its import path in a test
+// built with -trimpath, which does not know where Go is.
+func importPackage(path string) (*build.Package, error) {
+	return build.ImportDir(filepath.Join("..", "..", filepath.FromSlash(strings.TrimPrefix(path, modulePath+"/"))), 0)
 }
 
 // buildsRunRequest reports whether a file constructs a backend.RunRequest, or

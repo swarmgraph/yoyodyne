@@ -13,6 +13,16 @@ LDFLAGS := -X main.version=$(VERSION)
 # the README's install section, which says so rather than implying parity.
 PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 
+# Every Go command a target runs, and every script a target calls, compiles with
+# -trimpath. Without it a package's entry in the build cache is keyed on the
+# absolute folder it was compiled in, so each worktree compiles this module's
+# packages cold and stores them again in the cache every worktree shares
+# (docs/designs/shared-build-cache-size.md). The flag is added to whatever
+# GOFLAGS the environment or the command line already carries rather than
+# replacing it, and is exported so the scripts the targets call inherit it.
+override GOFLAGS := $(strip $(filter-out -trimpath,$(GOFLAGS)) -trimpath)
+export GOFLAGS
+
 # How long one package's test binary may run. Go's own figure is ten minutes,
 # and that is a bound on the machine rather than on the change: this repository
 # is checked at the concurrency it develops at -- several runs' suites at once,
@@ -80,9 +90,13 @@ cachecheck:
 	fi; \
 	rm -f "$$cache/.yoyodyne-writable"
 
+# -trimpath leaves Go's own folder out of the binary, and the readiness check
+# (internal/readiness) reads Go's standard library from it. So the link, and only
+# the link, names the folder again: compiled packages stay shared, and a local
+# build goes on checking the names an item cites from it. A release names no machine's.
 build: cachecheck
 	mkdir -p $(dir $(BINARY))
-	$(GO) build -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/yoyo
+	$(GO) build -ldflags '$(LDFLAGS) -X "runtime.defaultGOROOT=$(shell $(GO) env GOROOT)"' -o $(BINARY) ./cmd/yoyo
 
 # The repository tests that escalate a defect in a governed document rather
 # than failing on it, the packages holding them, and the start of the line each
@@ -371,12 +385,14 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/mcpcall='^(TestNoOtherPackageSpeaksMCP)$$' \
 	./internal/oneline='^(TestEveryCutAgainstAValidatedByteBoundFallsOnARuneBoundary|TestNoPackageTheConversationReadsThroughCutsASingleLineOfItsOwn)$$' \
 	./internal/orchestrator='^(TestReadmeNamesOnlyFilesThatExist|TestReadmeNamesOnlySymbolsThatExist|TestTwoChangesThatEachAddAFileMergeWithoutTouchingTheReadme|TestAPassRecordsItsLanguageFindingsAndTellsTheNextPass|TestBaselineDocumentDisclosesEveryFieldNoTraceHolds|TestMeasureHeavyCheckPermits|TestPermanentCarryOutCausesAreNamedInTheRunStopInventory|TestRunEndingSitesAreInventoried|TestRunStopBoundValuesMatchInventory|TestTheModelARunStartsOnIsChosenByTheItemsLabels|TestThisRepositorysDeliveryDefinitionMatchesTheBuiltIn|TestThisRepositorysDeliveryDefinitionSaysWhereTheBuiltInIs|TestThisRepositorysOwnDeliveryDefinitionIsWhatItsRunsExecute)$$' \
+	./internal/orchestrator/orchestratortest='^(TestThePackageImportsNothingFromTheOrchestrator)$$' \
 	./internal/protectedpath='^(TestNoGrantOpensTheWholeRepository)$$' \
 	./internal/readmodel='^(TestALaneReportWithARetiredWordIsFlaggedWithoutChangingTheRecord|TestTheAttentionLineFlagsARolesWords|TestADirtyPrimaryCheckoutOpensTheSummaryUntilItClears|TestTheSummaryReadsInOrdinaryWordsAndKeepsTheDetailBehindIt|TestWordingRenderIsRepeatableAndKeepsTheOriginalText)$$' \
 	./internal/rolecapability='^(TestEveryInventoriedCheckIsExpressedOrNamedAsAGap)$$' \
 	./internal/runstate='^(TestEveryStrictDecodeIsAWriterOrAValidator|TestNoRoutineReaderReadsEveryRunRecordUnlisted|TestNoRunRecordWriterOutsideThisPackageIsUnlisted|TestOnlyTheCommandLineRecordsARoleActivation|TestOnlyTheCommandLineWritesARecordedHumanAct|TestTheBoundedReadSweepNamesAnAddedReader|TestTheOutsideSweepFailsAListedEntryWithNoSite|TestTheOutsideSweepNamesEachAddedSite)$$' \
 	./internal/slack='^(TestEverySlackPostFlagsRetiredWordsEvenWithoutATracker)$$' \
-	./internal/toolcatalog='^(TestTheToolsSectionUsesOrdinaryWords)$$'
+	./internal/toolcatalog='^(TestTheToolsSectionUsesOrdinaryWords)$$' \
+	./internal/watchdog='^(TestTheStallAndStaleDerivationsReachNoProviderCall|TestTheLivenessSweepRecognisesAProviderInvocation)$$'
 
 doccheck: cachecheck
 	@failed=; \
