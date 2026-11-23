@@ -327,7 +327,7 @@ func (a actRequest) problem(path string) string {
 			return "a proposed change is decided in no conversation, so an act on one names no agent"
 		}
 	} else if err := domain.ValidateIdentifier("agent", a.Agent); err != nil {
-		return "an act on a document or proposed work names the agent whose conversation holds it"
+		return "an act on a document, proposed work, or a concern names the agent whose conversation holds it"
 	}
 	if path == askPath {
 		if strings.TrimSpace(a.Question) == "" {
@@ -337,6 +337,9 @@ func (a actRequest) problem(path string) string {
 			return "an ask decides nothing, so it carries no verdict and no reason"
 		}
 		return ""
+	}
+	if a.Kind.Answered() {
+		return fmt.Sprintf("a %s is answered in the conversation that raised it, not approved or declined; the pop-up gives the command that answers it", a.Kind.Label())
 	}
 	if a.Verdict != "approve" && a.Verdict != "decline" {
 		return fmt.Sprintf("verdict %q is not one the dashboard takes; it takes \"approve\" and \"decline\"", a.Verdict)

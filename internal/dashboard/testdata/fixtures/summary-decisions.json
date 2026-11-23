@@ -1,0 +1,234 @@
+{
+  "observed_at": "2026-10-25T20:00:00-07:00",
+  "period": "today",
+  "since": "2026-10-25T00:00:00-07:00",
+  "since_says": "today, since 00:00 PDT on Sunday October 25",
+  "landed": {
+    "heading": "Landed",
+    "says": "2 code changes",
+    "entries": [
+      {
+        "line": "Fix the tile (ex-7) (19:00 PDT)",
+        "says": "Fix the tile (ex-7)",
+        "work_item_id": "ex-7",
+        "count": 1,
+        "latest": "2026-10-25T19:00:00-07:00",
+        "latest_says": "19:00 PDT",
+        "detail": [
+          "run run-1111111111111111"
+        ]
+      },
+      {
+        "line": "Name the slot (ex-8) (17:00 PDT)",
+        "says": "Name the slot (ex-8)",
+        "work_item_id": "ex-8",
+        "count": 1,
+        "latest": "2026-10-25T17:00:00-07:00",
+        "latest_says": "17:00 PDT",
+        "detail": [
+          "run run-3333333333333333"
+        ]
+      }
+    ]
+  },
+  "published": {
+    "heading": "Documents published",
+    "says": "1 document",
+    "entries": [
+      {
+        "line": "V1 goals (18:00 PDT)",
+        "says": "V1 goals",
+        "count": 1,
+        "latest": "2026-10-25T18:00:00-07:00",
+        "latest_says": "18:00 PDT",
+        "detail": [
+          "run run-2222222222222222"
+        ]
+      }
+    ]
+  },
+  "moving": {
+    "heading": "In progress",
+    "says": "3 runs",
+    "entries": [
+      {
+        "line": "Retry the merge (ex-1) — in review; latest: the checks passed (19:00 PDT)",
+        "says": "Retry the merge (ex-1) — in review; latest: the checks passed",
+        "work_item_id": "ex-1",
+        "count": 1,
+        "latest": "2026-10-25T19:00:00-07:00",
+        "latest_says": "19:00 PDT",
+        "detail": [
+          "run run-aaaaaaaa11111111",
+          "phase reviewing"
+        ]
+      },
+      {
+        "line": "Name the stop (ex-2) — being developed; latest: the review returned 2 findings, and the developer is answering them",
+        "says": "Name the stop (ex-2) — being developed; latest: the review returned 2 findings, and the developer is answering them",
+        "work_item_id": "ex-2",
+        "count": 1,
+        "detail": [
+          "run run-bbbbbbbb22222222",
+          "phase developing"
+        ]
+      },
+      {
+        "line": "Count the slots (ex-3) — being developed; no check or review result yet",
+        "says": "Count the slots (ex-3) — being developed; no check or review result yet",
+        "work_item_id": "ex-3",
+        "count": 1,
+        "detail": [
+          "run run-cccccccc33333333",
+          "phase developing"
+        ]
+      }
+    ]
+  },
+  "blocked": {
+    "heading": "Blocked",
+    "says": "2 things waiting on somebody other than you",
+    "entries": [
+      {
+        "line": "Run not finished, 3 times, on ex-4 (latest 18:00 PDT) — next: settle the run; waiting on the harness",
+        "says": "Run not finished, 3 times, on ex-4",
+        "work_item_id": "ex-4",
+        "waiting_on": "the harness",
+        "next": "settle the run",
+        "count": 3,
+        "latest": "2026-10-25T18:00:00-07:00",
+        "latest_says": "18:00 PDT",
+        "detail": [
+          "run-dddddddd44444444: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)",
+          "run-eeeeeeee55555555: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)",
+          "run-ffffffff66666666: cleanup of the branch and worktree for ex-4 is not finished — the harness's — `yoyo reconcile` finishes the run's cleanup and records it (needs yoyo reconcile)"
+        ]
+      },
+      {
+        "line": "2 wait on the development manager's decision about a stopped run — next: she decides what becomes of each stopped run; waiting on the development manager",
+        "says": "2 wait on the development manager's decision about a stopped run",
+        "waiting_on": "the development manager",
+        "next": "she decides what becomes of each stopped run",
+        "count": 2,
+        "detail": [
+          "Keep the branch (ex-5)",
+          "Read the queue (ex-6)"
+        ]
+      }
+    ]
+  },
+  "failures": {
+    "heading": "Ended without landing",
+    "says": "4 runs",
+    "entries": [
+      {
+        "line": "3 runs: the checks kept failing or could not run (latest 19:00 PDT)",
+        "says": "3 runs: the checks kept failing or could not run",
+        "count": 3,
+        "latest": "2026-10-25T19:00:00-07:00",
+        "latest_says": "19:00 PDT",
+        "detail": [
+          "recorded stop cause checks: 3"
+        ]
+      },
+      {
+        "line": "1 run: a check ran past its time limit (15:00 PDT)",
+        "says": "1 run: a check ran past its time limit",
+        "count": 1,
+        "latest": "2026-10-25T15:00:00-07:00",
+        "latest_says": "15:00 PDT",
+        "detail": [
+          "recorded stop cause check-timeout: 1"
+        ]
+      }
+    ]
+  },
+  "decisions": {
+    "heading": "Needs your decision",
+    "says": "4 things only you can do",
+    "entries": [
+      {
+        "line": "Proposed document change: v1-goals (amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d) — next: approve or decline the change; waiting on you, because it is a change to the fundamental goals, which only the operator decides",
+        "says": "Proposed document change: v1-goals (amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d)",
+        "waiting_on": "you, because it is a change to the fundamental goals, which only the operator decides",
+        "next": "approve or decline the change",
+        "count": 1,
+        "detail": [
+          "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d: a change to v1-goals is proposed and undecided (amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d) — the operator's — a change of fundamental intent; `yoyo amendment approve|decline` decides it, and nothing reaches the document until he does"
+        ],
+        "account": {
+          "changes": "a change to v1-goals: The legibility goal should say that the dashboard counts the attention line by who has to act on each entry.",
+          "why": "The read model carries who acts next, and the page counts by it rather than by the words beside it.",
+          "serves": [
+            "yoyodyne-ifd.432.5"
+          ],
+          "if_approved": "it is recorded, and the Lead Product Manager writes the new text of v1-goals itself; nothing is written for you",
+          "if_declined": "v1-goals stays as it is, and the developer is told your reason",
+          "why_yours": "it changes v1-goals, which states what the product is for, and does not say it leaves what the goals admit and refuse unchanged, which makes it a change to the fundamental goals, which only the operator decides"
+        },
+        "decision": "amendment::amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d"
+      },
+      {
+        "line": "Question waiting for your answer: A billing page for hosted customers (c4807.1) — next: answer the concern in the conversation that raised it; waiting on you, because it is a change to the fundamental goals, which only the operator decides",
+        "says": "Question waiting for your answer: A billing page for hosted customers (c4807.1)",
+        "waiting_on": "you, because it is a change to the fundamental goals, which only the operator decides",
+        "next": "answer the concern in the conversation that raised it",
+        "count": 1,
+        "detail": [
+          "chat-91253e0e070c17b0663651cc48602122/c4807.1: concern c4807.1, \"A billing page for hosted customers\", raised by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122 about work it cannot place: it serves no goal it can find, waits for the operator's answer — the operator's — the Lead Product Manager stopped to ask rather than propose the work; `yoyo chat --message \"answer c4807.1 <your answer>\"` answers it, and it leaves this line once he has"
+        ],
+        "account": {
+          "changes": "whether the Lead Product Manager goes on to propose: A billing page for hosted customers; it asks: Should the goals admit hosted billing, or is it out of scope?",
+          "why": "work it cannot place: it serves no goal it can find: No goal names billing, and the non-goals rule out a hosted control plane.",
+          "if_approved": "answer that it should go ahead, with `yoyo chat --message \"answer c4807.1 <your answer>\"`, or with an offered answer's number (1. Add a goal for hosted billing; 2. Leave it out of scope); the Lead Product Manager acts on your answer at its next turn",
+          "if_declined": "answer that it should not; the work is not proposed, and the Lead Product Manager is told",
+          "why_yours": "the work serves no goal the Lead Product Manager can find, so going ahead widens what the goals admit, which makes it a change to the fundamental goals, which only the operator decides"
+        },
+        "decision": "concern:product-manager:c4807.1"
+      },
+      {
+        "line": "Document waiting for approval: V1 non-goals (document-2328.1) — next: approve or decline the document; waiting on you, because it is a change to the fundamental goals, which only the operator decides",
+        "says": "Document waiting for approval: V1 non-goals (document-2328.1)",
+        "waiting_on": "you, because it is a change to the fundamental goals, which only the operator decides",
+        "next": "approve or decline the document",
+        "count": 1,
+        "detail": [
+          "chat-91253e0e070c17b0663651cc48602122/document-2328.1: document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold"
+        ],
+        "account": {
+          "changes": "replaces the text of v1-non-goals (\"V1 non-goals\")",
+          "before": "The local dashboard is read-only and can direct nothing.",
+          "after": "A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.",
+          "why": "The operator decided on October 11 that the dashboard may take his own decisions.",
+          "serves": [
+            "yoyodyne-ifd.432.8"
+          ],
+          "if_approved": "it is published through a reviewed run, as a code change lands, and the Lead Product Manager is told",
+          "if_declined": "nothing reaches the repository, and the Lead Product Manager is told your reason",
+          "why_yours": "it states the product's intent and is recorded as changing what the goals admit or refuse, which makes it a change to the fundamental goals, which only the operator decides"
+        },
+        "decision": "document:product-manager:document-2328.1"
+      },
+      {
+        "line": "Provider unavailable (18:00 PDT) — next: log in to the provider again; waiting on you, because it is a credential or account only a person holds",
+        "says": "Provider unavailable",
+        "waiting_on": "you, because it is a credential or account only a person holds",
+        "next": "log in to the provider again",
+        "count": 1,
+        "latest": "2026-10-25T18:00:00-07:00",
+        "latest_says": "18:00 PDT",
+        "detail": [
+          "unauthenticated: The provider is not authenticated; the operator must log in: every role is waiting on it, and the harness asks again on its own until it answers; 0 turns refused since 2026-10-26T01:00:00Z — the operator's — log in to the provider again; the harness resumes on its own once it answers, and nothing is released or restarted (needs the provider's login)"
+        ]
+      }
+    ]
+  },
+  "cost": {
+    "heading": "Cost",
+    "says": "$12.30 across 40 provider calls",
+    "entries": [],
+    "detail": [
+      "run: $10.00 over 30 calls"
+    ]
+  }
+}

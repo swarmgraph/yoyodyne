@@ -227,6 +227,7 @@ var registry = map[Kind]Rule{
 	KindUnreadableRun:     unreadableRunRule,
 	KindCapacityBlocked:   capacityBlockedRule,
 	KindMergeQueueOverdue: mergeQueueOverdueRule,
+	KindConcern:           concernRule,
 	KindStoppage:          stoppageRule,
 	KindFollowUp:          followUpRule,
 	KindEmptySlot:         emptySlotRule,
@@ -752,6 +753,15 @@ func intentDocumentReason(kind string) string {
 		what = "the operating rules"
 	}
 	return "a change to " + what + " that the Lead Product Manager could not approve as consistent with intent, so it waits for the operator to decide"
+}
+
+// concernRule is a role's question about work it would not propose because of
+// what the goals admit: work that serves no goal it can find, work that would
+// cut against one, or work that fits them and that it judges against the
+// product's intent. Each answer decides what the goals admit or refuse, so it
+// is the operator's for a change of fundamental intent, whichever role asked.
+func concernRule(Record) (Answer, bool) {
+	return operator(OperatorFundamentalIntent, "answer the concern in the conversation that raised it", "yoyo chat answer")
 }
 
 // followUpRule is the owner the follow-up recorded. The operator is that owner

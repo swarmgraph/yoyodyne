@@ -7,7 +7,7 @@ package readmodel
 // projects, and never decided here: this list is the line's own entries whose
 // mover is the operator, narrowed to the ones a verb approves or declines and
 // opened into the records they carry, so the dashboard can put each to him one
-// at a time and carry out the same verb. Today that is two kinds. A proposed
+// at a time and carry out the same verb. Today that is three kinds. A proposed
 // change whose entry on the line names him — a change to the brief or the
 // goals that changes their intent or does not say — decided by `yoyo amendment
 // approve` or `decline`; an ordinary proposed change is the owning role's, as
@@ -17,7 +17,16 @@ package readmodel
 // "approve document-4.1" sent to that conversation; only the ones whose mover
 // is the operator are listed.
 //
-// A third kind has a verb and is named below, so the dashboard can carry it
+// And a concern a role raised in its conversation, which the line carries as
+// a waiting concern (concernwaits.go) and the ownership registry names him for:
+// it is answered rather than approved, with "answer c5.1 <answer>" sent to
+// that conversation, so the dashboard shows it whole and offers the question
+// to its role, and gives the command that answers it.
+//
+// Every decision listed carries its account (decisionaccount.go): what
+// changes, why, what approving and declining lead to, and why it is his.
+//
+// One more kind has a verb and is named below, so the dashboard can carry it
 // out the day the line names the operator for one: work proposed in a
 // conversation, decided by "approve 3.1". The line has no entry for it today,
 // so none is listed.
@@ -28,6 +37,7 @@ package readmodel
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
@@ -47,12 +57,22 @@ const (
 	// DecisionProposal is work an agent proposed in its conversation and nobody
 	// has decided. Its ID is the proposal's, turn.position.
 	DecisionProposal DecisionKind = "proposal"
+	// DecisionConcern is a question a role stopped to ask in its conversation
+	// that nobody has answered. Its ID is the concern's, c-turn.position. It is
+	// answered in that conversation rather than approved or declined, so the
+	// dashboard shows it whole and offers the question to its role, and the
+	// answer is given with the conversation's command.
+	DecisionConcern DecisionKind = "concern"
 )
 
 // DecisionKinds is the whole vocabulary.
 func DecisionKinds() []DecisionKind {
-	return []DecisionKind{DecisionAmendment, DecisionDocument, DecisionProposal}
+	return []DecisionKind{DecisionAmendment, DecisionDocument, DecisionProposal, DecisionConcern}
 }
+
+// Answered reports a kind the operator answers in its conversation rather
+// than approves or declines.
+func (k DecisionKind) Answered() bool { return k == DecisionConcern }
 
 // Valid reports whether a token is one of the kinds.
 func (k DecisionKind) Valid() bool {
@@ -73,6 +93,8 @@ func (k DecisionKind) Label() string {
 		return "document to approve"
 	case DecisionProposal:
 		return "proposed work"
+	case DecisionConcern:
+		return "question to answer"
 	}
 	return string(k)
 }
@@ -125,6 +147,13 @@ type OperatorDecision struct {
 	DeclineNeedsReason bool `json:"decline_needs_reason,omitempty"`
 	// Says is the decision in one line, as a terminal would print it.
 	Says string `json:"says"`
+	// Account is what changes, why, what approving and declining each lead
+	// to, and why it is the operator's, as every surface listing it says it
+	// (DecisionAccount).
+	Account DecisionAccount `json:"account"`
+	// Answer is the command that answers a decision the operator answers
+	// rather than approves or declines.
+	Answer string `json:"answer,omitempty"`
 }
 
 // Key names one decision across its kind, the way the dashboard addresses it.
@@ -157,9 +186,20 @@ func ReadOperatorDecisions(sources Sources) ([]OperatorDecision, string) {
 func (reading amendmentReading) operatorDecisions(line []Attention) ([]OperatorDecision, string) {
 	var decisions []OperatorDecision
 	for _, entry := range line {
-		if entry.Kind == AttentionDocumentApproval && entry.Mover.IsOperator() && entry.DocumentApproval != nil {
-			decisions = append(decisions, documentDecision(*entry.DocumentApproval))
+		if !entry.Mover.IsOperator() {
+			continue
 		}
+		var decision OperatorDecision
+		switch {
+		case entry.Kind == AttentionDocumentApproval && entry.DocumentApproval != nil:
+			decision = documentDecision(*entry.DocumentApproval)
+		case entry.Kind == AttentionConcern && entry.Concern != nil:
+			decision = concernDecision(*entry.Concern)
+		default:
+			continue
+		}
+		decision.Account, _ = entry.Account()
+		decisions = append(decisions, decision)
 	}
 	if reading.problem != "" {
 		return decisions, reading.problem
@@ -168,18 +208,20 @@ func (reading amendmentReading) operatorDecisions(line []Attention) ([]OperatorD
 	for _, each := range reading.recommended {
 		recommended[each.Proposal] = each
 	}
-	theirs := map[string]bool{}
+	theirs := map[string]Attention{}
 	for _, entry := range reading.attention() {
 		if entry.Mover.IsOperator() && entry.Amendment != nil {
-			theirs[entry.ID] = true
+			theirs[entry.ID] = entry
 		}
 	}
 	var changes []OperatorDecision
 	for _, proposal := range amendment.Pending(reading.records) {
-		if !theirs[proposal.ID] {
+		entry, found := theirs[proposal.ID]
+		if !found {
 			continue
 		}
 		decision := amendmentDecision(proposal)
+		decision.Account, _ = entry.Account()
 		if each, found := recommended[proposal.ID]; found {
 			decision.Recommendation = &each
 		}
@@ -202,6 +244,27 @@ func documentDecision(document DocumentApproval) OperatorDecision {
 		Subject: subject, Detail: document.Body, Why: document.Reason,
 		AskRole: document.Owner, AskAgent: document.Agent,
 		Says: document.Says(),
+	}
+}
+
+// concernDecision is a waiting concern as the dashboard puts it to the
+// operator: shown whole, answered in its conversation, and asked about in the
+// same one.
+func concernDecision(concern ConcernWait) OperatorDecision {
+	detail := concern.Detail
+	if concern.Question != "" {
+		detail = strings.TrimSpace(detail + "\n\nIt asks: " + concern.Question)
+	}
+	for index, option := range concern.Options {
+		detail += fmt.Sprintf("\n%d. %s", index+1, strings.TrimSpace(option))
+	}
+	return OperatorDecision{
+		Kind: DecisionConcern, ID: concern.ConcernID, Label: DecisionConcern.Label(),
+		Role: concern.Role, Agent: concern.Agent, ConversationID: concern.ConversationID,
+		Subject: concern.Subject, Detail: detail, Why: concern.headline(),
+		AskRole: concern.Role, AskAgent: concern.Agent,
+		Says:   concern.Says(),
+		Answer: concern.answerCommand(),
 	}
 }
 

@@ -130,6 +130,11 @@ const (
 	// which every approved change behind it waits on. The entry is the ID and
 	// its work item the WorkItemID.
 	KindMergeQueueOverdue Kind = "merge-queue-overdue"
+	// KindConcern is a question a role stopped to ask in its conversation, about
+	// work it would not propose because of what the goals admit, which nobody
+	// has answered. The conversation and the concern's identifier there are the
+	// ID.
+	KindConcern Kind = "concern"
 )
 
 // CapacityStand is where one run or conversation stands against the
@@ -200,6 +205,7 @@ func AttentionKinds() []Kind {
 		KindUnreadableRun,
 		KindCapacityBlocked,
 		KindMergeQueueOverdue,
+		KindConcern,
 	}
 }
 

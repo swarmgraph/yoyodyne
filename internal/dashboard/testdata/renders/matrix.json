@@ -1846,6 +1846,25 @@
       "decide": "closed"
     }
   },
+  "decide-concern": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "factory": "ready",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "ready"
+    }
+  },
   "decide-document": {
     "page": "ready",
     "sections": {

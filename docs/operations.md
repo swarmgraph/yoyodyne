@@ -5864,7 +5864,10 @@ Summary, today, since 00:00 PDT on Sunday October 25 (read at 20:00 PDT):
   then.
 - **Needs your decision** is only what is yours: an entry the registry gives
   you for a reason on its closed list, and a decision a role made that needs
-  your hand to carry out. Nothing else is put to you here.
+  your hand to carry out. Nothing else is put to you here. A document waiting
+  for your approval, a proposed change to a document, and a question a role
+  stopped to ask you are each a line of their own, never a count, with
+  [what you decide from](#what-each-decision-says) printed under it.
 - **Cost** is what the period cost, as `yoyo status --spend` and the
   dashboard's spend box price it, with "at least" where some records could not
   be read.
@@ -6425,6 +6428,52 @@ they are not the labels a person reads:
 | `document-approval` | document waiting for approval |
 | `unreadable-run` | unreadable run |
 | `merge-queue-overdue` | merge queue not moving |
+| `concern` | question waiting for your answer |
+
+### What each decision says
+
+Every decision put to you — a `document-approval`, an `amendment` that is
+yours or needs your hand, and a `concern` — is printed with what you need to
+decide it from the line alone, under the entry, one part to a line, on
+`yoyo status` (the summary and the four lines), in the channel's answer, and on
+the dashboard:
+
+```text
+document document-4803.1, a revision of milestone-goals ("Milestone goals") written by the Lead Product Manager in conversation chat-…, waits for the operator's approval, since … — the operator's — …
+  What changes: replaces the text of milestone-goals ("Milestone goals")
+  Before: - [owner-attention-measure] Yoyodyne is measured by …
+  After: - [owner-attention-measure] Yoyodyne is measured by … / *Supports: the human's attention goes only where it is needed.*
+  Why: removes the blank line above each goal's Supports line (serves yoyodyne-utbi)
+  If you approve: it is published through a reviewed run, as a code change lands, and the Lead Product Manager is told
+  If you decline: nothing reaches the repository, and the Lead Product Manager is told your reason
+  Why it is yours: it states the product's intent and does not say whether it changes what the goals admit or refuse, which makes it a change to the goals that the Lead Product Manager could not approve as consistent with intent, so it waits for the operator to decide
+```
+
+- **What changes** says what approving does to the repository or the work.
+  For a document, **Before** and **After** are a short excerpt of the part
+  that changes, read against the document as it stands in the checkout:
+  the lines the revision replaces and the lines it puts there, with the
+  lines the two share set aside. A new document's before is nothing. A
+  proposed change says what should become true rather than the text, so it
+  has no before and after: its owner writes the text if you approve.
+- **Why** is the writer's own reason, with the work items it names as what it
+  serves; for a concern, the kind of concern and the role's reason for asking.
+- **If you approve** and **If you decline** say what each leads to. A concern
+  is answered rather than approved: the two lines say what answering that the
+  work should go ahead, and that it should not, lead to, and give the command
+  `yoyo chat --message "answer c<turn>.<n> <your answer>"` with any answers
+  the role offered, by number.
+- **Why it is yours** ends on the reason from your closed list.
+- **Not in its record** names any of these the record does not hold — a
+  document written with no reason, a revision whose current text could not be
+  read and why — rather than leaving it out.
+
+A `concern` entry is a question a role stopped to ask in its conversation
+instead of proposing work: work it cannot place under any goal, work that
+would cut against one, or work that fits the goals and that it judges to be
+against what the product is for. Each answer decides what the goals admit, so
+it is under **Yours to decide**, for a change of fundamental intent, whichever
+role asked, and it leaves the line once you answer it.
 
 ### Who owns each kind of entry
 
@@ -6459,6 +6508,7 @@ your hand**, never under **Yours to decide**.
 | `capacity-degraded` | nobody's |
 | `blocked-on-a-human` | yours for the closed-list reason the program manager gave; otherwise the Lead Product Manager's to correct |
 | `document-approval` | yours for a document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
+| `concern` | yours (`fundamental-intent`), whichever role raised it |
 
 A role records a decision that needs your hand with `hand` in place of a
 reason of yours: the Lead Product Manager's report handling with
@@ -6801,7 +6851,7 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`, `forge-certificate`,
 `check-could-not-run`, `heavy-check-kept`, `blocked-on-a-human`,
-`document-approval`, `unreadable-run`, `merge-queue-overdue` — the `id`
+`document-approval`, `unreadable-run`, `merge-queue-overdue`, `concern` — the `id`
 of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
@@ -6813,7 +6863,9 @@ permit holding the place, and for a `blocked-on-a-human` the work item, or the
 record the entry cites where it names none, and for a `document-approval` the
 conversation and the document's identifier there, as
 `<conversation>/document-<turn>.<n>`, and for an `unreadable-run` the run, and
-for a `merge-queue-overdue` the queue entry, as `yoyo status` names it), the
+for a `merge-queue-overdue` the queue entry, as `yoyo status` names it, and
+for a `concern` the conversation and the concern's identifier there, as
+`<conversation>/c<turn>.<n>`), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
@@ -8608,15 +8660,15 @@ card was opened — which it says in a sentence with the key it was opened on;
 **error** when a poll finds the line unreadable; and **loading** while the
 standing has not arrived. Every value on it reaches the page as JSON and is
 written as text, and no button on it does anything but open or close a pop-up.
-What waits on your own approve or decline is decided from a pop-up of its own,
-below; every other entry here is still acted on at the command line.
+What waits on your own decision — an approve, a decline, or an answer — is
+decided from a pop-up of its own, below; every other entry here is still acted on at the command line.
 
 ### Deciding from the page
 
-What the attention line names as yours, and a verb approves or declines, is
-put to you on the page one thing at a time. Who owns each entry is the line's
+What the attention line names as yours, and a verb approves, declines, or
+answers, is put to you on the page one thing at a time. Who owns each entry is the line's
 answer and never the page's: the page lists only the line's own entries whose
-mover is you, opened into the records they carry. Today there are two kinds:
+mover is you, opened into the records they carry. Today there are three kinds:
 
 - **A document waiting for your approval.** A document an owning role wrote in
   its conversation, under an approval policy that is not automatic, waits there
@@ -8648,20 +8700,30 @@ mover is you, opened into the records they carry. Today there are two kinds:
   ordinary proposed change is the owning role's to move, as its entry on the
   line says, and is not on the page's list.
 
+- **A question a role stopped to ask you**, a `concern` on the line. It is
+  answered in the role's conversation rather than approved or declined, so the
+  pop-up offers no **Approve** or **Decline** for it: it shows the concern
+  whole, with **How to answer** giving the command, and **Ask first** still
+  sends the role a question.
+
 Work an agent proposed in a conversation is not on the line naming you, so it
 is not on the page's list either. The standing carries the list under
 `standing.operator_decisions`, read from the same derivation the line is built
 from, and while anything is on it the band shows a **Your decisions** tile
-counting it. Anything on the line that no verb approves or declines — a hold, a
-directive, a step only a person can take — stays where it was.
+counting it. Anything on the line that no verb approves, declines, or answers
+— a hold, a directive, a step only a person can take — stays where it was.
 
 **Your decisions** opens a pop-up headed by what sort of decision it is, with
 `1 of 3` and when the standing was read under the heading, and the decision
-whole under it: what it is, the document or the work, the change, the document,
-or the description in full, why, why it waits on you where the proposal says,
+whole under it: what it is, then [what changes, its before and after, what
+approving and declining lead to, and why it is
+yours](#what-each-decision-says), then the document or the work, the change,
+the whole document, or the whole concern, why, why it waits on you where the proposal says,
 what the owning role recommended where it argued about a proposed change, who
 raised it, the authority it is decided under, and its id. **Previous** and
-**Next** move between them. Under them:
+**Next** move between them. Each of these decisions on the summary's **Needs
+your decision** also carries **Read it whole and decide**, which opens the
+pop-up at it, so the whole text is a press away without `yoyo chat`. Under them:
 
 - **Approve** decides it at once, with one press.
 - **Decline** asks for a reason and declines it with **Decline it**. The

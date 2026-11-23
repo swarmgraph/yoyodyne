@@ -299,6 +299,7 @@ func TestTheRulesFollowTheDesignsTable(t *testing.T) {
 		{"a handling without a reason goes back to the Lead Product Manager", KindOperatorAction, Record{FromReport: true}, MoverProductManager, ""},
 		{"a handling without a reason goes back to the role that handled it", KindOperatorAction, Record{FromReport: true, Role: domain.RoleArchitect}, MoverArchitect, ""},
 		{"a finding with a credential is the operator's", KindOperatorAction, Record{FromReport: true, Reason: OperatorCredential}, MoverOperator, OperatorCredential},
+		{"a concern is the operator's, as a change of fundamental intent", KindConcern, Record{Role: domain.RoleProductManager}, MoverOperator, OperatorFundamentalIntent},
 		{"a human gate is the operator's", KindHumanGate, Record{}, MoverOperator, OperatorHumanGate},
 		{"a carried item is the role its marker names", KindCarriedItem, Record{Role: domain.RoleArchitect}, MoverArchitect, ""},
 		{"a carried item naming no role is the unnamed role's", KindCarriedItem, Record{}, MoverUnnamed, ""},

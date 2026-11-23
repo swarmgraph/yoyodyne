@@ -594,7 +594,39 @@
       "ask_role": "developer",
       "ask_agent": "developer",
       "decline_needs_reason": true,
-      "says": "the developer proposes a change to v1-goals, decided under the Lead Product Manager's authority"
+      "says": "the developer proposes a change to v1-goals, decided under the Lead Product Manager's authority",
+      "account": {
+        "changes": "a change to v1-goals: The legibility goal should say that the dashboard counts the attention line by who has to act on each entry.",
+        "why": "The read model carries who acts next, and the page counts by it rather than by the words beside it.",
+        "serves": [
+          "yoyodyne-ifd.432.5"
+        ],
+        "if_approved": "it is recorded, and the Lead Product Manager writes the new text of v1-goals itself; nothing is written for you",
+        "if_declined": "v1-goals stays as it is, and the developer is told your reason",
+        "why_yours": "it changes v1-goals, which states what the product is for, and does not say it leaves what the goals admit and refuse unchanged, which makes it a change to the fundamental goals, which only the operator decides"
+      }
+    },
+    {
+      "kind": "concern",
+      "id": "c4807.1",
+      "label": "question to answer",
+      "role": "product-manager",
+      "agent": "product-manager",
+      "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
+      "subject": "A billing page for hosted customers",
+      "detail": "No goal names billing, and the non-goals rule out a hosted control plane.\n\nIt asks: Should the goals admit hosted billing, or is it out of scope?\n1. Add a goal for hosted billing\n2. Leave it out of scope",
+      "why": "work it cannot place: it serves no goal it can find",
+      "ask_role": "product-manager",
+      "ask_agent": "product-manager",
+      "says": "concern c4807.1, \"A billing page for hosted customers\", raised by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122 about work it cannot place: it serves no goal it can find, waits for the operator's answer",
+      "account": {
+        "changes": "whether the Lead Product Manager goes on to propose: A billing page for hosted customers; it asks: Should the goals admit hosted billing, or is it out of scope?",
+        "why": "work it cannot place: it serves no goal it can find: No goal names billing, and the non-goals rule out a hosted control plane.",
+        "if_approved": "answer that it should go ahead, with `yoyo chat --message \"answer c4807.1 <your answer>\"`, or with an offered answer's number (1. Add a goal for hosted billing; 2. Leave it out of scope); the Lead Product Manager acts on your answer at its next turn",
+        "if_declined": "answer that it should not; the work is not proposed, and the Lead Product Manager is told",
+        "why_yours": "the work serves no goal the Lead Product Manager can find, so going ahead widens what the goals admit, which makes it a change to the fundamental goals, which only the operator decides"
+      },
+      "answer": "yoyo chat --message \"answer c4807.1 <your answer>\""
     },
     {
       "kind": "document",
@@ -609,7 +641,19 @@
       "why": "The operator decided on October 11 that the dashboard may take his own decisions.",
       "ask_role": "product-manager",
       "ask_agent": "product-manager",
-      "says": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold"
+      "says": "document document-2328.1, a revision of v1-non-goals (\"V1 non-goals\") written by the Lead Product Manager in conversation chat-91253e0e070c17b0663651cc48602122, waits for the operator's approval, since a time its record does not hold",
+      "account": {
+        "changes": "replaces the text of v1-non-goals (\"V1 non-goals\")",
+        "before": "The local dashboard is read-only and can direct nothing.",
+        "after": "A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.",
+        "why": "The operator decided on October 11 that the dashboard may take his own decisions.",
+        "serves": [
+          "yoyodyne-ifd.432.8"
+        ],
+        "if_approved": "it is published through a reviewed run, as a code change lands, and the Lead Product Manager is told",
+        "if_declined": "nothing reaches the repository, and the Lead Product Manager is told your reason",
+        "why_yours": "it states the product's intent and is recorded as changing what the goals admit or refuse, which makes it a change to the fundamental goals, which only the operator decides"
+      }
     }
   ],
   "problems": [
