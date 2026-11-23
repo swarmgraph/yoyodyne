@@ -382,7 +382,7 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 	case reading.rerunBy != nil:
 		return backlog.Hold{Reason: account + "; " + rerunCarriedOut(*reading.rerunBy, reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
 	case reading.parked:
-		return backlog.Hold{Reason: account + "; " + awaitingUnparkingClause, Decided: true, Since: since, RunID: runID}
+		return backlog.Hold{Reason: account + "; " + awaitingUnparkingClause, Decided: true, WaitsOnParking: true, Since: since, RunID: runID}
 	case reading.carryOut:
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	case reading.waitsOn != "":

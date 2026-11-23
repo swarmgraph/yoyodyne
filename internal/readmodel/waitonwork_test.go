@@ -274,3 +274,47 @@ func TestADecisionWaitingOnTheUnparkingHoldsTheItemAndSaysSo(t *testing.T) {
 		t.Fatalf("hold = %#v, want it not read as owed by the harness", hold)
 	}
 }
+
+// A re-run waiting for its parked item to be unparked is counted as parked work,
+// never as a decision the harness owes: the backlog, the held-work count, the
+// wait groups and the status line all say so. Once the item is unparked, the same
+// hold is the harness's to carry out again, and is counted that way.
+func TestARerunWaitingOnAParkedItemIsNotCountedAsOwedByTheHarness(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 15, 21, 0, 0, 0, time.UTC)
+	hold := heldFor("run-0123456789abcdef0123456789abcdef", "the run stopped", decidedStanding{parked: true, rerun: true}, stopped)
+	if !hold.Decided || !hold.WaitsOnParking {
+		t.Fatalf("hold = %#v, want a decided hold that waits on the parking", hold)
+	}
+	holds := backlog.ReadHolds(map[string]backlog.Hold{"yoyodyne-slack": hold})
+	parked := beads.WorkItem{ID: "yoyodyne-slack", Title: "Slack calls", Status: "open", Parking: "held until the Slack route is decided"}
+
+	queue := backlog.Order([]beads.WorkItem{parked}, nil, holds, nil)
+	entry := queue.Entries[0]
+	if entry.Ready || entry.AwaitingCarryOut || !entry.AwaitingUnparking {
+		t.Fatalf("entry = %#v, want it held, waiting on the unparking, and not awaiting the harness's carry-out", entry)
+	}
+	if queue.AwaitingCarryOut() != 0 || queue.Parked() != 1 {
+		t.Fatalf("awaiting carry-out %d, parked %d; want 0 and 1", queue.AwaitingCarryOut(), queue.Parked())
+	}
+	work := heldWork{}
+	work.count(entry)
+	if work.awaitingCarryOut != 0 || work.awaitingDecision != 0 {
+		t.Fatalf("held work counted carry-out %d, decision %d; want neither", work.awaitingCarryOut, work.awaitingDecision)
+	}
+	groups := newWaitGroups(Stall{}, switches{})
+	if group := groups.shape(entry, entry.HoldKind()); group.Kind != backlog.HeldParked || group.Awaiting == HeldAwaitingCarryOut || group.Mover == MoverHarness {
+		t.Fatalf("group = %#v, want it grouped as parked work, not as awaiting the harness's carry-out", group)
+	}
+	split := Standing{AwaitingCarryOut: work.awaitingCarryOut, AwaitingDecision: work.awaitingDecision}.heldSplit()
+	if strings.Contains(split, "the harness carrying out a decision already recorded") {
+		t.Fatalf("heldSplit() = %q, want nothing said as owed by the harness", split)
+	}
+
+	parked.Parking = ""
+	released := backlog.Order([]beads.WorkItem{parked}, nil, holds, nil).Entries[0]
+	if !released.AwaitingCarryOut || released.AwaitingUnparking {
+		t.Fatalf("entry = %#v, want the decision the harness's to carry out once the item is unparked", released)
+	}
+}
