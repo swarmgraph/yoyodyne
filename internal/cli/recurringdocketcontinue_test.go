@@ -299,6 +299,63 @@ func TestADocketEntryDecidedOrClosedBetweenTurnsIsNotDeliveredAgain(t *testing.T
 	}
 }
 
+// Stoppages she decided to wait on ask nothing of her until the wait runs out,
+// so a docket whose only entries past the first slice are standing waits ends
+// the pass on the account that says it is complete, rather than spending a
+// provider session on each further slice of waits. Once the waits run out the
+// same stoppages are owed again, and a pass is held open until it has shown
+// them.
+func TestStandingWaitsDoNotHoldAPassOpenAndAreOwedOnceTheyRunOut(t *testing.T) {
+	t.Parallel()
+	role := &docketPassRole{}
+	trigger, docket, _, clock := docketPassFixture(t, 30, 4, role)
+	// Building the docket records its entries, which is what a decision closes.
+	if _, err := trigger.Docket.(sweepDocket).docketer.Build(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 26; i <= 30; i++ {
+		run := fmt.Sprintf("run-%032x", i)
+		if _, err := docket.Close(triage.Closure{SchemaVersion: triage.ClosureSchemaVersion, ProductID: "yoyodyne", Key: triage.Key(triage.ClassStoppedRun, run),
+			RunID: run, WorkItemID: fmt.Sprintf("yoyodyne-ifd.430.40.%d", i), Decision: "wait",
+			Reason: "nothing to do until the fix it waits on lands", DecidedBy: "development manager in chat-1",
+			ClosedAt: clock.at, RevisitAfter: clock.at.Add(2 * time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(role.messages) != 1 {
+		t.Fatalf("turns = %d, want one: the entries past the first slice are all standing waits", len(role.messages))
+	}
+	if !strings.Contains(role.messages[0], "5 are stoppages you decided to wait on") {
+		t.Fatalf("the first turn did not say the unlisted entries are waits:\n%s", role.messages[0])
+	}
+	recorded, unreadable, err := trigger.Reports.List()
+	if err != nil || len(unreadable) > 0 || len(recorded) != 1 {
+		t.Fatalf("List() = %v, %v, %v", recorded, unreadable, err)
+	}
+	if delivery := recorded[0].Docket; delivery == nil || len(delivery.Undelivered) != 0 || recorded[0].Result.Status != sweep.StatusComplete || recorded[0].Problem != "" && strings.Contains(recorded[0].Problem, "never delivered") {
+		t.Fatalf("a pass whose unshown entries are standing waits did not end complete: %+v", recorded[0])
+	}
+
+	// The waits run out: every one of them is a question again, and the pass
+	// is held open until it has shown them.
+	clock.at = clock.at.Add(3 * time.Hour)
+	next := &docketPassRole{}
+	trigger.Roles = next
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(next.messages) < 2 {
+		t.Fatalf("turns = %d, want the lapsed waits delivered across further turns", len(next.messages))
+	}
+	recorded, _, err = trigger.Reports.List()
+	if err != nil || len(recorded) != 2 || len(recorded[1].Docket.Undelivered) != 0 || recorded[1].Docket.Delivered != 30 {
+		t.Fatalf("the lapsed waits were not all delivered: %+v, %v", recorded, err)
+	}
+}
+
 type docketThatBecomesUnreadable struct {
 	source interface {
 		Build() (orchestrator.DocketBuild, error)
