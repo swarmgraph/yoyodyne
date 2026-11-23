@@ -981,6 +981,12 @@ func phasesDeclaredInRunstate(t *testing.T) []runstate.Phase {
 // fails the test, so the next person has to make the same judgement out loud
 // instead of the question never being asked.
 var notAStep = map[string]string{
+	// Developers starting on the cheaper model (cheaperfirst.go): the move to
+	// the stronger model only changes which model the repair that follows asks
+	// for, and the first review's decision is noted on the run's record; both
+	// are part of the step beside them and decide nothing of their own.
+	"moveToStronger":  "part of the repair it precedes: changes which model that repair asks for and records why",
+	"noteFirstReview": "part of the review step: notes the first review's decision on the run's record for the model trial",
 	// Removing the run's scratch directory from the state directory is part of
 	// the clean-up step that removed its worktree (cleanUp), not a step of its
 	// own: it follows that removal and decides nothing.

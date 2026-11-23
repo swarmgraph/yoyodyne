@@ -107,6 +107,8 @@ recorded as `tool.requested` then `tool.performed` or `tool.refused`) →
 `performRunReads` / `performHealthReads` (`tool.go`, `runinspect.go`,
 `health.go`) → `recordEvaluation` →
 `performMemoryWrites` → `writeLaneReport` → `performRestartRequest` →
+`performLandedDefect` (`landeddefect.go`: the development manager's record of
+a defect after landing on a run of the cheaper-model trial) →
 `conductAsk` (`exchange.go`). Whatever came back is carried into the next
 turn's prompt; the loop ends when a round asks for nothing more, or when
 `budget.Decide` (`internal/budget`) refuses the next turn. `takeTurn` requires

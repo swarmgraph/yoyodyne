@@ -588,6 +588,11 @@ func (a *activeRun) applyDeveloperEndpoint(choice runstate.EndpointChoice, endpo
 	a.state.AccountAlias = endpoint.AccountAlias
 	a.state.DeveloperModel = requestedModel(endpoint)
 	a.state.DeveloperModelReason = fmt.Sprintf("the %s endpoint of developer slot %d", choice, a.state.RecordedSlot())
+	// The slot's endpoint names the model, so a run that was settled to start
+	// cheaper or stronger takes no part in that trial (cheaperfirst.go).
+	if a.state.CheaperFirst != nil && a.state.CheaperFirst.Move == nil {
+		a.state.CheaperFirst = nil
+	}
 	a.state.ProviderEffort = endpoint.Effort
 	a.state.ProviderEffortDescription = a.pipeline.Config.DescribeInvocationEffort(config.AgentConfig{Backend: endpoint.Provider}, endpoint.Effort, "", false)
 	a.state.EffortSettled = true

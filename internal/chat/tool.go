@@ -144,6 +144,9 @@ func (s *Session) refuseToolBlocks(answer string, parsed parsedReply, alreadyPer
 	if parsed.Restart != nil {
 		add(capability.ServiceRequestRestart, 1)
 	}
+	if parsed.LandedDefect != nil {
+		add(capability.RunRecordLandedDefect, 1)
+	}
 	if parsed.PassRequest != nil {
 		add(capability.PassRequest, 1)
 	}

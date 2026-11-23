@@ -320,6 +320,12 @@ const (
 	// itself: the scheduler is what wakes the instance, and the harness the only
 	// invoker.
 	PassRequest Capability = "pass.request"
+	// RunRecordLandedDefect is recording, on one run whose change landed, a
+	// defect traced to that change afterwards. It is the development manager's,
+	// for the trial of starting developers on the cheaper model: a defect on a
+	// run that started cheaper stops the trial at once. It writes one narrow
+	// update to the run's record and changes no work.
+	RunRecordLandedDefect Capability = "run.record-landed-defect"
 	// MCPRead and MCPAct are asking the harness to make an MCP call: MCPRead a
 	// call to a tool the project marks read, which changes nothing outside the
 	// harness, and MCPAct one to a tool it marks act, which may. They are two
@@ -389,6 +395,7 @@ var declared = []Capability{
 	AmendmentDecide,
 	ServiceRequestRestart,
 	PassRequest,
+	RunRecordLandedDefect,
 	MCPRead,
 	MCPAct,
 }

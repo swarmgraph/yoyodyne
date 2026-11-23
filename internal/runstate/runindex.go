@@ -58,8 +58,8 @@ const (
 	// in any other format is rebuilt from the records rather than trusted. Format
 	// 3 added the TeamMerge flag: an older index never flagged the runs waiting
 	// for the team's merge, so it would name none of them. Format 4 added the
-	// KeptCheckout flag for the same reason.
-	runIndexVersion = 4
+	// KeptCheckout flag for the same reason, and format 5 the CheaperFirst flag.
+	runIndexVersion = 5
 	runIndexName    = ".run-index.json"
 	runIndexLock    = ".run-index.lock"
 	// maxEncodedRunIndexBytes bounds what reading the index will take in. An
@@ -94,6 +94,10 @@ type runIndexEntry struct {
 	// changes over the run's life. Format 1 did not hold it, which is why the
 	// format moved on: an index without it would name none of a document's runs.
 	Document string `json:"document,omitempty"`
+	// CheaperFirst is a run that took part in the trial of starting developers
+	// on the cheaper model (State.CheaperFirst), which a new eligible run reads
+	// to find its place in the trial. Format 4 did not hold it.
+	CheaperFirst bool `json:"cheaper_first,omitempty"`
 }
 
 func runIndexEntryOf(state State) runIndexEntry {
@@ -108,6 +112,7 @@ func runIndexEntryOf(state State) runIndexEntry {
 		TeamMerge:    state.WaitingForTeamMerge(),
 		KeptCheckout: state.KeptCheckout != "",
 		Document:     documentOf(state),
+		CheaperFirst: state.CheaperFirst != nil,
 	}
 }
 
@@ -129,7 +134,8 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 		(e.Outstanding || !next.Outstanding) &&
 		(e.PersonMerge || !next.PersonMerge) &&
 		(e.TeamMerge || !next.TeamMerge) &&
-		(e.KeptCheckout || !next.KeptCheckout)
+		(e.KeptCheckout || !next.KeptCheckout) &&
+		(e.CheaperFirst || !next.CheaperFirst)
 }
 
 // widened is next, still naming the run for every question e did.
@@ -139,6 +145,7 @@ func (e runIndexEntry) widened(next runIndexEntry) runIndexEntry {
 	next.PersonMerge = next.PersonMerge || e.PersonMerge
 	next.TeamMerge = next.TeamMerge || e.TeamMerge
 	next.KeptCheckout = next.KeptCheckout || e.KeptCheckout
+	next.CheaperFirst = next.CheaperFirst || e.CheaperFirst
 	return next
 }
 
