@@ -65,7 +65,7 @@ export GOFLAGS
 # outgrows it is a package to split.
 TEST_TIMEOUT ?= 43m
 
-.PHONY: build test race vet test-macos fmt fmtcheck cachecheck check doccheck getting-started adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
+.PHONY: build test race race-macos vet test-macos fmt fmtcheck cachecheck check doccheck getting-started adoption validate-machine-home codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
 
 # Every Go command below writes what it compiles to the build cache before it
@@ -309,6 +309,28 @@ test-macos: cachecheck
 	$(GO) test -timeout $(TEST_TIMEOUT) -run TestTheOperatingSystemProbeTriesTheConnectionUnderTheDeveloperSandbox ./internal/beads || exit 1; \
 	$(GO) test -timeout $(TEST_TIMEOUT) -run TestAServerOnAPortTheSystemChoosesAnswersUnderADevelopersSettings ./internal/backend/claudecode
 
+# The race detector over exactly the packages MACOS_TEST_PACKAGES lists, meant
+# for the checks on main once the project configuration names it there. GitHub's
+# required race job runs the whole race check on Linux for every commit that
+# lands and every push to main, so what only a check on this machine can add is
+# the code built only on macOS. The architect's ruling is race point 4 of
+# docs/designs/one-owner-for-each-guarantee.md. On any other system there is
+# nothing here that CI does not already run, and it says so and passes. A run
+# told YOYODYNE_FAILING_TESTS runs only those, through the same
+# scripts/rerun-failing.sh `make race` uses. internal/composition fails if the
+# packages this runs stop being MACOS_TEST_PACKAGES.
+race-macos: cachecheck
+	@if [ "$$(uname -s)" != Darwin ]; then \
+		echo "race-macos: this is not macOS, so there is no code built only on macOS to run the race detector over here"; \
+		exit 0; \
+	fi; \
+	if [ -n "$$YOYODYNE_FAILING_TESTS" ]; then \
+		sh scripts/rerun-failing.sh '$(GO)' '$(TEST_TIMEOUT)' -race; \
+		exit; \
+	fi; \
+	echo "$(GO) test -race -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES)"; \
+	$(GO) test -race -timeout $(TEST_TIMEOUT) $(MACOS_TEST_PACKAGES)
+
 vet: cachecheck
 	$(GO) vet ./...
 
@@ -371,7 +393,7 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/chat='^(TestHealthRulesAreInLivePersonasTemplatesAndBuiltPrompts|TestTheOperatorsGuidesNameTheReasonsTheResolverAccepts|TestADecodedLaneReportAndDigestCarryCorrectionsToTheirPass|TestAnInteractiveConversationFlagsADigestAsSoonAsItIsFiled|TestConversationPostMortemsAreFlaggedWhetherStreamedOrHeld|TestStreamingFlagsTheWordsShownBeforeATurnIsCutOff|TestTheConversationReportsListingFlagsADigestsWords|TestTheReleaseNotesReadTheAdmissionsThisPackageWrites)$$' \
 	./internal/checks='^(TestTheGettingStartedWalksListCoversTheReadmeAndTheProgram)$$' \
 	./internal/cli='^(TestAFailedOneShotTurnStillFlagsItsCollectedDigest|TestAOneShotConversationFlagsADigestAsSoonAsItIsFiled|TestAReleasesNotesSayWhatLanded|TestChatResolvesTheConfiguredProductManager|TestEveryConversationOpensThroughTheCallThatCarriesTheDefinitionsToolSet|TestEveryHarnessOpeningIsWrittenByTheHarness|TestEveryReaderOfAgentsLoadsThroughTheActivationRecord|TestNothingOpensTheStateRootUnguarded|TestPipelineGivesChecksTheConfiguredBudget|TestPipelineIsWiredToLandAndToFileARedLanding|TestRepositoryConfigurationEnforcesAutomaticIntegration|TestTheAccountScriptRefusesWithoutAYoyoToAsk|TestTheProductionWiringKeepsWhatEveryDeveloperAndReviewerInvocationIsSent|TestTheAccountScriptSignsInWhereTheHarnessReadsTheAccount|TestTheChecksNarrowOnlyToWhatTheChangeCanReach|TestTheRaceCheckRunOnceMoreRunsOnlyTheFailingTests|TestTheRaceCheckRunsEveryOrchestratorTestOnceWhenSplit|TestTheRaceCheckSkipsOnlyChangesThatCannotReachGo|TestTheReleaseVerbExcusesOnlyExportsARunAllows|TestTheReleaseVerbRefusesWhatItShould|TestTheReleaseWorkflowPublishesTheCuratedNotesAlone|TestTheReportsCommandFlagsWordsInADigestAndItsHandling|TestTheSetupSkillExampleIsAReportThisBuildCouldHaveProduced|TestTheSetupSkillIsWrittenAgainstTheSchemaThisBuildEmits|TestTheSetupSkillNamesEveryFieldOfTheReportsItActsOn|TestTheSweepListingFlagsTheSummaryQuestionsAndFindings|TestThisRepositoryOwnOperatorsBindTheirNamespaces|TestThisRepositorySlackAllowListDerivesFromItsGrants)$$' \
-	./internal/composition='^(TestEveryShellFileInThisRepositoryParses|TestEveryStructuredFileInThisRepositoryDecodes|TestEveryTestThatReadsThisCheckoutIsAmongTheDocumentTests|TestEveryTestTheDoccheckTargetNamesExists|TestEveryTestTheDocumentTestsNameExists|TestEveryWorkflowInThisRepositoryIsShapedLikeOne|TestEveryWorkflowInThisRepositoryPinsWhatItInstalls|TestFmtcheck|TestTheGettingStartedWalkthroughRefusesAScratchRootInsideARepository|TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter|TestTheCodexResumeTargetSaysWhenItCouldNotRun|TestTheDoccheckTargetRunsEveryEntryAndFailsIfAnyFails|TestTheDocumentChecksAreTheDoccheckTarget|TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing|TestTheSessionInstructionFilesAreOneFile|TestTheSessionInstructionsCarryNoGeneratedTrackerSection|TestTheSessionInstructionsSayWhoseTheyAre)$$' \
+	./internal/composition='^(TestEveryShellFileInThisRepositoryParses|TestEveryStructuredFileInThisRepositoryDecodes|TestEveryTestThatReadsThisCheckoutIsAmongTheDocumentTests|TestEveryTestTheDoccheckTargetNamesExists|TestEveryTestTheDocumentTestsNameExists|TestEveryWorkflowInThisRepositoryIsShapedLikeOne|TestEveryWorkflowInThisRepositoryPinsWhatItInstalls|TestFmtcheck|TestTheGettingStartedWalkthroughRefusesAScratchRootInsideARepository|TestTheMacOSRaceCheckRunOnceMoreRunsOnlyTheFailingTests|TestTheMacOSRaceCheckRunsExactlyTheMacOSTestPackages|TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter|TestTheCodexResumeTargetSaysWhenItCouldNotRun|TestTheDoccheckTargetRunsEveryEntryAndFailsIfAnyFails|TestTheDocumentChecksAreTheDoccheckTarget|TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing|TestTheSessionInstructionFilesAreOneFile|TestTheSessionInstructionsCarryNoGeneratedTrackerSection|TestTheSessionInstructionsSayWhoseTheyAre)$$' \
 	./internal/config='^(TestEveryPersonaNamesTheReasonsTheResolverAccepts|TestNothingButTheMigrationNamesTheEarlierConfigurationsHome|TestNothingOnTheLaunchOrInstructionPathReadsTheMCPConfiguration|TestNothingOnTheLaunchRecordOrSurfacePathReadsTheIntakeSection|TestPersonasAndPassPromptsApplyStandingGoals|TestPersonasThatAskTheOperatorAskOneDecisionAndOfferDiscussion|TestPersonasPassPromptsAndRemitWriteForAPerson|TestRemitsApplyStandingGoals|TestReviewerPersonaJudgesEveryChangeAgainstStandingGoals|TestSchemaKeysReadEveryKeyTheTemplateAndThisProjectWrite|TestTheBatchWorkedExampleLoadsThroughOrdinaryConfigurationLoading|TestTheMCPWorkedExampleLoadsIntoAnInitProject|TestThisProjectsArchitectPassUsesPriorityThenAgeEvery45Minutes|TestThisProjectsGoChecksNameTheirFailingTestsWithTheirFiles|TestThisRepositorysPersonasCarryEveryTemplatePassage)$$' \
 	./internal/cost/costevent='^(TestOnlyThisPackageDecodesACostEvent)$$' \
 	./internal/contextbundle='^(TestTheHarnessRecognizesThisRepository)$$' \

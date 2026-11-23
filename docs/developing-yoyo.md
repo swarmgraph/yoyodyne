@@ -96,6 +96,17 @@ This repository turns on `execution.ci_checks`, so a run's short local check is
 required checks cover the rest; CI runs on Ubuntu and cannot stand in for these.
 Off macOS it says so and passes.
 
+`make race-macos` runs the race detector over exactly the packages
+`make test-macos` runs whole, the Makefile's `MACOS_TEST_PACKAGES`. It is meant
+for the checks on main, which run it only once `.yoyodyne/config.yaml` names it
+there: GitHub's required race job already runs the whole `make race` on Ubuntu
+for every commit that lands, so what only this machine can add is the race
+detector over the code built only on macOS (race point 4 of
+[one owner for each guarantee](designs/one-owner-for-each-guarantee.md)).
+Off macOS it says so and passes, and told `YOYODYNE_FAILING_TESTS` it runs only
+those tests, as `make race` does. A test in `internal/composition` fails if its
+packages stop being that list.
+
 `make getting-started` is deliberately not one of the declared checks. It runs
 [`scripts/walk-getting-started.sh`](../scripts/walk-getting-started.sh), which
 executes the
