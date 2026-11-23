@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // landingRepository is a checkout with the recommended artifact layout and one
@@ -648,6 +649,70 @@ func TestALandedItemWaitingOnUnfinishedWorkIsNotWrittenUntilItCanClose(t *testin
 			sweep, err := lander.Settle(context.Background(), []backlog.Entry{entry}, items)
 			if err != nil || len(sweep.Landed) != 1 || len(tracker.Closed) != 1 {
 				t.Fatalf("Settle() after the blocker closed = %#v, %v, closed %v; want the item closed", sweep, err, tracker.Closed)
+			}
+		})
+	}
+}
+
+// An item parked because its run landed evidence stays open through the sweep
+// that closes conversation-carried items: a revision opening with its identifier
+// does not show that what the parking waits for is met. Nothing is written to it,
+// at any pull, and the pass names it with what it is parked for. Any other
+// parking holds it the same way, and a release lets the next pull close it.
+func TestAParkedItemIsNotClosedByTheLandingSweep(t *testing.T) {
+	t.Parallel()
+
+	evidence := undischargedParking(runstate.State{
+		RunID: "run-4aff5070", LandingOutcome: runstate.LandingEvidence,
+		LandingReason: "completion awaits dated evidence that the running scheduler adopted the cadence",
+	})
+	if !evidence.Parked() {
+		t.Fatal("a run that landed evidence parked nothing, so this test would show nothing")
+	}
+	for _, shape := range []struct {
+		name  string
+		entry domain.WorkItemParking
+		item  domain.WorkItemParking
+		want  string
+	}{
+		{name: "the queue carries a run's evidence parking", entry: evidence, item: evidence, want: "adopted the cadence"},
+		{name: "only the tracker's reading carries it", item: evidence, want: "adopted the cadence"},
+		{name: "a role parked it", entry: "waiting for the operator's account", want: "waiting for the operator's account"},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			t.Parallel()
+			tracker := &orchestratortest.LandingTracker{}
+			lander := ConversationLander{Tracker: tracker, Repository: landingRepository(t), Product: landingProduct()}
+			entry := architectEntry("yoyodyne-ifd.330")
+			entry.Parking = shape.entry
+			items := itemsFor([]backlog.Entry{entry})
+			item := items[entry.ID]
+			item.Parking = shape.item
+			items[entry.ID] = item
+
+			for pull := 0; pull < 2; pull++ {
+				sweep, err := lander.Settle(context.Background(), []backlog.Entry{entry}, items)
+				if err != nil {
+					t.Fatalf("Settle() error = %v", err)
+				}
+				if len(sweep.Landed) != 0 || len(sweep.Problems) != 1 {
+					t.Fatalf("Settle() = %#v, want the parked item left open and named", sweep)
+				}
+				for _, want := range []string{"yoyodyne-ifd.330", "it is parked", shape.want} {
+					if !strings.Contains(sweep.Problems[0], want) {
+						t.Fatalf("problem %q does not say %q", sweep.Problems[0], want)
+					}
+				}
+			}
+			if len(tracker.Closed) != 0 || len(tracker.Landings) != 0 || len(tracker.Notes) != 0 {
+				t.Fatalf("the sweep wrote to a parked item: closed %v, landings %v, notes %v", tracker.Closed, tracker.Landings, tracker.Notes)
+			}
+
+			entry.Parking, item.Parking = "", ""
+			items[entry.ID] = item
+			sweep, err := lander.Settle(context.Background(), []backlog.Entry{entry}, items)
+			if err != nil || len(sweep.Landed) != 1 || len(tracker.Closed) != 1 {
+				t.Fatalf("Settle() after the release = %#v, %v, closed %v; want the item closed", sweep, err, tracker.Closed)
 			}
 		})
 	}
