@@ -201,6 +201,13 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			Since: moment.Add(-time.Hour), ResetsAt: &capacity.ResetsAt, Remedy: waitingRunRemedy,
 		}}}.Attention()[0],
 			"the run run-parked for yoyodyne-ifd.150 is waiting on an exhausted usage limit, since 2026-08-30T11:00:00Z; it resets at 2026-08-30T13:00:00Z"},
+		AttentionMergeQueueOverdue: {queueOverdueAttention(QueueEntryOverdue{
+			TargetBranch: "main", EntryID: "mqe-17", Order: 17, Place: 1, WorkItemID: "yoyodyne-ifd.428.126.6.5", Title: "Stop the local race check",
+			Step: "waiting for GitHub to merge pull request 1697", Since: moment.Add(-3 * time.Hour), BoundSeconds: 7200,
+			WaitingOn: "GitHub merging it",
+		}),
+			"merge queue entry 17 for main (place 1, yoyodyne-ifd.428.126.6.5 Stop the local race check) has been waiting for GitHub to merge pull request 1697 since " +
+				localMoment(moment.Add(-3*time.Hour)) + ", past the 2 hours a step may take before it is a problem; every change behind it waits; it is waiting on GitHub merging it"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,

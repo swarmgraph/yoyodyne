@@ -7809,9 +7809,30 @@ queue confirmed on the target reads as landed: an approval, or a candidate that
 passed its gate, never does, and a merge asked of the target or the forge whose
 outcome nothing has established reads as uncertain.
 
-`execution.merge_queue` is a configuration key, so a running part of the product
-on a build from before it refuses a file that carries it; restart the product
-after upgrading and before turning it on.
+Each entry the queue has not finished with also says what the queue is doing
+with it now — which check is running, its review, landing, waiting on GitHub —
+and the time that step began. One step may run for a bounded time before the
+entry is shown as a problem for the development manager to move:
+
+```yaml
+execution:
+  merge_queue_step_overdue_after: 2h   # the default
+```
+
+Past it, the entry is on the attention line, in the problems list, and in the
+factory health check as a `merge-queue-overdue` entry naming what it waits on.
+A merge GitHub holds whose required checks all ended with one not passing,
+cancelled included, is shown so at once, whatever the bound, because GitHub
+will not make it by itself. Only the entry the queue is working, or the head of
+the queue waiting for its candidate, is judged: the changes behind it wait on
+it. Zero takes the default, and a negative value is refused. The key decides
+only when an entry is said to be stuck; the queue does exactly what it did
+before.
+
+`execution.merge_queue` and `execution.merge_queue_step_overdue_after` are
+configuration keys, so a running part of the product on a build from before
+either refuses a file that carries it; restart the product after upgrading and
+before setting them.
 
 ## How long one role may ask another
 
@@ -9511,6 +9532,8 @@ These are all errors, reported before any work is claimed:
   fixes waiting in a build nobody runs;
 - an `execution.factory_stall_after` that is negative, which describes no
   limit anybody could mean; zero reads the two-hour default;
+- an `execution.merge_queue_step_overdue_after` that is negative, which
+  describes no bound anybody could mean; zero reads the two-hour default;
 - an `execution.could_not_run_before_status` that is negative, which describes
   no number of changes; zero reads the default of three;
 - an `execution.usage_window_degraded_percent` that is negative or over 100,
