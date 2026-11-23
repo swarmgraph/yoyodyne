@@ -546,7 +546,13 @@ agents:
   factory-flow-pm:
     role: program-manager
     backend: claude-code
-    model: opus
+    # Sonnet for a one-week trial, at the operator's direction of 2026-11-22
+    # ("Do both of those": the trial's switch goes by the operator's fast path).
+    # yoyodyne-ifd.435.87, cost design piece 7: the development manager compares
+    # the week with the one before and recommends whether it stays or returns to
+    # opus. A program manager's triggers take no model of their own yet
+    # (yoyodyne-ifd.434.55), so this serves every turn the agent takes.
+    model: sonnet
     effort: medium
     instances: 1
     persona:
