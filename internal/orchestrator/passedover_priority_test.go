@@ -180,7 +180,7 @@ func TestAPriorityZeroItemPassedOverOnItsProseNamesTheSentenceItRead(t *testing.
 			reason = deferred.Reason
 		}
 	}
-	for _, want := range []string{sentence, "its description says of it"} {
+	for _, want := range []string{sentence, "its description says \""} {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("passed-over reason = %q, want it to contain %q", reason, want)
 		}

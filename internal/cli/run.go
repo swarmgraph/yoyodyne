@@ -984,6 +984,10 @@ func docketerFrom(parts components) *orchestrator.Docketer {
 		Reports:      parts.reports,
 		RepositoryID: string(parts.config.Product.RepositoryID),
 		Harness:      buildinfo.Commit(),
+		// The items held for what their text said, read again whenever the
+		// docket is built for the development manager to read, so a hold whose
+		// words are gone is not listed to her while it waits for a pull.
+		Unready: docketUnready{tracker: parts.tracker(), repository: parts.repository},
 	}
 }
 

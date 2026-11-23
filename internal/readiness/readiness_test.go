@@ -454,3 +454,180 @@ func TestAPackageNamedOnlyInACommentIsNotTheTrees(t *testing.T) {
 		t.Fatalf("want the package launch declared, got %+v", declared)
 	}
 }
+
+// The October 28 case (report-a3a26107). The run-record save check
+// (yoyodyne-ifd.428.126.1.1) said a listed save stays on its list until the
+// versioned save exists, and that a later item, yoyodyne-ifd.428.116, removes
+// it. The check read the "until the ... exists" phrasing as a missing
+// prerequisite. The sentence is about later work, and the tracker records the
+// opposite wait: yoyodyne-ifd.428.116 waits on this item. Neither reading may
+// hold the item.
+func TestASentenceAboutLaterWorkDoesNotHoldTheItem(t *testing.T) {
+	repository := tree(t, nil)
+	item := beads.WorkItem{
+		ID: "yoyodyne-ifd.428.126.1.1",
+		Description: "Each site must appear on an allow-list kept in the test. The lease holder's whole save is " +
+			"listed like any other site until the versioned save exists (yoyodyne-ifd.428.116 removes that entry " +
+			"later, when it builds the versioned save). This piece builds nothing for that.",
+	}
+
+	if unmet := check(t, item, repository); len(unmet) != 0 {
+		t.Fatalf("want a sentence about later work not held, got %v: %+v", kindsOf(unmet), unmet)
+	}
+
+	for _, sentence := range []string{
+		"The save stays listed until the versioned save exists; a follow-up item removes it.",
+		"Gated on nothing here: the run-record fix, which waits on this item, removes the entry until the versioned save exists.",
+		"The entry stays until the versioned save exists, and the fix that removes it depends on this.",
+		"It does not start the versioned save work, which will build on this one.",
+	} {
+		if unmet := check(t, beads.WorkItem{ID: "yoyodyne-x", Description: sentence}, repository); len(unmet) != 0 {
+			t.Errorf("%q: want later work not held, got %+v", sentence, unmet)
+		}
+	}
+}
+
+// The same sentence with nothing in its words saying the work comes later. The
+// tracker is what says it: yoyodyne-ifd.428.116 is recorded as waiting on this
+// item, so the sentence cannot name a prerequisite of it, and recording one
+// would make the two items wait on each other for ever. Without that record the
+// sentence is held, and then the refusal names the item it waits on rather than
+// suggesting the reverse.
+func TestASentenceNamingAnItemThatWaitsOnThisOneDoesNotHoldIt(t *testing.T) {
+	repository := tree(t, nil)
+	item := beads.WorkItem{
+		ID:          "yoyodyne-ifd.428.126.1.1",
+		Description: "The lease holder's save is listed until the versioned save exists (yoyodyne-ifd.428.116).",
+		Dependencies: []beads.Dependency{{
+			IssueID: "yoyodyne-ifd.428.126.1.1", ID: "yoyodyne-ifd.428.126.1", Type: "parent-child",
+		}},
+	}
+	waiter := beads.WorkItem{ID: "yoyodyne-ifd.428.116", Dependencies: []beads.Dependency{
+		{IssueID: "yoyodyne-ifd.428.116", ID: "yoyodyne-ifd.428.126.1.1", Type: beads.BlocksDependency},
+		{IssueID: "yoyodyne-ifd.428.116", ID: "yoyodyne-ifd.428.126", Type: "parent-child"},
+	}}
+	related := func(id string) (beads.WorkItem, bool) {
+		if id == waiter.ID {
+			return waiter, true
+		}
+		return beads.WorkItem{}, false
+	}
+
+	reading, err := ReadWith(item, repository, related)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(reading.Unmet) != 0 {
+		t.Fatalf("want nothing held for an item recorded as waiting on this one, got %+v", reading.Unmet)
+	}
+
+	// The parent link is decomposition, not a wait: an item whose parent is the
+	// one its sentence names is not let through on that account.
+	child := beads.WorkItem{ID: "yoyodyne-ifd.428.126.1.1", Description: "Blocked until yoyodyne-ifd.428.126.1 exists.",
+		Dependencies: item.Dependencies}
+	if unmet := check(t, child, repository); len(unmet) != 1 {
+		t.Fatalf("want a parent link not read as a wait, got %+v", unmet)
+	}
+
+	unmet := check(t, item, repository)
+	if len(unmet) != 1 {
+		t.Fatalf("want the sentence held where the tracker records nothing about it, got %+v", unmet)
+	}
+	if !strings.Contains(unmet[0].Decides, "records that this item waits on yoyodyne-ifd.428.116") {
+		t.Errorf("decides = %q, want the dependency the release would record named, in the direction the sentence states", unmet[0].Decides)
+	}
+}
+
+// Waiting, depending, relying, and building on something are later work only
+// where the thing waited on is plainly this item. Where "it" or "this" with
+// another noun names the prerequisite, the sentence states a real wait and is
+// still held.
+func TestASentenceSayingThisItemWaitsOnSomethingIsStillHeld(t *testing.T) {
+	repository := tree(t, nil)
+	for _, sentence := range []string{
+		"Blocked until the architect's ruling exists; this item depends on it.",
+		"It does not start until the design lands, since it builds on this design.",
+		"This item relies on this ruling and is blocked until it exists.",
+		"Blocked until the design lands, which this item will build on.",
+		"Gated on the CI check, and this item depends on this check.",
+	} {
+		if unmet := check(t, beads.WorkItem{ID: "yoyodyne-x", Description: sentence}, repository); len(unmet) != 1 {
+			t.Errorf("%q: want the stated wait held, got %+v", sentence, unmet)
+		}
+	}
+}
+
+// An item already recorded as waiting on the item its sentence names is held by
+// the tracker for exactly as long as that wait stands, so the readiness check
+// does not hold it a second time.
+func TestASentenceNamingAWaitTheTrackerRecordsDoesNotHoldItTwice(t *testing.T) {
+	repository := tree(t, nil)
+	item := beads.WorkItem{
+		ID:           "yoyodyne-a1",
+		Description:  "Blocked until yoyodyne-b2 exists.",
+		Dependencies: []beads.Dependency{{ID: "yoyodyne-b2", Type: beads.BlocksDependency}},
+	}
+	if unmet := check(t, item, repository); len(unmet) != 0 {
+		t.Fatalf("want a recorded wait left to the tracker, got %+v", unmet)
+	}
+}
+
+// An item that does say it waits on work nobody has built is still held, and
+// the refusal quotes the whole sentence it read, in ordinary words, including
+// the work item identifier a full stop inside it used to cut off.
+func TestAnItemThatStatesItWaitsOnUnbuiltWorkIsStillHeld(t *testing.T) {
+	repository := tree(t, nil)
+	item := beads.WorkItem{
+		ID: "yoyodyne-ifd.428.99.3",
+		Description: "Slice 3 of stopped-run recovery. This item is blocked until the stop record from " +
+			"yoyodyne-ifd.428.99.2 exists. Then it lists each stop.",
+	}
+
+	unmet := check(t, item, repository)
+
+	if len(unmet) != 1 || unmet[0].Kind != KindForbiddenByRuling {
+		t.Fatalf("want the stated wait held, got %+v", unmet)
+	}
+	want := `its description says "This item is blocked until the stop record from yoyodyne-ifd.428.99.2 exists", ` +
+		`which the readiness check read as the item saying it cannot start until that has happened`
+	if unmet[0].Missing != want {
+		t.Errorf("missing = %q\nwant      %q", unmet[0].Missing, want)
+	}
+}
+
+// The October 30 case (report-c3aa1b42). The first slice of stopped-run recovery
+// (yoyodyne-ifd.428.99.2) cited runstate.StopKeptOutOfHold, which
+// internal/runstate/stopcause.go declares. The check searched the source text
+// for the qualified name, and nothing outside the package wrote it: the only
+// qualified calls were to the longer StopKeptOutOfHoldAfter, and the exact name
+// appeared only in tests and comments, which are not read. A name the tree's
+// package declares is met, however few places call it.
+func TestANameDeclaredInItsPackageIsMetWhenNothingCallsItQualified(t *testing.T) {
+	repository := tree(t, map[string]string{
+		"internal/runstate/stopcause.go": "package runstate\n\ntype StopClass string\n\n" +
+			"const StopCheckTimeout StopClass = \"check-timeout\"\n\n" +
+			"var stopCauses = map[StopClass]bool{}\n\n" +
+			"// StopKeptOutOfHold reports whether the hold leaves a stop out.\n" +
+			"func StopKeptOutOfHold(class StopClass) bool { return stopCauses[class] }\n\n" +
+			"func StopKeptOutOfHoldAfter(class StopClass, retries []Retry) bool { return StopKeptOutOfHold(class) }\n\n" +
+			"type Retry struct {\n\tAttempt int\n}\n\n" +
+			"func (r *Retry) Spent() bool { return r.Attempt > 0 }\n",
+		"internal/runstate/stopcause_test.go": "package runstate\n\nvar _ = StopKeptOutOfHold\n",
+		"internal/orchestrator/schedule.go": "package orchestrator\n\nimport \"example/internal/runstate\"\n\n" +
+			"var _ = runstate.StopKeptOutOfHoldAfter(\"\", nil)\n",
+	})
+	item := beads.WorkItem{
+		ID: "yoyodyne-ifd.428.99.2",
+		Description: "The hold on new work (runstate.StopKeptOutOfHold in internal/runstate/stopcause.go) keeps out " +
+			"every cause on that fixed list; runstate.StopCheckTimeout, runstate.Retry.Attempt and runstate.Retry.Spent are where they are.",
+	}
+
+	if unmet := check(t, item, repository); len(unmet) != 0 {
+		t.Fatalf("want names the tree declares met, got %+v", unmet)
+	}
+
+	missing := check(t, beads.WorkItem{ID: "x", Description: "runstate.StopKeptOutOfHolds is gone."}, repository)
+	if len(missing) != 1 || missing[0].Kind != KindStalePinpoint {
+		t.Fatalf("want a name the package does not declare still held, got %+v", missing)
+	}
+}

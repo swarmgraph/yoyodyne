@@ -33,8 +33,13 @@
 //     is gated is one the queue reads as ready forever. What clears this is a
 //     person: the product manager amending the item, or the development manager
 //     recording the dependency the sentence names. The reading is taken from the
-//     item as the tracker holds it at each pull and remembered nowhere, so a
-//     sentence that has been removed stops refusing at the next pull.
+//     item as the tracker holds it at each pull, and again each time the docket
+//     that holds it is listed to the development manager, and is remembered
+//     nowhere, so a sentence that has been removed stops refusing at whichever
+//     of the two comes first. A sentence that describes work coming after this
+//     item — a later item, work that will build on this one, or an item the
+//     tracker records as waiting on this one — is not a prerequisite, and is not
+//     read as one (laterWork).
 //
 // Nothing here refuses anything, and nothing here is enforcement. It reports
 // what one item's own statement asks of the tree, and the caller decides. That
@@ -303,11 +308,23 @@ func Check(item beads.WorkItem, tree Tree) ([]Unmet, error) {
 // language this cannot read is neither: it is Unchecked, and is not an error,
 // because nothing failed — the reading was never one this could make.
 func Read(item beads.WorkItem, tree Tree) (Reading, error) {
+	return ReadWith(item, tree, nil)
+}
+
+// Related looks up another work item by its identifier, as the tracker holds it,
+// and reports whether it has it. It is how a sentence naming another item is
+// read against what the tracker records between the two; see laterWork.
+type Related func(workItemID string) (beads.WorkItem, bool)
+
+// ReadWith is Read with the other items the tracker holds, so that a sentence
+// naming one of them can be read against the dependency the tracker records
+// between the two. Nil related reads every sentence on its own words alone.
+func ReadWith(item beads.WorkItem, tree Tree, related Related) (Reading, error) {
 	if tree == nil {
 		return Reading{}, errors.New("checking an item's prerequisites requires the tree to check them against")
 	}
 	unmet, unchecked, problems := stalePinpoints(Statement(item), tree)
-	unmet = append(unmet, statedPreconditions(item)...)
+	unmet = append(unmet, statedPreconditions(item, related)...)
 	if len(unmet) > maxUnmet {
 		unmet = unmet[:maxUnmet]
 	}
@@ -514,14 +531,52 @@ var statedPatterns = []stated{
 	{KindSubjectNotInRepository, regexp.MustCompile(`(?i)\b(?:this item|it) does not start\b`)},
 }
 
+// laterWorkPattern is the wording with which a sentence says that what it names
+// comes after this item rather than before it: work a later item does, work that
+// will build on this one, or an item that waits on this one. A sentence carrying
+// it is describing what follows, and is not read as a prerequisite even where one
+// of the phrasings above matched inside it. The October 28 case is the reason:
+// "listed like any other site until the versioned save exists" matched the
+// "until the ... exists" phrasing, while the rest of the sentence said a later
+// item would remove that entry, and that later item waited on this one.
+//
+// "later" counts except as "the later", which names something by its position
+// ("blocked until the later design exists") rather than saying it comes after.
+//
+// Waiting on, depending on, relying on, and building on count only where what is
+// waited on is plainly this item: "this item", "this one", "this piece", "this
+// slice", "this change", or a bare "this" closing the clause. "It" and "this"
+// followed by any other noun usually name the prerequisite instead — "this item
+// depends on it", "since it builds on this design" — and a sentence saying that
+// is a wait, so it is still held.
+var laterWorkPattern = regexp.MustCompile(`(?i)\bafterwards\b|\bfollow-?up\b|\b(?:wait(?:s|ing)?|depend(?:s|ing)?|build(?:s|ing)?|rel(?:y|ies|ying)) on this(?: (?:item|one|piece|slice|change)\b|\s*(?:[.,;:)]|$))|\bwill build on this (?:item|one|piece|slice|change)\b`)
+
+// laterWord finds "later" as a word. Go's regular expressions cannot look behind
+// a match, so the "the later" exception is checked in saysLater.
+var laterWord = regexp.MustCompile(`(?i)\blater\b`)
+
+// saysLater reports the sentence saying in words that what it names comes after
+// this item.
+func saysLater(sentence string) bool {
+	if laterWorkPattern.MatchString(sentence) {
+		return true
+	}
+	for _, at := range laterWord.FindAllStringIndex(sentence, -1) {
+		if !strings.HasSuffix(strings.ToLower(sentence[:at[0]]), "the ") {
+			return true
+		}
+	}
+	return false
+}
+
 // statedPreconditions reads the sentences in which the item says it cannot be
 // started yet, quoting each one so that what is refused is the item's own words
 // rather than this package's paraphrase of them.
 //
 // Overlapping matches are collapsed to the first, because two phrasings inside
-// one clause are one gate said twice: "blocked until the architect's answer
-// exists" is matched by two of the patterns above, and reporting it twice would
-// make one sentence look like two things to settle.
+// one sentence are one prerequisite said twice: "blocked until the architect's
+// answer exists" is matched by two of the patterns above, and reporting it twice
+// would make one sentence look like two things to settle.
 //
 // Each field is read on its own, and the refusal names the field the sentence
 // is in. yoyodyne-ifd.298 is why: its product manager removed the sentence from
@@ -529,16 +584,19 @@ var statedPatterns = []stated{
 // itself" has to go looking for which copy is left when one is. A sentence in a
 // field her update cannot rewrite says that as well, because amending the item
 // is then not something she can do from her own conversation.
-func statedPreconditions(item beads.WorkItem) []Unmet {
+//
+// A sentence is not read as a prerequisite where it describes later work rather
+// than earlier work: see laterWork.
+func statedPreconditions(item beads.WorkItem, related Related) []Unmet {
 	var unmet []Unmet
 	for _, field := range authored(item) {
-		unmet = append(unmet, statedIn(field)...)
+		unmet = append(unmet, statedIn(item, field, related)...)
 	}
 	return unmet
 }
 
 // statedIn is the sentences one authored field states about the item.
-func statedIn(field authoredField) []Unmet {
+func statedIn(item beads.WorkItem, field authoredField, related Related) []Unmet {
 	type found struct {
 		at   int
 		kind Kind
@@ -562,29 +620,157 @@ func statedIn(field authoredField) []Unmet {
 		if one.at < past {
 			continue
 		}
-		clause := clauseAt(field.text, one.at)
-		past = one.at + len(clause)
+		start, end := sentenceAround(field.text, one.at)
+		past = end
+		sentence := strings.TrimSpace(field.text[start:end])
+		named := namedItems(sentence, item.ID)
+		if laterWork(item, sentence, named, related) {
+			continue
+		}
 		unmet = append(unmet, Unmet{
-			Kind:     one.kind,
-			Missing:  fmt.Sprintf("%s says of it: %q", where, singleLine(clause, maxClauseBytes)),
-			Evidence: fmt.Sprintf("the sentence is in the item's %s as the tracker holds it at this pull, and nothing in the tracker records it as a dependency", field.name),
-			Decides:  sequencer,
+			Kind: one.kind,
+			Missing: fmt.Sprintf("%s says %q, which the readiness check read as the item saying it cannot start until that has happened",
+				where, singleLine(quoted(field.text, start, end, one.at), maxClauseBytes)),
+			Evidence: fmt.Sprintf("the sentence is in the item's %s as the tracker held it when the item was last read, and nothing in the tracker records it as a dependency", field.name),
+			Decides:  decidesFor(named),
 			Field:    field.name,
 		})
 	}
 	return unmet
 }
 
-// clauseAt is the clause beginning at this position: everything up to the
-// sentence or clause that follows it, bounded. The bound is what keeps a
-// paragraph with no full stop in it from becoming the whole of a refusal.
-func clauseAt(statement string, at int) string {
-	rest := statement[at:]
+// laterWork reports a sentence that names what comes after this item rather than
+// what it waits for, so it holds nothing back. Three readings say so, and the
+// last two are the tracker's own record rather than anything read from wording:
+//
+//   - the sentence says so in words (saysLater);
+//   - an item the sentence names is recorded in the tracker as waiting on this
+//     one, so the sentence cannot be a prerequisite of this item, and recording
+//     it as one would make the two items wait on each other for ever;
+//   - this item is already recorded as waiting on an item the sentence names, so
+//     the tracker's dependency graph holds the item back for as long as that
+//     wait stands, and a second account of the same wait here would outlive it.
+//
+// A link between an item and its parent is decomposition, not a wait, and is
+// neither of the last two.
+func laterWork(item beads.WorkItem, sentence string, named []string, related Related) bool {
+	if saysLater(sentence) {
+		return true
+	}
+	for _, other := range named {
+		if waitsOn(item, other) {
+			return true
+		}
+		if related == nil {
+			continue
+		}
+		if mentioned, found := related(other); found && waitsOn(mentioned, item.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+// waitsOn reports the tracker recording that this item waits on the other one:
+// a "blocks" link from it to the other. A link the reading attributes to some
+// third item is not this item's, and is skipped.
+func waitsOn(waiter beads.WorkItem, on string) bool {
+	id := strings.TrimSpace(waiter.ID)
+	for _, dependency := range waiter.Dependencies {
+		if !strings.EqualFold(strings.TrimSpace(dependency.Type), beads.BlocksDependency) {
+			continue
+		}
+		if issue := strings.TrimSpace(dependency.IssueID); issue != "" && issue != id {
+			continue
+		}
+		if strings.TrimSpace(dependency.ID) == on {
+			return true
+		}
+	}
+	return false
+}
+
+// namedItems are the work item identifiers a sentence names, other than the
+// item's own. An identifier is read with the item's own prefix — the part of its
+// identifier before the first hyphen — because that is what every item in one
+// tracker shares, and it keeps an ordinary hyphenated word from being read as
+// one.
+func namedItems(sentence, own string) []string {
+	prefix, _, found := strings.Cut(strings.TrimSpace(own), "-")
+	if !found || prefix == "" {
+		return nil
+	}
+	shape := regexp.MustCompile(`\b` + regexp.QuoteMeta(prefix) + `-[a-z0-9]+(?:\.[0-9]+)*`)
+	var named []string
+	for _, id := range dedupe(shape.FindAllString(sentence, -1)) {
+		if id != own {
+			named = append(named, id)
+		}
+	}
+	return named
+}
+
+// decidesFor is who releases a sentence, naming the item it names where it names
+// one, so the dependency the development manager would record is said rather
+// than left for her to work out. It is said only of a sentence laterWork let
+// stand, which is never one whose named item the tracker records as waiting on
+// this one.
+func decidesFor(named []string) string {
+	if len(named) == 0 {
+		return sequencer
+	}
+	return fmt.Sprintf("the Lead Product Manager, or the development manager who records that this item waits on %s", strings.Join(named, " and "))
+}
+
+// sentenceAround is the sentence the given position is in, as offsets into the
+// text. A sentence ends at a full stop, question mark, or exclamation mark
+// followed by a space or the end of the text, or at a line break. A semicolon
+// does not end it, because the clause after one is so often what says the work
+// comes later ("listed until the versioned save exists; a later item removes it").
+// A full stop followed by anything else is inside the sentence: it is what work
+// item identifiers ("yoyodyne-ifd.428.116"), qualified names, and file names
+// carry, and ending the sentence there is what cut the October 28 quotation off
+// in the middle of the identifier that explained it.
+func sentenceAround(text string, at int) (int, int) {
+	start := 0
+	for index := at - 1; index >= 0; index-- {
+		if endsSentence(text, index) {
+			start = index + 1
+			break
+		}
+	}
+	end := len(text)
+	for index := at; index < len(text); index++ {
+		if endsSentence(text, index) {
+			end = index
+			break
+		}
+	}
+	return start, end
+}
+
+// endsSentence reports the byte at this position ending a sentence.
+func endsSentence(text string, at int) bool {
+	switch text[at] {
+	case '\n':
+		return true
+	case '.', '?', '!':
+		return at+1 >= len(text) || text[at+1] == ' ' || text[at+1] == '\t' || text[at+1] == '\n' || text[at+1] == '\r'
+	}
+	return false
+}
+
+// quoted is the part of a sentence a refusal quotes: the whole sentence where it
+// fits the bound, so whoever reads the refusal sees what was read and why, and
+// otherwise from the matched words on, which are the part that has to be seen.
+func quoted(text string, start, end, at int) string {
+	sentence := strings.TrimSpace(text[start:end])
+	if len(sentence) <= maxClauseBytes {
+		return sentence
+	}
+	rest := text[at:end]
 	if len(rest) > maxClauseBytes*2 {
 		rest = rest[:maxClauseBytes*2]
-	}
-	if end := strings.IndexAny(rest, ".;\n"); end >= 0 {
-		rest = rest[:end]
 	}
 	return strings.TrimSpace(rest)
 }

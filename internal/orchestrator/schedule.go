@@ -576,9 +576,11 @@ type ScheduleTree interface {
 // tried it.
 //
 // And it takes the unready entries off again. An entry is a reading of the item
-// at one pull, and the pull is the only thing that reads the item again, so it
-// is the only thing that can say the reading no longer holds; see
-// Docketer.SettleUnreadyItems.
+// at one pull, and each pull reads the item again, so it can say the reading no
+// longer holds; see Docketer.SettleUnreadyItems. The docket also reads them
+// again each time it is built for the development manager to read, where it is
+// wired to (Docketer.Unready), so a hold whose words are gone does not wait for
+// a free slot to be noticed.
 type ScheduleTriage interface {
 	RecordUnreadyItem(item beads.WorkItem, unmet []readiness.Unmet) (bool, error)
 	SettleUnreadyItems(reread func(workItemID string) UnreadyReading) (int, error)
@@ -9241,11 +9243,16 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 // that an item let through is not taken to have had every citation read. A pull
 // with no tree wired reads nothing and refuses nothing, which is what every pass
 // did before this existed.
-func (p Pull) unready(item beads.WorkItem) ([]readiness.Unmet, string, string) {
+//
+// The items the pull read are handed in so a sentence naming one of them is read
+// against the dependency the tracker records between the two: a sentence naming
+// an item that waits on this one is never a prerequisite of it (see
+// readiness.ReadWith).
+func (p Pull) unready(item beads.WorkItem, items map[string]beads.WorkItem) ([]readiness.Unmet, string, string) {
 	if p.Tree == nil || strings.TrimSpace(item.ID) == "" {
 		return nil, "", ""
 	}
-	reading, err := readiness.Read(item, p.Tree)
+	reading, err := readiness.ReadWith(item, p.Tree, relatedIn(items))
 	var unchecked string
 	if said := readiness.DescribeUnchecked(reading.Unchecked); said != "" {
 		unchecked = fmt.Sprintf("%s cites names the readiness check could not read, so they were %s", item.ID, said)
@@ -9257,6 +9264,18 @@ func (p Pull) unready(item beads.WorkItem) ([]readiness.Unmet, string, string) {
 	// item's three citations answered two of them, and the one it could not is
 	// reported rather than turned into either a refusal or a clean bill.
 	return reading.Unmet, fmt.Sprintf("what %s asks of the tree could not be read in full, so it was judged on what could: %v", item.ID, err), unchecked
+}
+
+// relatedIn is a lookup of the items one reading of the tracker holds, and nil
+// for a reading that holds none.
+func relatedIn(items map[string]beads.WorkItem) readiness.Related {
+	if len(items) == 0 {
+		return nil
+	}
+	return func(workItemID string) (beads.WorkItem, bool) {
+		item, found := items[workItemID]
+		return item, found
+	}
 }
 
 // route puts an item the tree is not ready for on the development manager's
@@ -9286,7 +9305,7 @@ func (p Pull) settleUnready(read pulled) string {
 		if !present {
 			return UnreadyReading{}
 		}
-		unmet, problem, _ := p.unready(item)
+		unmet, problem, _ := p.unready(item, read.items)
 		return UnreadyReading{Present: true, Unmet: unmet, Unreadable: problem != ""}
 	})
 	if err != nil {

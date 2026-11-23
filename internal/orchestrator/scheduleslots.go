@@ -210,7 +210,7 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 	// A reading that failed is not a refusal. The tree is unreadable, which
 	// says nothing about the item, so the item is dispatched exactly as it
 	// would have been and the failed reading is reported beside the pass.
-	unmet, problem, unchecked := pull.unready(read.items[entry.ID])
+	unmet, problem, unchecked := pull.unready(read.items[entry.ID], read.items)
 	if problem != "" && schedule.ReadinessProblem == "" {
 		schedule.ReadinessProblem = problem
 	}

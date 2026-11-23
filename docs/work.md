@@ -1761,7 +1761,9 @@ Two readings, both cheap, and neither of them a judgement about the work:
   item's title, description, design guidance, or acceptance criteria is read
   against the tree. A citation naming a file the tree does not have, a line past
   the end of one it does, or a symbol nothing declares is the cheapest possible
-  already-satisfied signal. A symbol the tree does not declare is then looked
+  already-satisfied signal. A symbol is declared when a package of that name in
+  the tree's Go source declares that function, type, constant, or variable, or
+  that method or field on that type, however few places call it. A symbol the tree does not declare is then looked
   up in Go's standard library, read from the release lists under the Go
   installation's `api` directory, because a citation such as `os.Hostname` is
   correct whether or not the tree calls it yet; the refusal for a symbol found
@@ -1786,7 +1788,18 @@ Two readings, both cheap, and neither of them a judgement about the work:
   list, calibrated against this backlog rather than chosen for how they read: over
   the 435 items the tracker held when it was written, the whole check fires on 15
   of them and on 6 of the unfinished ones, and each of those six states a real
-  gate.
+  gate. A sentence that is about what comes after the item is not read as one,
+  even where one of those phrasings is inside it: one that says the work it
+  names comes *later*, *afterwards*, or as a *follow-up*, or that it *waits
+  on*, *depends on*, or *will build on* this item — said as "this item", "this
+  one", "this piece", "this slice", "this change", or a bare "this" ending the
+  clause, since "it" or "this" with another noun usually names the prerequisite
+  and is still read as a wait; one naming an item the tracker records
+  as waiting on this one, since recording the sentence as a dependency would
+  then make the two items wait on each other for ever; and one naming an item
+  this one is already recorded as waiting on, which the tracker holds it back
+  for already. A link between an item and its parent is not a wait for any of
+  these.
 
 An item that fails either reading is passed over with the unmet prerequisite
 named, and it is put on the development manager's docket as an *item the tree is
@@ -1805,14 +1818,22 @@ like any other. The docket entry follows the same reading: every pull reads agai
 each item the docket holds as not ready, and takes the entry off, saying why, as
 soon as the item asks for nothing the tree lacks, has left the backlog, or asks
 for something other than what the entry quotes — in which case the same pull
-dockets it again in the words it now carries. Until that existed nothing took an
+dockets it again in the words it now carries. The docket also reads those items
+again each time it is built for the development manager to read, from the
+tracker and the primary checkout as they then stand, so a hold whose sentence
+is gone is taken off before she is shown it, even while every developer slot is
+busy and no pull is made. Until that existed nothing took an
 entry off: yoyodyne-ifd.298's went on quoting "this item does not start before
 282's design lands" after the Lead Product Manager had removed the words and after the
 item had been dispatched and closed.
 
-A sentence is quoted with the field it is in — `its description says of it`,
-`its design guidance says of it` — because a copy left in a field nobody looked
-in outlives an amendment to the one they did. The design guidance and the
+A sentence is quoted whole, with the field it is in — `its description says
+"…", which the readiness check read as the item saying it cannot start until
+that has happened` — so whoever reads the hold sees exactly which words it was
+read from, and because a copy left in a field nobody looked in outlives an
+amendment to the one they did. Where the sentence names another item, the hold
+says that the development manager's release is recording that this item waits
+on that one. The design guidance and the
 acceptance criteria are said to be fields the Lead Product Manager's update does not
 rewrite, since it takes the title and the description only and her read of an
 item is bounded: a sentence there is one she can be shown the refusal for and
