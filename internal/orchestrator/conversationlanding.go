@@ -39,6 +39,11 @@ package orchestrator
 // for names, never its notes: the related note this writes names the document
 // it is about, and reading it back would make that document named.
 //
+// A parked item is never closed here, whatever has landed: somebody, or a run
+// that landed evidence rather than the work, said what the item still waits for,
+// and a revision does not say that has been met. The sweep names it instead, and
+// a role closes or releases it.
+//
 // It reads the repository the pull is made from, which is the same tree every
 // other reader of the artifact homes reads — the invariants delivered to a run,
 // the documents a done-condition is checked against — and closes with a reason
@@ -233,6 +238,16 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry,
 			}
 			continue
 		}
+		// A parked item is held open by somebody's decision, or by a run that landed
+		// evidence and said what the item still owes. A revision opening with the
+		// item's identifier does not show that what the parking waits for is met, so
+		// the item is left open, with nothing recorded on it, and only a person or a
+		// role closes it. Once it is released, the next pull closes it on the revision.
+		if parking := landingParking(entry, item); parking.Parked() {
+			sweep.Problems = append(sweep.Problems, fmt.Sprintf("%s landed as the %s revision of %s and was not closed, because it is parked; it stays open until the Lead Product Manager closes or retires it, or releases it, when the next pull closes it on that revision. It is parked for: %s",
+				entry.ID, landing.RevisedAt.UTC().Format(time.RFC3339), landing.Document, singleLine(parking.Reason(), domain.MaxWorkItemParkingBytes)))
+			continue
+		}
 		// The tracker refuses to close an item that waits on unfinished work, so
 		// such an item is left open without asking: asking recorded the revision,
 		// was refused, and took the record back off again, three writes to the store
@@ -272,6 +287,15 @@ func (l ConversationLander) Settle(ctx context.Context, entries []backlog.Entry,
 		sweep.Landed = append(sweep.Landed, landing)
 	}
 	return sweep, nil
+}
+
+// landingParking is why an entry is parked, as the queue read it or as the
+// tracker's reading of the item states it, and empty where neither says it is.
+func landingParking(entry backlog.Entry, item beads.WorkItem) domain.WorkItemParking {
+	if entry.Parking.Parked() {
+		return entry.Parking
+	}
+	return item.Parking
 }
 
 // landingWaitsOn is the unfinished work an entry waits on, as the queue read it
