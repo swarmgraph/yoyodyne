@@ -7652,6 +7652,22 @@ provider refusing the review earns nothing and is asked again later. Holding
 intake does not stop the queue: what it lands was approved already, which is
 the "let what is running finish" half of the hold.
 
+**A candidate's merge is asked for directly, and only on the target it was
+checked against.** The queue never turns on GitHub's merging when ready for a
+candidate. Holding the target's promotion lease, it reads the target on the
+remote, and asks GitHub to merge the candidate's pull request now only if the
+target is still at the commit the candidate was built on. If the target has
+moved, no merge is asked for: the candidate is built again on the target as it
+stands and earns its checks and review again, and no repair attempt is spent.
+GitHub refusing the merge because the pull request is not up to date with the
+target is treated the same way. Just before asking, the queue also asks GitHub
+whether it would merge the pull request now; while it would not yet — a
+required check still running, or GitHub still working out whether the pull
+request can merge — nothing is asked for, and the next pass reads the target
+and the pull request again. That wait has the same limits as a merge GitHub
+holds, described below, so a candidate GitHub never comes to merge does not
+hold up the entries behind it.
+
 **A failing candidate is the change's only where the target passes.** The queue
 runs no checks of the target's own, so a check that fails on a candidate is run
 once more on the target at the candidate's base. Where the base passes it, the
@@ -7672,7 +7688,14 @@ gives it at a later pass. A run that already used that attempt, or cannot take
 it, is handed back the way a replay conflict is, saying why, so the repair
 continuation moves the change onto the target and asks its developer to
 reconcile it. A handback no single run can take up goes on the development
-manager's docket. While the forge holds a candidate's merge, a check on the
+manager's docket. GitHub holds a candidate's merge only where a build from
+before the direct merge asked for it with merging when ready on, or where the
+entry was admitted to GitHub's own merge queue. Everything this paragraph says
+about a merge the forge holds applies equally to a candidate GitHub would not
+yet merge directly, with the wait counted from when the queue opened its pull
+request at the head of the queue instead of from when a merge was asked for,
+and with no merge to take back when it is withdrawn. While the forge holds a
+candidate's merge, a check on the
 candidate's pull request that ended without judging the change — cancelled by
 its own time limit, out of time, or never started — is run again once, at once,
 and the queue's pass says so on status and the dashboard. At every pass that
@@ -7700,7 +7723,8 @@ it: if its run cannot be told, the pass says so, works the entries behind it,
 and tries again on the next pass.
 
 A required check GitHub has not started 20 minutes after the merge was asked
-for (or half of `triage.stuck_merge_age`, if that is shorter) — one GitHub
+for, or after the pull request was opened where GitHub would not yet merge it
+directly and no merge was asked for (or half of `triage.stuck_merge_age`, if that is shorter) — one GitHub
 reports queued or expected, or one `execution.ci_checks.required` names that
 GitHub reports nothing for at all — is asked of GitHub once more: the harness
 runs the commit's workflow runs again, cancelling first a run stuck before it
@@ -7712,7 +7736,8 @@ outside the change: no repair attempt is charged, the checks it passed still
 stand, no check failure is written against it, and the reason says so on
 status and on the item. The same change withdrawn a second time — an earlier
 entry of the same run, at the same approved head, whose queued merge the forge
-confirmed withdrawn — is not handed back to its run to be admitted again: it is
+confirmed withdrawn, or which was withdrawn because GitHub would not merge it
+directly — is not handed back to its run to be admitted again: it is
 set aside, kept on its branch, and put on the development manager's docket
 saying how many times it was withdrawn. A repaired change carries a new
 approved head, so a change handed back for a repair after a failed check is

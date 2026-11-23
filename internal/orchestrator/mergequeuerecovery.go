@@ -358,11 +358,24 @@ func (p MergeQueuePromoter) Withdraw(ctx context.Context, key runstate.MergeQueu
 	if waiting, err := q.waitingOnGitHub(ctx); err != nil || waiting {
 		return q.result(), err
 	}
+	what := "its queued merge was withdrawn: "
+	if attempt := q.attempt(); attempt != nil && attempt.SetAside == nil {
+		if _, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); !asked {
+			// A candidate GitHub would not merge directly had no merge asked for
+			// (mergeReadiness), so there was nothing queued to take back.
+			what = withdrawnUnaskedLead
+		}
+	}
 	if err := q.settleGitHub(ctx, q.withdraw(ctx, reason)); err != nil || !q.outcome.Withdrawn {
 		return q.result(), err
 	}
-	return q.result(), q.release("its queued merge was withdrawn: "+reason, "")
+	return q.result(), q.release(what+reason, "")
 }
+
+// withdrawnUnaskedLead opens the reason an entry is released with where GitHub
+// would not merge its candidate directly and no merge was asked for, which is
+// how releasedAfterWithdrawal tells it from an entry nothing withdrew.
+const withdrawnUnaskedLead = "it was withdrawn before any merge was asked for: "
 
 // release ends the turn of an entry whose merge was withdrawn for something
 // other than a defect, so it neither stands at the head of the queue refusing
@@ -943,7 +956,8 @@ func (q *queuePromotion) handBack(ctx context.Context) error {
 
 // earlierWithdrawals counts the times this same change was withdrawn from the
 // queue before: earlier entries of the same run that carried the same approved
-// head, whose queued merge the forge confirmed withdrawn, and that were
+// head, whose queued merge the forge confirmed withdrawn, or whose
+// candidate GitHub would not merge directly and the queue withdrew, and that were
 // released back to the run rather than moved to the other queue mode. A
 // repaired change carries a new approved head, so a change handed back for a
 // repair and withdrawn again is not counted; and an entry that left the queue
@@ -977,11 +991,15 @@ func (q *queuePromotion) earlierWithdrawals() (int, error) {
 
 // releasedAfterWithdrawal reports a landing whose entry was released back to
 // its run, not moved to the other queue mode, after the forge confirmed one of
-// its queued merges withdrawn.
+// its queued merges withdrawn, or after the queue withdrew a candidate GitHub
+// would not merge directly (withdrawnUnaskedLead).
 func releasedAfterWithdrawal(landing runstate.MergeQueueLanding) bool {
 	handback := landing.Handback
 	if handback == nil || handback.Continuation != runstate.MergeQueueReleased || handback.TransferTo != "" {
 		return false
+	}
+	if strings.HasPrefix(handback.Reason, withdrawnUnaskedLead) {
+		return true
 	}
 	for _, attempt := range landing.Attempts {
 		if w := attempt.Withdrawal; w != nil && w.Settled != nil && w.Settled.Result == runstate.MergeQueueWithdrawalConfirmed {
