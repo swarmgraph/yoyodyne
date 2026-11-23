@@ -83,10 +83,11 @@ func TestTheWalkReachesTheWholePileRatherThanItsFirstSlice(t *testing.T) {
 	}
 }
 
-// A pile somebody has worked through offers nothing rather than being read again
-// every turn, which is what would spend the context the rest of the conversation
-// needs on something already said.
-func TestASettledPileIsNotOfferedAgain(t *testing.T) {
+// An ordinary turn does not offer again what its reader was just shown, or a
+// pile being worked through would be re-read every turn. Being shown a report is
+// not deciding about it, though, so the start of the reader's next recurring
+// pass offers every one of them again.
+func TestAShownPileIsSkippedByOrdinaryTurnsAndOfferedAgainAtTheNextPass(t *testing.T) {
 	t.Parallel()
 
 	pile := piled(3, SeverityNote)
@@ -101,7 +102,37 @@ func TestASettledPileIsNotOfferedAgain(t *testing.T) {
 		position = At(reported)
 	}
 	if again := Pending(pile, position, shown); !again.Empty() {
-		t.Fatalf("Pending() = %#v, want nothing offered to a reader that has seen the pile", again)
+		t.Fatalf("Pending() = %#v, want nothing offered to an ordinary turn of a reader that has seen the pile", again)
+	}
+	again := PendingAgain(pile, position, shown)
+	if len(again.Again) != 3 || len(again.Next) != 0 || len(again.Urgent) != 0 {
+		t.Fatalf("PendingAgain() = %#v, want all three undecided reports offered again and nothing walked", again)
+	}
+	for i, reported := range again.Again {
+		if reported.ID != reportID(i+1) {
+			t.Fatalf("Again[%d] = %s, want the pile oldest first", i, reported.ID)
+		}
+	}
+}
+
+// A pass offers again what was shown and still leads with criticals, and what it
+// offers again sits apart from the walk, so the position can be advanced over
+// the walk alone.
+func TestAPassOffersAgainBesideTheWalkAndCriticalsStillLead(t *testing.T) {
+	t.Parallel()
+
+	pile := piled(4, SeverityNote)
+	pile[0].Severity = SeverityCritical
+	shown := map[string]bool{reportID(1): true, reportID(2): true}
+	waiting := PendingAgain(pile, At(pile[1]), shown)
+	if len(waiting.Urgent) != 1 || waiting.Urgent[0].ID != reportID(1) {
+		t.Fatalf("Urgent = %#v, want the critical shown before", waiting.Urgent)
+	}
+	if len(waiting.Again) != 1 || waiting.Again[0].ID != reportID(2) {
+		t.Fatalf("Again = %#v, want the note shown before", waiting.Again)
+	}
+	if len(waiting.Next) != 2 || waiting.Next[0].ID != reportID(3) || waiting.Next[1].ID != reportID(4) {
+		t.Fatalf("Next = %#v, want the walk from where it stopped", waiting.Next)
 	}
 }
 

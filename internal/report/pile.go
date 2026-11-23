@@ -19,13 +19,16 @@ package report
 // oldest report in the pile is the first thing offered rather than the last —
 // which is what makes the oldest unhandled report's age fall instead of climb.
 //
-// Two things sit on top of the walk. A critical report jumps it, because
+// Three things sit on top of the walk. A critical report jumps it, because
 // something already costing somebody has to be read today rather than when the
-// walk reaches it; and the walk starts again from the beginning of the pile once
-// it has reached the end and the reader's own record of what it has been shown
-// has moved on, so a report offered once and left is offered again rather than
-// buried. Neither re-offers anything the reader still remembers being shown,
-// which is what stops a settled pile being re-read every turn.
+// walk reaches it; the walk starts again from the beginning of the pile once it
+// has reached the end and the reader's own record of what it has been shown has
+// moved on; and the start of a recurring pass offers again everything the reader
+// was shown and left undecided (PendingAgain). An ordinary turn re-offers nothing
+// the reader still remembers being shown, which is what stops a settled pile
+// being re-read every turn. The record is bounded and forgets only after hundreds
+// of reports, so a reader with one long-lived conversation would otherwise never
+// see again a report it was shown once and left; the pass is where it is.
 
 import (
 	"fmt"
@@ -94,19 +97,22 @@ func ByFiling(reports []Report) []Report {
 // Waiting is what one turn is offered of the pile, in the two parts a caller has
 // to keep apart.
 //
-// Urgent jumps the walk and Next is the walk, and the difference matters after
-// the turn rather than during it: the position advances over what was shown from
-// Next and never over what jumped, because a critical filed this morning is at
-// the far end of the pile and advancing to it would skip everything the walk had
-// not reached.
+// Urgent jumps the walk, Again is what the reader was shown before and left
+// undecided, offered again at the start of a recurring pass, and Next is the
+// walk. The difference matters after the turn rather than during it: the
+// position advances over what was shown from Next and never over the other two,
+// because a critical filed this morning is at the far end of the pile and a
+// report offered again sits wherever it was filed, and advancing to either would
+// skip everything the walk had not reached.
 type Waiting struct {
 	Urgent []Report
+	Again  []Report
 	Next   []Report
 }
 
 // Empty reports a reader with nothing waiting for it, which is the answer on a
 // pile somebody has worked through.
-func (w Waiting) Empty() bool { return len(w.Urgent) == 0 && len(w.Next) == 0 }
+func (w Waiting) Empty() bool { return len(w.Urgent) == 0 && len(w.Again) == 0 && len(w.Next) == 0 }
 
 // Pending is what a reader at one position is offered of the unhandled pile,
 // given its own record of what it has already been shown.
@@ -123,6 +129,33 @@ func Pending(unhandled []Report, position Position, shown map[string]bool) Waiti
 		return waiting
 	}
 	return pendingFrom(ordered, Position{}, shown)
+}
+
+// PendingAgain is Pending at the start of a recurring pass: it offers, as well,
+// every unhandled report the reader's record says it was already shown. Being
+// shown a report is not deciding about it, and a report left undecided has to
+// come back somewhere; an ordinary turn is the wrong place, because a pile the
+// reader is working through would be re-read every turn, and the next pass is
+// the right one, because a pass exists to work the pile. Criticals shown before
+// join Urgent, and everything else shown before is Again, oldest first, ahead of
+// the walk.
+func PendingAgain(unhandled []Report, position Position, shown map[string]bool) Waiting {
+	waiting := Pending(unhandled, position, shown)
+	var urgent []Report
+	for _, reported := range ByFiling(unhandled) {
+		if !shown[reported.ID] {
+			continue
+		}
+		if reported.Severity == SeverityCritical {
+			urgent = append(urgent, reported)
+			continue
+		}
+		waiting.Again = append(waiting.Again, reported)
+	}
+	if len(urgent) > 0 {
+		waiting.Urgent = ByFiling(append(urgent, waiting.Urgent...))
+	}
+	return waiting
 }
 
 // pendingFrom is one pass over the pile from one position. A critical is offered
