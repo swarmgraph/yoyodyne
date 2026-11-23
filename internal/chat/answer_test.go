@@ -253,6 +253,108 @@ func TestAConcernOutlivesTheProcessThatRaisedItSoALaterMessageCanAnswerIt(t *tes
 	}
 }
 
+// draftedGoalConcern is a concern whose detail carries a drafted goal, and
+// whose first option chooses that draft. The clause at the end of the draft is
+// the part a turn given only the subject would leave out.
+const draftedGoalDetail = "The drafted goal reads: A group of projects, each bound to its own repository, can share one statement of intent and one set of management roles, and deliver work that spans them in an order that keeps every deployed combination of the projects working."
+
+const draftedGoalConcernTurn = `Adding a goal is yours to decide.
+
+` + "```yoyodyne-concern" + `
+{"concerns":[{"kind":"unplaceable","subject":"Develop groups of related projects","detail":"` + draftedGoalDetail + `","question":"Should the goal be added?","options":["Add the goal as drafted","Leave the goals as they are"]}]}
+` + "```" + `
+`
+
+// An answer that chooses an option reaches the role's next recurring turn with
+// the concern whole: its subject, detail, question, every option offered, and
+// which one was chosen, each word for word. Given the option and the subject
+// alone, a turn writes the decision from the subject and loses what the detail
+// said the option meant.
+func TestARecurringPassIsGivenTheWholeConcernAnAnswerChose(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	tracker := &fakeTracker{}
+	asked := openTestSession(t, perItemApprovalOptions(t, root, tracker, draftedGoalConcernTurn))
+	if _, err := asked.Send(context.Background(), "I want to develop groups of related projects"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	answering := openTestSession(t, perItemApprovalOptions(t, root, tracker, "nothing to say"))
+	if decided, settled, err := answering.Decide(context.Background(), "answer c1.1 1"); !settled || err != nil || len(decided.Answers) != 1 {
+		t.Fatalf("Decide() = %#v, %t, %v; want the concern answered", decided, settled, err)
+	}
+
+	passing := perItemApprovalOptions(t, root, tracker, "Writing the goal up.")
+	pass := openTestSession(t, passing)
+	pass.ForPass("lead-product-manager#7")
+	if _, err := pass.Send(context.Background(), "pass"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	briefing := passing.Backend.(*fakeBackend).requests[0].Prompt
+	for _, want := range []string{
+		"# The operator answered concern c1.1",
+		"Subject:\n    Develop groups of related projects\n",
+		"Detail:\n    " + draftedGoalDetail + "\n",
+		"Question:\n    Should the goal be added?\n",
+		"    1. Add the goal as drafted\n",
+		"    2. Leave the goals as they are\n",
+		"The operator chose option 1:\n    Add the goal as drafted\n",
+	} {
+		if !strings.Contains(briefing, want) {
+			t.Fatalf("the recurring pass was briefed with %q; want it to contain %q", briefing, want)
+		}
+	}
+}
+
+// An answer whose concern cannot be handed over whole is not given alone: the
+// turn is told it could not be paired with its concern, and not to act on it
+// from the subject.
+func TestAnAnswerWhoseConcernCannotBeReadIsSaidToBeUnpaired(t *testing.T) {
+	t.Parallel()
+
+	options := perItemApprovalOptions(t, t.TempDir(), &fakeTracker{}, "I will ask.")
+	session := openTestSession(t, options)
+	session.concerns = append(session.concerns, &concernRecord{pending: PendingConcern{
+		ID: "c3.1", Turn: 3,
+		Concern: Concern{Kind: ConcernUnplaceable, Subject: "Develop groups of related projects", Options: []string{"Add the goal as drafted", "Leave it"}},
+	}})
+	if err := session.Answer("c3.1", "Add the goal as drafted"); err != nil {
+		t.Fatalf("Answer() error = %v", err)
+	}
+	if _, err := session.Send(context.Background(), "so?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	told := options.Backend.(*fakeBackend).requests[0].Prompt
+	for _, want := range []string{
+		"# The operator answered concern c3.1, and it could not be paired with its concern",
+		"the record of it has no detail, no question",
+		"Do not write anything the answer decides from the concern's subject",
+		"What the operator said:\n    Add the goal as drafted\n",
+	} {
+		if !strings.Contains(told, want) {
+			t.Fatalf("the next turn was told %q; want it to contain %q", told, want)
+		}
+	}
+	if strings.Contains(told, "The operator chose option") {
+		t.Fatalf("an unpaired answer was given as a choice: %q", told)
+	}
+
+	// And one too large to carry beside what the role has not yet been told
+	// goes first, so the bound's cut cannot take it.
+	full := openTestSession(t, perItemApprovalOptions(t, t.TempDir(), &fakeTracker{}, "nothing to say"))
+	full.concerns = append(full.concerns, &concernRecord{pending: PendingConcern{
+		ID: "c4.1", Turn: 4,
+		Concern: Concern{Kind: ConcernUnplaceable, Subject: "s", Detail: "d", Question: "q?"},
+	}})
+	full.state.PendingTrackerResults = strings.Repeat("x", maxPendingResultBytes-10)
+	if err := full.Answer("c4.1", "yes"); err != nil {
+		t.Fatalf("Answer() error = %v", err)
+	}
+	if !strings.HasPrefix(full.state.PendingTrackerResults, "# The operator answered concern c4.1, and it could not be paired") {
+		t.Fatalf("carried results open with %q; want the unpaired account first", full.state.PendingTrackerResults[:80])
+	}
+}
+
 // Where the one question is all the conversation is waiting on, a bare answer
 // word names it — the way a bare yes names the only proposal on the table.
 func TestABareAnswerReachesTheOneQuestionThatIsAllThatIsWaiting(t *testing.T) {
