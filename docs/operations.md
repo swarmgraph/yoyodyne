@@ -168,6 +168,23 @@ launchctl bootout gui/$(id -u)/com.yoyodyne.supervisor.<product>
 rm ~/Library/LaunchAgents/com.yoyodyne.supervisor.<product>.plist
 ```
 
+**Checking it is in place.** After `yoyo setup`, either of these shows it:
+
+- `yoyo status` has an `at login:` line under the services section saying the
+  launch agent starts the supervisor when you log in. If it says nothing starts
+  it, run `yoyo setup --launch-agent` from an ordinary terminal.
+- `launchctl print gui/$(id -u)/com.yoyodyne.supervisor.<product>` prints the
+  job; it fails with "Could not find service" when the agent is not loaded.
+
+After the machine restarts and you log in, the `supervisor:` line in
+`yoyo status` says the launch agent started it when you logged in, and when the
+machine started, so you can see the product came back by itself.
+
+**Turning it off.** Remove the agent with the two commands above. The product
+then stays down after each restart until `yoyo start` is typed, and `yoyo
+status` says so. `yoyo stop` on its own stops the product until the next login
+or `yoyo start`, and leaves the agent installed.
+
 On a platform without launchd, the step says so and `yoyo start` is typed after
 each restart.
 
@@ -375,11 +392,23 @@ deploy is moving one:
 
 ```text
 Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1b2c):
+  supervisor: started at 2026-09-28 09:40 PDT; its launch agent com.yoyodyne.supervisor.yoyodyne started it when you logged in, after the machine started at 2026-09-28 09:39 PDT
+  at login: the launch agent com.yoyodyne.supervisor.yoyodyne starts the supervisor when you log in, so a restart of the machine brings the product back by itself
   slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-09-28 09:40 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit (thirty while it waits out a promotion or a document landing), or has not begun its move within that limit and five minutes after the move fell due
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
+
+The `supervisor:` line says when the supervisor started and why: its launch
+agent at login after the machine started, its launch agent at another time (the
+supervisor before it had exited, or `yoyo start` or `yoyo setup` asked launchd
+to start it), `yoyo start`, the supervisor re-executing itself to take up a
+deployed build, or `yoyo start --foreground` run directly. With no supervisor
+running it says when the last one started. The `at login:` line, on macOS,
+says whether the launch agent is installed for this checkout; where it is not,
+it says the product stays down after a restart until `yoyo start`, and names
+`yoyo setup --launch-agent`.
 
 The services section also shows the last machine sleep and wake, in local time
 with the zone named, and the last recorded interval without the harness

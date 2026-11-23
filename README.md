@@ -212,6 +212,22 @@ there, and is safe to run again: it resumes where an earlier run actually got
 to. `--yes` accepts every proposal; `--json` reports what is done and what is
 left and changes nothing.
 
+**Starting with the machine.** On macOS the launch agent `yoyo setup` offers is
+a per-user login item, `~/Library/LaunchAgents/com.yoyodyne.supervisor.<product>.plist`,
+that runs `yoyo start --foreground` each time you log in, so after a restart the
+product comes back without anybody typing `yoyo start`. `yoyo status` says
+whether it is installed (its `at login:` line) and when the product last started
+and why (its `supervisor:` line). `yoyo setup --launch-agent` installs it on its
+own. To turn it off, remove it:
+
+```sh
+launchctl bootout gui/$(id -u)/com.yoyodyne.supervisor.<product>
+rm ~/Library/LaunchAgents/com.yoyodyne.supervisor.<product>.plist
+```
+
+[Operations](docs/operations.md#starting-the-product-and-stopping-it) has the
+rest.
+
 **Or have your own coding agent do it.**
 [`skills/yoyo-setup/SKILL.md`](skills/yoyo-setup/SKILL.md) is a prompt to paste
 into your coding session (or install with the command at its top). It sets up

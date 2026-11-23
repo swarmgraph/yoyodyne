@@ -161,6 +161,9 @@ type Supervisor struct {
 	// PID and Build are what the record says the supervisor is.
 	PID   int
 	Build string
+	// StartedBy is why this supervisor started, as StartReason says it, and is
+	// recorded so `yoyo status` can say when it last started and why.
+	StartedBy string
 	// Binary is the binary on disk the children are started from. Where it is
 	// set, each child that says which build it runs is compared with it and
 	// moved onto it when it is deployed over; nil moves nothing.
@@ -554,6 +557,7 @@ func (s *Supervisor) Supervision(now time.Time) runstate.Supervision {
 		DeployedAt:    s.deployedAt.UTC(),
 		TakeUpWait:    s.behindWait(),
 		StartedAt:     s.startedAt.UTC(),
+		StartedBy:     s.StartedBy,
 		ObservedAt:    now.UTC(),
 		Children:      children,
 	}
