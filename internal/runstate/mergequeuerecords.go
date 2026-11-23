@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 const (
@@ -269,6 +270,11 @@ type MergeQueuePass struct {
 	WorkItemID string `json:"work_item_id,omitempty"`
 	// Says is what the pass ended on, in ordinary words.
 	Says string `json:"says,omitempty"`
+	// PersonOnly is the act only a person can take that a stopped pass waits
+	// on, where the error it stopped on established one by its type, such as
+	// the forge refusing the harness's token, and empty otherwise. It is never
+	// read off Says: words are not evidence that a person has to act.
+	PersonOnly ownership.PersonOnlyReason `json:"person_only,omitempty"`
 	// Moved is when the pass first got the queue moving: it started a
 	// candidate's checks or its review, landed an entry or handed one back, or
 	// found nothing in the queue to move. A pass that only waited — on the

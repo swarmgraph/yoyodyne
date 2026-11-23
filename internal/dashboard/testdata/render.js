@@ -354,6 +354,7 @@ const pages = [
   { name: "pass-failures", token: "t", standing: ok(failingPasses), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "pass-failures-unreadable", token: "t", standing: ok(fixture("standing-pass-failures-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "queues", token: "t", standing: ok(fixture("standing-queues")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "queues-stopped", token: "t", standing: ok(fixture("standing-queues-stopped")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "queues-unreadable", token: "t", standing: ok(fixture("standing-queues-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "mcp-calls", token: "t", standing: ok(fixture("standing-mcp-calls")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "mcp-calls-unreadable", token: "t", standing: ok(fixture("standing-mcp-calls-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
