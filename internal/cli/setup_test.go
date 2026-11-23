@@ -21,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/dolttool/dolttooltest"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
 )
 
@@ -1462,5 +1463,35 @@ func TestSetupDoesNotInstallADoltItWasNotToldToOrCannotVerify(t *testing.T) {
 		if !report.Diagnosis.Healthy() {
 			t.Errorf("%s stopped work running:%s", name, renderSetupReport(report))
 		}
+	}
+}
+
+// A checkout whose state is recorded as kept somewhere else is refused before
+// anything is read or downloaded, as every command that opens the state is.
+func TestSetupInstallsNoDoltWhereTheCheckoutsStateIsKeptElsewhere(t *testing.T) {
+	t.Parallel()
+
+	world := newSetupWorld(t)
+	world.defaults = true
+	world.walk()
+	marker := filepath.Join(world.project, ".git", filepath.FromSlash(runstate.RootMarkerName))
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte(t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The state this shell resolves holds a dolt, which must not be read as
+	// the one this checkout's state holds.
+	dolttooltest.Install(t, world.stateRoot)
+	installer, serving := dolttooltest.Installer("darwin", "arm64", dolttooltest.Release(t, "darwin", "arm64", "dolt"))
+	world.dolt = &installer
+
+	step := world.step(world.walk(), stepDolt)
+	if step.Status != setupHandedOff || !strings.Contains(step.Summary, "could not be resolved") {
+		t.Errorf("dolt step = %+v, want the other state root refused", step)
+	}
+	if len(serving.Requests) != 0 {
+		t.Errorf("downloaded %q", serving.Requests)
 	}
 }

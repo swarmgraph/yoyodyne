@@ -345,6 +345,29 @@ func agreeProductStateRoot(resolved config.Resolved, getenv func(string) string,
 	return root.Path, agreement, nil
 }
 
+// readProductStateRoot is the root agreeProductStateRoot would open, held to the
+// checkout's marker the same way, and records nothing: a step reads what is
+// already there with it before anybody has agreed to a change.
+func readProductStateRoot(resolved config.Resolved, getenv func(string) string, homeDir func() (string, error), goos string) (string, error) {
+	root, err := runstate.ResolveRoot(getenv, homeDir, goos)
+	if err != nil {
+		return "", err
+	}
+	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
+	if err != nil {
+		return "", fmt.Errorf("resolve product repository: %w", err)
+	}
+	marker, err := runstate.ReadRootMarker(repository)
+	if err != nil {
+		return "", err
+	}
+	if !marker.Agrees(root.Path) {
+		return "", &runstate.SplitRootError{Marker: marker.Path, Recorded: marker.Recorded, Resolved: root,
+			WrittenBy: marker.WrittenBy(), Gone: marker.RootGone()}
+	}
+	return root.Path, nil
+}
+
 // agreedHome is the machine home a command that acts on one repository uses,
 // resolved and agreed with that repository's state-root marker, for a command
 // that has no loaded configuration to hand productStateRoot: `yoyo init

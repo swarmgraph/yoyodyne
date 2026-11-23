@@ -1268,20 +1268,20 @@ func (s *setup) ensureLaunchAgent(ctx context.Context, resolved config.Resolved)
 // tools folder. The operator's own tools are theirs to install; this one is the
 // harness's, so setup installs it. Until it is there the tracker's store is
 // opened directly, so a step left undone stops no work.
-func (s *setup) ensureDolt(ctx context.Context, resolved config.Resolved) setupStep {
+func (s *setup) ensureDolt(ctx context.Context, resolved config.Resolved) (step setupStep) {
 	if s.dolt == nil {
 		return setupStep{}
 	}
 	handedOff := func(summary string, err error, remedy string) setupStep {
 		return setupStep{Step: stepDolt, Status: setupHandedOff, Summary: summary + "; the tracker's store is opened directly until it is installed", Detail: err.Error(), Remedy: remedy}
 	}
-	root, err := runstate.ResolveRoot(s.getenv, s.homeDir, s.goos)
+	root, err := readProductStateRoot(resolved, s.getenv, s.homeDir, s.goos)
 	if err != nil {
 		return handedOff("where the harness keeps its state could not be resolved, so dolt was not installed", err, "yoyo doctor")
 	}
-	found, err := dolttool.Inspect(root.Path)
+	found, err := dolttool.Inspect(root)
 	if err != nil {
-		return handedOff("the harness's dolt could not be read", err, "ls -l "+shellQuote(dolttool.Path(root.Path)))
+		return handedOff("the harness's dolt could not be read", err, "ls -l "+shellQuote(dolttool.Path(root)))
 	}
 	if found.State == dolttool.Installed {
 		return setupStep{Step: stepDolt, Status: setupAlready, Summary: fmt.Sprintf("dolt %s is already installed for the harness", dolttool.Version), Detail: found.Detail}
@@ -1291,7 +1291,7 @@ func (s *setup) ensureDolt(ctx context.Context, resolved config.Resolved) setupS
 			fmt.Errorf("this build holds no checksum for it on %s/%s, so nothing is downloaded; the command below prints the published ones for a later build", s.dolt.GOOS, s.dolt.GOARCH),
 			dolttool.ChecksumsCommand)
 	}
-	if !s.ask.confirm(fmt.Sprintf("Install dolt %s in %s, for the harness's own use? The tracker's server mode needs it", dolttool.Version, filepath.Dir(dolttool.Path(root.Path))), true) {
+	if !s.ask.confirm(fmt.Sprintf("Install dolt %s in %s, for the harness's own use? The tracker's server mode needs it", dolttool.Version, filepath.Dir(dolttool.Path(root))), true) {
 		return setupStep{
 			Step:    stepDolt,
 			Status:  setupSkipped,
@@ -1300,9 +1300,15 @@ func (s *setup) ensureDolt(ctx context.Context, resolved config.Resolved) setupS
 		}
 	}
 	// Agreed only now that something is written there.
-	path, _, err := agreeProductStateRoot(resolved, s.getenv, s.homeDir, s.goos)
+	path, agreement, err := agreeProductStateRoot(resolved, s.getenv, s.homeDir, s.goos)
 	if err != nil {
 		return handedOff("where the harness keeps its state could not be resolved, so dolt was not installed", err, "yoyo doctor")
+	}
+	if agreement.Bound {
+		// Said in the walk's own report, as ensureLaunchAgent says it.
+		defer func() {
+			step.Detail = agreement.Says(string(resolved.Config.Product.ID)) + "; " + step.Detail
+		}()
 	}
 	if err := s.dolt.Install(ctx, path); err != nil {
 		return handedOff(fmt.Sprintf("dolt %s was not installed", dolttool.Version), err, s.setupCommand())
