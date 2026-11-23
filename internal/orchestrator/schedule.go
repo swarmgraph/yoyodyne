@@ -3376,30 +3376,26 @@ pulling:
 		// precedence puts decisions on kept changes ahead of the rest of the
 		// docket, the highest priority first, so where the slots run out the ones
 		// left waiting are the lower-priority ones. Among them, one whose item
-		// carries the label of a free dedicated slot goes first: that slot is kept
-		// for its label, so a kept change on its label is what it takes before a
-		// kept change on any other.
+		// carries the labels of a free slot that prefers them goes first, dedicated
+		// or not: a freed slot takes written work on its own labels before written
+		// work on any other (labelledForFreeSlot).
 		precedence := func(task CarryOutTask) (bool, bool, int) {
 			if !kept(task) {
 				return false, false, 0
 			}
-			priority, dedicated := math.MaxInt, false
+			priority, labelled := math.MaxInt, false
 			if read := readEarly(); read != nil {
 				if item, known := read.items[task.WorkItemID]; known {
 					priority = item.Priority
-					for _, slot := range pull.slotsOf(occupied, read.items).Free() {
-						if slot.Dedicated && slot.Prefers(item.Labels) {
-							dedicated = true
-						}
-					}
+					labelled = labelledForFreeSlot(pull.slotsOf(occupied, read.items).Free(), item.Labels)
 				}
 			}
-			return true, dedicated, priority
+			return true, labelled, priority
 		}
 		// The paused runs ready to be continued are read before any decision is
 		// fired, because both are written work and one order decides between them:
-		// the Lead Product Manager's priority first, then the longest wait
-		// (writtenWorkOrder). A decision on a kept change is passed over where the
+		// work carrying a free slot's labels first, then the Lead Product Manager's
+		// priority, then the longest wait (writtenWorkOrder). A decision on a kept change is passed over where the
 		// free slots go to paused runs ahead of it in that order, and those runs
 		// are continued below, once the decisions are fired; a decision that does
 		// not build on a kept change is fresh work, and every paused run goes ahead
@@ -3424,10 +3420,19 @@ pulling:
 				}
 			}
 			continuationCandidates, continuationsRead = s.continuationCandidates(ctx, pull, occupied, mine, refusedContinuations, itemOf, passOver)
+			// A paused run whose item carries a free slot's labels goes ahead of
+			// written work carrying none, as a decision on a kept change does in
+			// precedence above.
+			if read := readEarly(); read != nil && free >= 1 {
+				freeNow := pull.slotsOf(occupied, read.items).Free()
+				for index := range continuationCandidates {
+					continuationCandidates[index].labelled = labelledForFreeSlot(freeNow, continuationCandidates[index].labels)
+				}
+			}
 			if len(continuationCandidates) > 0 {
 				continuationsFirst = func(task CarryOutTask) []string {
-					onKept, _, priority := precedence(task)
-					return continuationsAhead(continuationCandidates, onKept, priority, task.DecidedAt, task.RunID)
+					onKept, labelled, priority := precedence(task)
+					return continuationsAhead(continuationCandidates, onKept, labelled, priority, task.DecidedAt, task.RunID)
 				}
 			}
 		}
@@ -4077,11 +4082,11 @@ pulling:
 		// another slot. A walk that takes nothing leaves nothing for anyone — the
 		// slot falls back over the same entries, or the pass's bound stops it.
 		//
-		// Top-priority work is the one exception to walking past: a preferring slot
-		// asks a priority-0 entry everything a slot with no preference would, label
-		// or none, so a preference never starts lower-priority work ahead of it
-		// (outranksPreference). A dedicated slot walks past priority-0 work too,
-		// and what it walked past is reported as waiting for another slot.
+		// Priority 0 work is walked past like any other: a slot that prefers labels
+		// takes its own labelled work ahead of priority 0 work carrying none of
+		// them, dedicated or not, and a priority 0 item no slot's labels cover is
+		// reported as waiting for a slot with none of its own labelled work ready
+		// (see scheduleslots.go).
 		var leftBehind []walkedPast
 		// capacityHeld is the items a recorded window kept from the slot that
 		// reached them, with what is said of each. One another slot then started
@@ -4095,7 +4100,7 @@ pulling:
 					continue
 				}
 				preferred := slot.Prefers(read.items[entry.ID].Labels)
-				if labelled && !preferred && !outranksPreference(entry, slot) {
+				if labelled && !preferred {
 					past = append(past, walkedPast{entry: entry, slot: slot})
 					continue
 				}
@@ -4139,7 +4144,7 @@ pulling:
 					capacityHeld[entry.ID] = windowReasonFor(window, models)
 					continue
 				}
-				if !start(entry, slot, pulledInto{slot: slot, labelled: labelled && preferred, outranked: labelled && !preferred}) {
+				if !start(entry, slot, pulledInto{slot: slot, labelled: labelled && preferred}) {
 					return walkStopped, nil
 				}
 				// The probe is recorded once the run is actually started, so a start
@@ -4235,7 +4240,7 @@ pulling:
 				continue
 			}
 			reason := leftForAnotherSlotReason(past.slot, past.took)
-			if past.slot.Dedicated && past.entry.Priority == 0 {
+			if past.entry.Priority == 0 && !coveredBySlot(pull.Capacity, pull.Slots, read.items[past.entry.ID].Labels) {
 				reason = waitingForAnotherSlotReason(past.slot, titledItem(read.items[past.entry.ID], past.entry.ID), titledItem(read.items[past.took], past.took))
 			}
 			keepWait(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, reason)
@@ -6199,8 +6204,8 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 // account for them. slotBound reports a decision passed over because the slots
 // ran out, which is what a decision that came back without starting gives one
 // back to. precedence, where given, says which decisions build on a kept change,
-// whether a free dedicated slot is kept for its item's label, and at what
-// priority, and those are offered the slots first. continuationsFirst, where
+// whether a free slot prefers its item's labels, and at what priority, and
+// those are offered the slots first. continuationsFirst, where
 // given, names the paused runs the written-work order puts ahead of a decision
 // (continuationsAhead): a slot is kept for each, so a decision is passed over
 // where the slots this pull has are spent on the decisions chosen before it and
@@ -6234,20 +6239,20 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		return a.DecidedAt.Compare(b.DecidedAt)
 	})
 	// Then the decisions that build on a kept change ahead of the rest, those
-	// on a free dedicated slot's label first, then in the Lead Product Manager's
+	// carrying a free slot's labels first, then in the Lead Product Manager's
 	// order between them and oldest first at one priority: they are the ones a
 	// freed slot goes to first.
 	if precedence != nil && len(outstanding) > 1 {
 		type ranked struct {
-			task      CarryOutTask
-			kept      bool
-			dedicated bool
-			priority  int
+			task     CarryOutTask
+			kept     bool
+			labelled bool
+			priority int
 		}
 		order := make([]ranked, len(outstanding))
 		for index, task := range outstanding {
-			onKept, dedicated, priority := precedence(task)
-			order[index] = ranked{task: task, kept: onKept, dedicated: dedicated, priority: priority}
+			onKept, labelled, priority := precedence(task)
+			order[index] = ranked{task: task, kept: onKept, labelled: labelled, priority: priority}
 		}
 		slices.SortStableFunc(order, func(a, b ranked) int {
 			switch {
@@ -6256,8 +6261,8 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 					return -1
 				}
 				return 1
-			case a.kept && a.dedicated != b.dedicated:
-				if a.dedicated {
+			case a.kept && a.labelled != b.labelled:
+				if a.labelled {
 					return -1
 				}
 				return 1
@@ -6350,7 +6355,7 @@ func (s Scheduler) nextCarryOutsExcept(schedule *Schedule, pull Pull, occupied m
 		// what records the full harness.
 		if continuationsFirst != nil && !reusesSlot && free >= 1 {
 			if ahead := continuationsFirst(task); len(ahead) > 0 && len(newSlots)+len(ahead) >= slots {
-				pass(task, fmt.Sprintf("written work waiting for a developer slot is taken by priority and then by longest wait, and %s ahead of it: %s, so the slots this pull had went to %s",
+				pass(task, fmt.Sprintf("written work waiting for a developer slot is taken where it carries a free developer slot's own labels first, then by priority and then by longest wait, and %s ahead of it: %s, so the slots this pull had went to %s",
 					plural(len(ahead), "paused run whose checks have cleared or whose dependencies have closed stands", "paused runs whose checks have cleared or whose dependencies have closed stand"),
 					listedNames(ahead), plural(len(newSlots)+len(ahead), "run of written work", "runs of written work")))
 				slotBound = true

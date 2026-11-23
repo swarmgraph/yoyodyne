@@ -24,8 +24,9 @@ package orchestrator
 // (runstate.Store.takeUpSlot, through Pipeline.withSlotPairs).
 //
 // Paused runs and the decisions that build on a kept change are both written
-// work, and freed slots go to them in one order: the item's priority first,
-// then the longest wait (writtenWorkOrder). A run passed over says why on its
+// work, and freed slots go to them in one order: work carrying a free slot's
+// labels first, then the item's priority, then the longest wait
+// (writtenWorkOrder). A run passed over says why on its
 // own record (runstate.ContinuationWait), which status shows.
 
 import (
@@ -116,6 +117,11 @@ type pausedContinuation struct {
 	// with its identifier after it, for the sentences a person reads.
 	priority int
 	named    string
+	// labels is the run's item's labels as the pull read them, and labelled is
+	// whether a free slot at this pull prefers one of them, which puts the run
+	// ahead of written work carrying none (writtenWorkOrder).
+	labels   []string
+	labelled bool
 	// fullSlots is the pass-over reason for a run that is ready to be continued
 	// but finds no developer slot free.
 	fullSlots string
@@ -143,9 +149,18 @@ func (c pausedContinuation) waitingSince() time.Time {
 
 // writtenWorkOrder is the one order among written work waiting for a developer
 // slot — paused runs to continue and decisions that build on a kept change
-// alike: the Lead Product Manager's priority first, then the longest wait. Ties
-// fall to the run identifier so the order is the same at every pull.
-func writtenWorkOrder(priorityA int, sinceA time.Time, runA string, priorityB int, sinceB time.Time, runB string) int {
+// alike: work whose item carries a free slot's labels first (labelled), so a
+// freed slot takes written work on its own labels before written work on any
+// other, as the dedicated-slots decision's first step for written work says;
+// then the Lead Product Manager's priority; then the longest wait. Ties fall to
+// the run identifier so the order is the same at every pull.
+func writtenWorkOrder(labelledA bool, priorityA int, sinceA time.Time, runA string, labelledB bool, priorityB int, sinceB time.Time, runB string) int {
+	if labelledA != labelledB {
+		if labelledA {
+			return -1
+		}
+		return 1
+	}
 	if c := cmp.Compare(priorityA, priorityB); c != 0 {
 		return c
 	}
@@ -156,16 +171,17 @@ func writtenWorkOrder(priorityA int, sinceA time.Time, runA string, priorityB in
 }
 
 // continuationsAhead names the paused runs in candidates that the written-work
-// order puts ahead of a decision about an item at priority, decided at since.
-// A decision that does not build on a kept change is fresh work, and every
-// paused run is ahead of it.
-func continuationsAhead(candidates []pausedContinuation, kept bool, priority int, since time.Time, runID string) []string {
+// order puts ahead of a decision about an item at priority, decided at since,
+// and labelled where its item carries a free slot's labels. A decision that
+// does not build on a kept change is fresh work, and every paused run is ahead
+// of it.
+func continuationsAhead(candidates []pausedContinuation, kept, labelled bool, priority int, since time.Time, runID string) []string {
 	var ahead []string
 	for _, candidate := range candidates {
 		if candidate.holdsOne {
 			continue
 		}
-		if kept && writtenWorkOrder(candidate.priority, candidate.waitingSince(), candidate.state.RunID, priority, since, runID) > 0 {
+		if kept && writtenWorkOrder(candidate.labelled, candidate.priority, candidate.waitingSince(), candidate.state.RunID, labelled, priority, since, runID) > 0 {
 			continue
 		}
 		ahead = append(ahead, candidate.named)
@@ -195,12 +211,12 @@ func (s Scheduler) takeContinuations(ctx context.Context, pull Pull, candidates 
 	// whose forge decisions this pull is the first to read, go earlier pause
 	// first.
 	slices.SortStableFunc(ordered, func(a, b pausedContinuation) int {
-		if a.priority == b.priority && a.waitingSince().Equal(b.waitingSince()) {
+		if a.labelled == b.labelled && a.priority == b.priority && a.waitingSince().Equal(b.waitingSince()) {
 			if c := a.state.UpdatedAt.Compare(b.state.UpdatedAt); c != 0 {
 				return c
 			}
 		}
-		return writtenWorkOrder(a.priority, a.waitingSince(), a.state.RunID, b.priority, b.waitingSince(), b.state.RunID)
+		return writtenWorkOrder(a.labelled, a.priority, a.waitingSince(), a.state.RunID, b.labelled, b.priority, b.waitingSince(), b.state.RunID)
 	})
 	var continuing []pausedContinuation
 	var taken []string
@@ -214,7 +230,7 @@ func (s Scheduler) takeContinuations(ctx context.Context, pull Pull, candidates 
 		if s.Limit > 0 && started+len(continuing) >= s.Limit {
 			why := fmt.Sprintf("%s; the session was bounded to %d run(s) by its --limit, and they have been started", candidate.fullSlots, s.Limit)
 			if ahead := append(slices.Clone(firedAhead), taken...); len(ahead) > 0 {
-				why += fmt.Sprintf("; the written work this pull took ahead of it, by priority and then by longest wait, was %s", listedNames(ahead))
+				why += fmt.Sprintf("; the written work this pull took ahead of it, taken where it carries a free developer slot's own labels first, then by priority and then by longest wait, was %s", listedNames(ahead))
 			}
 			s.continuationWaits(ctx, pull, state, why, passOver)
 			continue
@@ -223,7 +239,7 @@ func (s Scheduler) takeContinuations(ctx context.Context, pull Pull, candidates 
 			if free < 1 {
 				why := candidate.fullSlots
 				if ahead := append(slices.Clone(firedAhead), taken...); len(ahead) > 0 {
-					why += fmt.Sprintf("; the developer slots free at this pull went to written work ahead of it, taken by priority and then by longest wait: %s", listedNames(ahead))
+					why += fmt.Sprintf("; the developer slots free at this pull went to written work ahead of it, taken where it carries a free developer slot's own labels first, then by priority and then by longest wait: %s", listedNames(ahead))
 				}
 				s.continuationWaits(ctx, pull, state, why, passOver)
 				continue
@@ -313,7 +329,7 @@ func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupi
 	// candidate is a run ready to be continued, with its item's priority and
 	// name as the pull read them.
 	candidate := func(state runstate.State, holdsOne bool, reason, fullSlots string, item *beads.WorkItem) pausedContinuation {
-		found := pausedContinuation{state: state, holdsOne: holdsOne, reason: reason, fullSlots: fullSlots, priority: math.MaxInt, named: state.WorkItemID}
+		found := pausedContinuation{state: state, holdsOne: holdsOne, reason: reason, fullSlots: fullSlots, priority: math.MaxInt, named: state.WorkItemID, labels: state.WorkItemLabels}
 		if item == nil && itemOf != nil {
 			if read, known := itemOf(state.WorkItemID); known {
 				item = &read
@@ -321,6 +337,9 @@ func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupi
 		}
 		if item != nil {
 			found.priority = item.Priority
+			if len(item.Labels) > 0 {
+				found.labels = item.Labels
+			}
 			if title := strings.TrimSpace(item.Title); title != "" {
 				found.named = fmt.Sprintf("%s (%s)", title, state.WorkItemID)
 			}

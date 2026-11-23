@@ -1073,13 +1073,16 @@ Three things follow from a preference, in the order a pull applies them:
   above and a reliability-labelled bug at priority 2 under an unlabelled item
   at priority 1, slot 1 pulls the bug ahead of the unlabelled one; the run's
   recorded reason says it was pulled into developer slot 1, which prefers the
-  reliability label the item carries. Priority 0 is the exception: a preferring
-  slot takes ready priority-0 work before any of its label's work at a lower
-  priority, label or none, so a preference never starts less urgent work ahead
-  of the top of the order. The run's recorded reason says the item does not
-  carry the slot's label and was taken ahead of that work because it is at
-  priority 0. A slot marked `dedicated` is the one exception to this
-  ([below](#a-slot-dedicated-to-its-label)).
+  reliability label the item carries. This holds against priority 0 too: a
+  preferring slot takes its label's ready work ahead of priority 0 work that
+  carries none of its labels, whether or not it is marked `dedicated`, and no
+  setting, timer or wait changes that. A priority 0 item that no slot's labels
+  cover is taken by a slot with no preference, in the order, or by a preferring
+  slot once none of its own label's work is ready. While every free slot has
+  its own labelled work instead, the pass reports the item as waiting for a
+  developer slot with none of its own labelled work ready, naming it and what
+  the slot took, and [`yoyo status`](../operations.md#where-the-harness-stands-the-four-lines)
+  says how long it has waited.
 - **A slot with no preference leaves labelled work to a preferring slot that is
   free to take it.** With slots 1 and 2 both free, the reliability item goes to
   slot 1 and slot 2 takes the next unlabelled item down the order. Where no
@@ -1155,14 +1158,14 @@ label's work is exhausted.
 
 #### A slot dedicated to its label
 
-A slot that prefers a label may also be marked `dedicated: true`. A dedicated
-slot is kept for its label: it takes ready work carrying the label ahead of
-priority-0 work that does not carry it, where a slot that only prefers a label
-takes priority-0 work first, as above. Every slot not marked dedicated keeps
-that rule, so priority-0 work is still taken first, by the other slots. This
-is how a slot is given to one kind of work whose items sit below priority 0 —
-how teams share one repository, say — without raising those items to
-priority 0, which would pull them into every slot:
+A slot that prefers a label may also be marked `dedicated: true`. It is
+ordered exactly as any slot that prefers a label: its label's ready work ahead
+of priority 0 work that does not carry it, as above. What the mark still
+changes is how the slot is named: the recorded reason and the running line of
+`yoyo status` say it is kept for its label rather than that it prefers it.
+Preferring a label is how a slot is given to one kind of work whose items sit
+below priority 0 — how teams share one repository, say — without raising those
+items to priority 0, which would pull them into every slot:
 
 ```yaml
 execution:
@@ -1171,10 +1174,11 @@ execution:
     - prefer: [reliability]
     - {}
     - prefer: [team-development]
-      dedicated: true   # slot 3 takes team-development work ahead of priority 0 elsewhere
+      dedicated: true   # slot 3 is said to be kept for team-development work
 ```
 
-The order a freed dedicated slot takes work in is:
+The order a freed slot that prefers a label, dedicated or not, takes work in
+is:
 
 1. work on a change a run has already written and kept, carrying its label;
 2. such work carrying any other label, or none;
@@ -1184,24 +1188,25 @@ The order a freed dedicated slot takes work in is:
 4. the ordinary order every other slot uses.
 
 The first two are the operating rule that work on a change a run already wrote
-goes first on every slot; a dedicated slot only puts the work on its own label
-first among it. The last is why a dedicated slot never sits idle: with none of
-its label's work ready it takes the ordinary order, and its run's recorded
-reason says it found none of that work ready and took the ordinary order.
+goes first on every slot; a slot that prefers a label only puts the work on
+its own label first among it, and then takes the rest by priority and then by
+longest wait. The last is why such a slot never sits idle: with none of its
+label's work ready it takes the ordinary order, and its run's recorded reason
+says it found none of that work ready.
 
 Where some slot is dedicated, the running line of `yoyo status` says what the
 slot is doing in plain words: a run in it is either working on work carrying
 its label, or working outside its label because none of its work was ready,
-and a free dedicated slot is said as kept for its label. A ready priority-0
-item a dedicated slot walked past, with no other slot free to take it, is
-reported by the pass as waiting for one of the other developer slots, naming
-the item and what the slot took instead, each by its title with its identifier
-after it.
+and a free dedicated slot is said as kept for its label. A ready priority 0
+item that no slot's labels cover, walked past by a slot taking its own label's
+work with no other slot free to take it, is reported by the pass as waiting for
+a developer slot with none of its own labelled work ready, naming the item and
+what the slot took instead, each by its title with its identifier after it;
+status adds how long it has waited, and sets no limit on the wait.
 
 Two configurations are refused when the file is read, naming the slot and
 why: a slot marked dedicated that names no label under `prefer`, and every
-developer slot dedicated, which would leave no slot to take priority-0 work
-first. A list shorter than `max_concurrent_developers` always leaves a slot
+developer slot dedicated. A list shorter than `max_concurrent_developers` always leaves a slot
 undedicated. `dedicated` is a new key, so every running part of the product
 has to be moved onto a build that reads it before a project's file carries it.
 

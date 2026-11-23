@@ -79,19 +79,52 @@ func schedulingWaitProlonged(wait *beads.SchedulingWait, now time.Time, after ti
 	return wait != nil && wait.Valid() && !waitsOnOtherWork(wait) && now.Sub(wait.ReasonSince) >= after
 }
 
+// waitedFor is what a status line adds about how long an item left for another
+// developer slot has waited, counted from when it was first passed over. That
+// is the line naming a ready priority 0 item no slot's labels cover as waiting
+// for a slot with none of its own labelled work ready, which sets no time limit
+// on the wait (docs/product/operating-rules.md): the Lead Product Manager reads
+// how long it has waited to decide whether to tell the operator. It is said at
+// reading time rather than written into the kept reason, because a reason that
+// changed at every pull would restart its own dates.
+func waitedFor(wait *beads.SchedulingWait, now time.Time) string {
+	if wait == nil || !wait.Valid() || wait.Class != string(runstate.PassedOverLeftForAnotherSlot) {
+		return ""
+	}
+	return "; it has waited " + waitedSaid(now.Sub(wait.FirstPassedOver))
+}
+
+// waitedSaid is a length of time in words, coarse on purpose, as agoSaid is.
+func waitedSaid(elapsed time.Duration) string {
+	switch {
+	case elapsed < time.Minute:
+		return "less than a minute"
+	case elapsed < time.Hour:
+		return count(int(elapsed.Minutes()), "minute")
+	case elapsed < 48*time.Hour:
+		return count(int(elapsed.Hours()), "hour")
+	default:
+		return count(int(elapsed.Hours())/24, "day")
+	}
+}
+
 // markSchedulingWait marks a wait that has stood past the configured time as a
-// problem, naming whose move it is.
+// problem, naming whose move it is, and says how long an item left for another
+// slot has waited (waitedFor).
 func markSchedulingWait(ref *WorkItemRef, now time.Time, after time.Duration) {
 	ref.SchedulingWaitProlonged = schedulingWaitProlonged(ref.SchedulingWait, now, after)
 	ref.SchedulingWaitWhose = ""
 	if !ref.SchedulingWaitProlonged {
+		if ref.WaitReason != "" {
+			ref.WaitReason += waitedFor(ref.SchedulingWait, now)
+		}
 		return
 	}
 	if after <= 0 {
 		after = DefaultSchedulingWaitProblemAfter
 	}
 	ref.SchedulingWaitWhose = SchedulingWaitWhose(*ref.SchedulingWait)
-	ref.WaitReason = fmt.Sprintf("problem: the same reason has stood for more than %s; %s", after, SchedulingWaitSays(*ref.SchedulingWait))
+	ref.WaitReason = fmt.Sprintf("problem: the same reason has stood for more than %s; %s", after, SchedulingWaitSays(*ref.SchedulingWait)) + waitedFor(ref.SchedulingWait, now)
 	if ref.SchedulingWaitWhose != "" {
 		ref.WaitReason += "; the next move is " + ref.SchedulingWaitWhose
 	}

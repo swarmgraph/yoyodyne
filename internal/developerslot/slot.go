@@ -52,9 +52,8 @@ type Slot struct {
 	// Preferred is the labels this slot pulls first, and empty for a slot with no
 	// preference.
 	Preferred []string `json:"preferred,omitempty"`
-	// Dedicated is a slot kept for its labels, which takes their ready work
-	// ahead of priority-0 work that does not carry them
-	// (domain.DeveloperSlot.Dedicated).
+	// Dedicated is a slot said to be kept for its labels; it is ordered as any
+	// preferring slot is (domain.DeveloperSlot.Dedicated).
 	Dedicated bool `json:"dedicated,omitempty"`
 	// RunID and WorkItemID are the run in flight in this slot, and empty where
 	// the slot is free.
