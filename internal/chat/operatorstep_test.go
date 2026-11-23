@@ -204,7 +204,7 @@ func TestAHandlingAskingTheOperatorForARestartIsRefused(t *testing.T) {
 	seedReports(t, reports, collectedReport("report-00000000000000000000000000000002", report.SeverityWarning, "Slack is on an old build", 2))
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Recording it.",
-			`{"action":"handle","report":"report-00000000000000000000000000000002","needs":"operator","operator_reason":"credential","reason":"log in again and restart Slack onto the new build"}`)},
+			`{"action":"handle","report":"report-00000000000000000000000000000002","needs":"operator","operator_reason":"credential","credential":{"needs":"account","what":"the Slack login"},"reason":"log in again and restart Slack onto the new build"}`)},
 		{SessionID: "session-1", FinalText: "Recorded."},
 		{SessionID: "session-1", FinalText: "Nothing more."},
 	}}

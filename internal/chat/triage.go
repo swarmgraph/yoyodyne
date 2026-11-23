@@ -514,6 +514,9 @@ func (a TrackerAction) escalationProblems() []error {
 		if a.Hand != "" {
 			problems = append(problems, fmt.Errorf("only the %q decision and a handling name \"hand\", and this is %q", decisionEscalate, strings.TrimSpace(a.Decision)))
 		}
+		if a.Credential != nil {
+			problems = append(problems, fmt.Errorf("only the %q decision and a handling name \"credential\", and this is %q", decisionEscalate, strings.TrimSpace(a.Decision)))
+		}
 		return problems
 	}
 	if to == "" || ownership.NamesOperator(to) {
@@ -521,7 +524,7 @@ func (a TrackerAction) escalationProblems() []error {
 		// cannot yet carry it out for her: it names a capability the harness lacks
 		// rather than a reason of his, and stays hers.
 		if a.Hand != "" {
-			if a.OperatorReason != "" {
+			if a.OperatorReason != "" || a.Credential != nil {
 				return []error{fmt.Errorf("escalating %s: \"hand\" hands the operator your own decision and \"operator_reason\" makes it his; an escalation takes one or the other", strings.TrimSpace(a.ID))}
 			}
 			if err := a.Hand.Check(); err != nil {
@@ -531,6 +534,11 @@ func (a TrackerAction) escalationProblems() []error {
 		}
 		if err := ownership.CheckOperatorRouting(domain.RoleDevelopmentManager, a.OperatorReason); err != nil {
 			return []error{fmt.Errorf("escalating %s: %w", strings.TrimSpace(a.ID), err)}
+		}
+		// A step that needs only read access is a capability a role lacks: it goes
+		// to the Lead Product Manager as a defect to admit, never to him.
+		if err := ownership.CheckCredential(a.OperatorReason, a.Credential); err != nil {
+			return []error{fmt.Errorf("escalating %s: %w; escalate a missing capability to the Lead Product Manager with \"to\": \"product-manager\", naming the role and the outside system", strings.TrimSpace(a.ID), err)}
 		}
 		return nil
 	}
@@ -544,6 +552,9 @@ func (a TrackerAction) escalationProblems() []error {
 	}
 	if a.Hand != "" {
 		return []error{fmt.Errorf("an escalation to the %s carries no \"hand\"; that is for your own decision handed to the operator's keyboard", domain.AgentRole(to).Title())}
+	}
+	if a.Credential != nil {
+		return []error{fmt.Errorf("an escalation to the %s carries no \"credential\"; that is for an escalation to the operator, and a missing capability is named in the reason", domain.AgentRole(to).Title())}
 	}
 	return nil
 }
@@ -574,6 +585,9 @@ func (a TrackerAction) escalationVerb() string {
 	}
 	if a.Hand.Valid() {
 		return triageVerbs[decisionEscalate] + ", as the development manager's own decision that needs the operator's hand, because the harness has no way yet of " + a.Hand.Missing()
+	}
+	if a.Credential != nil {
+		return triageVerbs[decisionEscalate] + ", for " + a.Credential.Says()
 	}
 	return triageVerbs[decisionEscalate] + ", for " + a.OperatorReason.Says()
 }
@@ -923,6 +937,7 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		WaitsOn:        waitsOn,
 		EscalatedTo:    escalatedTo(action, decision),
 		OperatorReason: operatorReasonOf(action, decision),
+		Credential:     credentialOf(action, decision),
 		Hand:           handOf(action, decision),
 	})
 	if err != nil {
@@ -991,6 +1006,13 @@ func operatorReasonOf(action TrackerAction, decision string) ownership.OperatorR
 		return ""
 	}
 	return action.OperatorReason
+}
+
+func credentialOf(action TrackerAction, decision string) *ownership.Credential {
+	if operatorReasonOf(action, decision) == "" {
+		return nil
+	}
+	return action.Credential
 }
 
 func handOf(action TrackerAction, decision string) ownership.HandNeed {

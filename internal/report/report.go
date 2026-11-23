@@ -610,6 +610,14 @@ type Handling struct {
 	// it done; unlike NeedsOperator, the finding stays the role's and is never
 	// his to decide.
 	Hand ownership.HandNeed `json:"hand,omitempty"`
+	// Credential says which secret or account a handling naming the operator
+	// under "credential" found the step needs (ownership.CheckCredential). A
+	// handling recorded before that had to be said carries none.
+	Credential *ownership.Credential `json:"credential,omitempty"`
+	// MissingCapability is read access to an outside system a role lacks, on a
+	// handling that found the report's remedy needs only that: a defect for the
+	// Lead Product Manager to admit, and never a finding for the operator.
+	MissingCapability *ownership.MissingCapability `json:"missing_capability,omitempty"`
 	// Factory is the factory that recorded a handling this machine copied from
 	// the shared records, named as a report's is. It is empty for a handling
 	// recorded on this machine.
@@ -773,6 +781,22 @@ func (h Handling) Validate() error {
 			problems = append(problems, err)
 		}
 	}
+	if h.Credential != nil {
+		if h.OperatorReason != ownership.OperatorCredential {
+			problems = append(problems, errors.New("credential requires operator_reason credential"))
+		}
+		if err := h.Credential.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if h.MissingCapability != nil {
+		if h.NeedsOperator || h.Hand != "" {
+			problems = append(problems, errors.New("missing_capability is a defect for the Lead Product Manager to admit, and needs_operator or hand hands it to the operator; a handling records one or the other"))
+		}
+		if err := h.MissingCapability.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if h.PassFailureCleared != 0 && (h.PassFailureCleared < 3 || h.Role != HarnessReporter || h.NeedsOperator) {
 		problems = append(problems, errors.New("only the harness records a pass failure clearing, after at least three failures"))
 	}
@@ -922,6 +946,12 @@ func (h Handling) Render() string {
 		verb, h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, otherFactory("recorded", h.Factory), strings.Join(strings.Fields(workref.Expand(h.Reason, h.References)), " "))
 	if h.PersonOnly != nil {
 		fmt.Fprintf(&rendered, "        person's step: %s\n", h.PersonOnly.Step)
+	}
+	if h.Credential != nil {
+		fmt.Fprintf(&rendered, "        needs: %s\n", h.Credential.Says())
+	}
+	if h.MissingCapability != nil {
+		fmt.Fprintf(&rendered, "        missing capability, a defect to admit: %s\n", h.MissingCapability.Says())
 	}
 	for _, request := range h.Requests {
 		fmt.Fprintf(&rendered, "        request %q: %s\n", strings.TrimSpace(request.Request), request.answer())

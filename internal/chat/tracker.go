@@ -305,9 +305,9 @@ var trackerActionArguments = map[string][]string{
 	actionRepair:       {"state", "depends_on", "goal"},
 	actionClose:        {},
 	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "hand", "pull_request", "feedback"},
+	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "credential", "hand", "pull_request", "feedback"},
 	actionInFlight:     {"decision", "superseded_by"},
-	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason", "hand"},
+	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason", "credential", "missing_capability", "hand"},
 	actionBrake:        {"decision"},
 	actionKeepVersion:  {"decision"},
 	actionWithdraw:     {"proposal"},
@@ -612,6 +612,16 @@ type TrackerAction struct {
 	// (`docs/designs/ownership-and-the-operator.md`, under "The escalation
 	// ladder").
 	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
+	// Credential says which secret or account an escalation or a handling naming
+	// the operator under "credential" needs (ownership.CheckCredential). Naming
+	// him under that reason without it, or with a step that needs only read
+	// access, is refused.
+	Credential *ownership.Credential `json:"credential,omitempty"`
+	// MissingCapability is taken by a handling alone, for a report whose remedy
+	// is reading an outside system a role could read if it had read access: it
+	// records the role and the system as a capability the harness lacks, a
+	// defect to admit, and keeps the report off the operator's list.
+	MissingCapability *ownership.MissingCapability `json:"missing_capability,omitempty"`
 	// Hand is the capability the harness lacks (ownership.HandNeeds), on a
 	// handling or an escalation whose answer is the role's own decision that only
 	// the operator's keyboard can carry out today: a configuration value the
@@ -1403,6 +1413,17 @@ func (a TrackerAction) validateArguments() []error {
 				problems = append(problems, err)
 			}
 		}
+		if a.Credential != nil && strings.TrimSpace(a.Needs) != handleNeedsOperator {
+			problems = append(problems, errors.New("handle credential requires needs set to operator, with the credential reason"))
+		}
+		if missing := a.MissingCapability; missing != nil {
+			if strings.TrimSpace(a.Needs) != "" || a.Hand != "" || a.Credential != nil {
+				problems = append(problems, errors.New("handle \"missing_capability\" records read access a role lacks, a defect to admit rather than anything the operator does, so it takes no \"needs\", \"hand\", or \"credential\""))
+			}
+			if err := missing.Validate(); err != nil {
+				problems = append(problems, err)
+			}
+		}
 	case actionQueue:
 		problems = append(problems, a.queueProblems()...)
 	case actionKeepVersion:
@@ -1632,6 +1653,12 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(string(a.OperatorReason)) != "" {
 		carried = append(carried, "operator_reason")
+	}
+	if a.Credential != nil {
+		carried = append(carried, "credential")
+	}
+	if a.MissingCapability != nil {
+		carried = append(carried, "missing_capability")
 	}
 	if strings.TrimSpace(string(a.Hand)) != "" {
 		carried = append(carried, "hand")

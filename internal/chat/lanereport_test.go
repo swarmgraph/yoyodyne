@@ -283,7 +283,7 @@ func TestABadBlockedOnAHumanEntryIsRefusedAloneAndTheReportIsRead(t *testing.T) 
 	t.Parallel()
 
 	_, content, found, err := extractLaneReport(laneReportBlock(`{"blocked_on_a_human":[` +
-		`{"item":"yoyodyne-ifd.9","what":"renew the forge token","reason":"credential","cites":"report-7","since":"2026-10-12T16:40:00Z"},` +
+		`{"item":"yoyodyne-ifd.9","what":"renew the forge token","reason":"credential","credential":{"needs":"secret","what":"the forge token"},"cites":"report-7","since":"2026-10-12T16:40:00Z"},` +
 		`{"what":"approve the design","reason":"approval","cites":"report-8","since":"2026-10-12T16:40:00Z"},` +
 		`{"what":"answer the question","reason":"fundamental-intent","cites":"report-9","since":"yesterday"}],` +
 		`"summary":"s","remaining":[],"blockers":[]}`))
@@ -317,9 +317,9 @@ func TestARefusedBlockedOnAHumanEntryIsToldToTheRoleAndThePass(t *testing.T) {
 		return runstate.WaitingRecordOpen, nil
 	})
 	block := laneReportBlock(`{"blocked_on_a_human":[` +
-		`{"item":"yoyodyne-ifd.9","what":"renew the forge token","reason":"credential","cites":"report-7","since":"2026-10-12T16:40:00Z"},` +
+		`{"item":"yoyodyne-ifd.9","what":"renew the forge token","reason":"credential","credential":{"needs":"secret","what":"the forge token"},"cites":"report-7","since":"2026-10-12T16:40:00Z"},` +
 		`{"item":"yoyodyne-ifd.10","what":"approve the design","reason":"approval","cites":"report-8","since":"2026-10-12T16:40:00Z"},` +
-		`{"item":"yoyodyne-ifd.11","what":"renew the account","reason":"credential","cites":"report-done","since":"2026-10-12T16:40:00Z"}],` +
+		`{"item":"yoyodyne-ifd.11","what":"renew the account","reason":"credential","credential":{"needs":"secret","what":"the forge token"},"cites":"report-done","since":"2026-10-12T16:40:00Z"}],` +
 		`"summary":"s","remaining":[],"blockers":[]}`)
 	session, provider, root := programManagerSession(t, store, "A pass.\n\n"+block, "Nothing new.")
 	session.ForPass("factory-watch#3")
