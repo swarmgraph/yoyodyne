@@ -3597,6 +3597,35 @@ This used to end the run too, in the harder way: the process was killed on the
 spot with `token too long`, so the work in the worktree and the invocation's cost
 went with it.
 
+## A change too large for the reviewer to be shown
+
+The reviewer is shown a copy of the change with three limits: 256 KiB of diff
+for the whole change, 64 KiB for one new file, and 200 new files. Every source
+and test file has to fit in that copy whole, because a review cannot approve a
+file it was not shown; test data and generated files are not held to the
+limits. The developer is told these limits when its run starts, beside the
+execution record it must hand over.
+
+Before any check runs, the harness measures the change the way the reviewer's
+copy is rendered (`internal/orchestrator/reviewbound.go`). The first time a
+run's change would keep a source or test file out, the change goes back to its
+developer with each file kept out, its size, and the limit it was compared
+against. That spends one repair attempt, as a failed check does, and nothing is
+checked or reviewed first. A change can often be made to fit — a generated or
+vendored file left out, a large fixture recorded as test data, a smaller edit —
+and the developer may also say that it cannot be made smaller.
+
+A second refusal on the same run stops it for the development manager: nothing
+is checked, no review round is spent, the branch and worktree are kept, and the
+item is blocked with each file, its size, and the limit, which her list of
+stopped runs carries too. Most often she splits the item. A first refusal that
+finds the run's repair attempts already spent stops the run the same way.
+`yoyo status` reads a run that was handed the refusal as one whose developer is
+making the change fit, and the run's record keeps the refusal under
+`review_bound_refusal` while it is outstanding, and `review_bound_returned`
+once it has been handed back. [The ruling on the reviewer's size
+limits](decisions/review-size-limits.md) says why.
+
 ## What a check stage may cost, and where the whole suite runs
 
 A run's checks are bounded twice, and the two bounds answer different

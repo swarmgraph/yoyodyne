@@ -422,6 +422,7 @@ func (s State) withoutEarlierRound() State {
 	cleared.KeptChecks = nil
 	cleared.CheckFailure = nil
 	cleared.PathRefusal = nil
+	cleared.ReviewBoundRefusal = nil
 	cleared.ReplayConflict = nil
 	cleared.ReviewSessionID = ""
 	cleared.ReviewModel = ""
