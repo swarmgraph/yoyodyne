@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-10-26T23:02:00.569465Z
       reason: 'Answers the last part of report-a7df0a29: this section said no Slack message went out on October 23 and 24, but the diagnosis shows the license step was posted and sent to the operator once and never repeated. Only that sentence changes. Read whole at main c2a456dc.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T17:25:30.547095Z
+      reason: 'The design read as if all of it were shipped. Build now says what exists: the record and store, the runner, and follow-ups for two holds only; only environment checks can run; deadlines, surfaces, commands and the first import are not built. It also rules that piece 3 keeps each existing route that brings a wait back until piece 4 reads the deadlines, so no wait is lost between them. Scheduler and runner code read at main 1cfeaa92b6c3; the rest from the two readings of November 21. Part of the design review, yoyodyne-ifd.437.84.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-10-26T23:02:00.569465Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1818, for document-1818.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-23T17:25:30.547095Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3713, for document-3713.1 under the automatic approval policy
 ---
 # Follow-ups: every wait has an owner, a check the harness runs, and two deadlines
 
@@ -247,6 +256,18 @@ These are the pieces; turning them into work items is the development manager's.
 8. **The role contracts and personas** say that a wait is recorded as a follow-up and that a sentence in a note is not one.
 
 Piece 1 comes first. Pieces 2, 3 and 6 depend on it. Piece 4 depends on 2. Pieces 5 and 7 depend on 3 and 4. Piece 8 can go with 3. Where piece 3 meets a special path that [fewer lifecycle states](fewer-lifecycle-states.md) removes, such as the brake's decision on every pass, it writes the follow-up and leaves the removal to that design's piece, which depends on it.
+
+### What is built
+
+The rest of this design is the target. This is how much of it exists. The scheduler's use of follow-ups (`internal/orchestrator/followups.go`) and the check runner (`internal/followup/checkrun/runner.go`) were read at commit 1cfeaa92b6c3. Everything marked * rests on the two readings of this design against the code made on November 21, 2026 ([the first](../diagnoses/yoyodyne-ifd-437-84-2.md), [the second](../diagnoses/yoyodyne-ifd-437-84-2b.md)), and was not read again for this revision.
+
+- **Piece 1 is built.*** The record, its store, the sixteen names on the closed list of checks, and the registry kind exist.
+- **Piece 2 is built in part.** The scheduler runs the checks at each poll, every open check when it is due, one at a time. It records a result only when the result changes, closes a follow-up whose check passes, and tells the role that waits. The intervals are the two defaults named above, fixed in code. Only environment checks can be run: the runner also has a place for declared command checks, but no project can declare one yet.* A follow-up with any other check records that this build cannot run it, and stays open.
+- **Piece 3 is built for two holds and nothing else.*** The scheduler writes a follow-up for a hold placed because the machine could not run the checks, where it recognises the cause, and for a provider whose login lapsed. It releases each hold when the check passes, and the first also when its follow-up is closed with a reason. No other act listed under what creates a follow-up writes one, and none is refused without one.
+- **What those two holds do without a follow-up.** A hold over checks the machine could not run, whose cause is not recognised or whose follow-up could not be written, starts one trial run to find out, as it did before. A lapsed login whose follow-up could not be written stands until it can be, and the scheduler asks the provider nothing itself. A session with no check runner is the one case where the scheduler asks the provider about its login, and a test holds that to one place in its code.
+- **Pieces 4 to 8 are not built.*** The two deadlines are written on each follow-up as one hour and four hours, and nothing reads them. No surface shows a follow-up, the `follow_ups` settings and the `yoyo follow-up` commands do not exist, and the waits of today have not been brought in.
+
+Until piece 4 lands, a follow-up that never passes its check comes back to nobody by this route, so piece 3 does not give a new act a follow-up in place of a route that brings the wait back today. It writes the follow-up beside that route, and the route is removed once piece 4 has landed.
 
 ## What a reviewer can check
 
