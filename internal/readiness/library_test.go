@@ -1,8 +1,8 @@
 package readiness
 
 import (
-	"go/build"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -150,14 +150,19 @@ func (unreadLibrary) Library(symbol string) (Library, error) {
 	return (&standardLibrary{}).lookup(symbol)
 }
 
-// The release lists of the Go installation running this test, which is the
-// installation a pull reads where none is named: the citation that was held is
-// met against it.
+// The release lists of a real Go installation meet the citation that was held.
+// The go command is asked where it is, because a test built with -trimpath does
+// not know.
 func TestTheInstalledStandardLibraryHasHostname(t *testing.T) {
-	if _, err := os.Stat(filepath.Join(build.Default.GOROOT, "api")); err != nil {
-		t.Skipf("no Go release lists at %s: %v", build.Default.GOROOT, err)
+	output, err := exec.Command("go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Skipf("no Go installation to read: %v", err)
 	}
-	repository := &Repository{Root: t.TempDir()}
+	root := strings.TrimSpace(string(output))
+	if _, err := os.Stat(filepath.Join(root, "api")); err != nil {
+		t.Skipf("no Go release lists at %s: %v", root, err)
+	}
+	repository := &Repository{Root: t.TempDir(), GoRoot: root}
 
 	library, err := repository.Library("os.Hostname")
 	if err != nil {

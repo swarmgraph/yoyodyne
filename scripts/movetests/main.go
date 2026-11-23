@@ -4,7 +4,8 @@
 // Makefile's TEST_TIMEOUT
 // (docs/diagnoses/yoyodyne-ifd-429-12-orchestrator-binary-under-load.md).
 //
-// Run from the repository root. With no -target it prints the census: each
+// Run from the repository root, without -trimpath, which hides the Go source
+// this checks types against. With no -target it prints the census: each
 // test file, how many tests it holds, how many of them reach internals, and
 // its size; -v names what each of those tests reaches.
 //

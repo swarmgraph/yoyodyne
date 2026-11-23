@@ -90,9 +90,13 @@ cachecheck:
 	fi; \
 	rm -f "$$cache/.yoyodyne-writable"
 
+# -trimpath leaves Go's own folder out of the binary, and the readiness check
+# (internal/readiness) reads Go's standard library from it. So the link, and only
+# the link, names the folder again: compiled packages stay shared, and a local
+# build goes on checking the names an item cites from it. A release names no machine's.
 build: cachecheck
 	mkdir -p $(dir $(BINARY))
-	$(GO) build -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/yoyo
+	$(GO) build -ldflags '$(LDFLAGS) -X "runtime.defaultGOROOT=$(shell $(GO) env GOROOT)"' -o $(BINARY) ./cmd/yoyo
 
 # The repository tests that escalate a defect in a governed document rather
 # than failing on it, the packages holding them, and the start of the line each
@@ -379,12 +383,14 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/mcpcall='^(TestNoOtherPackageSpeaksMCP)$$' \
 	./internal/oneline='^(TestEveryCutAgainstAValidatedByteBoundFallsOnARuneBoundary|TestNoPackageTheConversationReadsThroughCutsASingleLineOfItsOwn)$$' \
 	./internal/orchestrator='^(TestReadmeNamesOnlyFilesThatExist|TestReadmeNamesOnlySymbolsThatExist|TestTwoChangesThatEachAddAFileMergeWithoutTouchingTheReadme|TestAPassRecordsItsLanguageFindingsAndTellsTheNextPass|TestBaselineDocumentDisclosesEveryFieldNoTraceHolds|TestMeasureHeavyCheckPermits|TestPermanentCarryOutCausesAreNamedInTheRunStopInventory|TestRunEndingSitesAreInventoried|TestRunStopBoundValuesMatchInventory|TestTheModelARunStartsOnIsChosenByTheItemsLabels|TestThisRepositorysDeliveryDefinitionMatchesTheBuiltIn|TestThisRepositorysDeliveryDefinitionSaysWhereTheBuiltInIs|TestThisRepositorysOwnDeliveryDefinitionIsWhatItsRunsExecute)$$' \
+	./internal/orchestrator/orchestratortest='^(TestThePackageImportsNothingFromTheOrchestrator)$$' \
 	./internal/protectedpath='^(TestNoGrantOpensTheWholeRepository)$$' \
 	./internal/readmodel='^(TestALaneReportWithARetiredWordIsFlaggedWithoutChangingTheRecord|TestTheAttentionLineFlagsARolesWords|TestADirtyPrimaryCheckoutOpensTheSummaryUntilItClears|TestTheSummaryReadsInOrdinaryWordsAndKeepsTheDetailBehindIt|TestWordingRenderIsRepeatableAndKeepsTheOriginalText)$$' \
 	./internal/rolecapability='^(TestEveryInventoriedCheckIsExpressedOrNamedAsAGap)$$' \
 	./internal/runstate='^(TestEveryStrictDecodeIsAWriterOrAValidator|TestNoRoutineReaderReadsEveryRunRecordUnlisted|TestNoRunRecordWriterOutsideThisPackageIsUnlisted|TestOnlyTheCommandLineRecordsARoleActivation|TestOnlyTheCommandLineWritesARecordedHumanAct|TestTheBoundedReadSweepNamesAnAddedReader|TestTheOutsideSweepFailsAListedEntryWithNoSite|TestTheOutsideSweepNamesEachAddedSite)$$' \
 	./internal/slack='^(TestEverySlackPostFlagsRetiredWordsEvenWithoutATracker)$$' \
-	./internal/toolcatalog='^(TestTheToolsSectionUsesOrdinaryWords)$$'
+	./internal/toolcatalog='^(TestTheToolsSectionUsesOrdinaryWords)$$' \
+	./internal/watchdog='^(TestTheStallAndStaleDerivationsReachNoProviderCall|TestTheLivenessSweepRecognisesAProviderInvocation)$$'
 
 doccheck: cachecheck
 	@failed=; \

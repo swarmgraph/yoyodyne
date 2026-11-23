@@ -528,8 +528,13 @@ directly — a focused `go test` while developing — needs the flag too
 (`go test -trimpath ./internal/beads -run TestA`), or it compiles against
 entries nothing else reads. With the flag, source paths in compiled code are
 module paths rather than absolute ones, so a test finds its files from its
-working folder, which Go sets to the package's folder, never from the path
-`runtime.Caller` reports.
+working folder, which Go sets to the package's folder: the path
+`runtime.Caller` reports is not a file, and `go/build` can no longer find a
+package by its import path or Go's own folder. `make build` names that folder
+again when it links, for the readiness check that reads Go's standard library.
+`go run ./scripts/movetests` checks types against Go's source, so run it without
+the flag.
+
 For Codex developers, the adapter creates and explicitly admits only that cache,
 through the confined filesystem writer, and the run's own scratch folder,
 `scratch/<run id>/` in the harness's state directory, which the harness cut
