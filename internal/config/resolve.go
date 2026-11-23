@@ -616,6 +616,10 @@ func (r *resolution) apply(applied layer) error {
 			r.config.Execution.HighRiskLabelsAdded = append([]string(nil), *execution.HighRiskLabels...)
 			r.origins["execution.high_risk_labels"] = applied.origin
 		}
+		if reviewers := execution.ReviewerModels; reviewers != nil {
+			setValue(r.origins, "execution.reviewer_models.documents", reviewers.Documents, &r.config.Execution.ReviewerModels.Documents, applied.origin)
+			setValue(r.origins, "execution.reviewer_models.code", reviewers.Code, &r.config.Execution.ReviewerModels.Code, applied.origin)
+		}
 		// The declarative path carries a harness default like the values above it,
 		// because it is what a run does rather than something a project opts into.
 		// A layer that writes the key — `false` for the rollback to the legacy

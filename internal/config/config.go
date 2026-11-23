@@ -661,6 +661,10 @@ type Execution struct {
 	// four fixed ones that keep an item off the cheaper model. It adds and never
 	// removes (Execution.HighRiskLabels).
 	HighRiskLabelsAdded []string `yaml:"high_risk_labels,omitempty" json:"high_risk_labels,omitempty"`
+	// ReviewerModels is the model kind a review is made on, for code and for a
+	// document publication, both the stronger by default; a code review is
+	// never set below it (reviewermodels.go).
+	ReviewerModels ReviewerModels `yaml:"reviewer_models,omitempty" json:"reviewer_models,omitzero"`
 	// DeclarativeDelivery is how a new run is executed, and it defaults on: each
 	// run compiles the built-in delivery definition, records a workflow instance
 	// of it, and steps that instance beside the run, so the sequence the
@@ -1394,6 +1398,7 @@ func (c Config) Validate() error {
 	problems = append(problems, ciCheckProblems(c)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	problems = append(problems, cheaperFirstProblems(c)...)
+	problems = append(problems, reviewerModelProblems(c)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")
 	}

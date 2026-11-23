@@ -1200,7 +1200,10 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 	}
 	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageReview}
 	account := p.accountFor(run.AccountAlias)
-	reviewer, reviewBackend, reviewModel, billingAlias := p.Reviewer, p.reviewer().Backend, p.reviewer().Model, run.AccountAlias
+	// The model is chosen by kind of change, documents or code
+	// (reviewermodel.go).
+	reviewer, reviewModel := p.reviewerForChange(isDocumentReview(run))
+	reviewBackend, billingAlias := p.reviewer().Backend, run.AccountAlias
 	if routed {
 		built, ok := p.ReviewerFor(endpoint)
 		if !ok || built == nil {

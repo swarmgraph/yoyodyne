@@ -28,6 +28,10 @@ var roleApplicableKeys = []string{
 	"execution.model_kinds",
 	"execution.developer_cheaper_first",
 	"execution.high_risk_labels",
+	// Which model kind reviews code and which reviews a document publication:
+	// it chooses a model and never who reviews, and a code review below the
+	// stronger model is refused in code (reviewermodels.go).
+	"execution.reviewer_models",
 	"recurring_tasks.*.every",
 	"recurring_tasks.*.model",
 	"execution.check_timeout",

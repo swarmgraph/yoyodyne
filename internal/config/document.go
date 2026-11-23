@@ -186,6 +186,8 @@ type executionDocument struct {
 	// HighRiskLabels replaces an inherited list wholesale. Whatever it says,
 	// the four fixed labels still apply.
 	HighRiskLabels *[]string `yaml:"high_risk_labels"`
+	// ReviewerModels inherits key by key (reviewermodels.go).
+	ReviewerModels *reviewerModelsDocument `yaml:"reviewer_models"`
 	// DeclarativeDelivery is absent from every file written before it existed and
 	// from every file whose project is content with the default. A layer that does
 	// not supply it leaves the harness default in force, which is the declarative
@@ -210,6 +212,11 @@ type cheaperFirstDocument struct {
 	Labels     *[]string `yaml:"labels"`
 	Priorities *[]int    `yaml:"priorities"`
 	TrialRuns  *int      `yaml:"trial_runs"`
+}
+
+type reviewerModelsDocument struct {
+	Documents *ModelKind `yaml:"documents"`
+	Code      *ModelKind `yaml:"code"`
 }
 
 type ciChecksDocument struct {
