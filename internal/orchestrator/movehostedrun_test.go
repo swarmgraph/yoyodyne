@@ -159,8 +159,11 @@ func TestADueContinuationStartsWhileAMoveWaitsOnAHostedRunAndTheMoveGoesAheadAtI
 		return pull, err
 	}
 
+	// A real-time cap well past what the test needs: the race run on the forge
+	// runs this package beside many others, and a cap of a minute is what a
+	// loaded machine can overrun, which has failed this test with nothing wrong.
 	scheduler := Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, SessionID: "watch-moving", Deployment: deployment}
-	schedule, err := scheduleWithin(scheduler, time.Minute)
+	schedule, err := scheduleWithin(scheduler, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}

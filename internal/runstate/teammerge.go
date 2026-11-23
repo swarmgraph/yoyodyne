@@ -169,6 +169,9 @@ type WaitingForTeamMergeItem struct {
 	PullRequest    int    `json:"pull_request,omitempty"`
 	PullRequestURL string `json:"pull_request_url,omitempty"`
 	Unverified     bool   `json:"unverified,omitempty"`
+	// BatchState is where the item stands on the harness's own batch pull
+	// request, and empty where that route is off.
+	BatchState BatchItemState `json:"batch_state,omitempty"`
 }
 
 // WaitingForTeamMergeOf keeps only the runs waiting for the team's merge, one
@@ -228,5 +231,9 @@ func (w WaitingForTeamMergeItem) Says() string {
 			carried += " (its landing commit was not found among the pull request's commits)"
 		}
 	}
-	return fmt.Sprintf("%s: landed on %s as %s, waiting for the team to merge it into %s; %s", name, w.TargetBranch, commit, w.UpstreamBranch, carried)
+	said := fmt.Sprintf("%s: landed on %s as %s, waiting for the team to merge it into %s; %s", name, w.TargetBranch, commit, w.UpstreamBranch, carried)
+	if w.BatchState != "" {
+		said += "; batch state: " + string(w.BatchState)
+	}
+	return said
 }

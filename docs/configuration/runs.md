@@ -1641,6 +1641,49 @@ any update that is waiting.
 The reasoning is in
 [integrating to a local branch](../designs/integrating-to-a-local-branch.md).
 
+### The batch pull request
+
+```yaml
+execution:
+  upstream_branch: main
+  batch_pull_request:
+    enabled: true          # off by default; with it off, or upstream_branch unset, nothing of this runs
+    min_items: 5           # 1 to 100
+    max_wait: 24h          # 15m to 336h (14 days)
+    review_window:         # unset means any time
+      time_zone: America/Los_Angeles
+      days: [mon, tue, wed, thu, fri]
+      from: "09:00"
+      to: "17:00"
+    automated_reviewer: reviewbot[bot]
+    review_request:
+      command: ["/usr/local/bin/tell-reviewers", "--channel", "reviews"]
+      format: json
+    merge_method: merge    # merge or squash
+```
+
+A complete example to copy is [`examples/batch-pull-request.yaml`](../examples/batch-pull-request.yaml); a test loads it through the ordinary configuration loading, so it stays valid.
+
+This is the harness's own batch pull request: it gathers the work landed on the target branch into one pull request into the team's branch, and the batching rules are these settings. It runs only when `execution.upstream_branch` is set and `enabled` is true; with either off nothing of it runs. Turning it on is the development manager's decision. Each value is checked against its bounds when the configuration loads, and one outside them refuses the configuration, naming the setting and the bound.
+
+| Setting | What it says | Bounds | Default |
+| --- | --- | --- | --- |
+| `min_items` | how many unpublished items open or grow a batch | 1 to 100 | 5 |
+| `max_wait` | how long the oldest unpublished item waits before a batch opens or grows with fewer | 15 minutes to 14 days | 24 hours |
+| `review_window` | the days and hours, in a named time zone, when a batch may open or grow and a review request may go out. `days` are `mon` to `sun`; `from` and `to` are 24-hour times on the same day, `from` earlier than `to` | open at least one hour a week; unset means any time | unset |
+| `automated_reviewer` | the forge account of a review tool whose review is waited for, and whose findings go to the Lead Product Manager | one account, or unset for none | unset |
+| `review_request` | a `command` (run without a shell) or an https `url`, not both, told when a batch is ready for a person, with a `format` of `json` or `text` (`json` if left out) | one of the two | unset: none is sent |
+| `merge_method` | how the forge merges the batch | `merge` or `squash` | `merge` |
+
+The harness keeps one record of the batch for each target branch in its state directory, written after each step. It holds the pull request, its head commit, its items, the approval seen, the automated reviewer's state, the review requests sent, and the tries at the description. Opening, growing and merging the batch are later steps of the same design.
+
+With the route on, `yoyo status`, the dashboard and each item's notes say where an item waiting for the team's merge stands: **unpublished** (on the target branch, in no open batch), **in the open batch**, **approved** (a person has approved the batch's head commit), or **merged**. An item's notes get a new line when its state changes, and none otherwise. The status line also says what the open batch is waiting on: the review window, the threshold (`min_items` items, or the oldest having waited `max_wait`), the automated reviewer, a person's approval, or the forge reporting the pull request mergeable.
+
+Adding this section's key to a file means every part of the product still running a build from before it goes on without it until it moves onto a newer build, so restart the product after setting it; `yoyo config validate` and `yoyo doctor` name any part that cannot read it.
+
+The reasoning is in
+[integrating to a local branch](../designs/integrating-to-a-local-branch.md#5-the-harnesss-own-batch-pull-request).
+
 ### When a configuration change takes effect
 
 **At the next selection.** `yoyo work` re-reads the configuration before every
