@@ -163,6 +163,10 @@ func bundles() []Bundle {
 				// same observation taken or followed on request.
 				capability.HealthObserve,
 				capability.HealthFollow,
+				// The trial of starting developers on the cheaper model is hers to
+				// decide on, and a defect traced to a landed run's change is what
+				// stops it; recording one is hers too.
+				capability.RunRecordLandedDefect,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,

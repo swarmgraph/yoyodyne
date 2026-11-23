@@ -177,6 +177,15 @@ type executionDocument struct {
 	// is one nobody wrote down. Absent leaves every run on the developer's
 	// configured model, which is what every file written before this means.
 	DeveloperModels *[]DeveloperModelRule `yaml:"developer_models"`
+	// ModelKinds inherits provider by provider: a layer naming a provider
+	// replaces what an earlier layer named for it, and leaves the others.
+	ModelKinds map[domain.Backend]ModelKindNames `yaml:"model_kinds"`
+	// DeveloperCheaperFirst inherits key by key; its two lists replace an
+	// inherited list wholesale, as the check lists do.
+	DeveloperCheaperFirst *cheaperFirstDocument `yaml:"developer_cheaper_first"`
+	// HighRiskLabels replaces an inherited list wholesale. Whatever it says,
+	// the four fixed labels still apply.
+	HighRiskLabels *[]string `yaml:"high_risk_labels"`
 	// DeclarativeDelivery is absent from every file written before it existed and
 	// from every file whose project is content with the default. A layer that does
 	// not supply it leaves the harness default in force, which is the declarative
@@ -191,6 +200,13 @@ type executionDocument struct {
 	// which leaves it off. Each key inherits on its own, except that the two
 	// lists replace an inherited list wholesale, as the check lists do.
 	CIChecks *ciChecksDocument `yaml:"ci_checks"`
+}
+
+type cheaperFirstDocument struct {
+	Enabled    *bool     `yaml:"enabled"`
+	Labels     *[]string `yaml:"labels"`
+	Priorities *[]int    `yaml:"priorities"`
+	TrialRuns  *int      `yaml:"trial_runs"`
 }
 
 type ciChecksDocument struct {

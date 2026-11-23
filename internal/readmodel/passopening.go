@@ -293,7 +293,7 @@ const (
 
 // Queries is every query a reply may name, in the order they are listed to it.
 func Queries() []string {
-	return []string{QueryStanding, QueryThroughput, QueryCapacity, QueryDocket, QueryReports, QueryProgramManagers, QueryLaneReport}
+	return []string{QueryStanding, QueryThroughput, QueryCapacity, QueryDocket, QueryReports, QueryProgramManagers, QueryLaneReport, QueryModelTrial}
 }
 
 // KnownQuery reports whether a name is one of Queries.
@@ -361,6 +361,8 @@ func Query(ctx context.Context, sources Sources, throughput ThroughputSources, n
 			return QueryResult{}, err
 		}
 		answer = reportAnswer
+	case QueryModelTrial:
+		answer = ReadModelTrial(sources)
 	}
 	encoded, err := json.Marshal(answer)
 	if err != nil {

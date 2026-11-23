@@ -681,7 +681,11 @@ func (p Pipeline) chooseAccount() (config.AccountEndpoint, error) {
 // A project with one account is not rotating anything, so it takes no lease and
 // starts exactly as it did before pooling existed.
 func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstate.State, *runstate.Lease, error) {
-	if p.Config.Pooled() {
+	// A run the trial of starting developers on the cheaper model could settle
+	// takes the same lease, because its place in the trial is read off the run
+	// records exactly as the pool's cursor is (cheaperfirst.go).
+	eligibility, cheaperFirst := p.cheaperFirstApplies(state)
+	if p.Config.Pooled() || cheaperFirst {
 		rotation, err := p.Store.LeaseRotation(ctx)
 		if err != nil {
 			return state, nil, err
@@ -711,6 +715,12 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	// configured model exactly as they always did.
 	if choice := config.ResolveDeveloperModel(p.Config.Execution.DeveloperModels, state.WorkItemLabels, p.developer().Model); choice.Chosen() {
 		state.DeveloperModel, state.DeveloperModelReason = choice.Model, choice.Reason
+	}
+	// An eligible item may start on the cheaper model instead (cheaperfirst.go).
+	if cheaperFirst {
+		if err := p.settleCheaperFirst(&state, eligibility); err != nil {
+			return state, nil, err
+		}
 	}
 	// The effort level is settled beside the model, from the developer agent's
 	// configuration, so an edit to it reaches the next run and never one already
@@ -1541,6 +1551,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, refusedByEnvironment("a run identifier could not be generated", err)
 	}
+	priority := item.Priority
 	state := runstate.State{
 		SchemaVersion: runstate.StateSchemaVersion,
 		RunID:         runID,
@@ -1556,7 +1567,10 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		// occupies is read off the labels the item was pulled with, by the status
 		// as much as by the scheduler, and neither goes back to the tracker for it.
 		WorkItemLabels: append([]string(nil), item.Labels...),
-		Backend:        p.developer().Backend,
+		// And its priority, which decides whether it may start on the cheaper
+		// model (cheaperfirst.go).
+		WorkItemPriority: &priority,
+		Backend:          p.developer().Backend,
 		// Which configuration set this run up is written with the run for the reason
 		// the title is: this is where the answer is in hand, everything that reads
 		// the record afterwards reads only the record, and a configuration is
@@ -4043,6 +4057,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 				return a.replayStopEnds(chargeErr, err.Error())
 			}
 			a.observeCheckEnded(ctx, err, stillRepairable)
+			a.moveToStronger("its checks failed (" + a.state.CheckFailure.Command + ")")
 			if err := a.repair(ctx, checkRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.CheckFailure, a.state.RepairAttempts+1, limit)); err != nil {
 				return err
 			}
@@ -4057,6 +4072,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			a.observeReviewEnded(ctx, "", err, stillRepairable)
 			return err
 		}
+		a.noteFirstReview(decision)
 		if decision == review.DecisionApprove {
 			a.observeReviewEnded(ctx, decision, nil, stillRepairable)
 			handedBack, err := a.checkCandidateWhole(ctx, limit)
@@ -4091,6 +4107,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		a.moveToStronger("its independent review asked for repair")
 		if err := a.repair(ctx, prompt); err != nil {
 			return err
 		}
@@ -4189,6 +4206,7 @@ func (a *activeRun) checkCandidateWhole(ctx context.Context, limit int) (bool, e
 		return false, a.replayStopEnds(chargeErr, err.Error())
 	}
 	a.observeCheckEnded(ctx, err, stillRepairable)
+	a.moveToStronger("its checks failed over the whole module (" + a.state.CheckFailure.Command + ")")
 	if err := a.repair(ctx, checkRepairPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, *a.state.CheckFailure, a.state.RepairAttempts+1, limit)); err != nil {
 		return false, err
 	}

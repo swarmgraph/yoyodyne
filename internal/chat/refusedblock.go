@@ -28,6 +28,7 @@ const (
 	blockAsk            = "question to another role"
 	blockMemory         = "memory"
 	blockRestart        = "restart request"
+	blockLandedDefect   = "defect after landing"
 	blockPostMortem     = "post-mortem"
 	blockPassRequest    = "pass request"
 	blockHandStep       = "hand step"
@@ -82,6 +83,8 @@ func blockRefusal(authority Authority, kind string) *AuthorityError {
 		return refused("a memory to be recorded", "a memory of one's own is kept by the management roles — the Lead Product Manager, the architect, and the development manager — and this role's judgement is exercised inside runs, which remember nothing between invocations")
 	case blockRestart:
 		return refused("a part of the product to be restarted", "asking the supervisor to restart a part is the program manager's, and this role says what it found in prose instead")
+	case blockLandedDefect:
+		return refused("a defect after landing to be recorded on a run", "recording a defect against the trial of starting developers on the cheaper model is the development manager's, and this role says what it found in prose instead")
 	case blockPostMortem:
 		return refused("stopped runs to be counted against their causes", "the post-mortem of stopped runs is the program manager's, and this role says what it found in prose instead")
 	case blockPassRequest:
@@ -125,6 +128,8 @@ func (s *Session) refusedBlockAuthority(authority Authority, kind string) error 
 		held = authority.Memory
 	case blockRestart:
 		held = authority.RestartRequests
+	case blockLandedDefect:
+		held = authority.LandedDefects
 	case blockPostMortem:
 		held = authority.StopCauses
 	case blockPassRequest:

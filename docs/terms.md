@@ -262,7 +262,7 @@ for.
 `highest-priority` `html-comment` `img-src` `input-token` `intra-document`
 `intra-file` `local-timezone` `long-running` `long-term` `low-cost` `lower-case`
 `lowest-cost` `ls-tree` `machine-readably` `merge-check` `merge-queue` `minute-long`
-`mirror-image` `mis-selection` `month-old` `near-autonomous` `near-misses`
+`mirror-image` `mis-selection` `model-trial` `month-old` `near-autonomous` `near-misses`
 `near-term` `nearly-every` `network-bind` `network-inbound` `network-outbound`
 `newly-available` `operating-system` `opt-in`
 `opt-ins` `opt-out` `parent-child` `part-way` `plain-http` `plain-language`

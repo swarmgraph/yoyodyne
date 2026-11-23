@@ -794,6 +794,7 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.FactoryStallAfter = cfg.Execution.FactoryStallAfter.Duration()
 	sources.CouldNotRunBeforeStatus = cfg.Execution.CouldNotRunBeforeStatus
 	sources.GateChecks = cfg.GateCheckCommands()
+	sources.CheaperFirst = cfg.Execution.DeveloperCheaperFirst
 	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		sources.Tracker = unreadableTracker{err}

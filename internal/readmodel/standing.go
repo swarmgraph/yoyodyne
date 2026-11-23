@@ -53,6 +53,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -259,8 +260,12 @@ type Gates interface {
 // only way a format nobody may break gets a fixture that holds it.
 type Sources struct {
 	// Repository is where the current terms register is read at render time.
-	Repository    string
-	Runs          Runs
+	Repository string
+	Runs       Runs
+	// CheaperFirst is execution.developer_cheaper_first, read for the trial of
+	// starting developers on the cheaper model (modeltrial.go). The zero value
+	// is the setting off with the default run count.
+	CheaperFirst  config.DeveloperCheaperFirst
 	Conversations Conversations
 	Tracker       Tracker
 	// TrackerPrefixes are the tracker's id prefixes as the configuration names
