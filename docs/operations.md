@@ -6741,9 +6741,11 @@ record marks it as a repeat instead, and the status line, `yoyo status <item>`
 and the item card add how many passes have left the item again since the note,
 with the latest in local time: `(the note written on the item at 2026-10-31
 09:00 PDT gives this reason; left again 3 times since, most recently at
-2026-10-31 12:00 PDT)`. A changed reason writes a new note, and so does a pass
-that takes the item or puts another first and is then followed by one leaving
-it again. A pass that reaches a new stage of leaving it in a row — the second
+2026-10-31 12:00 PDT)`. Before writing, the pass also reads the item: where the
+last note that task wrote there gives the same reason, at the same stage, it
+writes none either, even if a pass in between took the item or put another
+first, or the records of earlier passes were kept on another machine. A changed
+reason writes a new note. A pass that reaches a new stage of leaving it in a row — the second
 in a row, after which the next pass is told to decide it or ask, and the first
 to leave it after being told — writes its note too, since that note says
 something the earlier one did not. A note the tracker refused is not counted as

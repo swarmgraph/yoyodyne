@@ -39,8 +39,11 @@ package orchestrator
 // there was no passing-over to say, only a pass that did not run or did not
 // finish, and its own record says which. The note is appended, never replaces
 // what the item's notes already hold, and is written once per reason: a pass
-// that leaves the item for the reason the last note gave writes nothing and is
-// counted instead (notePassedOver).
+// that leaves the item for the reason the task's last note on it gave writes
+// nothing and is counted instead (notePassedOver). That is judged from the pass
+// records and, where the tracker can be read, from the item's own last note, so
+// passes in between that took the item or put another first do not make the
+// same reason worth another note.
 
 import (
 	"context"
@@ -48,6 +51,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -222,6 +226,17 @@ func (t Trigger) notePassedOver(ctx context.Context, pass string, role domain.Ag
 	}
 	write, stopWriting := trackerRecordContext(ctx)
 	defer stopWriting()
+	// The pass records end a run of leaves at any pass that took the item or put
+	// another first, and are kept on one machine; the item's own notes are what a
+	// reader sees, so a leave its last note from this task already says is a
+	// repeat however the records between read. A read that fails writes the
+	// note, as before there was a read.
+	if reader, ok := t.ItemNotes.(RecurringItemNotesReader); ok {
+		if notes, err := reader.ItemNotes(write, first.ID); err == nil && repeatsLastPassedOverNote(notes, role, recorded.Task, first) {
+			recorded.Delivered[0].NoteRepeated = true
+			return ""
+		}
+	}
 	if err := t.ItemNotes.AppendNote(write, first.ID, passedOverNote(pass, role, *recorded, first)); err != nil {
 		recorded.Delivered[0].NoteUnwritten = true
 		return fmt.Sprintf("%s was first in the order this pass was handed and the pass did not take it, and the note saying so could not be written on the item: %v", first.ID, err)
@@ -251,6 +266,65 @@ func passedOverNote(pass string, role domain.AgentRole, recorded runstate.Sweep,
 		"Passed over by the %s's recurring pass %s at %s: this item (P%d) %s from the work waiting in the %s's conversation, and the pass did not take it%s. Reason: %s.%s",
 		role.Title(), pass, recorded.StartedAt.Local().Format("15:04 MST on January 2, 2006"),
 		first.Priority, where, role.Title(), took, strings.TrimSuffix(reason, "."), leftInARowSays(role, first))
+}
+
+// repeatsLastPassedOverNote reports whether the last passed-over note the
+// task wrote among the item's notes gives first's reason at first's stage of
+// leaving it in a row, so the note this pass would write says nothing new. The
+// note's count of items handed and taken, its time and the pass's number are
+// not compared: they change on every pass while the reason does not.
+func repeatsLastPassedOverNote(notes string, role domain.AgentRole, task string, first runstate.DeliveredWork) bool {
+	if strings.TrimSpace(task) == "" {
+		return false
+	}
+	plain := beads.PlainNotes(notes)
+	opening := fmt.Sprintf("Passed over by the %s's recurring pass %s#", role.Title(), task)
+	at := -1
+	for end := len(plain); end > 0; {
+		found := strings.LastIndex(plain[:end], opening)
+		if found < 0 {
+			break
+		}
+		if found == 0 || plain[found-1] == '\n' {
+			at = found
+			break
+		}
+		end = found
+	}
+	if at < 0 {
+		return false
+	}
+	line, _, _ := strings.Cut(plain[at:], "\n")
+	_, said, found := strings.Cut(line, ". Reason: ")
+	if !found {
+		return false
+	}
+	reason := first.Reason
+	if reason == "" {
+		reason = "no reason given"
+	}
+	stage, same := strings.CutPrefix(strings.TrimSpace(said), strings.TrimSuffix(reason, ".")+".")
+	if !same {
+		return false
+	}
+	return passedOverStageSaid(stage) >= 0 && passedOverStageSaid(stage) == passedOverStageSaid(leftInARowSays(role, first))
+}
+
+// passedOverStageSaid reads which stage of leaving an item in a row a note's
+// closing sentences say (leftInARowSays): 0 where they say nothing, 1 where the
+// next pass is told to decide it or ask, 2 where a pass told so left it anyway,
+// and -1 where they are none of those, which matches nothing.
+func passedOverStageSaid(said string) int {
+	said = strings.TrimSpace(said)
+	switch {
+	case said == "":
+		return 0
+	case strings.HasPrefix(said, "This is the ") && strings.HasSuffix(said, "so the next pass is told to decide it, writing down its assumptions, or to put one question about it."):
+		return 1
+	case strings.HasPrefix(said, "This is the ") && strings.HasSuffix(said, "The development manager is told at that role's next pass."):
+		return 2
+	}
+	return -1
 }
 
 // leftInARowSays is what the note adds where passes in a row have left the

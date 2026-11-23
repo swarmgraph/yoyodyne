@@ -325,11 +325,22 @@ func heldOutside(item beads.WorkItem, unfinished map[string]struct{}) string {
 
 // trackerNotes appends the harness's note to a work item, through the same
 // tracker the pass's conversation acts through. AppendNotes adds to the notes
-// and never replaces them.
+// and never replaces them. It also reads an item's notes, so a pass can see
+// whether its note would only repeat the last one there.
 type trackerNotes struct {
 	tracker interface {
 		Update(ctx context.Context, id string, change beads.WorkItemChange) (beads.WorkItem, error)
+		Show(ctx context.Context, id string) (beads.WorkItem, error)
 	}
+}
+
+// ItemNotes is the item's notes with their append boundaries where recorded.
+func (n trackerNotes) ItemNotes(ctx context.Context, id string) (string, error) {
+	item, err := n.tracker.Show(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return item.RecordedNotes(), nil
 }
 
 func (n trackerNotes) AppendNote(ctx context.Context, id, note string) error {

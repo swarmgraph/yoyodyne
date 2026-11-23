@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -354,6 +355,109 @@ func TestALeaveWithNoTrackerIsNeverCountedAsARepeat(t *testing.T) {
 	for index, pass := range recorded {
 		if first := pass.Delivered[0]; !first.NoteUnwritten || first.NoteRepeated {
 			t.Errorf("pass %d first = %+v, want its note marked unwritten and not a repeat", index+1, first)
+		}
+	}
+}
+
+// readableNotes is the tracker as a pass both writes and reads an item's notes
+// through, each note framed as the tracker records it.
+type readableNotes struct {
+	itemNotes
+	reads int
+}
+
+func (n *readableNotes) ItemNotes(_ context.Context, id string) (string, error) {
+	n.reads++
+	framed := make([]string, len(n.notes[id]))
+	for index, note := range n.notes[id] {
+		framed[index] = beads.FrameNote(note)
+	}
+	return strings.Join(framed, "\n"), nil
+}
+
+// Two passes leaving an unchanged item for the same reason add one note
+// between them, even where the pass records cannot say the second repeats the
+// first: here each pass is recorded in a log of its own, as after a pass in
+// between took the item or put another first. A changed reason still writes,
+// and a note another task wrote is not this task's last note.
+func TestTwoPassesOverAnUnchangedItemAddOneNoteBetweenThem(t *testing.T) {
+	t.Parallel()
+	notes := &readableNotes{}
+	notes.itemNotes.notes = map[string][]string{capacityDesign: {
+		"Passed over by the architect's recurring pass other-pass#3 at 09:00 PDT on November 1, 2026: this item (P0) was the only item it was handed from the work waiting in the architect's conversation, and the pass did not take it. Reason: " + spreadReason + ".",
+	}}
+	changed := complete("Took nothing.")
+	changed.Left = []sweep.Left{{Item: capacityDesign, Reason: "the ruling waits on the measured figures"}}
+	turns := []scriptedTurn{leftAgainTurn("Took nothing."), leftAgainTurn("Took nothing."), {result: changed}}
+	// Through a writer that cannot read the item, the records alone decide, and
+	// each pass writes its note.
+	for _, turn := range turns {
+		role := &wokenRole{answers: []scriptedTurn{turn}}
+		fireArchitectPasses(t, capacityQueue("depends on yoyodyne-ifd.429.40, which is open"), role, &notes.itemNotes, sweepStore(t), 1)
+	}
+	if written := notes.notes[capacityDesign][1:]; len(written) != 3 {
+		t.Fatalf("notes = %v, want every pass to write where the item is not read", written)
+	}
+	notes.itemNotes.notes[capacityDesign] = notes.itemNotes.notes[capacityDesign][:1]
+	var recorded []runstate.Sweep
+	for _, turn := range turns {
+		role := &wokenRole{answers: []scriptedTurn{turn}}
+		store := sweepStore(t)
+		clock := &movingRecurringClock{now: recurringNow}
+		trigger := Trigger{Tasks: architectPass(), Claims: store, Reports: store, Roles: role,
+			ConversationWork: capacityQueue("depends on yoyodyne-ifd.429.40, which is open"), ItemNotes: notes, Clock: clock}
+		if _, err := trigger.Fire(context.Background()); err != nil {
+			t.Fatalf("Fire() error = %v", err)
+		}
+		passes, _, err := store.List()
+		if err != nil || len(passes) != 1 {
+			t.Fatalf("recorded = %+v (%v), want one pass", passes, err)
+		}
+		recorded = append(recorded, passes[0])
+	}
+	written := notes.notes[capacityDesign][1:]
+	if len(written) != 2 {
+		t.Fatalf("notes = %v, want one for the unchanged reason and one for the changed reason", written)
+	}
+	if !strings.Contains(written[0], "recurring pass architect-pass#") || !strings.Contains(written[0], "Reason: "+spreadReason) ||
+		!strings.Contains(written[1], "Reason: the ruling waits on the measured figures") {
+		t.Errorf("notes = %v, want the first pass's note and then the changed reason's", written)
+	}
+	for index, want := range []bool{false, true, false} {
+		if first := recorded[index].Delivered[0]; first.NoteRepeated != want || first.NoteUnwritten {
+			t.Errorf("pass %d first = %+v, want note repeated %v", index+1, first, want)
+		}
+	}
+	if notes.reads != 3 {
+		t.Errorf("reads = %d, want the item read before each note", notes.reads)
+	}
+}
+
+func TestOnlyTheTasksLastNoteWithTheSameReasonAndStageIsARepeat(t *testing.T) {
+	t.Parallel()
+	first := runstate.DeliveredWork{ID: capacityDesign, Reason: spreadReason}
+	note := func(task, reason, stage string) string {
+		return beads.FrameNote("Passed over by the architect's recurring pass " + task + "#4 at 09:00 PDT on November 1, 2026: this item (P0) was first of the 3 items it was handed from the work waiting in the architect's conversation, and the pass did not take it; it took 1 of the others. Reason: " + reason + "." + stage)
+	}
+	later := beads.FrameNote("Noted by the Lead Product Manager in conversation chat-1, after turn 9.\n\nReason: the fallback landed.")
+	stage1 := " This is the 2nd pass in a row to leave it with nothing outside the architect's role holding it, so the next pass is told to decide it, writing down its assumptions, or to put one question about it."
+	for _, c := range []struct {
+		name  string
+		notes string
+		left  int
+		want  bool
+	}{
+		{"same reason, other notes after it", note("architect-pass", spreadReason, "") + "\n" + later, 0, true},
+		{"older same reason, newer different", note("architect-pass", spreadReason, "") + "\n" + note("architect-pass", "another reason", ""), 0, false},
+		{"another task's note", note("other-pass", spreadReason, ""), 0, false},
+		{"a new stage", note("architect-pass", spreadReason, ""), 2, false},
+		{"the same stage", note("architect-pass", spreadReason, stage1), 2, true},
+		{"quoted inside another note", beads.FrameNote("Quoted: Passed over by the architect's recurring pass architect-pass#1 at 09:00: x. Reason: " + spreadReason + "."), 0, false},
+		{"no notes", "", 0, false},
+	} {
+		first.LeftInARow = c.left
+		if got := repeatsLastPassedOverNote(c.notes, domain.RoleArchitect, "architect-pass", first); got != c.want {
+			t.Errorf("%s: repeats = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

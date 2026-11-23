@@ -184,6 +184,16 @@ type RecurringItemNotes interface {
 	AppendNote(ctx context.Context, id, note string) error
 }
 
+// RecurringItemNotesReader is the read a RecurringItemNotes may also offer:
+// the item's notes as the tracker holds them now, with their append
+// boundaries where recorded. A pass reads them before writing its
+// passed-over note, so a pass leaving the item for the reason its last note
+// there already gives writes nothing (passedover.go). A writer without it
+// falls back on the pass records alone.
+type RecurringItemNotesReader interface {
+	ItemNotes(ctx context.Context, id string) (string, error)
+}
+
 // RecurringRole is a role's conversation as the harness reaches it: one message
 // sent into it, and what came back.
 //

@@ -17,6 +17,14 @@ import (
 // particular, a follow-up asking about a continuation proves no execution.
 // Appends with recorded boundaries are read atomically. Older prose without
 // those boundaries is quoted conservatively and identified as ambiguous.
+//
+// The continuous tail starts at the first recorded append that fits whole in
+// the budget, so the newest notes are returned whole rather than opening
+// mid-sentence; only a newest append larger than the budget is itself cut. The
+// excerpts are held to maxTrackerExcerptBytes, the newest kept and the oldest
+// cut first, with a line saying how many and how many bytes were cut: an item
+// with years of older notes would otherwise carry enough excerpts to push the
+// newest notes past whatever bounds the read further on.
 func renderTrackerNotes(notes string, budget int) string {
 	parts := beads.NoteRecords(notes)
 	var plain strings.Builder
@@ -73,6 +81,12 @@ func renderTrackerNotes(notes string, budget int) string {
 	for cut < len(notes) && !utf8.RuneStart(notes[cut]) {
 		cut++
 	}
+	for _, record := range records {
+		if record.framed && record.start >= cut && strings.TrimSpace(notes[record.start:]) != "" {
+			cut = record.start
+			break
+		}
+	}
 	latest := make(map[string]int)
 	for index, record := range records {
 		if record.framed && record.kind != "" {
@@ -99,11 +113,12 @@ func renderTrackerNotes(notes string, budget int) string {
 	if len(kept) > 0 {
 		if legacy {
 			rendered.WriteString("Stop and decision excerpts from the cut notes (in note order):\n")
-			rendered.WriteString("Older notes have no recorded append boundaries. All matching excerpts from that history are retained; matching text may be quoted or captured output, so their order alone does not establish separate writes or which decision was latest.\n")
+			rendered.WriteString("Older notes have no recorded append boundaries. Matching excerpts from that history are quoted within the read's limit, and where they do not all fit the oldest are cut first; matching text may be quoted or captured output, so their order alone does not establish separate writes or which decision was latest.\n")
 		} else {
 			rendered.WriteString("Latest stop and recorded decisions from the cut notes (verbatim extracts, in note order):\n")
 		}
 		seen := make(map[string]bool)
+		var excerpts []string
 		for _, index := range kept {
 			record := records[index]
 			text := strings.TrimSpace(notes[record.start:record.end])
@@ -114,11 +129,49 @@ func renderTrackerNotes(notes string, budget int) string {
 				continue
 			}
 			seen[text] = true
-			fmt.Fprintf(&rendered, "\n[notes bytes %d–%d]\n%s\n", record.start, record.end, text)
+			excerpts = append(excerpts, fmt.Sprintf("\n[notes bytes %d–%d]\n%s\n", record.start, record.end, text))
 		}
+		rendered.WriteString(boundTrackerExcerpts(excerpts))
 		rendered.WriteString("\nOnly the latest framed record of each kind is extracted above; unframed history is quoted conservatively. Captured check output and other details may be omitted. These notes do not establish execution beyond what they explicitly record.\n\nContinuous end of notes:\n")
 	}
-	rendered.WriteString(boundTextTail(notes, budget))
+	if cut > 0 {
+		fmt.Fprintf(&rendered, "[the first %d bytes are cut; treat them as unread rather than absent]\n\n", cut)
+	}
+	rendered.WriteString(strings.TrimSpace(notes[cut:]))
+	return rendered.String()
+}
+
+// maxTrackerExcerptBytes bounds the excerpts quoted from cut notes. With the
+// item read's own bound it keeps a whole read well inside the 32 KiB the
+// results carried into a role's next turn may hold (maxPendingResultBytes), so
+// nothing after the excerpts, the newest notes least of all, is cut there.
+const maxTrackerExcerptBytes = 12 << 10
+
+// boundTrackerExcerpts keeps the newest excerpts that fit maxTrackerExcerptBytes,
+// in note order, and says how many older ones were cut and how many bytes they
+// held. A newest excerpt larger than the bound is kept, cut at its end.
+func boundTrackerExcerpts(excerpts []string) string {
+	from, used := len(excerpts), 0
+	for from > 0 && used+len(excerpts[from-1]) <= maxTrackerExcerptBytes {
+		from--
+		used += len(excerpts[from])
+	}
+	kept := excerpts[from:]
+	if from == len(excerpts) && from > 0 {
+		from--
+		kept = []string{boundText(excerpts[from], maxTrackerExcerptBytes) + "\n"}
+	}
+	var rendered strings.Builder
+	if from > 0 {
+		cutBytes := 0
+		for _, excerpt := range excerpts[:from] {
+			cutBytes += len(excerpt)
+		}
+		fmt.Fprintf(&rendered, "\n[the %d oldest excerpts, %d bytes, are cut to keep this read within its bound; treat them as unread rather than absent]\n", from, cutBytes)
+	}
+	for _, excerpt := range kept {
+		rendered.WriteString(excerpt)
+	}
 	return rendered.String()
 }
 
