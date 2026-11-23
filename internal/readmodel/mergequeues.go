@@ -32,8 +32,8 @@ type MergeQueues interface {
 	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
 	Refusal(key runstate.MergeQueueKey) (runstate.MergeQueueRefusal, bool, error)
 	LastPass(key runstate.MergeQueueKey) (runstate.MergeQueuePass, bool, error)
-	// ForgeReading is the latest reading of what GitHub said a merge it holds
-	// for the entry was waiting on (runstate's mergequeueforgereading.go).
+	// ForgeReading is the latest reading of what GitHub said the entry's merge
+	// was waiting on (runstate's mergequeueforgereading.go).
 	ForgeReading(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueForgeReading, bool, error)
 }
 
@@ -60,6 +60,9 @@ const (
 	QueueEntryLanding QueueEntryState = "landing"
 	// QueueEntryForgeHolds is a merge the forge accepted and holds.
 	QueueEntryForgeHolds QueueEntryState = "forge-holds"
+	// QueueEntryAwaitsForge is a candidate whose pull request is open and whose
+	// merge is asked for once GitHub is ready to make it.
+	QueueEntryAwaitsForge QueueEntryState = "awaits-forge"
 	// QueueEntryUncertain is something asked of the target or the forge whose
 	// outcome nothing has established yet.
 	QueueEntryUncertain QueueEntryState = "uncertain"
@@ -97,6 +100,8 @@ func (s QueueEntryState) Label() string {
 		return "landing, not confirmed yet"
 	case QueueEntryForgeHolds:
 		return "held by the forge, not landed yet"
+	case QueueEntryAwaitsForge:
+		return "waiting for GitHub to be ready to merge it, not landed yet"
 	case QueueEntryUncertain:
 		return "uncertain whether it landed"
 	case QueueEntryLanded:
@@ -412,11 +417,12 @@ func readQueueEntry(queues MergeQueues, key runstate.MergeQueueKey, entry runsta
 		return read, fmt.Sprintf("the landing record of %s could not be read: %v", entry.EntryID, err)
 	}
 	if landed && placedByLanding(&read, landing) {
-		if read.State != QueueEntryForgeHolds {
+		if read.State != QueueEntryForgeHolds && read.State != QueueEntryAwaitsForge {
 			setStep(&read, entry, landing, nil, nil)
 			return read, ""
 		}
-		// What GitHub last said the merge it holds is waiting on, or that it
+		// What GitHub last said the merge is waiting on, whether it holds it or is
+		// not ready for it to be asked for, or that it
 		// could not be asked, is said beside it.
 		reading, found, err := queues.ForgeReading(key, entry.EntryID)
 		if err != nil {
@@ -497,6 +503,11 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 	}
 	if requested, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); asked && requested.Settled != nil && requested.Settled.Result == runstate.MergeQueueMutationQueued {
 		read.State, read.Why = QueueEntryForgeHolds, fmt.Sprintf("the forge holds the merge of pull request %d until its own requirements are met; nothing has landed yet", attempt.PullRequest)
+		return true
+	}
+	if n := len(attempt.Mutations); n > 0 && attempt.Next() == runstate.MergeQueueRequestMerge && attempt.PullRequest > 0 &&
+		attempt.Mutations[n-1].Settled != nil && attempt.Mutations[n-1].Settled.Result == runstate.MergeQueueMutationDone {
+		read.State, read.Why = QueueEntryAwaitsForge, fmt.Sprintf("pull request %d is open, and its merge is asked for once GitHub is ready to make it and %s is still at the candidate's base; nothing has landed yet", attempt.PullRequest, landing.TargetBranch)
 		return true
 	}
 	read.State, read.Why = QueueEntryLanding, fmt.Sprintf("landing attempt %d is under way, %s", attempt.Number, pathWords(attempt.Path, landing.TargetBranch))

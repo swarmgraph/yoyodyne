@@ -461,6 +461,80 @@ func TestGitHubMergeReportsARefusalAsTheUnmetRequirement(t *testing.T) {
 	}
 }
 
+// A direct merge is one merge asked for now: merging when ready is never
+// turned on for it, even where the forge would hold the merge for its checks.
+func TestGitHubMergeDirectlyNeverTurnsOnMergingWhenReady(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("pr merge", execution.ProcessResult{Status: execution.ProcessSucceeded})
+	forge := GitHub{Runner: runner, Dir: t.TempDir()}
+
+	head := "0123456789abcdef0123456789abcdef01234567"
+	result, err := forge.Merge(context.Background(), MergeRequest{Number: 7, HeadCommit: head, Method: MergeCommit, Directly: true})
+	if err != nil {
+		t.Fatalf("Merge() error = %v", err)
+	}
+	if result.Queued {
+		t.Errorf("Merge() = %#v, want a merge made now", result)
+	}
+	merges := runner.matching("pr merge")
+	if len(merges) != 1 {
+		t.Fatalf("merges = %v, want exactly one", merges)
+	}
+	if contains(merges[0], "--auto") || contains(merges[0], "--admin") {
+		t.Errorf("pr merge args = %v, want neither merging when ready nor administrator override", merges[0])
+	}
+	for _, expected := range []string{"7", "--merge", "--match-head-commit", head} {
+		if !contains(merges[0], expected) {
+			t.Errorf("pr merge args = %v, missing %q", merges[0], expected)
+		}
+	}
+}
+
+// A direct merge the forge refuses is reported as refused, never retried with
+// merging when ready, and says whether the head was behind its base.
+func TestGitHubMergeDirectlyReportsAHeadBehindItsBase(t *testing.T) {
+	t.Parallel()
+
+	head := "0123456789abcdef0123456789abcdef01234567"
+	for _, tc := range []struct {
+		name, stderr, state string
+		behind              bool
+	}{
+		{name: "state behind", stderr: "X Pull request #7 is not mergeable", state: `{"mergeStateStatus":"BEHIND"}`, behind: true},
+		{name: "words only", stderr: "GraphQL: Head branch is not up to date with the base branch (mergePullRequest)", state: "", behind: true},
+		{name: "base moved during the merge", stderr: "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)", state: `{"mergeStateStatus":"UNKNOWN"}`, behind: true},
+		{name: "base moved during the merge, state unread", stderr: "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)", state: "", behind: true},
+		{name: "checks running", stderr: "X Pull request #7 is not mergeable: the base branch policy prohibits the merge", state: `{"mergeStateStatus":"BLOCKED"}`, behind: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &scriptedRunner{}
+			runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+			runner.reply("pr merge", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: tc.stderr})
+			if tc.state != "" {
+				runner.reply("pr view", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: tc.state})
+			} else {
+				runner.reply("pr view", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1})
+			}
+			_, err := (GitHub{Runner: runner, Dir: t.TempDir()}).Merge(context.Background(), MergeRequest{Number: 7, HeadCommit: head, Method: MergeCommit, Directly: true})
+			var refused MergeRefused
+			if !errors.As(err, &refused) {
+				t.Fatalf("Merge() error = %v, want a MergeRefused", err)
+			}
+			if refused.Behind != tc.behind || MergeBehind(err) != tc.behind {
+				t.Errorf("refusal = %#v, want behind %v", refused, tc.behind)
+			}
+			merges := runner.matching("pr merge")
+			if len(merges) != 1 || contains(merges[0], "--auto") {
+				t.Errorf("merges = %v, want the one direct merge and nothing queued", merges)
+			}
+		})
+	}
+}
+
 // State is how the harness confirms that the merge it asked the forge for
 // actually happened, rather than assuming it did.
 func TestGitHubStateReportsMergeAndAbsence(t *testing.T) {
