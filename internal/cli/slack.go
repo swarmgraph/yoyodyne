@@ -452,19 +452,22 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 	// standing that could differ, which is the disagreement only the operator
 	// could adjudicate. Every store here is one this sink already holds.
 	standing := &readmodel.Sources{
-		Repository:      repository,
-		Runs:            runs,
-		Stoppages:       runs,
-		Decisions:       runs.Triage(),
-		Remains:         standingRemains(resolved),
-		Conversations:   conversations,
-		Tracker:         tracker,
-		TrackerPrefixes: []string{string(resolved.Config.Product.ID)},
-		Directives:      directives,
-		Amendments:      proposals,
-		OperatorHolds:   holds,
-		IntakeHolds:     intake,
-		LandingHolds:    slackLandingHolds(stateRoot, resolved.Config.Product.ID),
+		Repository:    repository,
+		Runs:          runs,
+		Stoppages:     runs,
+		Decisions:     runs.Triage(),
+		Remains:       standingRemains(resolved),
+		Conversations: conversations,
+		// Which waiting documents the harness confirms by itself, so the channel
+		// never lists one as the operator's decision, as the terminal does not.
+		DocumentConfirmations: documentConfirmations(repository, resolved.Config),
+		Tracker:               tracker,
+		TrackerPrefixes:       []string{string(resolved.Config.Product.ID)},
+		Directives:            directives,
+		Amendments:            proposals,
+		OperatorHolds:         holds,
+		IntakeHolds:           intake,
+		LandingHolds:          slackLandingHolds(stateRoot, resolved.Config.Product.ID),
 		// Since when each item has waited on the architect's design, as the
 		// terminal says it.
 		NeedsDesignLabelled: runs.NeedsDesignLabelled(),

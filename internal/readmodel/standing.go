@@ -274,7 +274,13 @@ type Sources struct {
 	// is the setting off with the default run count.
 	CheaperFirst  config.DeveloperCheaperFirst
 	Conversations Conversations
-	Tracker       Tracker
+	// DocumentConfirmations says which waiting documents the harness confirms
+	// by itself, which are the harness's to send rather than the operator's to
+	// approve (documentapprovals.go). It is optional, and a reading without it
+	// lists every unconfirmed document as waiting for the operator, the side
+	// that never hides a decision that is his.
+	DocumentConfirmations DocumentConfirmations
+	Tracker               Tracker
 	// TrackerPrefixes are the tracker's id prefixes as the configuration names
 	// them — the product's id — so a reference is still recognised, and marked
 	// as unreadable, when the tracker could not be listed. A listing adds the
