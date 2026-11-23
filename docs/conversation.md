@@ -2118,8 +2118,13 @@ pass records. It hands back
 an identifier and the time it was taken; every one of those sources, with
 whether it was read whole; each read failure; and every condition it found,
 those needing a decision or an action first, then the legitimate waits, then
-the finished runs whose checkout was kept. A kept checkout asks nothing of
-anybody and waits on nothing: the harness would not delete it because it holds
+the finished runs whose checkout was kept. An item held because its approved
+change is waiting its turn in a merge queue is one of the waits, with the
+harness as what moves next, since nobody owes a decision on it. Only once the
+queue hands the change back does it become a stopped run the development
+manager owes a decision on. An entry whose step has run past its bound, or
+whose merge GitHub will not make, is hers too, as a factory problem. A kept
+checkout asks nothing of anybody and waits on nothing: the harness would not delete it because it holds
 files or commits that exist nowhere else, and it stays until somebody saves or
 discards them by hand. The condition says which run, where the checkout is, and
 what it holds. A condition is known by the product, the run where it is a run's, and the
