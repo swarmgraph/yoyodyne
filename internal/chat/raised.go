@@ -29,6 +29,10 @@ const (
 	raisedEnd    = "end"
 )
 
+// claimedWorkItemStatus is the status of an item a run or a person is working
+// on.
+const claimedWorkItemStatus = "in_progress"
+
 // maxRaisedWordsBytes bounds the quote a raising keeps: enough for what he
 // said about the item, short enough to be one line of every view of it.
 const maxRaisedWordsBytes = 1 << 10
@@ -210,39 +214,49 @@ func (s *Session) recordOperatorRaising(ctx context.Context, outcome *TrackerOut
 // raisedOrderRefusal says why a reordering of one item would move work ahead
 // of an item the operator raised, or says nothing when it would not. before is
 // the item as the tracker holds it and after is the item as the reordering
-// would leave it. Moving a raised item itself back is refused for the same
-// reason as moving other work past it: either way, work goes ahead of it.
+// would leave it. Both directions are checked for every item: what the item
+// would go ahead of, and, where it is raised itself, what would go ahead of it.
+// One raised item is not moved past another either, because the order between
+// two items he raised is his.
 //
-// A queue that cannot be read refuses the reordering, because a raising the
-// check could not see is exactly the one it would pass.
+// Claimed items are read beside the queue, because an item whose run stops goes
+// back to the place it held. A queue that cannot be read refuses the
+// reordering, because a raising the check could not see is exactly the one it
+// would pass.
 func (s *Session) raisedOrderRefusal(ctx context.Context, before, after beads.WorkItem) string {
-	admitted, err := s.admittedWork(ctx)
+	items, err := s.admittedWork(ctx)
+	if err == nil {
+		var claimed []beads.WorkItem
+		claimed, err = s.options.Tracker.List(ctx, claimedWorkItemStatus)
+		items = append(items, claimed...)
+	}
 	if err != nil {
 		return singleLine(fmt.Sprintf("cannot read the queue to check this does not move work ahead of an item the operator raised, so nothing was changed: %v", err), maxTrackerFailureBytes)
 	}
-	var passed []string
+	var overtaken, overtaking []string
 	raisedItself := domain.RaisedByOperator(before.Labels)
-	for _, other := range admitted {
+	for _, other := range items {
 		if other.ID == before.ID {
 			continue
 		}
-		switch {
-		case raisedItself && backlog.Before(before, other) && !backlog.Before(after, other):
-			passed = append(passed, other.ID)
-		case !raisedItself && domain.RaisedByOperator(other.Labels) && !backlog.Before(before, other) && backlog.Before(after, other):
-			passed = append(passed, other.ID)
+		if domain.RaisedByOperator(other.Labels) && !backlog.Before(before, other) && backlog.Before(after, other) {
+			overtaken = append(overtaken, other.ID)
+		}
+		if raisedItself && backlog.Before(before, other) && !backlog.Before(after, other) {
+			overtaking = append(overtaking, other.ID)
 		}
 	}
-	if len(passed) == 0 {
+	var moves []string
+	if len(overtaken) > 0 {
+		moves = append(moves, fmt.Sprintf("this would put %s ahead of %s, which the operator raised on purpose", before.ID, listed(overtaken)))
+	}
+	if len(overtaking) > 0 {
+		moves = append(moves, fmt.Sprintf("%s was raised by the operator on purpose, and this would put %s ahead of it", before.ID, listed(overtaking)))
+	}
+	if len(moves) == 0 {
 		return ""
 	}
-	const remedy = `Items he raised stay where he put them. Once he says the raising is over, record that with "operator_raised", decision "end", quoting his words, and reorder after that`
-	if raisedItself {
-		return singleLine(fmt.Sprintf("%s was raised by the operator on purpose, and this would put %s ahead of it, so nothing was changed. %s",
-			before.ID, listed(passed), remedy), maxTrackerRefusalBytes)
-	}
-	return singleLine(fmt.Sprintf("this would put %s ahead of %s, which the operator raised on purpose, so nothing was changed. %s",
-		before.ID, listed(passed), remedy), maxTrackerRefusalBytes)
+	return singleLine(strings.Join(moves, "; ")+`, so nothing was changed. Items he raised stay where he put them, one raised item beside another included. Once he says the raising of the item that would be passed is over, record that with "operator_raised", decision "end", quoting his words, and reorder after that`, maxTrackerRefusalBytes)
 }
 
 // listed names up to five items and counts the rest.

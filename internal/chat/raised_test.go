@@ -207,21 +207,69 @@ func TestReorderingDoesNotMoveWorkAheadOfARaisedItem(t *testing.T) {
 	}
 }
 
-// A blocked item holds its place in the order, so a raised one that is blocked
-// is not passed either.
-func TestReorderingDoesNotMoveWorkAheadOfABlockedRaisedItem(t *testing.T) {
+// A blocked item and one in progress keep their place in the order, so a raised
+// one in either state is not passed.
+func TestReorderingDoesNotMoveWorkAheadOfARaisedItemThatIsNotOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{"blocked", "in_progress"} {
+		tracker := raisedQueue()
+		raised := tracker.items["yoyodyne-mcp"]
+		raised.Labels, raised.Status = []string{domain.RaisedByOperatorLabel}, status
+		tracker.items[raised.ID] = raised
+		tracker.open = []beads.WorkItem{tracker.items["yoyodyne-later"], tracker.items["yoyodyne-first"]}
+		if status == "blocked" {
+			tracker.blockedItems = []beads.WorkItem{raised}
+		} else {
+			tracker.claimedItems = []beads.WorkItem{raised}
+		}
+		_, reply := raisedSession(t, tracker, "", `{"action":"reprioritize","id":"yoyodyne-later","priority":0,"reason":"r"}`)
+		assertRaisedRefusal(t, tracker, reply, "this would put yoyodyne-later ahead of yoyodyne-mcp")
+	}
+}
+
+// One raised item is not moved past another, by priority or by placement, and
+// one moved back behind another is refused as falling behind it.
+func TestReorderingDoesNotMoveOneRaisedItemPastAnother(t *testing.T) {
+	t.Parallel()
+
+	for action, want := range map[string]string{
+		`{"action":"reprioritize","id":"yoyodyne-second","priority":0,"reason":"r"}`: "this would put yoyodyne-second ahead of yoyodyne-mcp",
+		`{"action":"place","id":"yoyodyne-second","reason":"r"}`:                     "this would put yoyodyne-second ahead of yoyodyne-mcp",
+		`{"action":"reprioritize","id":"yoyodyne-mcp","priority":2,"reason":"r"}`:    "this would put yoyodyne-second ahead of it",
+	} {
+		tracker := raisedQueue()
+		raised := tracker.items["yoyodyne-mcp"]
+		raised.Labels = []string{domain.RaisedByOperatorLabel}
+		second := raised
+		second.ID, second.CreatedAt = "yoyodyne-second", raised.CreatedAt.Add(time.Hour)
+		tracker.items[raised.ID], tracker.items[second.ID] = raised, second
+		tracker.open = []beads.WorkItem{raised, second}
+		_, reply := raisedSession(t, tracker, "", action)
+		assertRaisedRefusal(t, tracker, reply, want)
+	}
+}
+
+// Removing a raised item's placement would let the rest of its priority go
+// ahead of it, so it is refused.
+func TestUnplacingDoesNotMoveWorkAheadOfARaisedItem(t *testing.T) {
 	t.Parallel()
 
 	tracker := raisedQueue()
 	raised := tracker.items["yoyodyne-mcp"]
-	raised.Labels, raised.Status = []string{domain.RaisedByOperatorLabel}, "blocked"
-	tracker.items[raised.ID] = raised
-	tracker.open = []beads.WorkItem{tracker.items["yoyodyne-later"], tracker.items["yoyodyne-first"]}
-	tracker.blockedItems = []beads.WorkItem{raised}
-	_, reply := raisedSession(t, tracker, "", `{"action":"reprioritize","id":"yoyodyne-later","priority":0,"reason":"r"}`)
+	raised.Labels = []string{domain.RaisedByOperatorLabel}
+	raised.Placement = placement(1, raised.CreatedAt.Add(time.Hour))
+	older := beads.WorkItem{ID: "yoyodyne-older", Title: "Older", Status: "open", Priority: 1, CreatedAt: raised.CreatedAt.Add(-time.Hour)}
+	tracker.items[raised.ID], tracker.items[older.ID] = raised, older
+	tracker.open = []beads.WorkItem{raised, older}
+	_, reply := raisedSession(t, tracker, "", `{"action":"unplace","id":"yoyodyne-mcp","reason":"r"}`)
+	assertRaisedRefusal(t, tracker, reply, "this would put yoyodyne-older ahead of it")
+}
 
-	if len(reply.Actions) != 1 || reply.Actions[0].Applied || len(tracker.updates) != 0 || !strings.Contains(reply.Actions[0].Failure, "yoyodyne-mcp") {
-		t.Fatalf("actions = %#v, updates = %#v, want refused naming the raised item", reply.Actions, tracker.updates)
+func assertRaisedRefusal(t *testing.T, tracker *fakeTracker, reply Reply, want string) {
+	t.Helper()
+	if len(reply.Actions) != 1 || reply.Actions[0].Applied || len(tracker.updates) != 0 || !strings.Contains(reply.Actions[0].Failure, want) {
+		t.Fatalf("actions = %#v, updates = %#v, want refused with %q and nothing written", reply.Actions, tracker.updates, want)
 	}
 }
 
