@@ -7663,8 +7663,8 @@ GitHub refusing the merge because the pull request is not up to date with the
 target is treated the same way. Just before asking, the queue also asks GitHub
 whether it would merge the pull request now; while it would not yet — a
 required check still running, or GitHub still working out whether the pull
-request can merge — nothing is asked for, and the next pass reads the target
-and the pull request again. That wait has the same limits as a merge GitHub
+request can merge — or while its answer cannot be read, nothing is asked for,
+and the next pass reads the target and the pull request again. That wait has the same limits as a merge GitHub
 holds, described below, so a candidate GitHub never comes to merge does not
 hold up the entries behind it.
 

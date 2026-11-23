@@ -227,7 +227,8 @@ type MergeQueuePromotion struct {
 	ForgeHeldSince *time.Time
 	Dropped        bool
 	// NotMergeable is set beside Waiting where no merge was asked for because
-	// GitHub would not merge the candidate's pull request yet (mergeReadiness).
+	// GitHub would not merge the candidate's pull request yet, or could not be
+	// read to say (mergeReadiness).
 	// The limits a held merge has apply to it the same way: its checks are read
 	// (readHeldChecks), and it is withdrawn once it has waited past
 	// triage.stuck_merge_age.
@@ -1083,16 +1084,36 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 // required checks are still running, or whose mergeability GitHub has not
 // worked out yet, waits for a later pass with nothing written down, and one
 // GitHub reads as behind the target is the target having moved. A state that
-// cannot be read, or one of the states GitHub merges at, leaves the decision
-// to GitHub's answer to the merge itself.
+// cannot be read never reads as ready: GitHub out of reach is waited out like
+// any other step that meets it (gitHubAway), a session being stopped ends the
+// step, and any other failure, or an empty answer, waits for a later pass, all
+// with nothing written down. Only a state GitHub merges at, or a conflict,
+// leaves the decision to GitHub's answer to the merge itself.
 func (q *queuePromotion) mergeReadiness(ctx context.Context, moved bool) (bool, error) {
 	attempt := q.attempt()
 	if q.p.Mergeable == nil {
 		return true, nil
 	}
 	status, err := q.p.Mergeable.MergeState(ctx, attempt.PullRequest)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	says := strings.ToUpper(strings.TrimSpace(status))
+	if err != nil || says == "" {
+		if away, ok := gitHubAwayOK(fmt.Sprintf("asking GitHub whether it would merge pull request %d now", attempt.PullRequest), err); ok {
+			return false, away
+		}
+		unread := "GitHub reported no merge state"
+		if err != nil {
+			unread = oneline.Bound(err.Error(), 400)
+		}
+		q.outcome.Waiting = fmt.Sprintf("whether GitHub would merge pull request %d now could not be read (%s), so no merge is asked for; the next pass reads %s and the pull request again",
+			attempt.PullRequest, unread, q.key.TargetBranch)
+		q.outcome.NotMergeable, q.notMergeable = true, true
+		return false, nil
+	}
 	switch {
-	case err != nil || strings.TrimSpace(status) == "" || publish.MergeStateReady(status):
+	case publish.MergeStateReady(status):
 		return true, nil
 	case publish.MergeStateBehind(status):
 		if moved {
@@ -1108,7 +1129,7 @@ func (q *queuePromotion) mergeReadiness(ctx context.Context, moved bool) (bool, 
 		return true, nil
 	}
 	q.outcome.Waiting = fmt.Sprintf("GitHub would not merge pull request %d yet (%s), so no merge is asked for; the next pass reads %s and the pull request again",
-		attempt.PullRequest, strings.ToUpper(strings.TrimSpace(status)), q.key.TargetBranch)
+		attempt.PullRequest, says, q.key.TargetBranch)
 	q.outcome.NotMergeable, q.notMergeable = true, true
 	return false, nil
 }

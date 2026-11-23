@@ -7,10 +7,13 @@ package orchestrator
 // behind main is a moved main, charged to nothing.
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -289,5 +292,66 @@ func TestACandidateGitHubWouldNotMergeTwiceIsSetAsideForTheDevelopmentManager(t 
 	f.withdrawAndPass(again.EntryID, "GitHub would not merge it for too long")
 	if handback := f.landing().Handback; repair.count() != 1 || len(repair.reported) != 1 || handback == nil || !handback.IsSetAside() {
 		t.Fatalf("handed back %d, reported %d, hand-back %#v; want the second withdrawal set aside", repair.count(), len(repair.reported), handback)
+	}
+}
+
+// stoppingMergeState is a session stopped while GitHub is asked whether it
+// would merge: the read ends with the step's context.
+type stoppingMergeState struct{ stop context.CancelFunc }
+
+func (s stoppingMergeState) MergeState(ctx context.Context, _ int) (string, error) {
+	s.stop()
+	return "", ctx.Err()
+}
+
+// An answer that could not be read is never taken as GitHub being ready:
+// nothing is asked for or written down, and the next pass that reads it lands
+// the candidate.
+func TestAnUnreadableMergeStateAsksForNoMergeAndTheNextPassLandsTheCandidate(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		state string
+		err   error
+		away  bool
+		stops bool
+	}{
+		{name: "GitHub out of reach", state: "CLEAN", err: orchestratortest.ConnectionReset("gh pr view"), away: true},
+		{name: "another failure", state: "CLEAN", err: errors.New("decode the merge state of pull request 1: unexpected end of JSON input")},
+		{name: "an empty answer"},
+		{name: "the session stopped", stops: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newDirectMergeFixture(t)
+			generation := f.verify()
+			f.forge.MergeStatus, f.forge.MergeStateErr = tc.state, tc.err
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			if tc.stops {
+				f.promoter.Mergeable = stoppingMergeState{stop: cancel}
+			}
+			waiting, err := f.promoter.Promote(ctx, queueKey)
+			switch {
+			case tc.stops:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("Promote() = %#v, %v; want the stopped step's own error", waiting, err)
+				}
+			case err != nil || waiting.Waiting == "" || waiting.Landed || waiting.Drift || waiting.Unresolved != "" ||
+				(waiting.GitHubWait != nil) != tc.away || waiting.NotMergeable == tc.away:
+				t.Fatalf("Promote() = %#v, %v; want it waiting on GitHub's answer", waiting, err)
+			}
+			attempt, _ := f.landing().Current()
+			if _, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); asked || len(f.forge.MergeRequests()) != 0 {
+				t.Fatalf("attempt = %#v, merges %#v; want no merge asked for or written down", attempt, f.forge.MergeRequests())
+			}
+			f.forge.MergeStatus, f.forge.MergeStateErr = "CLEAN", nil
+			f.promoter.Mergeable = f.forge.Forge
+			if landed, err := f.promote(); err != nil || !landed.Landed {
+				t.Fatalf("Promote() once GitHub answered = %#v, %v; want it landed", landed, err)
+			}
+			f.assertLandedOnce(generation)
+		})
 	}
 }
