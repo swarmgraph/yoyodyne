@@ -1703,6 +1703,9 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 		// queue; one failing only in tests the change does not touch has the
 		// failing job run once more; any other failure is withdrawn at once.
 		promoter.Checks, promoter.Reruns = forge, parts.mergeQueues
+		// A required check GitHub has not started on a held merge is asked for
+		// again once before the merge is withdrawn for its age.
+		promoter.Asker = forge
 		// While GitHub holds a merge the queue asked for, each pass asks it what
 		// the merge is waiting on and keeps the answer beside the queue.
 		promoter.Waits, promoter.Readings = forge, parts.mergeQueues
@@ -1732,6 +1735,10 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			// required checks once its quick checks pass, so its review runs
 			// beside them.
 			Publish: parts.worktrees,
+			// A required check GitHub never started, skipped, or cancelled on a
+			// candidate is asked for again once before the full local checks
+			// run in its place.
+			Asker: forge, Reruns: parts.mergeQueues,
 		},
 		Promoter: promoter,
 		Queues:   parts.mergeQueues,

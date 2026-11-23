@@ -62,7 +62,7 @@ func (q *queuePromotion) answerUnjudgedChecks(ctx context.Context, reading publi
 	var askedAgain, unanswered []string
 	for _, check := range unjudged {
 		ended := fmt.Sprintf("%s (%s)", check.Name, describeUnjudged(check.Conclusion))
-		if ranAgain(reruns, attempt.PullRequest, check.Name) {
+		if ranAgain(reruns, attempt.PullRequest, attempt.Candidate, check.Name) {
 			unanswered = append(unanswered, ended+" again after the queue had it run again")
 			continue
 		}
@@ -114,10 +114,11 @@ func judgedOnly(reading publish.CheckReading) publish.CheckReading {
 }
 
 // ranAgain reports a check the queue already had run again on this pull
-// request.
-func ranAgain(reruns []runstate.MergeQueueCheckRerun, pullRequest int, check string) bool {
+// request: on any candidate, for a re-run recorded without one, and otherwise
+// on this candidate.
+func ranAgain(reruns []runstate.MergeQueueCheckRerun, pullRequest int, candidate, check string) bool {
 	for _, rerun := range reruns {
-		if rerun.PullRequest == pullRequest && rerun.Check == check {
+		if rerun.PullRequest == pullRequest && rerun.Check == check && (rerun.Commit == "" || rerun.Commit == candidate) {
 			return true
 		}
 	}

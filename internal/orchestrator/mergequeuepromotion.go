@@ -135,6 +135,10 @@ type MergeQueuePromoter struct {
 	// forge makes or drops it, or triage.stuck_merge_age passes.
 	Checks MergeQueueForgeChecks
 	Reruns MergeQueueCheckReruns
+	// Asker asks GitHub to run a required check again where it has not
+	// started one on a merge it holds (mergequeuecheckstart.go); nil asks for
+	// nothing, and the merge waits out triage.stuck_merge_age as before.
+	Asker MergeQueueChecksAsker
 	// WorkItemBound is how long recording a landing on its work item may take
 	// before the queue goes on without it; zero is mergeQueueWorkItemBound.
 	WorkItemBound time.Duration
@@ -211,6 +215,12 @@ type MergeQueuePromotion struct {
 	// make the merge, and the driver withdraws it at once with this reason
 	// rather than waiting out the stuck-merge limit.
 	Unjudged string
+	// NeverStarted is set beside Waiting where GitHub has still not started a
+	// required check after the harness asked it to run the check again
+	// (mergequeuecheckstart.go). The driver withdraws such a merge once
+	// triage.stuck_merge_age has passed again since the request, as a failure
+	// outside the change.
+	NeverStarted string
 	// RequiredFailed is set beside Waiting where GitHub reports a check its
 	// branch rules require ended in failure on the candidate's pull request and
 	// no required check is still running: GitHub will never make the merge, and
@@ -1106,6 +1116,11 @@ func (q *queuePromotion) awaitForge(ctx context.Context) error {
 		}
 		if err := q.readHeldChecks(ctx); err != nil {
 			return err
+		}
+		if read && reading.Unread == "" {
+			if err := q.answerUnstartedChecks(ctx, reading); err != nil {
+				return err
+			}
 		}
 		if read {
 			q.outcome.ForgeSays = reading.Says()

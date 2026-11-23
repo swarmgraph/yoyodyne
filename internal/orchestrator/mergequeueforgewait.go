@@ -75,6 +75,7 @@ func (q *queuePromotion) readMergeWait(ctx context.Context) (reading runstate.Me
 	} else {
 		reading.WaitingOn = wait.WaitingOn()
 		reading.MergeState, reading.Mergeable = wait.MergeState, wait.Mergeable
+		reading.UnstartedChecks = wait.UnstartedRequired(q.requiredCheckNames())
 		for _, check := range wait.FailedRequired() {
 			reading.FailedChecks = append(reading.FailedChecks, check.Name)
 		}

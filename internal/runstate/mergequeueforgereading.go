@@ -40,6 +40,9 @@ type MergeQueueForgeReading struct {
 	// without passing and those that had not finished.
 	FailedChecks  []string `json:"failed_checks,omitempty"`
 	PendingChecks []string `json:"pending_checks,omitempty"`
+	// UnstartedChecks names the required checks GitHub had not begun to run:
+	// queued or expected, or reported nothing for at all.
+	UnstartedChecks []string `json:"unstarted_checks,omitempty"`
 	// Unread is why GitHub could not be asked at At, and empty where it was.
 	Unread string `json:"unread,omitempty"`
 	// UnreadFor is the time, in nanoseconds, this pull request's wait spent
@@ -105,6 +108,7 @@ func (s *MergeQueueStore) RecordForgeReading(ctx context.Context, key MergeQueue
 	reading.Unread = BoundedMergeQueueText(reading.Unread)
 	reading.FailedChecks = boundedNames(reading.FailedChecks)
 	reading.PendingChecks = boundedNames(reading.PendingChecks)
+	reading.UnstartedChecks = boundedNames(reading.UnstartedChecks)
 	return s.writeSide(ctx, key, name, mergeQueueForgeReading{EntryID: entryID, Reading: reading})
 }
 
