@@ -1465,6 +1465,7 @@ func (a Attention) ownershipRecord() ownership.Record {
 	case AttentionDocumentApproval:
 		if a.DocumentApproval != nil {
 			record.Role, record.FundamentalIntent = a.DocumentApproval.Owner, a.DocumentApproval.ProductIntent
+			record.DocumentKind = a.DocumentApproval.DocumentKind
 			record.Command = a.DocumentApproval.approveCommand()
 		}
 	case AttentionCapacityBlocked:

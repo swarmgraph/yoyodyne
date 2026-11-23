@@ -549,6 +549,26 @@ type PendingWrite struct {
 	// as a harness defect. A record written before it was kept carries false,
 	// which is a write nothing is owed about.
 	Unanswered bool `json:"unanswered,omitempty"`
+	// DocumentKind is the kind of the document a revision changes, read from the
+	// document when the revision was recorded, because a revision names no kind
+	// of its own. It is what says which of the product's documents a revision
+	// waiting for the operator would change. A record written before it was kept
+	// has none.
+	DocumentKind string `json:"document_kind,omitempty"`
+	// WaitsBehind says the harness is holding the document back, unconfirmed,
+	// until another copy of the same document ahead of it finishes publishing:
+	// its own earlier revision's run, or a copy from another conversation. That
+	// wait is the harness's and ends by itself, so a document recorded with it is
+	// not waiting for anybody's approval. It is cleared when the document is
+	// confirmed or put to the operator. At most MaxHandedBackReasonBytes.
+	WaitsBehind string `json:"waits_behind,omitempty"`
+}
+
+// AwaitsDecision reports a document that waits for somebody's approval: not
+// confirmed for publication, not held for sending by its owner, and not held
+// back by the harness behind another copy of itself.
+func (w PendingWrite) AwaitsDecision() bool {
+	return w.Publication == nil && !w.Held() && strings.TrimSpace(w.WaitsBehind) == ""
 }
 
 // HandedBackDocument is one revision a reviewed run handed back to its author
@@ -1054,6 +1074,10 @@ func (c Conversation) Validate() error {
 		if len(write.Body) > MaxPendingWriteBytes {
 			problems = append(problems, fmt.Errorf("pending_writes[%d] is %d bytes, limit is %d",
 				i, len(write.Body), MaxPendingWriteBytes))
+		}
+		if len(write.WaitsBehind) > MaxHandedBackReasonBytes {
+			problems = append(problems, fmt.Errorf("pending_writes[%d] says what it waits behind in %d bytes, limit is %d",
+				i, len(write.WaitsBehind), MaxHandedBackReasonBytes))
 		}
 	}
 	if len(c.HandedBack) > MaxHandedBackDocuments {

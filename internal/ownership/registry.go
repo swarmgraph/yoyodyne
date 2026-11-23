@@ -28,6 +28,12 @@ type Answer struct {
 	// Reason is why the owner is the operator, from the closed list, and empty
 	// whenever the owner is anybody else.
 	Reason OperatorReason `json:"reason,omitempty"`
+	// ReasonDetail is the reason in words particular to this entry, where its
+	// rule can say more than the reason's own words: which of the product's
+	// documents a waiting change would change, and why it waits. It is empty
+	// wherever the reason's own words say it all, and never present without a
+	// reason.
+	ReasonDetail string `json:"reason_detail,omitempty"`
 	// Remedy is the one act that ends the entry, in the words a surface prints.
 	Remedy string `json:"remedy"`
 	// Capability is the command, registered action, or tool the remedy needs,
@@ -44,6 +50,9 @@ type Answer struct {
 func (a Answer) ReasonSays() string {
 	if !a.Owner.IsOperator() {
 		return ""
+	}
+	if a.ReasonDetail != "" {
+		return a.ReasonDetail
 	}
 	return a.Reason.Says()
 }
@@ -65,6 +74,10 @@ type Record struct {
 	// a change of fundamental intent or as one that does not say which kind it
 	// is (amendment.Proposal.ReservedForOperator).
 	FundamentalIntent bool
+	// DocumentKind is the kind of the document a waiting document approval
+	// would change — "brief", "goals", "non-goals", "rules" — and empty where
+	// its record does not say.
+	DocumentKind string
 	// Reason is the closed-list reason the record itself carries: a report
 	// handling's, a development manager's escalation's, or a lane report entry's.
 	Reason OperatorReason
@@ -702,10 +715,33 @@ func laneHumanBlockRule(r Record) (Answer, bool) {
 // and the remedy names his act.
 func documentApprovalRule(r Record) (Answer, bool) {
 	if r.FundamentalIntent {
-		return operator(OperatorFundamentalIntent, "approve or decline the document", "yoyo agent chat approve|decline")
+		answer, ok := operator(OperatorFundamentalIntent, "approve or decline the document", "yoyo agent chat approve|decline")
+		answer.ReasonDetail = intentDocumentReason(r.DocumentKind)
+		return answer, ok
 	}
 	answer, ok := roleOwned(r.Role, "have the operator approve or decline the document, as the project's approval setting for its kind asks", "yoyo agent chat approve|decline")
 	return withHand(answer, ok, HandDocumentConfirmation, r.Command)
+}
+
+// intentDocumentReason is why a waiting change to one of the product's
+// documents is the operator's, naming the document's kind: only a change the
+// Lead Product Manager recorded as consistent with intent, naming the work item
+// that directed it, is approved as hers, and one that adds or removes a goal or
+// creates the goals or the brief never is; anything still waiting is one of
+// those, so it waits for him.
+func intentDocumentReason(kind string) string {
+	what := "a document of the product's intent"
+	switch kind {
+	case "brief":
+		what = "the brief"
+	case "goals":
+		what = "the goals"
+	case "non-goals":
+		what = "the non-goals"
+	case "rules":
+		what = "the operating rules"
+	}
+	return "a change to " + what + " that the Lead Product Manager could not approve as consistent with intent, so it waits for the operator to decide"
 }
 
 // followUpRule is the owner the follow-up recorded. The operator is that owner

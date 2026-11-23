@@ -260,6 +260,91 @@ func TestAConsistentRevisionIsHersOnlyWhereTheGoalsStoodApproved(t *testing.T) {
 	}
 }
 
+// A revision directed by a work item whose identifier holds no digit — the
+// milestone goals' blank-line fix under yoyodyne-utbi — is judged exactly as
+// one directed by any other item. Moving the Supports lines up under their goals
+// is hers, written whole or by section; a goal added or removed, a new goals
+// document, and a revision of goals not approved as they stood still wait for
+// the operator, and say why.
+func TestADigitFreeDirectingItemIsJudgedAsAnyOther(t *testing.T) {
+	const reason = "yoyodyne-utbi: removes the blank line above each Supports line"
+	spaced := strings.ReplaceAll(twoGoals, "\n  *Supports", "\n\n  *Supports")
+	policy := Policy{Brief: domain.ApprovalHuman, Goals: domain.ApprovalHuman, SpecificationsHome: productHome}
+	approvedStore := func(t *testing.T, approve bool) Store {
+		t.Helper()
+		store := generatedStore(t.TempDir())
+		if _, err := store.Create(domain.RoleProductManager, Draft{ID: "the-goals", Kind: KindGoals, Title: "Goals", Directory: productHome, Body: spaced, Reason: "created by owner"}, moment()); err != nil {
+			t.Fatal(err)
+		}
+		if approve {
+			if _, err := store.Approve("the-goals", "approved by the operator in conversation", moment().Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return store
+	}
+	revise := func(body, section string) Write {
+		return Write{Action: WriteRevise, ID: "the-goals", Body: body, Section: section, Reason: reason, Intent: IntentConsistent}
+	}
+
+	for name, write := range map[string]Write{
+		"whole":      revise(twoGoals, ""),
+		"by section": revise("- Keep the boundary where it is, and say so\n  when anybody asks.\n  *Supports: the boundary holds.*\n- [spend-follows-the-work] Spend follows the work.\n  *Supports: the operator can see.*", "Goals"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := approvedStore(t, true)
+			candidate, approved, err := store.PrepareConfirmation(domain.RoleProductManager, write, policy, "confirmed under policy", moment().Add(time.Hour))
+			if err != nil || !approved || !candidate.ProductManagerApproved() {
+				t.Fatalf("PrepareConfirmation() = %v, %v, approvals %+v", approved, err, candidate.Artifact.Approvals)
+			}
+			if approval, _ := candidate.Artifact.LatestApproval(); !strings.HasPrefix(approval.Reason, "yoyodyne-utbi - approved by the Lead Product Manager") {
+				t.Fatalf("approval reason = %q", approval.Reason)
+			}
+			if err := os.WriteFile(filepath.Join(store.RepositoryRoot, candidate.Artifact.Path), []byte(candidate.Content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			set, err := store.Load()
+			if err != nil || len(set.Problems) != 0 {
+				t.Fatalf("Load() error = %v, problems = %v", err, set.Problems)
+			}
+			if landed, _ := set.Find("the-goals"); landed.ApprovalState() != ApprovalApproved {
+				t.Fatalf("landed state = %q", landed.ApprovalState())
+			}
+		})
+	}
+
+	for name, test := range map[string]struct {
+		approve bool
+		write   Write
+		says    string
+	}{
+		"a goal added":                     {true, revise(strings.Replace(twoGoals, "## Non-goals", "- Ship on Fridays.\n\n## Non-goals", 1), ""), `adds the goal "Ship on Fridays."`},
+		"a goal removed":                   {true, revise(strings.Replace(twoGoals, "- [spend-follows-the-work] Spend follows the work.\n  *Supports: the operator can see.*\n", "", 1), ""), `removes the goal "[spend-follows-the-work] Spend follows the work."`},
+		"goals not approved as they stood": {false, revise(twoGoals, ""), "as it stood before it was not approved"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := approvedStore(t, test.approve)
+			if _, approved, err := store.PrepareConfirmation(domain.RoleProductManager, test.write, policy, "confirmed under policy", moment().Add(time.Hour)); err != nil || approved {
+				t.Fatalf("approved without the operator: %v, %v", approved, err)
+			}
+			if why, err := store.ConsistentMarkOverruled(domain.RoleProductManager, test.write, moment().Add(time.Hour)); err != nil || !strings.Contains(why, test.says) {
+				t.Fatalf("ConsistentMarkOverruled() = %q, %v", why, err)
+			}
+		})
+	}
+
+	t.Run("a new goals document", func(t *testing.T) {
+		store := generatedStore(t.TempDir())
+		created := Write{Action: WriteCreate, ID: "new-goals", Kind: KindGoals, Title: "New goals", Directory: productHome, Body: twoGoals, Reason: reason, Intent: IntentConsistent}
+		if _, approved, err := store.PrepareConfirmation(domain.RoleProductManager, created, policy, "confirmed under policy", moment()); err != nil || approved {
+			t.Fatalf("approved without the operator: %v, %v", approved, err)
+		}
+		if why, err := store.ConsistentMarkOverruled(domain.RoleProductManager, created, moment()); err != nil || !strings.Contains(why, "it creates a goals document") {
+			t.Fatalf("ConsistentMarkOverruled() = %q, %v", why, err)
+		}
+	})
+}
+
 // A consistent rewording held back only because its record is short — its
 // reason names no work item — is the Lead Product Manager's to put right, not
 // the operator's to decide, so it is not offered as a reason the operator must

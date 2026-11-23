@@ -152,6 +152,80 @@ func TestADecidedOrHeldDocumentIsNotOnTheNeedsAHumanLine(t *testing.T) {
 	}
 }
 
+// A revision the harness is holding back until another copy of the same
+// document finishes publishing waits for nobody's approval: it is confirmed, as
+// the Lead Product Manager's where she marked it consistent, once that copy
+// lands. So it is neither on the line nor among the operator's decisions,
+// however long the copy ahead takes. Once nothing holds it back and it does
+// wait for him, it is on both.
+func TestARevisionHeldBackBehindAnotherCopyIsNotTheOperatorsToDecide(t *testing.T) {
+	t.Parallel()
+
+	rules := runstate.PendingWrite{
+		ID: "document-5636.1", Turn: 5636, WrittenAt: moment.Add(-14 * time.Hour), Action: "revise", Artifact: "operating-rules",
+		DocumentKind: "rules", Body: "# Rules", Reason: "yoyodyne-q2l: records the operator's rule", Intent: "consistent",
+		WaitsBehind: "run run-e8a4c80d is still publishing docs/product/operating-rules.md",
+	}
+	sources := quietSources()
+	sources.Conversations = documentConversations(map[domain.AgentRole][]runstate.PendingWrite{domain.RoleProductManager: {rules}})
+	if found := documentEntries(ReadStanding(context.Background(), sources)); len(found) != 0 {
+		t.Fatalf("document entries = %#v, want none for a revision the harness holds back", found)
+	}
+	if decisions, problem := ReadOperatorDecisions(sources); problem != "" || len(decisions) != 0 {
+		t.Fatalf("operator decisions = %#v, %q, want none", decisions, problem)
+	}
+
+	rules.WaitsBehind = ""
+	sources.Conversations = documentConversations(map[domain.AgentRole][]runstate.PendingWrite{domain.RoleProductManager: {rules}})
+	found := documentEntries(ReadStanding(context.Background(), sources))
+	if len(found) != 1 || found[0].Mover != ownership.MoverOperator {
+		t.Fatalf("document entries = %#v, want the revision waiting for the operator", found)
+	}
+	if decisions, _ := ReadOperatorDecisions(sources); len(decisions) != 1 {
+		t.Fatalf("operator decisions = %#v, want the revision", decisions)
+	}
+}
+
+// A waiting change to one of the product's documents says which document it
+// would change and why it waits, rather than calling every one of them a
+// change to the fundamental goals; the kind of a revision is the one recorded
+// with it, since a revision names none of its own.
+func TestAWaitingIntentDocumentNamesItsKindAndWhyItWaits(t *testing.T) {
+	t.Parallel()
+
+	for kind, names := range map[string]string{
+		"rules":     "a change to the operating rules",
+		"goals":     "a change to the goals",
+		"non-goals": "a change to the non-goals",
+		"brief":     "a change to the brief",
+		"":          "a change to a document of the product's intent",
+	} {
+		revision := runstate.PendingWrite{ID: "document-1.1", Turn: 1, WrittenAt: moment, Action: "revise", Artifact: "some-document", DocumentKind: kind, Body: "# Text", Reason: "reworded"}
+		sources := quietSources()
+		sources.Conversations = documentConversations(map[domain.AgentRole][]runstate.PendingWrite{domain.RoleProductManager: {revision}})
+		found := documentEntries(ReadStanding(context.Background(), sources))
+		if len(found) != 1 {
+			t.Fatalf("%q: document entries = %#v", kind, found)
+		}
+		says := found[0].Ownership.ReasonSays()
+		if !strings.HasPrefix(says, names) || !strings.Contains(says, "the Lead Product Manager could not approve as consistent with intent, so it waits for the operator to decide") || strings.Contains(says, "fundamental goals") {
+			t.Errorf("%q: owner reason = %q, want it to begin %q and say why it waits", kind, says, names)
+		}
+		// The dashboard reads the same words back.
+		encoded, err := json.Marshal(found[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded Attention
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatalf("%q: Unmarshal() error = %v", kind, err)
+		}
+		if decoded.Ownership.ReasonSays() != says {
+			t.Errorf("%q: decoded reason = %q, want %q", kind, decoded.Ownership.ReasonSays(), says)
+		}
+	}
+}
+
 // A revision that names no kind is the product's intent where the role that
 // owns the brief wrote it, and not otherwise; a record from before the moment
 // was kept is said as such and sorts after the ones that say when.

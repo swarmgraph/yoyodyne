@@ -185,6 +185,16 @@ func TestDirectingItemIsTheIdentifierAReasonOpensWith(t *testing.T) {
 		"re-worded for clarity":            "",
 		"follow-up: tightened the wording": "",
 		`"re-worded"`:                      "",
+		// A tracker identifier whose hash holds no digit is one all the same,
+		// set off as a reason sets off its directing item.
+		"yoyodyne-utbi: removes the blank line":                "yoyodyne-utbi",
+		`"yoyodyne-utbi: removes the blank line"`:              "yoyodyne-utbi",
+		"yoyodyne-utbi - approved by the Lead Product Manager": "yoyodyne-utbi",
+		"(yoyodyne-utbi) reworded":                             "yoyodyne-utbi",
+		"yoyodyne-utbi reworded":                               "",
+		"yoyodyne-utbi":                                        "",
+		"follow-up - tightened":                                "",
+		"Re-worded: for clarity":                               "",
 	} {
 		got, named := DirectingItem(reason)
 		if got != want || named != (want != "") {
