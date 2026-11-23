@@ -2234,3 +2234,89 @@ func TestWaitingDocketFoldsTheWaitsAndLeavesOutARunAskedAgain(t *testing.T) {
 		t.Fatalf("waiting docket = %#v, want the waited run folded once and the run asked again left out", kept)
 	}
 }
+
+// rereadUnready stands in for the tracker and the tree a docket build reads its
+// unready entries again from: the items as they now read, checked by the real
+// readiness reading.
+type rereadUnready struct {
+	items map[string]beads.WorkItem
+	tree  readiness.Tree
+	asked [][]string
+}
+
+func (r *rereadUnready) RereadUnready(ids []string) (func(string) UnreadyReading, error) {
+	r.asked = append(r.asked, append([]string(nil), ids...))
+	return func(id string) UnreadyReading {
+		item, present := r.items[id]
+		if !present {
+			return UnreadyReading{}
+		}
+		reading, err := readiness.Read(item, r.tree)
+		return UnreadyReading{Present: true, Unmet: reading.Unmet, Unreadable: err != nil}
+	}, nil
+}
+
+// A hold is read again whenever the docket is listed to the development
+// manager, not only when a slot tries to pull the item. The item is reworded
+// after it was held, and no pull is made: the next listing finds the sentence
+// gone, takes the entry off saying why, and lists nothing. A listing while the
+// sentence still stands keeps the entry.
+func TestAHoldIsReadAgainWhenTheDocketIsListedWithoutAPull(t *testing.T) {
+	t.Parallel()
+
+	docket := &memoryDocket{}
+	docketer := docketerDeciding(nil, docket, &recordedDecisions{}, &recordedDecisions{})
+	docketer.ProductID = "yoyodyne"
+	tree := &readiness.Repository{Root: t.TempDir()}
+	item := beads.WorkItem{
+		ID: "yoyodyne-ifd.100.1", Title: "Commit and publish an approved artifact write", Status: "open",
+		Description: "Blocked until the architect's answer exists.",
+	}
+	unmet, err := readiness.Check(item, tree)
+	if err != nil || len(unmet) != 1 {
+		t.Fatalf("readiness = %+v, %v, want the sentence held", unmet, err)
+	}
+	if _, err := docketer.RecordUnreadyItem(item, unmet); err != nil {
+		t.Fatalf("RecordUnreadyItem() error = %v", err)
+	}
+	reread := &rereadUnready{items: map[string]beads.WorkItem{item.ID: item}, tree: tree}
+	docketer.Unready = reread
+
+	standing, err := docketer.Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(standing.Entries) != 1 || standing.Entries[0].Class != triage.ClassUnreadyItem {
+		t.Fatalf("entries = %+v, want the hold listed while its sentence stands", standing.Entries)
+	}
+
+	reworded := item
+	reworded.Description = "The architect's answer is recorded; build what it says."
+	reread.items[item.ID] = reworded
+
+	listed, err := docketer.Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(listed.Entries) != 0 {
+		t.Fatalf("entries = %+v, want the hold cleared at the listing after the rewording", listed.Entries)
+	}
+	if len(reread.asked) != 2 || len(reread.asked[1]) != 1 || reread.asked[1][0] != item.ID {
+		t.Fatalf("asked = %v, want the standing hold's item read again at each listing", reread.asked)
+	}
+	entries, err := docket.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	closed := entries[0].Closed
+	if closed == nil || closed.Decision != clearedUnreadyDecision || !strings.Contains(closed.Reason, "asks for nothing the tree does not have") {
+		t.Fatalf("closure = %+v, want the entry taken off by the harness saying why", closed)
+	}
+
+	if _, err := docketer.Build(); err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(reread.asked) != 2 {
+		t.Fatalf("asked = %v, want a docket with no hold standing to ask the tracker nothing", reread.asked)
+	}
+}
