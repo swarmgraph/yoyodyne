@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -278,7 +279,7 @@ func (p passChanges) followUpLines(scope orchestrator.PassScope) ([]string, erro
 }
 
 // stopLines is every entry on the development manager's list of stopped runs,
-// whole, so an entry added, decided, or changed moves the digest.
+// whole, and every document held for her decision, so an entry added, decided, or changed moves the digest.
 func (p passChanges) stopLines() ([]string, error) {
 	if p.docket == nil {
 		return nil, fmt.Errorf("no docket is wired to read")
@@ -288,6 +289,15 @@ func (p passChanges) stopLines() ([]string, error) {
 		return nil, fmt.Errorf("the list of stopped runs could not be read: %w", err)
 	}
 	lines := make([]string, 0, len(entries))
+	if p.conversations != nil {
+		recorded, err := p.conversations()
+		if err != nil {
+			return nil, fmt.Errorf("the documents held for the development manager could not be read: %w", err)
+		}
+		for _, held := range readmodel.HeldDocuments(recorded) {
+			lines = append(lines, "held document|"+held.Reference)
+		}
+	}
 	for _, entry := range entries {
 		encoded, _ := json.Marshal(entry)
 		lines = append(lines, entry.Key+"|"+orchestrator.DigestLines([]string{string(encoded)}))

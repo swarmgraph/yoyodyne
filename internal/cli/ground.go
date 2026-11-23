@@ -86,9 +86,12 @@ type conversationGround struct {
 	// docket and for the same role; nil starts every window at the oldest
 	// stoppage.
 	docketWindow docketWindow
-	gitBinary    string
-	clock        execution.Clock
-	timeout      time.Duration
+	// conversations lists the recorded conversations, for the documents held for
+	// the development manager. It is wired beside the docket and for the same role.
+	conversations func() ([]runstate.Conversation, error)
+	gitBinary     string
+	clock         execution.Clock
+	timeout       time.Duration
 	// slowCalls is where the briefing's tracker calls that run out of time are
 	// kept, beside every other harness call's (runstate, trackerslowcall.go);
 	// nil keeps none.
@@ -106,6 +109,7 @@ func newConversationGround(parts components, role domain.AgentRole) conversation
 		withheld:             parts.config.Intake.RulesPaths(),
 		docket:               conversationDocket(parts, role),
 		docketWindow:         conversationDocketWindow(parts, role),
+		conversations:        conversationHeldDocuments(parts, role),
 		gitBinary:            "git",
 		clock:                execution.RealClock{},
 		timeout:              chatTrackerTimeout,
@@ -573,6 +577,36 @@ func conversationPublications(parts components, role domain.AgentRole) chat.Stop
 	return decider
 }
 
+// conversationHeldDocuments wires the list of documents held after returned runs
+// for the role that decides them, and for no other.
+func conversationHeldDocuments(parts components, role domain.AgentRole) func() ([]runstate.Conversation, error) {
+	store := heldDocumentStore(parts, role)
+	if store == nil {
+		return nil
+	}
+	return store.Recorded
+}
+
+// conversationReturnedDocuments wires the record of her decision about one.
+func conversationReturnedDocuments(parts components, role domain.AgentRole) chat.ReturnedDocuments {
+	store := heldDocumentStore(parts, role)
+	if store == nil {
+		return nil
+	}
+	return store
+}
+
+func heldDocumentStore(parts components, role domain.AgentRole) *runstate.ConversationStore {
+	if role != domain.RoleDevelopmentManager || parts.stateRoot == "" || parts.config.Product.ID == "" {
+		return nil
+	}
+	store, err := runstate.NewConversationStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return nil
+	}
+	return store
+}
+
 // conversationInFlight wires the hand that dockets the Lead Product Manager's
 // decision about an item whose run is in flight, for her conversation and for no
 // other. The run is found from the harness's own records rather than taken from
@@ -837,6 +871,14 @@ func (g conversationGround) Gather(ctx context.Context) (chat.Briefing, error) {
 		briefing.Problems = append(briefing.Problems, standing)
 	}
 	briefing.Text = bundle.Text
+	if g.conversations != nil {
+		recorded, err := g.conversations()
+		if err != nil {
+			briefing.Problems = append(briefing.Problems, fmt.Sprintf("the documents held for your decision could not be read: %v", err))
+		} else if held := readmodel.RenderHeldDocuments(readmodel.HeldDocuments(recorded)); held != "" {
+			briefing.Text += "\n" + held
+		}
+	}
 	// The commit is evidence rather than a requirement: a repository that will
 	// not say what it is on still yields a usable picture, and the comparison
 	// that needs the commit reports itself as unknown when the time comes.

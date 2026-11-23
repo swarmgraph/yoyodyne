@@ -1047,6 +1047,11 @@ type Standing struct {
 	// DocumentsWaitingProblem says they could not be read.
 	DocumentsWaitingForSlot []DocumentSlotWait `json:"documents_waiting_for_slot,omitempty"`
 	DocumentsWaitingProblem string             `json:"documents_waiting_problem,omitempty"`
+	// DocumentsHeld is the document revisions held for the development manager
+	// because publication of their documents stopped after returned runs, longest
+	// held first. DocumentsHeldProblem says they could not be read.
+	DocumentsHeld        []DocumentReturnsWait `json:"documents_held,omitempty"`
+	DocumentsHeldProblem string                `json:"documents_held_problem,omitempty"`
 	// OperatorDecisions is what the attention line names as the operator's
 	// that a verb approves or declines, opened into the records it carries,
 	// which the dashboard puts to him one at a time; see ReadOperatorDecisions.
@@ -1316,6 +1321,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	standing.WaitingForSlot = waits.slotWait
 	standing.DocumentsWaitingForSlot, standing.DocumentsWaitingProblem = readDocumentWaits(sources)
+	standing.DocumentsHeld, standing.DocumentsHeldProblem = readHeldDocuments(sources)
 	if waits.groups != nil {
 		standing.NotStartableGroups = waits.groups
 		standing.NotStartableForOperator = ForOperator(waits.groups)
