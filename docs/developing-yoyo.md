@@ -19,7 +19,9 @@ make build
 `make check` is `fmtcheck`, `test`, `race`, and `vet`, and it is what a person
 runs before handing work over. CI runs the same four: `test`, `race` and `vet` as
 jobs of those names, which are the forge checks `execution.ci_checks.required`
-waits for, and `fmtcheck` in the `build` job.
+waits for, and `fmtcheck` in the `build` job. A pull request that changes only
+governed documents is the exception: [its jobs pass without running
+them](#what-github-skips-for-a-documents-only-change).
 
 This project declares six [checks](configuration.md): those four, `make build`
 and `make test-macos`. It also turns on `execution.ci_checks`, so a run does not
@@ -106,7 +108,8 @@ getting-started sections, and it is a merge gate rather than a habit: the
 `getting-started` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 installs `bd` — at [a pinned version this repository
 owns](#the-tracker-version-ci-pins) — and runs this target on every pull
-request. On a machine with no `bd` at all, the walk fetches that same pinned
+request [but one that changes only governed
+documents](#what-github-skips-for-a-documents-only-change). On a machine with no `bd` at all, the walk fetches that same pinned
 release itself, from [the one home Beads has](https://github.com/gastownhall/beads)
 into its scratch root, so a fresh machine and CI install the tracker from the
 same place; a machine that has `bd` walks with the one it has.
@@ -338,6 +341,21 @@ pull request — the build, the release archives, the release and install
 scripts' suites, and the getting-started walk — works on this repository's code
 or on scratch projects of its own, so a document landing that passes `make doccheck`
 does not then fail there on account of its document.
+
+### What GitHub skips for a documents-only change
+
+A pull request made only of governed documents passes every GitHub job without
+running the job's checks. Every job in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) starts with the same
+step, which asks GitHub for the paths a pull request or merge group changes and,
+when every one is a Markdown file under `docs/product`, `docs/designs` or
+`docs/decisions`, skips the job's other steps, so the job passes at once and the
+required checks are there for the merge. Anything else, a push to `main`
+included, runs every job in full. It is a first step rather than a path filter
+on the workflow because a filtered workflow never starts, which leaves a
+required check missing and the pull request unable to merge.
+`scripts/ci-documents-only-test.sh`, run by `make test`, runs that step against a
+stub of GitHub.
 
 ## What a checkout needs besides Go
 
@@ -1024,7 +1042,8 @@ decision changes the list is still what keeps the document true.
 archive for the platform it is running on and asserts the binary reports
 `<tag>`. That target is the whole of what a release consists of: the release
 workflow runs it for a pushed tag and publishes what it produced, and CI runs
-the same target on every change with a placeholder version, so a tag push
+the same target on every change [but one made only of governed
+documents](#what-github-skips-for-a-documents-only-change), with a placeholder version, so a tag push
 reruns a path that is already exercised rather than executing it for the first
 time when a failure would mean a botched or missing release.
 

@@ -248,7 +248,8 @@ absolute executable path once in the project configuration. [Provider setup and
 precedence](docs/provider-plugins.md#executable-setup-and-precedence) covers
 terminal chats, scheduled runs, fallback providers and account login commands.
 
-CI executes this section on every change via
+CI executes this section on every change except one that touches only product,
+design or decision documents, via
 [`scripts/walk-getting-started.sh`](scripts/walk-getting-started.sh), against a
 throwaway Python project; `make getting-started` runs it locally.
 
