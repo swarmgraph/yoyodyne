@@ -35,7 +35,13 @@ func TestAStopThatForcesKillsAProcessIgnoringTheStopAndWhatItStarted(t *testing.
 		t.Fatalf("release the process: %v", err)
 	}
 	endOnCleanup(t, pid)
+	// The child moves into a group of its own a moment after it appears, so the
+	// look is repeated until it has.
 	started := waitForAChild(t, pid)
+	for end := time.Now().Add(10 * time.Second); len(started) == 1 && started[0].group != started[0].pid && time.Now().Before(end); {
+		time.Sleep(20 * time.Millisecond)
+		started = waitForAChild(t, pid)
+	}
 	if len(started) != 1 || started[0].group != started[0].pid {
 		t.Fatalf("children = %+v, want one child leading its own group", started)
 	}
