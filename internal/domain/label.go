@@ -83,13 +83,12 @@ type DeveloperSlot struct {
 	// enough. Empty is a slot with no preference, which is how a project says
 	// slot 1 prefers nothing and slot 2 prefers something.
 	Prefer []string `yaml:"prefer,omitempty" json:"prefer,omitempty"`
-	// Dedicated keeps the slot for its labels: it takes their ready work ahead
-	// of priority-0 work that does not carry them, where a slot that only
-	// prefers a label takes priority-0 work first. With none of its labels'
-	// work ready it still takes the ordinary order, and work on a change a run
-	// already wrote still comes before either. A dedicated slot must name a
-	// label, and not every slot may be dedicated, so priority-0 work always has
-	// a slot that takes it first.
+	// Dedicated says the slot is kept for its labels. It orders work exactly as
+	// any slot that prefers labels does — their ready work ahead of priority 0
+	// work that does not carry them, the ordinary order once none of it is
+	// ready, and work on a change a run already wrote before either — and
+	// changes only how the slot and its runs are named. A dedicated slot must
+	// name a label.
 	Dedicated bool          `yaml:"dedicated,omitempty" json:"dedicated,omitempty"`
 	Routing   *EndpointPair `yaml:"routing,omitempty" json:"routing,omitempty"`
 	// Subagents overrides the developer agent's sub-agent setting for this

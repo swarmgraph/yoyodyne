@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
-	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -59,17 +58,9 @@ func TestATopPriorityItemTakesTheOneFreeSlotAheadOfSecondTierWork(t *testing.T) 
 				CreatedAt: admittedAt(5), Parent: "yoyodyne-urgent"},
 			other: []beads.WorkItem{{ID: "yoyodyne-urgent", Title: "Unblock the merges", Status: "open", Priority: 0, CreatedAt: admittedAt(0)}},
 		},
-		{
-			// The only free slot prefers a label the priority-1 item carries and
-			// the priority-0 item does not.
-			name: "second-tier work carrying the label the free slot prefers",
-			top:  beads.WorkItem{ID: "yoyodyne-top", Title: "Main's build", Status: "open", Priority: 0, CreatedAt: admittedAt(5), Labels: []string{"bug"}},
-			setup: func(h *scheduleHarness) {
-				h.slots = []domain.DeveloperSlot{{Prefer: []string{"reliability"}}}
-				h.Items[0].Labels = []string{"reliability"}
-			},
-			reason: "this item does not carry it, and is taken ahead of that work because it is at priority 0",
-		},
+		// A free slot that prefers a label the priority-1 item carries takes that
+		// item instead, by the operator's rule of 2026-11-21; see
+		// TestOneFreeLabelledSlotTakesItsLabelOverUncoveredPriorityZero.
 		{
 			// A run over less urgent work shares a file with the priority-0 item,
 			// and holds back a priority-1 item over the same file as before.

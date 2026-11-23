@@ -152,9 +152,43 @@ func TestContinuationsAheadOrdersByPriorityThenLongestWait(t *testing.T) {
 		{name: "kept-priority-3", kept: true, priority: 3, want: []string{"p0-new", "p1-old", "p1-new", "p2"}},
 		{name: "fresh", kept: false, priority: 0, want: []string{"p0-new", "p1-old", "p1-new", "p2"}},
 	} {
-		if got := continuationsAhead(candidates, test.kept, test.priority, at, "run-decision"); !slices.Equal(got, test.want) {
+		if got := continuationsAhead(candidates, test.kept, false, test.priority, at, "run-decision"); !slices.Equal(got, test.want) {
 			t.Errorf("%s: ahead = %v, want %v", test.name, got, test.want)
 		}
+	}
+}
+
+// Among written work, a freed slot takes the work carrying its own labels
+// before work carrying none, then by priority and longest wait: a labelled
+// priority 2 paused run is ahead of an unlabelled priority 0 decision on a kept
+// change, and a labelled decision is ahead of every unlabelled paused run.
+func TestWrittenWorkCarryingAFreeSlotsLabelsGoesFirst(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	paused := func(id string, priority int, labelled bool) pausedContinuation {
+		return pausedContinuation{state: runstate.State{RunID: "run-" + id, WorkItemID: id, UpdatedAt: at.Add(-time.Hour)}, priority: priority, named: id, labelled: labelled}
+	}
+	candidates := []pausedContinuation{
+		paused("p0-plain", 0, false),
+		paused("p2-labelled", 2, true),
+	}
+	if got := continuationsAhead(candidates, true, false, 0, at.Add(-2*time.Hour), "run-decision"); !slices.Equal(got, []string{"p2-labelled"}) {
+		t.Errorf("unlabelled priority 0 decision that waited longest: ahead = %v, want the labelled run alone", got)
+	}
+	if got := continuationsAhead(candidates, true, true, 3, at, "run-decision"); !slices.Equal(got, []string{"p2-labelled"}) {
+		t.Errorf("labelled priority 3 decision: ahead = %v, want only the labelled run that waited longer", got)
+	}
+	if got := continuationsAhead(candidates, true, true, 2, at.Add(-2*time.Hour), "run-decision"); len(got) != 0 {
+		t.Errorf("labelled priority 2 decision that waited longest: ahead = %v, want none", got)
+	}
+
+	ordered := slices.Clone(candidates)
+	slices.SortStableFunc(ordered, func(a, b pausedContinuation) int {
+		return writtenWorkOrder(a.labelled, a.priority, a.waitingSince(), a.state.RunID, b.labelled, b.priority, b.waitingSince(), b.state.RunID)
+	})
+	if ordered[0].named != "p2-labelled" {
+		t.Errorf("order = %v, want the labelled run first", []string{ordered[0].named, ordered[1].named})
 	}
 }
 

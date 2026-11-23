@@ -13,11 +13,19 @@ package orchestrator
 // the preferring slots first so that labelled work goes to the slot configured
 // for it before a slot with no preference reaches it.
 //
-// A preference reorders work below the top priority and never across it: ready
-// priority-0 work is taken by whichever slot reaches it first, preferring or not,
-// before any labelled work of a lower priority (outranksPreference). A slot
-// marked dedicated is the one exception: it is kept for its label and takes that
-// label's work across priority 0 too, leaving priority-0 work to the other slots.
+// A preference reorders work across every priority, priority 0 included: a slot
+// that prefers labels takes ready work carrying any of them ahead of priority 0
+// work carrying none, whether or not it is marked dedicated, and nothing — no
+// setting, timer or wait — lets that priority 0 work go ahead of it (the
+// operator's rule of 2026-11-21 in docs/product/operating-rules.md). A priority
+// 0 item that no slot's labels cover starts when some slot has none of its own
+// labelled work ready: a slot with no labels, which keeps the ordinary order,
+// priority first, or a preferring slot falling back. Until then the report names
+// it as waiting for such a slot (waitingForAnotherSlotReason), and status says
+// how long it has waited. Work on a change a run already wrote goes ahead of all
+// of this, on every slot, and among that written work the one carrying a free
+// slot's labels goes first (Scheduler.Schedule's precedence and
+// takeContinuations).
 //
 // What a preference changes is which item a slot pulls first, and nothing else.
 // The item a preferring slot starts is claimed, developed, checked, reviewed, and
@@ -239,27 +247,34 @@ type walkedPast struct {
 type pulledInto struct {
 	slot     developerslot.Slot
 	labelled bool
-	// outranked is a preferring slot that took top-priority work without its
-	// label while walking for its label's work.
-	outranked bool
 }
 
-// outranksPreference is whether an entry is taken by a preferring slot walking
-// for its label even though it does not carry that label. Priority 0 is the
-// top of the Lead Product Manager's order, where the work that holds everything
-// else up is put — main's failing build, a fault that stops runs — and a slot
-// that walked past it for labelled work at priority 1 or below would start the
-// less urgent work first whenever it was the only slot free. Below the top, a
-// preference still reorders freely, which is what it is configured for.
-//
-// A dedicated slot is the exception: it is kept for its label, and takes that
-// label's ready work ahead of priority-0 work elsewhere, reliability work
-// included, by the operating rule of 2026-10-28. Priority-0 work still has a
-// slot that takes it first, because the configuration refuses every slot
-// dedicated, and a dedicated slot with none of its label's work ready falls
-// back to the ordinary order like any preferring slot.
-func outranksPreference(entry backlog.Entry, slot developerslot.Slot) bool {
-	return entry.Priority == 0 && !slot.Dedicated
+// coveredBySlot reports whether some configured developer slot prefers one of
+// these labels. Only the first capacity slots are read, because a preference
+// beyond the capacity names no slot (developerslot.Assign).
+func coveredBySlot(capacity int, preferences []domain.DeveloperSlot, labels []string) bool {
+	for index, preference := range preferences {
+		if index >= capacity {
+			break
+		}
+		if preference.Preferring() && preference.Prefers(labels) {
+			return true
+		}
+	}
+	return false
+}
+
+// labelledForFreeSlot reports whether some free slot prefers one of these
+// labels, which is what puts written work carrying them ahead of other written
+// work: a freed slot takes written work on its own labels first, then the rest
+// by priority and longest wait (writtenWorkOrder).
+func labelledForFreeSlot(free []developerslot.Slot, labels []string) bool {
+	for _, slot := range free {
+		if slot.Preferring() && slot.Prefers(labels) {
+			return true
+		}
+	}
+	return false
 }
 
 // reason is the sentence the run's recorded selection carries about its slot.
@@ -277,8 +292,6 @@ func (p pulledInto) reason(preferences []domain.DeveloperSlot) string {
 		return fmt.Sprintf(" It was pulled into developer slot %d, which is kept for %s and found none of that work ready, so it took the ordinary order.", p.slot.Number, p.slot.Preference())
 	case p.labelled:
 		return fmt.Sprintf(" It was pulled into developer slot %d, which prefers %s this item carries.", p.slot.Number, p.slot.Preference())
-	case p.outranked:
-		return fmt.Sprintf(" It was pulled into developer slot %d, which prefers %s; this item does not carry it, and is taken ahead of that work because it is at priority 0.", p.slot.Number, p.slot.Preference())
 	case p.slot.Preferring():
 		return fmt.Sprintf(" It was pulled into developer slot %d, which prefers %s and found none of that work ready, so it fell back to the rest of the backlog.", p.slot.Number, p.slot.Preference())
 	default:
@@ -300,14 +313,20 @@ func leftForAnotherSlotReason(slot developerslot.Slot, took string) string {
 		runstate.PassedOverLeftForAnotherSlot, slot.Number, slot.Preference(), took, slot.Number, slot.Preference())
 }
 
-// waitingForAnotherSlotReason is what the report says of ready priority-0 work
-// a dedicated slot walked past for its label's work, where no other slot was
-// free to take it. Both items are named by title with the identifier after it,
-// because this is the line an operator reads to see why top-priority work is
-// not running.
+// waitingForAnotherSlotReason is what the report says of ready priority 0 work
+// that no slot's labels cover, walked past by a slot taking its own labelled
+// work, where no other slot was free to take it. Both items are named by title
+// with the identifier after it, because this is the line an operator reads to
+// see why top-priority work is not running. The sentence stays the same while
+// the item waits, so the kept reason's first date is when the wait began, and
+// status says how long that has been (readmodel's markSchedulingWait).
 func waitingForAnotherSlotReason(slot developerslot.Slot, waiting, took string) string {
-	return fmt.Sprintf("%s: %s is at priority 0 and is waiting for one of the other developer slots, because developer slot %d is kept for %s and took %s",
-		runstate.PassedOverLeftForAnotherSlot, waiting, slot.Number, slot.Preference(), took)
+	kept := "prefers"
+	if slot.Dedicated {
+		kept = "is kept for"
+	}
+	return fmt.Sprintf("%s: %s is at priority 0, and no developer slot's labels cover it, so it is waiting for a developer slot with none of its own labelled work ready; developer slot %d %s %s and took %s",
+		runstate.PassedOverLeftForAnotherSlot, waiting, slot.Number, kept, slot.Preference(), took)
 }
 
 // titledItem names a work item the way a person reads it: its title with its
