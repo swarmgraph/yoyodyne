@@ -32,6 +32,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -366,66 +367,197 @@ func (t Trigger) overdueReports() ([]report.Report, map[string]int, error) {
 	return overdue, passes, nil
 }
 
+// maxAddressedListed is how many reports the section of reports addressed to a
+// role lists. It leaves room under runstate.MaxSweepAddressed for the ones shown
+// only beside the work item they name.
+const maxAddressedListed = 10
+
+// addressedReports is the unhandled reports addressed to the role a pass
+// wakes: the section its message carries, every one waiting, and the ones the
+// pass has been shown, in the section or beside a work item. A nil one is a pass
+// that is put none.
+type addressedReports struct {
+	text    string
+	waiting []report.Report
+	shown   []report.Report
+}
+
+// ids is the reports the pass was shown, by identifier, for its record.
+func (a *addressedReports) ids() []string {
+	if a == nil {
+		return nil
+	}
+	var ids []string
+	for _, reported := range a.shown {
+		ids = append(ids, reported.ID)
+	}
+	return ids
+}
+
+// beside is the reports waiting on the role that name one work item, as lines
+// indented under it in a list the pass decides from, and counts each as shown.
+// It looks past what the section lists, so an item a pass decides carries its
+// reports whatever else is waiting, up to what one account may answer.
+func (a *addressedReports) beside(item string) []string {
+	item = strings.TrimSpace(item)
+	if a == nil || item == "" {
+		return nil
+	}
+	var lines []string
+	for _, reported := range a.waiting {
+		if strings.TrimSpace(reported.WorkItemID) != item {
+			continue
+		}
+		if !slices.Contains(a.ids(), reported.ID) {
+			if len(a.shown) == runstate.MaxSweepAddressed {
+				lines = append(lines, "  - More reports addressed to you name this item than one turn can account for; they are on your list on yoyo status.")
+				break
+			}
+			a.shown = append(a.shown, reported)
+		}
+		lines = append(lines, "  - A report addressed to you names this item; decide it before you decide the item: "+addressedReportLine(reported))
+	}
+	return lines
+}
+
+// besideConversationWork is the section of work waiting in the role's
+// conversation with each report addressed to the role under the item it names.
+func (a *addressedReports) besideConversationWork(work ConversationWorkReading) string {
+	if a == nil || len(a.waiting) == 0 {
+		return work.Section
+	}
+	var lines []string
+	for _, line := range strings.Split(work.Section, "\n") {
+		lines = append(lines, line)
+		for _, item := range work.Items {
+			if strings.HasPrefix(line, "- ") && strings.Contains(line, "("+item.ID+") [P") {
+				lines = append(lines, a.beside(item.ID)...)
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// leastShownFirst orders the reports waiting on a role by how many recorded
+// passes have been shown each, fewest first and oldest first within that. A
+// report nobody handles stays waiting, so oldest first alone would leave a new
+// one off the list for as long as the older ones stood.
+func (t Trigger) leastShownFirst(waiting []report.Report) ([]report.Report, error) {
+	if len(waiting) <= maxAddressedListed {
+		return waiting, nil
+	}
+	recorded, _, err := t.Reports.List()
+	times := map[string]int{}
+	for _, pass := range recorded {
+		if pass.Turns == 0 || pass.IsMiss() {
+			continue
+		}
+		for _, id := range pass.Addressed {
+			times[id]++
+		}
+	}
+	ordered := slices.Clone(waiting)
+	slices.SortStableFunc(ordered, func(a, b report.Report) int { return times[a.ID] - times[b.ID] })
+	return ordered, err
+}
+
 // addressedTo is the unhandled reports addressed to the role a task wakes,
 // rendered for its pass, and nothing for the Lead Product Manager, who is put
-// the whole pile, or where none is addressed to the role. The derivation is the
-// read model's, so what the pass is shown is what its list on `yoyo status`
-// names. A pile that cannot be read is said rather than left out, because a
-// pass told nothing is addressed to it when nothing could be read would
-// conclude nothing was.
-func (t Trigger) addressedTo(task config.RecurringTask) string {
+// the whole pile, or where none is addressed to the role. Severity does not
+// matter: a warning or a note addressed to a role is listed exactly as a
+// critical is. The derivation is the read model's, so what the pass is shown is
+// what its list on `yoyo status` names. A pile that cannot be read is said
+// rather than left out, because a pass told nothing is addressed to it when
+// nothing could be read would conclude nothing was.
+func (t Trigger) addressedTo(task config.RecurringTask) *addressedReports {
 	if t.Pile == nil || task.Role == domain.RoleProductManager {
-		return ""
+		return &addressedReports{}
 	}
 	reports, err := t.Pile.List()
 	if err != nil {
-		return "Whether any report is addressed to you could not be read on this pass: " + err.Error()
+		return &addressedReports{text: "Whether any report is addressed to you could not be read on this pass: " + err.Error()}
 	}
 	handlings, err := t.Pile.Handlings()
 	if err != nil {
-		return "Whether any report addressed to you has been handled could not be read on this pass: " + err.Error()
+		return &addressedReports{text: "Whether any report addressed to you has been handled could not be read on this pass: " + err.Error()}
 	}
 	addressed := readmodel.ReportsAddressedTo(readmodel.MoverOf(task.Role), reports, handlings)
 	if len(addressed) == 0 {
-		return ""
+		return &addressedReports{}
 	}
 	var rendered strings.Builder
-	rendered.WriteString("These reports are addressed to your role and nobody has recorded what became of them. Each asks for a move of yours: act on what it asks within the authority your role already holds, and say in your account what you did about each, naming it. The Lead Product Manager records the handling that takes it off your list; none of them is the operator's.\n\n")
-	listed := addressed
-	if len(listed) > maxOverdueListed {
-		listed = listed[:maxOverdueListed]
+	rendered.WriteString("These reports are addressed to your role and nobody has recorded what became of them. Each asks for a move of yours: act on what it asks within the authority your role already holds, and say in your closing account what you decided about each, or that you left it for now and why, naming it. A report that names a work item you act on this pass is about that item: read it before you decide the item. The Lead Product Manager records the handling that takes it off your list; none of them is the operator's.\n\n")
+	listed, err := t.leastShownFirst(addressed)
+	if err != nil {
+		fmt.Fprintf(&rendered, "The earlier passes could not be read to the end, so which of these were shown to you before may be wrong: %v\n\n", err)
+	}
+	if len(listed) > maxAddressedListed {
+		listed = listed[:maxAddressedListed]
 	}
 	for _, reported := range listed {
-		reporter := string(reported.Role)
-		if reported.Agent != "" {
-			reporter = reported.Agent
-		}
-		on := ""
-		if reported.WorkItemID != "" {
-			on = " on " + reported.WorkItemID
-		}
-		text := strings.Join(strings.Fields(reported.Message), " ")
-		preview := clip(text, overdueTextBytes)
-		if len(text) > overdueTextBytes {
-			preview += fmt.Sprintf(" [message cut; full message is %d bytes]", len(reported.Message))
-		}
-		fmt.Fprintf(&rendered, "- %s [%s] from %s%s, filed %s: %s\n",
-			reported.ID, reported.Severity, reporter, on, reported.RecordedAt.UTC().Format(time.RFC3339), preview)
+		fmt.Fprintf(&rendered, "- %s\n", addressedReportLine(reported))
 	}
 	if len(addressed) > len(listed) {
-		fmt.Fprintf(&rendered, "\n%d further report(s) addressed to your role are not listed here.\n", len(addressed)-len(listed))
+		fmt.Fprintf(&rendered, "\n%d further report(s) addressed to your role are not listed here; the ones listed least often come first on your next pass.\n", len(addressed)-len(listed))
 	}
-	return rendered.String()
+	rendered.WriteString("\n" + sweep.ReportsContract() + "\n")
+	return &addressedReports{text: rendered.String(), waiting: addressed, shown: slices.Clone(listed)}
+}
+
+// addressedReportLine is one report addressed to a role as its pass lists it:
+// which report, how severe, from whom, about what, when, and what it says.
+func addressedReportLine(reported report.Report) string {
+	reporter := string(reported.Role)
+	if reported.Agent != "" {
+		reporter = reported.Agent
+	}
+	on := ""
+	if reported.WorkItemID != "" {
+		on = " on " + reported.WorkItemID
+	}
+	text := strings.Join(strings.Fields(reported.Message), " ")
+	preview := clip(text, overdueTextBytes)
+	if len(text) > overdueTextBytes {
+		preview += fmt.Sprintf(" [message cut; full message is %d bytes]", len(reported.Message))
+	}
+	return fmt.Sprintf("%s [%s] from %s%s, filed %s: %s",
+		reported.ID, reported.Severity, reporter, on, reported.RecordedAt.UTC().Format(time.RFC3339), preview)
+}
+
+// passedOverAddressed says which of the reports addressed to the role that a
+// pass was shown its account says nothing about, and nothing where it accounts
+// for all of them or gave no account at all, which the record already says. It
+// is said on the record, as well as counted by `yoyo status`, so `yoyo sweeps`
+// shows the pass that stepped over a report beside what it did instead.
+func passedOverAddressed(name string, role domain.AgentRole, shown []string, account *sweep.Result) string {
+	if account == nil {
+		return ""
+	}
+	var passed []string
+	for _, id := range shown {
+		if _, said := account.ReportDecided(id); !said {
+			passed = append(passed, id)
+		}
+	}
+	if len(passed) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("the pass of %s was shown the report(s) %s addressed to the %s, and its account says neither what it decided about them nor that it left them, so they are recorded as passed over by this pass",
+		name, strings.Join(passed, ", "), role.Title())
 }
 
 // addressedLines is the section of reports addressed to the role a pass
 // carries, introduced as what it is. Nothing is added where there is none.
-func addressedLines(addressed string) []string {
-	addressed = strings.TrimSpace(addressed)
-	if addressed == "" {
+func addressedLines(addressed *addressedReports) []string {
+	if addressed == nil {
 		return nil
 	}
-	return []string{"", "## Reports addressed to you", "", addressed}
+	text := strings.TrimSpace(addressed.text)
+	if text == "" {
+		return nil
+	}
+	return []string{"", "## Reports addressed to you", "", text}
 }
 
 // overdueLines is the overdue section a pass carries, introduced as what it

@@ -327,16 +327,18 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 				return fired
 			}
 		}
+		addressed := t.addressedTo(task)
 		fired := t.run(ctx, firing{
-			name:    agent,
-			pass:    passName(claimed),
-			task:    task,
-			trigger: trigger,
-			message: instanceMessage(agent, instance, due, nil, wake, t.addressedTo(task), t.opening(ctx, agent)) + t.stopCauseSection(agent, wake),
-			agent:   agent,
-			events:  wake.counts(),
-			stops:   wake.stops(),
-			due:     dueAt,
+			name:      agent,
+			pass:      passName(claimed),
+			task:      task,
+			trigger:   trigger,
+			message:   instanceMessage(agent, instance, due, nil, wake, addressed, t.opening(ctx, agent)) + t.stopCauseSection(agent, wake),
+			addressed: addressed,
+			agent:     agent,
+			events:    wake.counts(),
+			stops:     wake.stops(),
+			due:       dueAt,
 			finish: func(answered bool) string {
 				problems := append([]string(nil), wake.problems...)
 				problems = append(problems, t.advance(ctx, agent, wake, answered, now))
@@ -411,17 +413,19 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 		unrecorded = appendProblem(unrecorded, fmt.Sprintf("the pass request %s of %s could not be recorded as taken, so it reads as waiting until the pass closes it: %v", request.ID, agent, err))
 	}
 	return claimedFiring{take: func(ctx context.Context) Fired {
+		addressed := t.addressedTo(task)
 		fired := t.run(ctx, firing{
-			name:    agent,
-			pass:    pass,
-			task:    task,
-			trigger: runstate.PassTriggerRequest,
-			message: instanceMessage(agent, instance, false, &request, wake, t.addressedTo(task), t.opening(ctx, agent)) + t.stopCauseSection(agent, wake),
-			agent:   agent,
-			events:  wake.counts(),
-			stops:   wake.stops(),
-			request: &request,
-			due:     request.RequestedAt,
+			name:      agent,
+			pass:      pass,
+			task:      task,
+			trigger:   runstate.PassTriggerRequest,
+			message:   instanceMessage(agent, instance, false, &request, wake, addressed, t.opening(ctx, agent)) + t.stopCauseSection(agent, wake),
+			addressed: addressed,
+			agent:     agent,
+			events:    wake.counts(),
+			stops:     wake.stops(),
+			request:   &request,
+			due:       request.RequestedAt,
 			finish: func(answered bool) string {
 				problems := append([]string(nil), wake.problems...)
 				problems = append(problems, t.advance(ctx, agent, wake, answered, now))
@@ -658,7 +662,7 @@ func (t Trigger) opening(ctx context.Context, agent string) string {
 // by stream, the reports addressed to the program manager role as addressedTo
 // renders them, and the account contract. Every instance is put the same
 // reports: a report names the role, not one instance of it.
-func instanceMessage(agent string, instance config.AgentConfig, due bool, request *runstate.PassRequest, wake passWake, addressed, opening string) string {
+func instanceMessage(agent string, instance config.AgentConfig, due bool, request *runstate.PassRequest, wake passWake, addressed *addressedReports, opening string) string {
 	lane := strings.TrimSpace(instance.Lane)
 	who := fmt.Sprintf("The harness woke you, the program manager instance %q", agent)
 	if lane != "" {

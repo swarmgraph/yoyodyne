@@ -97,6 +97,11 @@ const MaxSweepModelBytes = 1 << 10
 // the criticals past it are delivered on the next pull.
 const MaxSweepCriticals = 10
 
+// MaxSweepAddressed bounds how many reports addressed to its role one pass
+// records as shown. It covers the ones its message lists and the ones shown
+// beside a work item, and the writer holds itself to it.
+const MaxSweepAddressed = 20
+
 // MaxSweepSavedWrites bounds how many saved writes one pass records. A reply
 // asks for at most four memories and one lane report, and a pass takes a few
 // turns of a few rounds each, so this is well above what one pass makes; it is
@@ -450,6 +455,12 @@ type Sweep struct {
 	// way once; what keeps one in front of her after that is the pass refusing to
 	// end complete while it stands unhandled. Absent on every other pass.
 	Criticals []string `json:"criticals,omitempty"`
+	// Addressed are the reports addressed to the pass's role that it was
+	// shown, in its list of them or beside a work item, by identifier. The account's "reports" entries say what the pass
+	// did about each; one listed here that the account says nothing about is a
+	// report the pass passed over, which `yoyo status` counts. Absent on every
+	// pass shown none.
+	Addressed []string `json:"addressed,omitempty"`
 	// NotStarted is why the firing failed before its first turn was put to the
 	// provider, where it did: the harness refused its own message, could not
 	// open the role's conversation, or could not assemble what the turn would
@@ -1209,6 +1220,14 @@ func (s Sweep) Validate() error {
 	for i, id := range s.Criticals {
 		if strings.TrimSpace(id) == "" || len(id) > MaxSweepModelBytes {
 			problems = append(problems, fmt.Errorf("criticals[%d] must name a report", i))
+		}
+	}
+	if len(s.Addressed) > MaxSweepAddressed {
+		problems = append(problems, fmt.Errorf("%d reports addressed to the role shown to one pass, limit is %d", len(s.Addressed), MaxSweepAddressed))
+	}
+	for i, id := range s.Addressed {
+		if strings.TrimSpace(id) == "" || len(id) > MaxSweepModelBytes {
+			problems = append(problems, fmt.Errorf("addressed[%d] must name a report", i))
 		}
 	}
 	if len(s.Delivered) > MaxSweepDelivered {

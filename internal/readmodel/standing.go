@@ -1385,7 +1385,8 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	actions, actionsProblem := readOperatorActions(reports, handlings, pileProblem, sources, items, Looking(ctx, sources.Remains, nil))
 	// The reports waiting on a role by name follow the operator's findings: a
 	// critical one stands out under its role's head, never under his.
-	actions = append(actions, readAddressedReports(reports, handlings, pileProblem)...)
+	passedOver, passedOverProblem := readPassedOver(sources)
+	actions = append(actions, readAddressedReports(reports, handlings, pileProblem, passedOver)...)
 	// The proposed changes are read once and used three times, as the switches
 	// are: they are the queue's count and age, each undecided one is a thing
 	// waiting on a person, and the batches their owners argued on a recurring
@@ -1408,7 +1409,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.OperatorDecisionsProblem = joinProblems(standing.OperatorDecisionsProblem, documents.problem)
 
 	needs, needsProblem := readNeedsHuman(sources, switches, actions, amendments, documents)
-	needsProblem = joinProblems(needsProblem, actionsProblem)
+	needsProblem = joinProblems(needsProblem, joinProblems(actionsProblem, passedOverProblem))
 	// The provider answering nobody is on the attention line whatever the queue
 	// holds, because what ends it is a person, and it is the first thing on it:
 	// every role waits on it, so nothing else on the line can move until it

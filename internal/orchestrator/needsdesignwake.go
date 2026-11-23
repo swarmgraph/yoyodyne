@@ -175,12 +175,14 @@ func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOu
 		return claimedFiring{settled: &fired}, true, errors.Join(problems...)
 	}
 	return claimedFiring{take: func(ctx context.Context) Fired {
+		addressed := t.addressedTo(task)
 		return t.run(ctx, firing{
-			name:    NeedsDesignWakeTask,
-			pass:    passName(claimed),
-			task:    task,
-			trigger: trigger,
-			message: needsDesignMessage(trigger, fresh, labelled, t.addressedTo(task)),
+			name:      NeedsDesignWakeTask,
+			pass:      passName(claimed),
+			task:      task,
+			trigger:   trigger,
+			message:   needsDesignMessage(trigger, fresh, labelled, addressed),
+			addressed: addressed,
 			finish: func(answered bool) string {
 				if !answered {
 					return fmt.Sprintf("the pass did not complete, so the %d item(s) it named are not recorded as woken for, and the architect is woken for the unwoken ones again", len(labelled))
@@ -199,7 +201,12 @@ func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOu
 // needsDesignMessage is what the harness says when it wakes the architect over
 // the needs-design label: why she was woken, the items, newest to her first,
 // and what lifting the label takes.
-func needsDesignMessage(trigger runstate.PassTrigger, fresh, labelled []NeedsDesignItem, addressed string) string {
+//
+// A report addressed to her that names one of the items is shown under that
+// item as well as in the section of reports addressed to her, because the item
+// is where she decides: a report listed only at the foot of the message was
+// read past by passes that each decided the item it warned about.
+func needsDesignMessage(trigger runstate.PassTrigger, fresh, labelled []NeedsDesignItem, addressed *addressedReports) string {
 	why := fmt.Sprintf("The harness woke you because the %s label was added to work items you have not been woken for.", domain.NeedsDesignLabel)
 	if trigger != runstate.PassTriggerEvents {
 		why = fmt.Sprintf("The harness woke you for your daily pass over the work items carrying the %s label, which catches any wake that was lost.", domain.NeedsDesignLabel)
@@ -217,7 +224,7 @@ func needsDesignMessage(trigger runstate.PassTrigger, fresh, labelled []NeedsDes
 	if len(fresh) > 0 {
 		lines = append(lines, fmt.Sprintf("Newly labelled (%d):", len(fresh)))
 		listed = append(listed, fresh...)
-		lines = append(lines, needsDesignLines(fresh, maxPassEventsListed)...)
+		lines = append(lines, needsDesignLines(fresh, maxPassEventsListed, addressed)...)
 	}
 	var waiting []NeedsDesignItem
 	for _, item := range labelled {
@@ -230,7 +237,7 @@ func needsDesignMessage(trigger runstate.PassTrigger, fresh, labelled []NeedsDes
 			lines = append(lines, "")
 		}
 		lines = append(lines, fmt.Sprintf("Still carrying the label from before (%d):", len(waiting)))
-		lines = append(lines, needsDesignLines(waiting, maxPassEventsListed-min(len(listed), maxPassEventsListed))...)
+		lines = append(lines, needsDesignLines(waiting, maxPassEventsListed-min(len(listed), maxPassEventsListed), addressed)...)
 	}
 	lines = append(lines,
 		"",
@@ -243,8 +250,9 @@ func needsDesignMessage(trigger runstate.PassTrigger, fresh, labelled []NeedsDes
 }
 
 // needsDesignLines lists items one a line, up to a bound, and says how many
-// the bound left out.
-func needsDesignLines(items []NeedsDesignItem, bound int) []string {
+// the bound left out. Each listed item is followed by the reports addressed to
+// the role that name it.
+func needsDesignLines(items []NeedsDesignItem, bound int, addressed *addressedReports) []string {
 	var lines []string
 	for index, item := range items {
 		if index >= bound {
@@ -259,6 +267,7 @@ func needsDesignLines(items []NeedsDesignItem, bound int) []string {
 			line += ": " + title
 		}
 		lines = append(lines, truncateLine(line, maxPassEventLineBytes))
+		lines = append(lines, addressed.beside(item.ID)...)
 	}
 	return lines
 }

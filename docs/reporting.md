@@ -779,6 +779,23 @@ Product Manager's, since she handles the pile; a critical one is listed under
 her by name as well as reaching her pass at once. Either way it leaves the list
 when a handling of it is recorded.
 
+Where more than ten wait on a role, its pass lists the ones its passes have been
+shown least often first, so a new report is not kept off the list by old ones.
+Where a report names a work item the pass lists as waiting in the role's
+conversation, or a work item the architect's needs-design pass lists, it is
+shown again under that item. Every pass records which of these reports it was
+shown, and its closing account says for each one what it decided (`"decision"`) or why it left it for now
+(`"left"`), under `"reports"`. A pass whose account says neither about a report
+it was shown has that written on its record, which `yoyo sweeps` shows. Once
+three of the role's passes have done that, the report's entry on `yoyo status`
+and the dashboard says so, with when the latest of those passes started in your
+local time (`passed_over` in `--json`):
+
+> report-…, a warning report from the Lead Product Manager about
+> yoyodyne-ifd.435.59: … — 3 of the architect's passes were shown it and
+> recorded neither a decision about it nor that they left it, the latest
+> starting 2026-11-11 18:07 PST
+
 A report is never addressed to you, and a critical report is never shown to you
 as needing your hand. A critical one still reaches the channel, so you see it,
 and it says whose it is:

@@ -372,7 +372,7 @@ func TestAReportAddressedToARoleIsPutInFrontOfThatRolesPass(t *testing.T) {
 			t.Fatalf("the pass's message names %s:\n%s", unwanted, message)
 		}
 	}
-	if listed := trigger.addressedTo(reportTriageTask()["report-triage"]); listed != "" {
-		t.Fatalf("the Lead Product Manager's pass is put a section of its own: %s", listed)
+	if listed := trigger.addressedTo(reportTriageTask()["report-triage"]); listed.text != "" {
+		t.Fatalf("the Lead Product Manager's pass is put a section of its own: %s", listed.text)
 	}
 }

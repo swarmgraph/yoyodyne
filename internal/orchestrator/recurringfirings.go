@@ -403,9 +403,11 @@ func (t Trigger) claimTask(ctx context.Context, name string, task config.Recurri
 		// Filed before the message is composed, so the pass is put the reports
 		// with the rest of the pile it is shown.
 		missing := t.reportMissingCapabilities(ctx, task.Role)
+		addressed := t.addressedTo(task)
 		return t.run(ctx, firing{
 			name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule,
-			message: wakeMessage(name, task, "", t.overdueFor(task), t.addressedTo(task), batch) + missingCapabilitySection(missing), batch: batch, due: due,
+			message: wakeMessage(name, task, "", t.overdueFor(task), addressed, batch) + missingCapabilitySection(missing), batch: batch, due: due,
+			addressed: addressed,
 		})
 	}}, true, nil
 }

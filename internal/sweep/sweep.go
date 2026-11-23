@@ -589,6 +589,10 @@ type Result struct {
 	// waited more than seven days, and what it did about each (overdue.go).
 	// Empty on every pass told of none.
 	Overdue []Overdue `json:"overdue,omitempty"`
+	// Reports are what the pass decided about each report addressed to its
+	// role that it was shown, or that it left one for now (reportdecision.go).
+	// Empty on every pass shown none.
+	Reports []ReportDecision `json:"reports,omitempty"`
 }
 
 // HeldItem reports whether the account says the item's finished document is
@@ -690,6 +694,14 @@ func (r Result) Validate() error {
 			problems = append(problems, fmt.Errorf("overdue[%d]: %w", i, err))
 		}
 	}
+	if len(r.Reports) > MaxPassReportDecisions {
+		problems = append(problems, fmt.Errorf("%d report entries in one pass, limit is %d", len(r.Reports), MaxPassReportDecisions))
+	}
+	for i, decided := range r.Reports {
+		if err := decided.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("reports[%d]: %w", i, err))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
 	}
@@ -738,6 +750,9 @@ func (r Result) validateTurn() error {
 	}
 	if len(r.Overdue) > MaxLeft {
 		problems = append(problems, fmt.Errorf("%d overdue items in one turn, limit is %d", len(r.Overdue), MaxLeft))
+	}
+	if len(r.Reports) > MaxReportDecisions {
+		problems = append(problems, fmt.Errorf("%d report entries in one turn, limit is %d", len(r.Reports), MaxReportDecisions))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
@@ -819,10 +834,17 @@ func (r Result) Merge(next Result) Result {
 	if len(overdue) > MaxPassLeft {
 		overdue = overdue[len(overdue)-MaxPassLeft:]
 	}
+	// What a pass said about a report is, like a left item, the last thing it
+	// said, so the bound keeps the later turns' entries.
+	reports := append(append([]ReportDecision(nil), r.Reports...), next.Reports...)
+	if len(reports) > MaxPassReportDecisions {
+		reports = reports[len(reports)-MaxPassReportDecisions:]
+	}
 	merged.Left = left
 	merged.Held = held
 	merged.Settled = settled
 	merged.Overdue = overdue
+	merged.Reports = reports
 	merged.Summary = noteDropped(merged.Summary, dropped)
 	return merged
 }
@@ -983,10 +1005,10 @@ func Contract() string {
 // settled decision must carry among them.
 var accountShape = []string{
 	Fence,
-	`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"],"settled":[{"item":"beads-id already decided or asked about","decision":"what was decided","assumptions":["what the decision took to be true"],"question":"or the one question already asked","asked_of":"who it was put to"}],"overdue":[{"item":"beads-id waiting over seven days","act":"the act already taken, or explained","reason":"what was done and why"}]}`,
+	`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"],"settled":[{"item":"beads-id already decided or asked about","decision":"what was decided","assumptions":["what the decision took to be true"],"question":"or the one question already asked","asked_of":"who it was put to"}],"overdue":[{"item":"beads-id waiting over seven days","act":"the act already taken, or explained","reason":"what was done and why"}],"reports":[{"report":"identifier of a report already decided or left","decision":"what was decided","left":"or why it was left"}]}`,
 	"```",
-	"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, left only for waiting work it did not take, settled only for an item it already decided or asked about, and overdue only for an item it was told has waited more than seven days.",
-	`Every entry needs its fields: "status" and "summary" always; each finding its "issue" and "disposition"; each recommendation its "proposal", "verdict" and "reason", and "into" only on a merge; each audit its "item", at least one of "goals", and "finding", and a broken one its "detail" and exactly one of "correction" or "deferred"; each left item its "item" and "reason"; each settled item its "item" and either a "decision" with at least one entry in "assumptions" and no "asked_of", or a "question" with "asked_of" and no "assumptions"; each overdue item its "item", "act" and "reason".`,
+	"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, left only for waiting work it did not take, settled only for an item it already decided or asked about, overdue only for an item it was told has waited more than seven days, and reports only for a report addressed to you that it already decided or left.",
+	`Every entry needs its fields: "status" and "summary" always; each finding its "issue" and "disposition"; each recommendation its "proposal", "verdict" and "reason", and "into" only on a merge; each audit its "item", at least one of "goals", and "finding", and a broken one its "detail" and exactly one of "correction" or "deferred"; each left item its "item" and "reason"; each settled item its "item" and either a "decision" with at least one entry in "assumptions" and no "asked_of", or a "question" with "asked_of" and no "assumptions"; each overdue item its "item", "act" and "reason"; each report its "report" and exactly one of "decision" or "left".`,
 }
 
 // ReportRequest recovers an account without asking the role to do its work again.
