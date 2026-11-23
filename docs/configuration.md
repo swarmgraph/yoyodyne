@@ -3908,10 +3908,15 @@ digest and with the target still at the candidate's base. A required check
 still running is waited for on the queue's next pass, holding no developer slot.
 A failure is the change's, and goes back to its run for a repair, only where the
 same check passed at the candidate's base on GitHub; where it failed there too,
-the entry waits for the target to move. A required check that ends cancelled,
-skipped or any way but passed or failed, or has not finished within `wait_limit`
-of the push, has the entry's next candidate run the full checks on this machine
-instead, with the reason recorded and no repair spent. A confirmed document's
+the entry waits for the target to move. A required check GitHub has not
+started 20 minutes after the push (or half of `wait_limit`, if that is
+shorter), or that ends skipped or cancelled, is asked of GitHub once more: the
+request is written down beside the queue with why, and the entry stays at the
+head of the queue meanwhile. A check that still ends skipped or cancelled 20
+minutes after that request, one that ends any other way but passed or failed,
+or one not finished within `wait_limit` of the push or of the request, has the
+entry's next candidate run the full checks on this machine instead, with the
+reason recorded and no repair spent. A confirmed document's
 candidate still runs `document_checks`.
 
 ```yaml
@@ -7656,6 +7661,27 @@ withdrawal says how long the forge held the merge and how long the entry was in
 the queue before that. An entry that has left the queue holds up nothing behind
 it: if its run cannot be told, the pass says so, works the entries behind it,
 and tries again on the next pass.
+
+A required check GitHub has not started 20 minutes after the merge was asked
+for (or half of `triage.stuck_merge_age`, if that is shorter) — one GitHub
+reports queued or expected, or one `execution.ci_checks.required` names that
+GitHub reports nothing for at all — is asked of GitHub once more: the harness
+runs the commit's workflow runs again, cancelling first a run stuck before it
+started. The request is written down beside the queue with why, the entry
+stays at the head of the queue, and `triage.stuck_merge_age` counts again from
+the request. If GitHub has still not started the check when that limit passes
+again, the merge is withdrawn and the change is handed back as a failure
+outside the change: no repair attempt is charged, the checks it passed still
+stand, no check failure is written against it, and the reason says so on
+status and on the item. The same change withdrawn a second time — an earlier
+entry of the same run, at the same approved head, whose queued merge the forge
+confirmed withdrawn — is not handed back to its run to be admitted again: it is
+set aside, kept on its branch, and put on the development manager's docket
+saying how many times it was withdrawn. A repaired change carries a new
+approved head, so a change handed back for a repair after a failed check is
+handed back for a repair again if its check fails again; and an entry that left
+the queue without a merge being withdrawn, such as a pull request closed
+outside the queue, does not count.
 
 While GitHub holds a candidate's merge, each pass reads the candidate's checks
 on GitHub as well. A check that ended without judging the change is run again

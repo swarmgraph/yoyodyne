@@ -25,12 +25,14 @@ package orchestrator
 // ClassifyMergeQueueFailure). A check still running is waited for on a later
 // pass of the queue, so no developer slot is held for it.
 //
-// A required check that ends without judging the candidate — cancelled,
-// skipped, or anything but passed, failed or still to finish — or one not
-// finished within execution.ci_checks.wait_limit of the push, means the forge
-// cannot settle it: the reason is recorded (MergeQueueCIEvidence.FellBack), and
-// the entry's next candidate runs the full local checks instead, charged to
-// nothing (forgeChecksFellBack).
+// A required check that never started, was skipped, or was cancelled is asked
+// for again once (mergequeuecheckstart.go). One that still ends without
+// judging the candidate, one that ends neutral or in another state that is
+// neither a pass nor a failure, or one not finished within
+// execution.ci_checks.wait_limit of the push or of that request, means the
+// forge cannot settle it: the reason is recorded
+// (MergeQueueCIEvidence.FellBack), and the entry's next candidate runs the
+// full local checks instead, charged to nothing (forgeChecksFellBack).
 
 import (
 	"context"
@@ -294,7 +296,25 @@ func nonEmptyLine(line string) string {
 // fellBack where the forge cannot settle the candidate, which is then recorded.
 func (w MergeQueueWorker) settleForge(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) (runstate.MergeQueueGeneration, string, bool, error) {
 	ci := w.Pipeline.Config.Execution.CIChecks
-	overdue := generation.ForgePush != nil && w.now().Sub(generation.ForgePush.PushedAt) > ci.WaitLimitInForce()
+	asking := w.Asker != nil && w.Reruns != nil
+	asked := map[string]runstate.MergeQueueCheckRerun{}
+	if asking {
+		reruns, err := w.Reruns.CheckReruns(key, generation.EntryID)
+		if err != nil {
+			return generation, "", false, fmt.Errorf("read the checks the queue asked GitHub for on entry %d: %w", generation.EntryOrder, err)
+		}
+		asked = askedOnCandidate(reruns, generation.Candidate)
+	}
+	// The wait limit counts from the push, and again from the last time the
+	// queue asked GitHub for a check (mergequeuecheckstart.go).
+	var since time.Time
+	if generation.ForgePush != nil {
+		since = generation.ForgePush.PushedAt
+	}
+	if last := latestAsk(asked); last.After(since) {
+		since = last
+	}
+	overdue := !since.IsZero() && w.now().Sub(since) > ci.WaitLimitInForce()
 	read, err := w.readCIChecks(ctx, lease, key, generation)
 	if err != nil {
 		if !overdue {
@@ -321,22 +341,57 @@ func (w MergeQueueWorker) settleForge(ctx context.Context, lease *runstate.Lease
 		}
 		return generation, "", false, nil
 	}
+	// A check never started, skipped, or cancelled is asked for again once
+	// before the full local checks are run in its place: one not started
+	// once checkStartLimit has passed since the push, the others at once. A
+	// check skipped or cancelled again after that request is given
+	// checkStartLimit for GitHub to list the run it was asked for.
 	var unfinished []string
+	var askFor []runstate.CICheckEvidence
 	for _, check := range evidence.Checks {
-		switch publish.CheckResult(check.Result) {
-		case publish.CheckPassed:
-		case publish.CheckPending, publish.CheckNotStarted:
+		result := publish.CheckResult(check.Result)
+		rerun, wasAsked := asked[check.Name]
+		switch {
+		case result == publish.CheckPassed:
+		case result == publish.CheckPending:
 			unfinished = append(unfinished, check.Name)
-		default:
+		case result != publish.CheckNotStarted && result != publish.CheckSkipped && result != publish.CheckCancelled,
+			!asking && result != publish.CheckNotStarted:
 			generation, err = w.fallBack(lease, key, generation, evidence, fmt.Sprintf("%s ended %s on the forge for candidate %s, which judged nothing about it", check.Name, check.Result, generation.Candidate))
 			return generation, "", err == nil, err
+		case !wasAsked && asking && (result != publish.CheckNotStarted || generation.ForgePush == nil || w.now().Sub(generation.ForgePush.PushedAt) > startLimit(ci.WaitLimitInForce())):
+			askFor = append(askFor, check)
+		case wasAsked && result != publish.CheckNotStarted && w.now().Sub(rerun.At) > checkStartLimit:
+			generation, err = w.fallBack(lease, key, generation, evidence, fmt.Sprintf("%s ended %s on the forge for candidate %s again after the queue asked GitHub to run it again at %s, which judged nothing about it",
+				check.Name, check.Result, generation.Candidate, rerun.At.Local().Format("2006-01-02 15:04 MST")))
+			return generation, "", err == nil, err
+		default:
+			unfinished = append(unfinished, check.Name)
 		}
+	}
+	if len(askFor) > 0 {
+		said, refused, err := w.askOnForge(ctx, key, generation, askFor)
+		if err != nil {
+			return generation, "", false, err
+		}
+		if said == "" {
+			generation, err = w.fallBack(lease, key, generation, evidence, fmt.Sprintf("%s on the forge for candidate %s judged nothing about it, and %s", strings.Join(names(askFor), ", "), generation.Candidate, refused))
+			return generation, "", err == nil, err
+		}
+		if refused != "" {
+			said += "; " + refused
+		}
+		return generation, said, false, nil
 	}
 	if len(unfinished) == 0 {
 		return generation, "", false, nil
 	}
 	if overdue {
-		generation, err = w.fallBack(lease, key, generation, evidence, fmt.Sprintf("%s had not finished on the forge for candidate %s within execution.ci_checks.wait_limit (%s) of the push", strings.Join(unfinished, ", "), generation.Candidate, ci.WaitLimitInForce()))
+		from := "the push"
+		if last := latestAsk(asked); !last.IsZero() && last.Equal(since) {
+			from = "the queue asking GitHub to run it again at " + last.Local().Format("2006-01-02 15:04 MST")
+		}
+		generation, err = w.fallBack(lease, key, generation, evidence, fmt.Sprintf("%s had not finished on the forge for candidate %s within execution.ci_checks.wait_limit (%s) of %s", strings.Join(unfinished, ", "), generation.Candidate, ci.WaitLimitInForce(), from))
 		return generation, "", err == nil, err
 	}
 	return generation, fmt.Sprintf("waiting for the forge's required checks on candidate %s: %s not finished yet", generation.Candidate, strings.Join(unfinished, ", ")), false, nil

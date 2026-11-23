@@ -151,6 +151,12 @@ type MergeQueueWorker struct {
 	// ForgePoll is how often the forge's required checks are read while the
 	// candidate's review runs beside them; zero is defaultForgePoll.
 	ForgePoll time.Duration
+	// Asker asks GitHub to run a required check again where it never started,
+	// was skipped, or was cancelled on the candidate, and Reruns records each
+	// request beside the queue (mergequeuecheckstart.go). Nil either runs the
+	// full local checks in its place at once, as before.
+	Asker  MergeQueueChecksAsker
+	Reruns MergeQueueCheckReruns
 }
 
 // mergeQueueWait is a stage the worker did not start, and why: a process an

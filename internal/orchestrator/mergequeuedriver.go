@@ -159,7 +159,8 @@ func (d MergeQueueDriver) stuckAge() time.Duration {
 }
 
 // heldTooLong reports a merge the forge has held past the limit. The limit
-// counts from when the harness asked the forge for the merge
+// counts from when the harness asked the forge for the merge, or from when it
+// last asked GitHub to start a check it had not started
 // (MergeQueuePromotion.ForgeHeldSince), which is only ever asked for the entry
 // at the head of the queue, so the time an entry spent waiting behind others,
 // and having its own candidate checked and reviewed, never counts toward it.
@@ -379,6 +380,13 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 				why = promoted.ChecksFailed
 			case promoted.RequiredFailed != "":
 				why = promoted.RequiredFailed
+			case promoted.NeverStarted != "":
+				// GitHub was asked for its check once more and has still not
+				// started it, and the limit has passed again since: the merge is
+				// handed back as a failure outside the change
+				// (mergequeuecheckstart.go).
+				why = fmt.Sprintf("%s%s %s later, past the %s a held merge may wait (triage.stuck_merge_age); no repair attempt is charged for it, and the change is not at fault",
+					outsideFailureLead, promoted.NeverStarted, waitedFor(d.now().Sub(*promoted.ForgeHeldSince)), waitedFor(d.stuckAge()))
 			default:
 				why = d.heldTooLongReason(promoted)
 			}
