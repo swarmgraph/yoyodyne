@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -233,6 +235,111 @@ func TestTheReviewerTestsTheConsistentMarkOnlyWhereItStandsInForTheOperator(t *t
 func withApprovals(recorded artifact.Artifact, approvals []artifact.Approval) artifact.Artifact {
 	recorded.Approvals = approvals
 	return recorded
+}
+
+// approvedMilestoneGoals is a goals document the operator approved as it
+// stands, written the way the milestone goals were before the Lead Product
+// Manager took the blank line out from above each Supports line.
+const approvedMilestoneGoals = `---
+id: milestone-goals
+kind: goals
+title: Milestone goals
+status: active
+revisions:
+    - action: created
+      by: product-manager
+      at: 2026-10-25T15:16:34Z
+      reason: 'yoyodyne-ifd.437.59: a new goals document, so it waits for the operator'
+approvals:
+    - revision: 0
+      by: operator
+      at: 2026-10-25T15:16:34Z
+      reason: approved by the operator in conversation
+---
+# Milestone goals
+
+## Goals
+
+- [owner-attention-measure] Yoyodyne is measured by useful software delivered per hour of the owner's attention.
+
+  *Supports: the human's attention goes only where it is needed.*
+
+- [internal-week-bar] Yoyodyne runs one week on its own repository with no slot idle.
+
+  *Supports: the human's attention goes only where it is needed.*
+
+## What is tracked
+
+- the owner's intervention time.
+`
+
+// The milestone goals' blank-line fix: a revision of an approved goals
+// document, marked consistent with intent and opening its reason with the work
+// item that directed it, whose identifier holds no digit, that changes only how
+// the Supports lines sit and adds or removes no goal. It is approved as the Lead
+// Product Manager's and lands through a reviewed run, whether she writes the
+// document whole or only its Goals section, and the operator is not asked.
+func TestAConsistentGoalsRevisionDirectedByADigitFreeItemIsNotPutToTheOperator(t *testing.T) {
+	t.Parallel()
+
+	whole := strings.SplitN(approvedMilestoneGoals, "---\n", 3)[2]
+	whole = strings.ReplaceAll(whole, ".\n\n  *Supports", ".\n  *Supports")
+	section := whole[strings.Index(whole, "## Goals\n")+len("## Goals\n") : strings.Index(whole, "## What is tracked")]
+	for name, write := range map[string]string{
+		"whole":      fmt.Sprintf(`"body":%q`, whole),
+		"by section": fmt.Sprintf(`"section":"Goals","body":%q`, section),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			repository, _, provider, pipeline, runs := automaticFixture(t)
+			pipeline.Config.Approvals.Goals = domain.ApprovalHuman
+			if err := os.MkdirAll(filepath.Join(repository, "docs", "product"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repository, "docs", "product", "milestone-goals.md"), []byte(approvedMilestoneGoals), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			publicationGit(t, repository, "add", ".")
+			publicationGit(t, repository, "commit", "-m", "approved milestone goals")
+			original := provider.Respond
+			provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+				if request.Role == domain.RoleProductManager {
+					return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: fmt.Sprintf("Recorded.\n%s\n{\"documents\":[{\"action\":\"revise\",\"id\":\"milestone-goals\",%s,\"reason\":\"yoyodyne-utbi: removes the blank line above each goal's Supports line; no goal is added or removed\",\"intent\":\"consistent\"}]}\n```",
+						artifact.WriteFence, write)}, nil
+				}
+				return original(request)
+			}
+			session, err := chat.Open(rulesConversation(t, pipeline, provider))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := session.Send(context.Background(), "Take the blank lines out of the milestone goals."); err != nil {
+				t.Fatal(err)
+			}
+			if len(session.Writes()) != 0 {
+				t.Fatalf("the revision was put to the operator: %+v", session.Writes())
+			}
+			recorded, err := runs.Recorded()
+			if err != nil || len(recorded) != 1 {
+				t.Fatalf("runs = %+v, %v", recorded, err)
+			}
+			if state := recorded[0]; state.Status != runstate.StatusSucceeded || state.Document == nil || state.ReviewSessionID == "" || state.Integration == nil {
+				t.Fatalf("run = %+v", state)
+			}
+			content := publicationGit(t, repository, "show", "main:docs/product/milestone-goals.md")
+			if !strings.Contains(content, "reason: yoyodyne-utbi - approved by the Lead Product Manager") || !strings.Contains(content, ".\n  *Supports: the human's") {
+				t.Fatalf("the landed goals do not carry the revision and her approval:\n%s", content)
+			}
+			set, err := artifact.StoreFor(repository, pipeline.Config.Product).Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if goals, found := set.Find("milestone-goals"); !found || goals.ApprovalState() != artifact.ApprovalApproved || len(goals.Approvals) != 2 {
+				t.Fatalf("goals = %+v, found %v, problems %v", goals, found, set.Problems)
+			}
+		})
+	}
 }
 
 // A document marked consistent whose reason names no work item waits for the

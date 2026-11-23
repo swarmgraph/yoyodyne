@@ -1619,7 +1619,11 @@ is not the product's intent, or with no item named. The last of
 those is said on `show` with what it is missing, so the label does not read as
 ignored. What is checked is the shape of the identifier the reason opens with and
 not that the tracker holds it; the reason is the record you follow to the
-decision.
+decision. An identifier with a digit in it, such as `yoyodyne-ifd.437.11`, counts
+however the reason goes on. One with none, such as `yoyodyne-utbi`, counts where
+its second part is three to eight lower-case letters and it is followed by a
+colon, a spaced dash, or a closing bracket, so that a reason opening with an
+ordinary hyphenated word, such as "re-worded for clarity", names no item.
 
 Two changes are yours however they are marked, because they always change what
 the goals admit: creating a goals document or the brief, and a revision of
