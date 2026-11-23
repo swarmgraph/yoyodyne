@@ -62,6 +62,10 @@ revisions:
       by: architect
       at: 2026-11-22T04:45:41.90194Z
       reason: 'Step 1 now lists a tracker write whose retries ran out, and catching up with the target branch whose retries ran out for a reason other than a conflict, as outside the work, for the build that stops charging them (428.99.35 in the body). It stands alone: the failures design already keeps out of the hold exactly the causes step 1 lists. Replaces the held document-3386.1 and the dropped failures revision document-3400.1. Read at commit 7459b7cb. No other section changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T17:44:50.138616Z
+      reason: Says which parts of stopped run recovery are built and which are not, because the steps read as if all had landed. Parts read in the code at main e78f63e889a3 are kept apart from parts that rest on the November 21 second reading at 848d86190, and the list says it is not complete. Adds that the tracker write ruling is not built in the hold's sorting. No rule, slice or test changes; only this section is replaced.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -133,6 +137,11 @@ approvals:
       by: harness
       at: 2026-11-22T04:45:41.90194Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3402, for document-3402.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 14
+      by: harness
+      at: 2026-11-23T17:44:50.138616Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3722, for document-3722.1 under the automatic approval policy
 ---
 # Stopped run recovery: every step from the stop to the run going on, and what each step may never do
 
@@ -144,7 +153,30 @@ It replaces the design written on October 9 (document-642.1), which review refus
 
 ## What it rests on, and what was not read
 
-Read at commit fac5822d: recoverable-and-terminal-failures, fresh-factory-health-and-preserved-run-recovery, and [management-and-supervision](management-and-supervision.md). Read at commit 46bbf9eb for the October 19 revision of step 1: recoverable-and-terminal-failures again, and `internal/runstate/stopcause.go`, which names the stop causes a run record prints. Read at commit 25ddd3dd for the first October 24 revision: follow-ups and forward progress. Read at commit 48d4541a for the second October 24 revision: fewer lifecycle states, forward progress again, and this design. Not read for this design: the code in `internal/orchestrator` (`triage.go`, the carry out files, `rerun.go`, `repaircontinue.go`, `schedule.go`, `pipeline.go`) and `internal/triage/window.go`. Where this design names how the code behaves as it ships, it takes that from tracker notes and reports. A developer building a slice reads the code it changes first. Where the code does something this design does not account for, the slice stops and the architect is asked, rather than the design being bent around it.
+Read at commit fac5822d: recoverable-and-terminal-failures, fresh-factory-health-and-preserved-run-recovery, and [management-and-supervision](management-and-supervision.md). Read at commit 46bbf9eb for the October 19 revision of step 1: recoverable-and-terminal-failures again, and `internal/runstate/stopcause.go`, which names the stop causes a run record prints. Read at commit 25ddd3dd for the first October 24 revision: follow-ups and forward progress. Read at commit 48d4541a for the second October 24 revision: fewer lifecycle states, forward progress again, and this design. Read at commit e78f63e889a3 for the November 23 revision of this section: this design, recoverable-and-terminal-failures, the part of `internal/runstate/stopcause.go` that sorts a stop's cause, and the two readings of these designs against the code made on November 21, `docs/diagnoses/yoyodyne-ifd-437-84-2.md` and `docs/diagnoses/yoyodyne-ifd-437-84-2b.md`. Not read for this design: the code in `internal/orchestrator` (`triage.go`, the carry out files, `rerun.go`, `repaircontinue.go`, `schedule.go`, `pipeline.go`) and `internal/triage/window.go`. Where this design names how the code behaves as it ships and does not name a commit the code was read at, it takes that from tracker notes, reports and those two readings. A developer building a slice reads the code it changes first. Where the code does something this design does not account for, the slice stops and the architect is asked, rather than the design being bent around it.
+
+### What is built and what is not
+
+The steps below state what must hold once every slice has landed. Several slices have not landed, so a step is not an account of the code today. This list says where some parts stand. It is not complete, and a part it does not name may be built or not.
+
+Read in the code at commit e78f63e889a3:
+
+- **What the hold on new work counts.** The sorting in `internal/runstate/stopcause.go` counts the harness's own failures, a dead process, a cancellation naming no origin, and a stop cause it does not recognise. A publishing failure counts too, unless the forge's retries ran out; a merge refused for a reason not about the change records a cause of its own and is kept out. That part of step 1 is built.
+- **A tracker write whose retries ran out.** The same file leaves a spent retry window out of the hold's count only at the forge's and the provider's boundaries, so this stop still counts. The ruling of November 21 is not built there; the work that builds it is the item counting these stops as outside the work (yoyodyne-ifd.428.99.35).
+
+From the second reading of November 21, at commit 848d86190, and not read again for this revision:
+
+- **The stop on the run record** is built with its three causes. What failed, as four parts, is not recorded, so nothing refuses a third use of the same act on the same failure.
+- **A stop whose reason the harness does not recognise** still charges a repair attempt, against the ruling of November 18. The work is slice work already open (yoyodyne-ifd.428.99.28). A stop that records no reason at all charges nothing.
+- **The list of stopped runs** is still kept in the two logs, and slices 2 and 3 have not landed.
+- **A wait recorded through `run.recover`** is a wait on another item only, with no check, owner or deadlines. Follow-ups are written for two holds and for no stopped run.
+- **Repair, rerun, giving the item back and asking the Lead Product Manager** are not carried by `run.recover`, which refuses them as not yet built; they go through the older triage path. The unresolved hold is still an action there.
+- **The harness continuing a run by itself.** It does so after a session that went silent and at the check stage, without asking whether the development manager is available. Those continues do not go through `run.recover`. The bounded continues of step 5 while she is unavailable are not built.
+- **One way of deciding whether a run can resume** is partly built: the function is in `internal/orchestrator/resumable.go`, but a continue decision and the resuming of a stopped landing each keep a copy of its rules.
+- **Steps 7 and 8** are largely built through the older triage path: a rerun gives its claim back, and a refused merge keeps its record.
+- **Two limits this design takes from recoverable-and-terminal-failures** are not built: the thirty minutes at the provider boundary, where two hours still stands, and the fifteen minutes of waiting while holding the promotion lease. What is built in `internal/runstate/promotion.go` limits only the wait to get the lease. A forge outage gives the lease back before the wait.
+- **Failing tests that also fail on the base commit** have a stop cause, but nothing sets it yet.
+- **Beside this design,** the program manager's record of repeated stop causes, kept in `internal/runstate/stopcause.go`, groups stops by the recorded cause, the kind of cause and the step. It carries no item or failing check, refuses nothing, and is not the record of what failed that step 1 asks for. The first of these facts was read in the code at commit e78f63e889a3.
 
 ## The rules that hold across every step
 
