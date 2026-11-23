@@ -286,3 +286,63 @@ func TestAnEntryThatLandedOutsideTheQueueNamesTheCommitCarryingIt(t *testing.T) 
 		}
 	}
 }
+
+// An entry the development manager set aside names who set it aside and why,
+// is put on her list once and never taken off it, and keeps who set it aside
+// once written.
+func TestAnEntrySetAsideByADecisionNamesWhoAndIsListedOnce(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 11, 9, 36, 0, 0, time.UTC)
+	decided := func() *MergeQueueHandback {
+		return &MergeQueueHandback{
+			At: at, Continuation: MergeQueueReleased, Mover: ownership.MoverDevelopmentManager,
+			Reason: "set aside from the head of the queue", ApprovedHead: strings.Repeat("f", 40),
+			SetAside: "its run's record refuses every hand-back", SetAsideAt: &at,
+			SetAsideBy: "the development manager in conversation chat-1, turn 4",
+		}
+	}
+	if problems := decided().validate(); len(problems) != 0 || !decided().DecidedSetAside() || !decided().IsSetAside() {
+		t.Fatalf("a whole set-aside = %v", problems)
+	}
+	for name, revise := range map[string]func(*MergeQueueHandback){
+		"who with no set-aside":    func(h *MergeQueueHandback) { h.SetAside, h.SetAsideAt = "", nil },
+		"listed with nobody":       func(h *MergeQueueHandback) { h.SetAsideBy, h.DocketedAt = "", &at },
+		"listed at no time":        func(h *MergeQueueHandback) { h.DocketedAt = &time.Time{} },
+		"given to its run as well": func(h *MergeQueueHandback) { h.HandedBackAt = &at },
+	} {
+		handback := decided()
+		revise(handback)
+		if problems := handback.validate(); len(problems) == 0 {
+			t.Errorf("a set-aside with %s validated", name)
+		}
+	}
+
+	store := newMergeQueueStore(t, t.TempDir())
+	entry := admittedEntry(t, store)
+	lease := workerLease(t, store, mainQueue)
+	landing := NewMergeQueueLanding(entry)
+	landing.Handback = decided()
+	if err := store.RecordLanding(lease, mainQueue, landing); err != nil {
+		t.Fatalf("RecordLanding(set aside) = %v", err)
+	}
+	listed := landing
+	listed.Handback = decided()
+	later := at.Add(time.Minute)
+	listed.Handback.DocketedAt = &later
+	if err := store.RecordLanding(lease, mainQueue, listed); err != nil {
+		t.Fatalf("RecordLanding(put on her list) = %v", err)
+	}
+	for name, revise := range map[string]func(*MergeQueueHandback){
+		"taken off her list": func(h *MergeQueueHandback) { h.DocketedAt = nil },
+		"someone else":       func(h *MergeQueueHandback) { h.SetAsideBy = "the operator" },
+	} {
+		revised := listed
+		revised.Handback = decided()
+		revised.Handback.DocketedAt = &later
+		revise(revised.Handback)
+		if err := store.RecordLanding(lease, mainQueue, revised); !errors.As(err, new(MergeQueueLandingConflictError)) {
+			t.Errorf("RecordLanding(%s) = %v, want a conflict", name, err)
+		}
+	}
+}

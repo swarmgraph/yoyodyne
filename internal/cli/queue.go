@@ -264,9 +264,12 @@ func (c conversationQueueRelease) ReleaseHead(ctx context.Context, release chat.
 	if !found {
 		return "", fmt.Errorf("no merge queue of this product admits an entry %s, so nothing was released", release.EntryID)
 	}
+	if release.Readmit {
+		return c.readmit(ctx, key, release)
+	}
 	result, err := mergeQueueDriverFrom(c.parts).Promoter.ReleaseHead(ctx, key, orchestrator.MergeQueueRelease{
 		EntryID: release.EntryID, WorkItemID: release.WorkItemID, Landed: release.Landed,
-		Reason: release.Reason, By: release.By,
+		SetAside: release.SetAside, Reason: release.Reason, By: release.By,
 	})
 	if errors.Is(err, orchestrator.ErrMergeQueueWorkerBusy) {
 		return "", errors.New("a pass of that merge queue is running right now, so nothing was released; ask again on your next turn, once it ends")
@@ -277,12 +280,43 @@ func (c conversationQueueRelease) ReleaseHead(ctx context.Context, release chat.
 	return queueReleaseSays(result), nil
 }
 
+// readmit puts the change of an entry she set aside back in its queue, and
+// says what became of it in the words her reply carries.
+func (c conversationQueueRelease) readmit(ctx context.Context, key runstate.MergeQueueKey, release chat.QueueHeadRelease) (string, error) {
+	done, err := mergeQueueDriverFrom(c.parts).Promoter.ReadmitSetAside(ctx, key, orchestrator.MergeQueueReadmission{
+		EntryID: release.EntryID, WorkItemID: release.WorkItemID, Reason: release.Reason, By: release.By,
+	})
+	if errors.Is(err, orchestrator.ErrMergeQueueWorkerBusy) {
+		return "", errors.New("a pass of that merge queue is running right now, so nothing was put back; ask again on your next turn, once it ends")
+	}
+	if err != nil {
+		return "", err
+	}
+	return queueReadmitSays(done), nil
+}
+
+// queueReadmitSays is what a readmission did, said to the role that asked for it.
+func queueReadmitSays(done orchestrator.MergeQueueReadmitted) string {
+	said := fmt.Sprintf("put the change set aside as entry %d (%s) back in the merge queue for %s: it is entry %d (%s) now, at the same approved commit %s, behind everything already waiting; the queue builds, checks and reviews its candidate again, and nothing is charged to run %s",
+		done.SetAside.Order, done.SetAside.EntryID, done.Entry.TargetBranch, done.Entry.Order, done.Entry.EntryID, done.Entry.ApprovedHead, done.Entry.RunID)
+	if len(done.Unrecorded) > 0 {
+		said += "; not written: " + strings.Join(done.Unrecorded, "; ")
+	}
+	return said
+}
+
 // queueReleaseSays is what a release did, said to the role that asked for it.
 func queueReleaseSays(result orchestrator.MergeQueuePromotion) string {
 	entry := result.Entry
 	item := orchestrator.MergeQueueEntryItem(entry)
 	handback := result.HandedBack
 	switch {
+	case handback != nil && handback.DecidedSetAside() && handback.DocketedAt != nil:
+		return fmt.Sprintf("set aside entry %d (%s) from the head of the merge queue for %s with your reason: nothing was written to run %s, which keeps its approved commit %s and its approval and is on your list of stopped runs, %s says so, and the next pass goes on to the entry behind it; the \"readmit\" answer naming this entry puts the same change back in the queue",
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID, entry.ApprovedHead, item)
+	case handback != nil && handback.DecidedSetAside():
+		return fmt.Sprintf("set aside entry %d (%s) from the head of the merge queue for %s with your reason, writing nothing to run %s; putting the run on your list of stopped runs is not finished, the next pass of the queue finishes it, and that pass goes on to the entry behind it",
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID)
 	case handback != nil && handback.Continuation == runstate.MergeQueueLandedOutside && handback.HandedBackAt != nil:
 		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed: its approved commit %s is on %s, the landing is recorded on run %s and on %s with your reason, and the next pass goes on to the entry behind it",
 			entry.Order, entry.EntryID, entry.TargetBranch, entry.ApprovedHead, entry.TargetBranch, entry.RunID, item)

@@ -2958,8 +2958,11 @@ stopped on is taken up again with `yoyo queue retry` or handed back to its run
 with `yoyo queue hand-back`, each with a reason; a hand-back of a change the
 target already carries, merged by hand, ends the entry as landed and settles its
 item instead. The development manager can also release the entry at the head of
-a queue from her own conversation, handing it back or, where its approved commit
-is already on the target branch, recording it as landed outside the queue.
+a queue from her own conversation, handing it back, setting it aside without
+writing to its run's record where it cannot be handed back, or, where its
+approved commit is already on the target branch, recording it as landed outside
+the queue; a change she set aside goes back in the queue, at the same approved
+commit, with her `readmit` answer.
 `yoyo status` and the dashboard
 show every queue and where each change in it stands.
 [The configuration guide](configuration.md#integrating-through-a-merge-queue)
