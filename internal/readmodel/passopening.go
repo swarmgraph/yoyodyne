@@ -118,8 +118,8 @@ func describeThroughput(reading Throughput) string {
 	}
 	lines := make([]string, 0, len(reading.Windows))
 	for _, window := range reading.Windows {
-		lines = append(lines, fmt.Sprintf("- %s (since %s): %d started; %d landed, %d succeeded without landing, %d stopped, %d cancelled, %d timed out, %d failed",
-			window.Label, window.Since, window.Started, window.Landed, window.Succeeded, window.Stopped, window.Cancelled, window.TimedOut, window.Failed))
+		lines = append(lines, fmt.Sprintf("- %s (since %s): %d started; %d landed, %d approved and waiting in the merge queue, %d succeeded without landing, %d stopped, %d cancelled, %d timed out, %d failed",
+			window.Label, window.Since, window.Started, window.Landed, window.Queued, window.Succeeded, window.Stopped, window.Cancelled, window.TimedOut, window.Failed))
 	}
 	return strings.Join(lines, "\n")
 }

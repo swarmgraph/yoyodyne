@@ -80,7 +80,7 @@ type Window struct {
 	// them. It is the attempt volume the endings below are read against.
 	Started int `json:"started"`
 	// The endings, by the outcome the run history prints for each run, counted
-	// by when the run completed. They are five fields rather than a map so that
+	// by when the run completed. They are fields rather than a map so that
 	// the vocabulary here is the run history's whole vocabulary and a reader can
 	// see that it is: a run that ended is in exactly one of them.
 	//
@@ -92,7 +92,13 @@ type Window struct {
 	// landing is not one of those: its change integrates exactly as a discharge
 	// does, so it is counted here, and that the item stayed open is the tracker's
 	// to say rather than this figure's.
-	Landed    int `json:"landed"`
+	Landed int `json:"landed"`
+	// Queued is the run that succeeded by handing its approved change to the
+	// merge queue, which has neither landed it nor handed it back yet
+	// (runstate.State.AwaitingMergeQueue). It is waiting to land, so it is
+	// neither Landed nor Succeeded, and never a stop: once the queue lands it,
+	// the same run counts as Landed instead.
+	Queued    int `json:"queued"`
 	Succeeded int `json:"succeeded"`
 	Stopped   int `json:"stopped"`
 	Cancelled int `json:"cancelled"`
@@ -105,7 +111,9 @@ type Window struct {
 	// then, and empty rather than absent otherwise.
 	LandedItems []LandedRun `json:"landed_items"`
 	// StopsByCause counts every terminal run that did not land, including a
-	// successful escalation. Old records count as unknown, never an inferred cause.
+	// successful escalation, and leaves out a run whose approved change is still
+	// waiting in the merge queue, since that run has not stopped. Old records
+	// count as unknown, never an inferred cause.
 	StopsByCause map[runstate.StopClass]int `json:"stops_by_cause"`
 	// LatestStopByCause is when the newest of each StopsByCause count ended, so
 	// a cause that keeps recurring can be said once with its count and its
@@ -222,7 +230,11 @@ func countEndings(window *Window, recorded []runstate.State, now time.Time) {
 		if ended.Before(since) || ended.After(now) {
 			continue
 		}
-		if state.Outcome() != runstate.OutcomeSucceeded || state.Integration == nil {
+		// Whether a queued run stopped is the record's to say
+		// (runstate.State.RecordedStopClass): one that also records a blocker, or a
+		// stop class, has stopped and counts as a stop.
+		queued := state.AwaitingMergeQueue() && state.RecordedStopClass() == ""
+		if !queued && (state.Outcome() != runstate.OutcomeSucceeded || state.Integration == nil) {
 			class := state.RecordedStopClass()
 			window.StopsByCause[class]++
 			if ended.After(window.LatestStopByCause[class]) {
@@ -234,6 +246,8 @@ func countEndings(window *Window, recorded []runstate.State, now time.Time) {
 			if state.Integration != nil {
 				window.Landed++
 				window.LandedItems = append(window.LandedItems, LandedRun{RunID: state.RunID, WorkItemID: state.WorkItemID, Title: state.WorkItemTitle, LandedAt: ended, Document: documentTitle(state)})
+			} else if queued {
+				window.Queued++
 			} else {
 				window.Succeeded++
 			}

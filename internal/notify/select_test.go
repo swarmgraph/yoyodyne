@@ -2337,3 +2337,53 @@ func TestACrossProviderSubstitutionNamesTheProviderThatProducedTheWork(t *testin
 		}
 	}
 }
+
+// An approved change the harness's merge queue took is said as waiting to land,
+// with its place in the queue, and never as a run that ended without landing.
+// If the queue later loses the change and the run fails, that ending is said; and
+// a queued run that gains a blocker has stopped, and is said as a stoppage.
+func TestAChangeWaitingInTheMergeQueueIsSaidAsWaitingToLandNotAsAnEnding(t *testing.T) {
+	// Reviewed and approved, so the checks are already behind it.
+	before := running()
+	before.Phase, before.ReviewDecision = runstate.PhaseIntegrating, runstate.ReviewApprove
+	queued := before
+	completed := moment
+	queued.Status, queued.Phase, queued.CompletedAt = runstate.StatusSucceeded, runstate.PhaseCleaningUp, &completed
+	queued.MergeQueue = &runstate.MergeQueueAdmissionRecord{
+		EntryID: "mqe-34", Order: 34, Repository: "yoyodyne", TargetBranch: "main",
+		Mode: runstate.MergeQueueHarness, ApprovedHead: strings.Repeat("c", 40), AdmittedAt: moment,
+	}
+	kinds, notifications := crossed(t, before, queued)
+	if len(kinds) != 1 || kinds[0] != KindQueuedToLand {
+		t.Fatalf("a change admitted to the merge queue crossed %v; want only the waiting-to-land line", kinds)
+	}
+	message, err := Render(notifications[0].Topic, notifications[0].Speaker, notifications[0].Event)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, want := range []string{"waiting to land", "merge queue for main as entry 34"} {
+		if !strings.Contains(message.Body, want) {
+			t.Fatalf("body %q does not say %q", message.Body, want)
+		}
+	}
+	for _, unwanted := range []string{"names no reason", string(runstate.StopUnknown) + ":"} {
+		if strings.Contains(message.Body, unwanted) {
+			t.Fatalf("body %q says %q of a change waiting to land", message.Body, unwanted)
+		}
+	}
+	if kinds, _ := crossed(t, queued, queued); len(kinds) != 0 {
+		t.Fatalf("the same queued record crossed %v again", kinds)
+	}
+
+	lost := queued
+	lost.Status, lost.StopClass, lost.Blocker, lost.Failure = runstate.StatusFailed, runstate.StopIntegration, "", "the merge queue no longer holds the entry"
+	if kinds, _ := crossed(t, queued, lost); len(kinds) != 1 || kinds[0] != KindRunEnded {
+		t.Fatalf("a queued change the queue lost crossed %v; want the run's ending", kinds)
+	}
+
+	blocked := queued
+	blocked.Blocker = "handed to the development manager"
+	if kinds, _ := crossed(t, queued, blocked); len(kinds) != 1 || kinds[0] != KindBlockerRecorded {
+		t.Fatalf("a queued run that gained a blocker crossed %v; want the stoppage", kinds)
+	}
+}
