@@ -285,6 +285,98 @@ func TestAResumedConversationDoesNotOfferReportsItAlreadyShowed(t *testing.T) {
 	}
 }
 
+// One long-lived conversation is shown a report and leaves it undecided. Its
+// ordinary turns do not offer it again, its closing line says so and names it
+// rather than promising it on later turns, and the start of its next recurring
+// pass offers it again.
+func TestAReportShownAndLeftUndecidedIsOfferedAgainAtTheNextPass(t *testing.T) {
+	t.Parallel()
+
+	// Two more than a shallow pile's budget, so the first turn has more to offer
+	// and the second has only what it was already shown behind it.
+	const filed = maxDeliveredReports + 2
+	reports := &fakeReports{}
+	for i := 1; i <= filed; i++ {
+		seedReports(t, reports, collectedReport(pileReportID(i), report.SeverityNote,
+			fmt.Sprintf("something was noticed, number %d", i), i))
+	}
+	provider := &fakeBackend{}
+	for i := 0; i < 5; i++ {
+		provider.results = append(provider.results, backendapi.RunResult{FinalText: "noted", SessionID: "session-1"})
+	}
+	options := testOptions(t, provider)
+	options.Reports = reports
+	memories, err := runstate.NewMemoryStore(t.TempDir(), options.ProductID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options.Memories = memories
+	session := openTestSession(t, options)
+	ctx := context.Background()
+
+	session.ForPass("product-manager-pass#1")
+	if _, err := session.Send(ctx, "work the pile"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	first := provider.requests[0].Prompt
+	if !strings.Contains(first, pileReportID(1)) || strings.Contains(first, pileReportID(filed)) {
+		t.Fatalf("the pass's first turn did not carry the oldest slice:\n%s", first)
+	}
+	if !strings.Contains(first, "2 further report(s) are unhandled and have not been shown to this conversation yet") {
+		t.Fatalf("the first turn did not count what is still to be offered:\n%s", first)
+	}
+
+	// The pass's next turn carries the rest, and its closing line says the ten
+	// shown before are undecided, by identifier, and promises nothing more.
+	if _, err := session.Send(ctx, "carry on"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	second := provider.requests[1].Prompt
+	if !strings.Contains(second, pileReportID(filed)) {
+		t.Fatalf("the second turn did not carry the rest of the pile:\n%s", second)
+	}
+	if strings.Contains(second, "further report(s)") {
+		t.Fatalf("the second turn said more is coming when nothing is left to offer:\n%s", second)
+	}
+	if !strings.Contains(second, fmt.Sprintf("%d report(s) shown to this conversation before are still undecided", maxDeliveredReports)) ||
+		!strings.Contains(second, pileReportID(1)+", ") {
+		t.Fatalf("the second turn did not count and name the reports left undecided:\n%s", second)
+	}
+
+	// The turn after that carries no reports, which is what the line above told it.
+	if _, err := session.Send(ctx, "anything else?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if strings.Contains(provider.requests[2].Prompt, reportSectionHeading) {
+		t.Fatalf("an ordinary turn offered again what it was already shown:\n%s", provider.requests[2].Prompt)
+	}
+	if err := session.EndPass(); err != nil {
+		t.Fatal(err)
+	}
+
+	// One report is decided between passes; the next pass offers every other one again.
+	handleReport(t, reports, pileReportID(3), "already fixed")
+	session.ForPass("product-manager-pass#2")
+	if _, err := session.Send(ctx, "work the pile"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	next := provider.requests[3].Prompt
+	if strings.Contains(next, pileReportID(3)) {
+		t.Fatalf("the next pass offered a report somebody decided about:\n%s", next)
+	}
+	for _, number := range []int{1, 2, 4, maxDeliveredReports + 1} {
+		if !strings.Contains(next, pileReportID(number)) {
+			t.Fatalf("the next pass did not offer %s again:\n%s", pileReportID(number), next)
+		}
+	}
+	if !strings.Contains(next, "1 report(s) shown to this conversation before are still undecided and are not listed here: "+pileReportID(filed)+". ") {
+		t.Fatalf("the next pass did not name the one that did not fit:\n%s", next)
+	}
+	if err := session.EndPass(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Recording what became of a report is what takes it out of the pile, and it is
 // the only thing that does: a report that was merely read comes back.
 func TestHandlingARecordedReportIsWrittenDownBesideThePile(t *testing.T) {
@@ -586,7 +678,7 @@ func TestTheContractTellsTheProductManagerWhatToDoWithReports(t *testing.T) {
 		"Reports the other roles have filed",
 		`{"action":"handle"`,
 		`"report" is required on "handle"`,
-		"offered again to your next conversation",
+		"offered again at the start of your next recurring pass",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("the product-manager contract is missing %q", required)
