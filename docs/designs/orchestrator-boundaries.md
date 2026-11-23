@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-22T16:31:57.846848Z
       reason: 'Brings the design into line with main 939bc805: names internal/developerslot as the existing owner of slot assignment and retires the orchestrator''s free slot count rather than moving it; adds the GitHub identity path (githubidentity.go) as a fifth continuation path with its own closing copy and take up count; notes the planned packages do not exist yet; rewords hyphenated words. Part of the review of every design against the code.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T16:49:21.31876Z
+      reason: 'Part of the review of every design against the code: the section named a file that has been replaced and left out five others, and its rule forbade calls run storage already makes. The file list and the calls come from the readings under docs/diagnoses at 848d86190, and the section says so. The rule now allows a short named list of functions that depend only on their arguments, starting with the test for a work item id; the byte wording call becomes the first exception, to be removed. The check is said plainly to be not built. Written against main at 4e6572cd; nothing else in the design changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-22T16:31:57.846848Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3477, for document-3477.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-23T16:49:21.31876Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3694, for document-3694.1 under the automatic approval policy
 ---
 # How internal/orchestrator is split, one admitted change at a time
 
@@ -89,25 +98,30 @@ Inside `internal/runstate`, storage is kept apart from reading meaning. Storage 
 
 ### What run storage may take from the tracker's package
 
-Run storage also keeps records about the tracker under the harness's state directory: the shared reading of the tracker's listings, each tracker call that ran out of time, and what maintenance measured, cleaned and squashed in the tracker's store. At be20dec3 six files hold these: `trackerreading.go`, `trackerslowcall.go`, `trackerstoremeasurement.go`, `trackerstorecleanup.go`, `trackerexportcleanup.go` and `trackerstoresquash.go`. Each imports `internal/beads`. The three read at that commit (`trackerreading.go`, `trackerslowcall.go` and `trackerstoresquash.go`) take only types and constants from it, such as the work item, the slow call, and a squash with its stage names, and none of them calls the tracker.
+Run storage also keeps records about the tracker under the harness's state directory: the shared reading of the tracker's listings, each tracker call that ran out of time, and what maintenance measured, cleaned and rebuilt in the tracker's store. The reading of the code recorded in `docs/diagnoses/yoyodyne-ifd-437-84-1.md` and corrected in `docs/diagnoses/yoyodyne-ifd-437-84-1b.md`, the second of them at 848d86190, found ten files in `internal/runstate` that import `internal/beads`. Seven are about the tracker or its store: `trackerreading.go`, `trackerslowcall.go`, `trackercalllog.go`, `trackerstoremeasurement.go`, `trackerstorecleanup.go`, `trackerexportcleanup.go` and `trackerstorerebuild.go`, which replaced `trackerstoresquash.go`. The other three are `document.go`, `emptyslots.go` and `state.go`.
 
-That is allowed, and this is the rule:
+That reading also found two functions of `internal/beads` called from run storage: `ValidIssueID`, which says whether a text has the form of a work item id, in `document.go`, `emptyslots.go` and `state.go`; and `SayBytes`, which words a number of bytes, in `trackerstorecleanup.go`. It found no check holding the rule below.
+
+Taking types and constants is allowed, and this is the rule:
 
 - A file in `internal/runstate` may take types and constants from `internal/beads`, to store what the tracker client hands it in the client's own shape.
-- It never calls a function or method of `internal/beads`, never runs the tracker's command, and never decides anything about the tracker's store. Calling the tracker is the client's, under guarantee 7 of [one owner for each guarantee](one-owner-for-each-guarantee.md). Deciding when the store is measured, cleaned or squashed is maintenance's (`internal/maintain`), as [keeping the tracker store small](tracker-store-size.md) says. Run storage only records what they did.
+- It may call the functions on one short list kept in the check, and no others. A function is on that list only where its answer depends on nothing but the values it is handed: it starts no process, opens no file, and reads no tracker. The list starts with `ValidIssueID` alone, so that a stored work item id is judged by the same rule as the tracker's. Adding a function to it is a revision of this section.
+- Apart from that list it never calls a function or method of `internal/beads`, never runs the tracker's command, and never decides anything about the tracker's store. Calling the tracker is the client's, under guarantee 7 of [one owner for each guarantee](one-owner-for-each-guarantee.md). Deciding when the store is measured, cleaned or rebuilt is maintenance's (`internal/maintain`), as [keeping the tracker store small](tracker-store-size.md) says. Run storage only records what they did.
 - `internal/beads` imports nothing from `internal/runstate`. Where the client hands a record to a store here, it does so through an interface it declares, and the command line connects the two.
 
-A check in `make test` holds this: each file in `internal/runstate` uses from `internal/beads` only the names of types and constants, and `internal/beads` does not import `internal/runstate`. It goes in with a list of the files that do more, and the list may only shrink. The item that builds the check reads the three files not read at be20dec3 first; any call to the tracker it finds there moves out in that item, to `internal/beads`, or to `internal/maintain` where it decides something about the store.
+A check in `make test` is to hold this, and is not built at 848d86190. Each file in `internal/runstate` uses from `internal/beads` only the names of types and constants and the functions on the list above, and `internal/beads` does not import `internal/runstate`. The check goes in with a list of the files that do more, and that list may only shrink. It starts with the call to `SayBytes`, which is wording rather than storage and goes when that file is next changed. The item that builds the check reads every file that imports `internal/beads` at its own commit first; any call to the tracker it finds there moves out in that item, to `internal/beads`, or to `internal/maintain` where it decides something about the store.
 
-This is a design decision, not an invariant: the rule that a guarantee is kept only by its owner, proposed in [one owner for each guarantee](one-owner-for-each-guarantee.md), already binds work that never mentions it.
+This is a design decision, not an invariant: [the rule that a guarantee is kept only by its owner](../decisions/invariants/each-guarantee-has-one-owner.md) already binds work that never mentions it.
 
 Rejected:
 
 - Giving run storage types of its own and converting at each caller. The work item is the tracker's largest type, and a copy of it would drift from the original with nobody owning the difference.
+- Giving run storage its own copy of the test for a work item id. Two copies could disagree about which ids are valid, and a record could then be refused for an item the tracker holds.
+- Allowing every function of `internal/beads` that does not call the tracker. Nothing in a function's name says whether it does, so a check could not hold it; a short list can be read whole.
 - Moving these stores into `internal/beads`. They are files under the harness's state directory, written through the confined writer this package owns, and the table of constructors below already places every product store, the tracker listings included, here.
 - Moving the shared types into a package of their own. It would add a package for no protection the check above does not already give.
 
-A reviewer can check that no file in `internal/runstate` calls into `internal/beads`, and that `internal/beads` does not import `internal/runstate`.
+A reviewer can check that no file in `internal/runstate` calls into `internal/beads` beyond the list, and that `internal/beads` does not import `internal/runstate`.
 
 ## The shared continuation operations
 
