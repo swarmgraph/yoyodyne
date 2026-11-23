@@ -113,7 +113,7 @@ func renderTrackerNotes(notes string, budget int) string {
 	if len(kept) > 0 {
 		if legacy {
 			rendered.WriteString("Stop and decision excerpts from the cut notes (in note order):\n")
-			rendered.WriteString("Older notes have no recorded append boundaries. All matching excerpts from that history are retained; matching text may be quoted or captured output, so their order alone does not establish separate writes or which decision was latest.\n")
+			rendered.WriteString("Older notes have no recorded append boundaries. Matching excerpts from that history are quoted within the read's limit, and where they do not all fit the oldest are cut first; matching text may be quoted or captured output, so their order alone does not establish separate writes or which decision was latest.\n")
 		} else {
 			rendered.WriteString("Latest stop and recorded decisions from the cut notes (verbatim extracts, in note order):\n")
 		}

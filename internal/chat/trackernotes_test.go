@@ -458,6 +458,9 @@ func TestReadingAnItemWithVeryLongNotesReturnsItsNewestNoteWhole(t *testing.T) {
 			t.Errorf("read lacks %q", want)
 		}
 	}
+	if strings.Contains(rendered, "excerpts from that history are retained") || !strings.Contains(rendered, "the oldest are cut first") {
+		t.Errorf("read still says every older excerpt is kept beside a line saying some were cut")
+	}
 	if strings.Contains(rendered, "after turn 0.") {
 		t.Errorf("read kept the oldest excerpt while cutting newer ones")
 	}
