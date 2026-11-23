@@ -1963,6 +1963,9 @@ func TestTheContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
 		if !strings.Contains(reviewSystemPrompt(scope, ""), ownership.OperatorReasonsInContract) {
 			t.Errorf("the %v contract does not name the operator's closed list of reasons", scope)
 		}
+		for _, short := range ownership.ShortReasonLists(reviewSystemPrompt(scope, "")) {
+			t.Errorf("the %v contract gives a shorter list of the operator's reasons than the resolver accepts:\n%s", scope, short)
+		}
 	}
 }
 
