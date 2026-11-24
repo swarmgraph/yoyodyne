@@ -540,6 +540,9 @@ const (
 	// HeldAwaitingWork is a stoppage she decided to wait on unfinished admitted
 	// work for, which comes back to her once that work is closed.
 	HeldAwaitingWork HeldWait = "work"
+	// HeldAwaitingNamedEpics is a decision she recorded that the harness carries
+	// out once the epics the operator named let its item start.
+	HeldAwaitingNamedEpics HeldWait = "named-epics"
 	// HeldAwaitingDesign is one item carrying the needs-design label, waiting on
 	// the architect's design (docs/designs/needs-design-gate.md, "Showing the
 	// wait"). Unlike the other waits it is one entry per item, with since when

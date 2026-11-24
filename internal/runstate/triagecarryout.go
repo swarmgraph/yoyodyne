@@ -73,7 +73,7 @@ const (
 	// TriageGateNamedEpics is the factory working only on the epics the operator
 	// named, with the item in none of them. It is a wait: nothing was spent, the
 	// decision stands, and the harness carries it out once the item is added.
-	TriageGateNamedEpics = "the epics the operator named"
+	TriageGateNamedEpics = triage.NamedEpicsGate
 	// TriageGateHarness is everything else: a record that would not be read, a
 	// stoppage that is not over, a store that refused a write. The refusal's own
 	// words are what a reader acts on here.
@@ -111,6 +111,14 @@ func TriageGateVocabulary() []string {
 // the pass looked, found the item parked, and left the decision standing.
 func (t TriageCarryOut) WaitsOnParking() bool {
 	return t.Gate == TriageGateParked && t.Cause == ""
+}
+
+// WaitsOnNamedEpics reports a finding that says the decision is waiting for the
+// epics the operator named to let its item start: the item is in none of them,
+// or the record of them could not be read, and the refusal says which. Like a
+// parking it is neither a refusal nor a decision no pass reached.
+func (t TriageCarryOut) WaitsOnNamedEpics() bool {
+	return t.Gate == TriageGateNamedEpics && t.Cause == ""
 }
 
 // The bounds one carry-out record is held to. The refusal is a gate's own words
@@ -297,6 +305,11 @@ func (t TriageCarryOut) Describe() string {
 			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339),
 			strings.TrimSpace(t.Refusal), strings.TrimSpace(t.Clears))
 	}
+	if t.WaitsOnNamedEpics() {
+		return fmt.Sprintf("the %q decided about the stoppage of run %s waits because the epics the operator named do not let its item start, as found at %s: %s. What clears it: %s",
+			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339),
+			strings.TrimSpace(t.Refusal), strings.TrimSpace(t.Clears))
+	}
 	if t.Unattempted {
 		return fmt.Sprintf("the %q decided about the stoppage of run %s has not been attempted by any pass, as of %s, held back by %s: %s. What clears it: %s",
 			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339), t.Gate,
@@ -378,9 +391,10 @@ func (c TriageCounters) NoLongerApplies(runID string) (TriageCarryOut, bool) {
 // decision and says so.
 func (c TriageCounters) CarryOutFindings() (refused, unattempted int) {
 	for _, finding := range c.CarryOuts {
-		// A decision waiting for its item to be unparked is neither refused nor
-		// passed over: the pass looked and the parking holds it.
-		if finding.Cause == triage.CarryOutNoLongerApplies || finding.WaitsOnParking() {
+		// A decision waiting for its item to be unparked, or to be let start by the
+		// named epics, is neither refused nor passed over: the pass looked and
+		// found the wait.
+		if finding.Cause == triage.CarryOutNoLongerApplies || finding.WaitsOnParking() || finding.WaitsOnNamedEpics() {
 			continue
 		}
 		decision, found := c.DecisionOf(finding.RunID)
