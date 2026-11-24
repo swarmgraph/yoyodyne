@@ -533,7 +533,7 @@ func (s State) PutBackToCatchUpWithMergeQueue(conflict ReplayConflict, reason st
 	resumed.Reconciliation = &Reconciliation{
 		TargetBranch: conflict.TargetBranch, TargetCommit: conflict.TargetCommit,
 		Paths: append([]string(nil), conflict.Paths...), Omitted: conflict.Omitted,
-		UsedAt: at.UTC(),
+		UsedAt: at.UTC(), Handback: conflict.Handback,
 	}
 	resumed.IntegrationResumptions = append(append([]IntegrationResumption{}, s.IntegrationResumptions...),
 		IntegrationResumption{

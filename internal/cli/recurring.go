@@ -118,6 +118,12 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		ModelTrial: func() string {
 			return readmodel.ReadModelTrial(readmodel.Sources{Runs: parts.store, CheaperFirst: parts.config.Execution.DeveloperCheaperFirst}).PassSection()
 		},
+		// The files changes conflicted in, from the run index's account of the
+		// runs handed back for a conflict, so she can link the open items that
+		// will touch them.
+		ConflictFiles: func() string {
+			return readmodel.ConflictFilesSection(parts.store, time.Now())
+		},
 		// A fresh health observation before every pass of the development
 		// manager's and of the factory-flow program manager's, over the records
 		// `yoyo status` reads, whatever the pass's events say.

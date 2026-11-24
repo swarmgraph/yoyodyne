@@ -454,6 +454,8 @@ same split by role:
 Weekly cost, Monday to Sunday in America/Los_Angeles:
   This week, from 2026-11-16: $412.30 known spend across 380 provider calls; 9 items closed, $45.81 per item; 7 code changes landed, $58.90 per change; management roles 38% of known spend
     by role: developer runs $200.00 ($22.22 per closed item, $28.57 per landed change); reviewers $55.00 (...); Lead Product Manager $90.00 (...)
+    conflicts cost at least $21.00 across 6 provider calls, at least $3.00 per landed code change; 2 calls after a conflict ($4.10 known) cannot be told apart from other work
+    files in conflict: changes handed back for a conflict 3 times, 41 conflicting lines; files named most: internal/cli/status.go in 2, from Show the conflict figures (yoyodyne-x1), Shorten the status (yoyodyne-x2)
   Last week, 2026-11-09 to 2026-11-15: ...
 ```
 
@@ -475,6 +477,36 @@ role by name, and the management roles' share of the week's known spend is
 stated on its own. Weeks run Monday to Sunday in Pacific time. A call the
 provider never priced makes the week's cost a floor, and a count whose source
 could not be read gives no figure divided by it and is named under `not read`.
+
+#### What conflicts cost
+
+Each time a run's change is handed back because it no longer merges onto its
+target branch — by the merge queue, at the run's own landing, or while its
+waiting pull request is brought up to date — the run's record keeps an entry
+under `conflict_handbacks`: the conflicting files, and how many lines
+of either side conflict. A count that could not be made, such as where one side
+deleted the file, says why instead. The attempt to bring the change up to date
+and every review after it, the merge queue's review of the candidate included,
+name that entry on their lines of the cost log, as `conflict: handback` and
+`conflict_handback`. The weekly figures add up those lines and divide them by
+the code changes landed. A management role's turn deciding about a conflict
+names no entry and is not in the figure.
+
+Spend that cannot be told apart is stated on its own and added to no conflict.
+Once the developer has been asked for something else since the conflict, such as
+a failing check or a reviewer's findings, the target has moved again so that the
+change or its merge queue candidate is reviewed again, or a new run was started
+on the kept change, its calls are recorded as `conflict:
+unclear`. A run's call recorded before any of this says nothing about conflicts.
+Either of them, or a conflict's call the provider never priced, makes the figure
+"at least" what is known, and "not known" where none of it is. A run's call made
+for no conflict says `conflict: none`.
+
+The files named in the most of those entries, with their items, are in the same
+figures, and each of the development manager's scheduled passes is handed this
+week's and last week's. A conflict the queue could not hand back to its run — its
+item was already closed, its branch was gone, or its record refused the write —
+is on the queue's own record of the entry and is not counted there.
 
 ### Every provider spend, one line
 

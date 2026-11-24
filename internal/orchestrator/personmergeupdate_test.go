@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -351,5 +352,42 @@ func TestAWaitingPullRequestThatCannotBeBroughtUpToDateGoesToTheDevelopmentManag
 
 	if settled, _ := fixture.check(t); !strings.Contains(settled.Kept, "development manager") || strings.Count(fixture.tracker.Notes, told) != 1 {
 		t.Fatalf("second check = %#v, notes told %d times; want the same answer and no second note", settled, strings.Count(fixture.tracker.Notes, told))
+	}
+}
+
+// A conflict's attempt and its review are charged to that conflict; a clean
+// update made later, because the target moved again, is reviewed for something
+// else too, so its review is not told apart.
+func TestACleanUpdateAfterAConflictIsNotChargedToTheConflict(t *testing.T) {
+	t.Parallel()
+	fixture := newPersonMergeUpdateFixture(t)
+	log := &recordingSpendLog{}
+	fixture.pipeline.Spend = log
+	fixture.pipeline.Reviewer = review.Reviewer{Backend: fixture.provider, Model: testReviewerModel, Spend: log}
+
+	moveTargetOnFeature(t, fixture.remote, "someone else's version\n")
+	if settled, updates := fixture.check(t); !settled.Updating || len(updates) != 1 || updates[0].Failure != "" {
+		t.Fatalf("check = %#v / %#v, want the conflict settled", settled, updates)
+	}
+	conflicted := len(log.lines)
+	handback := fixture.load(t).ConflictHandbacks[0].ID
+	driftRemoteTarget(t, fixture.remote, "main")
+	if settled, updates := fixture.check(t); !settled.Updating || len(updates) != 1 || updates[0].Failure != "" {
+		t.Fatalf("check = %#v / %#v, want the clean update made", settled, updates)
+	}
+	if conflicted != 2 || len(log.lines) != 3 {
+		t.Fatalf("lines = %d then %d, want the attempt and its review, then one review", conflicted, len(log.lines))
+	}
+	for index, line := range log.lines {
+		want := runstate.SpendConflictHandback
+		if index >= conflicted {
+			want = runstate.SpendConflictUnclear
+		}
+		if line.Conflict != want || line.ConflictHandback != handback {
+			t.Errorf("line %d (%s) says %q, %q; want %q, %q", index, line.Role, line.Conflict, line.ConflictHandback, want, handback)
+		}
+	}
+	if after := fixture.load(t); after.ConflictSpending == nil || !after.ConflictSpending.Unclear {
+		t.Fatalf("spending = %#v, want it saved as unclear", after.ConflictSpending)
 	}
 }

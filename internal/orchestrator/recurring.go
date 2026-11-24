@@ -490,6 +490,11 @@ type Trigger struct {
 	// on its comparison and records defects after landing against it.
 	// Optional: a trigger wired without it hands her no figures.
 	ModelTrial func() string
+	// ConflictFiles is the section a development manager pass opens with naming
+	// the files changes conflicted in this week and last, with their items
+	// (readmodel.ConflictFilesSection), and empty where none did. She links open
+	// items that will touch the same files. Optional.
+	ConflictFiles func() string
 	// Health takes a fresh observation of the factory's health for one pass,
 	// and returns the section the pass's message carries and what its record
 	// keeps of it. It is called before the first turn of every pass of the
@@ -1333,6 +1338,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	}
 	if t.ModelTrial != nil && task.Role == domain.RoleDevelopmentManager {
 		if section := t.ModelTrial(); section != "" {
+			message += "\n\n" + section
+		}
+	}
+	if t.ConflictFiles != nil && task.Role == domain.RoleDevelopmentManager {
+		if section := t.ConflictFiles(); section != "" {
 			message += "\n\n" + section
 		}
 	}

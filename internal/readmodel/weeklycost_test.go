@@ -201,8 +201,10 @@ func TestWeeklyCostRendersTheCurrentWeekAndTheOneBefore(t *testing.T) {
 	want := "Weekly cost, Monday to Sunday in America/Los_Angeles:\n" +
 		"  This week, from 2026-11-16: $30.00 known spend across 1 provider call; 1 item closed, $30.00 per item; 1 code change landed, $30.00 per change; management roles 0% of known spend\n" +
 		"    by role: developer runs $30.00 ($30.00 per closed item, $30.00 per landed change)\n" +
+		"    conflicts cost nothing\n" +
 		"  Last week, 2026-11-09 to 2026-11-15: $12.00 known spend across 1 provider call; no item closed; no code change landed; management roles 0% of known spend\n" +
-		"    by role: reviewers $12.00\n"
+		"    by role: reviewers $12.00\n" +
+		"    conflicts cost nothing\n"
 	if rendered != want {
 		t.Fatalf("rendered:\n%s\nwant:\n%s", rendered, want)
 	}

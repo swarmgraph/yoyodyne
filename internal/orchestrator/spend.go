@@ -27,6 +27,7 @@ type SpendLog interface {
 // spendAttribution is what one of this run's invocations is charged to.
 func (a *activeRun) spendAttribution(role domain.AgentRole, phase runstate.SpendPhase) spend.Attribution {
 	p := a.pipeline
+	conflict, handback := a.state.SpendsForConflict()
 	return spend.Attribution{
 		ProductID:      p.Config.Product.ID,
 		Agent:          p.agentNameForRole(role),
@@ -37,6 +38,9 @@ func (a *activeRun) spendAttribution(role domain.AgentRole, phase runstate.Spend
 		RunID:          a.state.RunID,
 		WorkItemID:     a.state.WorkItemID,
 		Billing:        p.Config.AccountBilling(a.state.AccountAlias),
+
+		Conflict:         conflict,
+		ConflictHandback: handback,
 	}
 }
 

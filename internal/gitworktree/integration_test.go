@@ -1366,6 +1366,9 @@ func TestManagerRebaseOntoTargetRefusesAConflictAndKeepsTheChange(t *testing.T) 
 	if len(conflict.Paths) != 1 || conflict.Paths[0] != "README.txt" {
 		t.Fatalf("conflict paths = %v, want README.txt", conflict.Paths)
 	}
+	if conflict.Lines.Lines == nil || *conflict.Lines.Lines != 2 {
+		t.Fatalf("conflict lines = %+v, want one line of each side", conflict.Lines)
+	}
 	worktree.HarnessCommit = replay.HeadCommit
 	if _, err := manager.Integrate(context.Background(), worktree, ""); !errors.Is(err, ErrTargetDrift) {
 		t.Fatalf("Integrate() after a refused replay error = %v, want ErrTargetDrift", err)

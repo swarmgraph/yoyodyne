@@ -262,6 +262,9 @@ type ReplayConflict struct {
 	// repair, so a run picked up part-way through it asks for it in the same
 	// words and charges no repair attempt for it.
 	Reconciliation bool `json:"reconciliation,omitempty"`
+	// Handback is the recorded hand-back for this conflict (ConflictHandback),
+	// which is what caused the attempt made on it.
+	Handback string `json:"handback,omitempty"`
 }
 
 // Validate reports every contract violation in the record at once.

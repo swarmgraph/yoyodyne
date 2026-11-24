@@ -1141,3 +1141,59 @@ func TestARelaunchedQueueCheckIsHeldToItsConfiguredLimit(t *testing.T) {
 		}
 	}
 }
+
+// The first candidate's review after a conflict is the conflict's. The review
+// of a candidate rebuilt because the target moved is owed to that too, so it is
+// not told apart; a rebuild before any review began leaves the first review the
+// conflict's.
+func TestOnlyTheFirstCandidateReviewAfterAConflictIsChargedToIt(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		during func(f *queueFixture, move func())
+		want   []runstate.SpendConflict
+	}{
+		{"the target moves during the review", func(f *queueFixture, move func()) {
+			f.reviewer.before = func(call int) {
+				if call == 1 {
+					move()
+				}
+			}
+		}, []runstate.SpendConflict{runstate.SpendConflictHandback, runstate.SpendConflictUnclear}},
+		{"the target moves during the checks", func(f *queueFixture, move func()) {
+			f.checks.before = func(call int) {
+				if call == 1 {
+					move()
+				}
+			}
+		}, []runstate.SpendConflict{runstate.SpendConflictHandback}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newQueueFixture(t)
+			run := f.runs.(*admittedRun)
+			run.state.AccountAlias = "default"
+			run.state.ConflictSpending = &runstate.ConflictSpending{Handback: "mqe-earlier"}
+			log := &recordingSpendLog{}
+			reviewer := f.reviewer.reviewer.(review.Reviewer)
+			reviewer.Spend = log
+			f.reviewer.reviewer = reviewer
+			test.during(f, func() { moveTarget(t, f.repository, "landed-meanwhile.txt") })
+			if verification, err := f.work(); err != nil || !verification.Verified || verification.Drift != 1 {
+				t.Fatalf("Work() = %#v, %v; want one rebuild and a verified candidate", verification, err)
+			}
+			var said []runstate.SpendConflict
+			for _, line := range log.lines {
+				said = append(said, line.Conflict)
+				if line.ConflictHandback != "mqe-earlier" {
+					t.Errorf("a review names %q, want the hand-back", line.ConflictHandback)
+				}
+			}
+			if !slices.Equal(said, test.want) {
+				t.Fatalf("reviews say %v, want %v", said, test.want)
+			}
+		})
+	}
+}
