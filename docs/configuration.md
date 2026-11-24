@@ -5020,7 +5020,10 @@ is recorded as reaching no verdict without stopping the run. What it costs is
 recorded in the cost log against the run and its item as a review, on a line
 marked as a comparison. It is not counted as one of the run's review rounds, and
 [what the spend accomplished](reporting.md#what-the-spend-accomplished) does not
-count it as a review. A review made on a reviewer
+count it as a review. It is in the run's price, which `yoyo cost` reads, as
+review spend. It is not made while you have paused the harness, or once a stop
+of the run was requested: it is skipped, recorded as reaching no verdict with
+that reason, and the run goes on with the verdict it has. A review made on a reviewer
 endpoint pair names its own model and is not compared, and a review in the
 merge queue is not compared either.
 
