@@ -161,18 +161,28 @@ type RecurringAmendments interface {
 }
 
 // RecurringConversationWork reads and renders the current work carried by the
-// woken role's conversation. It changes no tracker state.
+// woken role's conversation. It changes no tracker state. An item whose
+// snapshot standing holds (StandingRulings.Holds) is left out of the section
+// and the items, and named in the reading's Standing; standing is nil for a
+// role that keeps none.
 type RecurringConversationWork interface {
-	Read(ctx context.Context, role domain.AgentRole) (ConversationWorkReading, error)
+	Read(ctx context.Context, role domain.AgentRole, standing StandingRulings) (ConversationWorkReading, error)
 }
 
 // ConversationWorkReading is the work waiting in a role's conversation as one
 // turn of a pass is handed it: the section the turn's message carries, and the
 // items that section names, in the order it names them, with each item's
 // priority. A reading that failed carries the section saying so and no items.
+//
+// Standing is the waiting items left out because the role's ruling on each
+// stands, and States every waiting item as this reading found it, left out or
+// not; both are empty for a role that keeps no standing rulings
+// (standingrulings.go).
 type ConversationWorkReading struct {
-	Section string
-	Items   []runstate.DeliveredWork
+	Section  string
+	Items    []runstate.DeliveredWork
+	Standing []string
+	States   []WaitingState
 }
 
 // RecurringItemNotes appends a note to a work item, which is the one tracker
@@ -1419,6 +1429,17 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// whether this one is told to decide it or ask (repeatleave.go). A pass sent
 	// back to do that is given one turn past the task's bound where it needs it.
 	var streak *leaveStreak
+	// The items whose ruling stands are left out of every turn's reading of the
+	// waiting work (standingrulings.go).
+	keepsRulings := t.ConversationWork != nil && f.agent == "" && KeepsStandingRulings(task.Role)
+	var watch rulingWatch
+	if keepsRulings {
+		var problem string
+		watch.standing, problem = t.standingRulings(name)
+		if problem != "" {
+			problems = append(problems, problem)
+		}
+	}
 	limit := task.Turns()
 	for turn := 0; turn < limit; turn++ {
 		// Whatever sends the pass on, the turn is told again what its closing
@@ -1430,11 +1451,19 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			}
 		}
 		if t.ConversationWork != nil && f.agent == "" {
-			work, err := t.ConversationWork.Read(ctx, task.Role)
+			readAt := t.now()
+			work, err := t.ConversationWork.Read(ctx, task.Role, watch.standing)
 			if err != nil {
 				problems = append(problems, err.Error())
 			}
-			message = f.addressed.besideConversationWork(work) + "\n" + message
+			if err == nil && keepsRulings {
+				watch.note(work, readAt)
+			}
+			section := f.addressed.besideConversationWork(work)
+			if said := standingRulingsSaid(task.Role, work.Standing); said != "" {
+				section = strings.TrimRight(section, "\n") + "\n\n" + said + "\n"
+			}
+			message = section + "\n" + message
 			// The order the pass is judged against is the first one it was handed
 			// that could be read. A later turn reads the queue afresh, and an item
 			// taken on the first turn is gone from it, so that reading says what is
@@ -1442,6 +1471,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			if err == nil && !deliveredRead {
 				deliveredRead = true
 				delivered = boundedDelivery(work.Items)
+				recorded.RulingsStanding = boundedRulingIDs(work.Standing)
 				if len(delivered) > 0 {
 					message += "\n\n" + sweep.LeftContract()
 				}
@@ -1789,6 +1819,17 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	problems = append(problems, overdue.record(name, actedOn, merged))
 	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, &recorded, earlier))
 	problems = append(problems, t.noteSettled(ctx, pass, recorded))
+	// The rulings the next pass is compared with, read once the pass's own
+	// notes are written so they are part of what the next pass sees unchanged.
+	if keepsRulings && recorded.Turns > 0 {
+		var problem string
+		recorded.Rulings, problem = t.closingRulings(ctx, task.Role, watch, func(id string) bool {
+			return tookRuled(id, recorded.Delivered, actedOn, merged)
+		})
+		if problem != "" {
+			problems = append(problems, problem)
+		}
+	}
 	// Bounded, because the record's own bound on this prose refuses a record that
 	// carries too much of it — and every one of these sentences ends with a
 	// provider's error message, whose length nothing here controls. Losing a whole

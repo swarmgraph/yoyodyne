@@ -328,9 +328,15 @@ func TestDropWriteGivesAHeldDocumentsPlaceBack(t *testing.T) {
 	}
 	session, _ := heldSession(t, nil, records...)
 	fresh := artifact.Write{Action: artifact.WriteCreate, ID: "fresh", Kind: artifact.KindGoals, Title: "Fresh", Directory: "docs/product", Body: "# Goals", Reason: "drafted"}
-	// The limit counts the write being added, so with every place taken it is
-	// the one over it.
-	if err := session.refuseWriteCount([]artifact.Write{fresh}, nil); err == nil {
+	// With every waiting place taken, new documents are kept until there is
+	// room, so only more than the kept allowance holds is refused.
+	var over []artifact.Write
+	for index := 0; index <= runstate.MaxHeldWrites; index++ {
+		write := fresh
+		write.ID = fmt.Sprintf("fresh-%d", index)
+		over = append(over, write)
+	}
+	if err := session.refuseWriteCount(over, nil); err == nil {
 		t.Fatal("held documents did not fill the places")
 	}
 	if _, err := session.DropWrite("document-1.1", "  "); err == nil || !strings.Contains(err.Error(), "recorded and told") {

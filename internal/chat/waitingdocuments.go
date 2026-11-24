@@ -284,6 +284,8 @@ func (s *Session) waitingReason(record *writeRecord, behind *writeRecord, behind
 			return "the development manager released it for one run, which starts at the next message"
 		}
 		return fmt.Sprintf("it is held for the development manager since %s: automatic publication stopped after %d returned runs, and %s", hold.HeldAt.Local().Format("Jan 2 15:04 MST"), runstate.MaxDocumentReturns, hold.Why)
+	case record.keptForRoom():
+		return fmt.Sprintf("this conversation already has %d documents waiting for publication, so the harness keeps it and sends it at the first message after one of them is settled; it does not need writing again", runstate.MaxPendingWrites)
 	case record.heldForSending():
 		hold := record.pending.Write.Hold
 		return fmt.Sprintf("you held sending it until %s closes (%s)", strings.TrimSpace(hold.UntilClosed), strings.TrimSpace(hold.Reason))
@@ -446,7 +448,7 @@ func (s *Session) renderWaitingDocuments() string {
 	var out strings.Builder
 	out.WriteString("# Your waiting documents\n\n")
 	waiting, _ := s.waitingAndHeld()
-	fmt.Fprintf(&out, "%d of %d places for waiting documents are taken; documents held for sending are counted apart, at most %d.\n", waiting, runstate.MaxPendingWrites, runstate.MaxHeldWrites)
+	fmt.Fprintf(&out, "%d of %d places for waiting documents are taken; documents held for sending and documents kept until there is room are counted apart, at most %d together.\n", waiting, runstate.MaxPendingWrites, runstate.MaxHeldWrites)
 	listed := 0
 	for _, record := range s.writes {
 		if record.decided {
