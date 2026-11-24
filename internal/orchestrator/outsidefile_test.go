@@ -898,7 +898,14 @@ func (f *countedFetch) Fetch(ctx context.Context, recordPath string, record outs
 // starts it asked about, what it fetched, and the operator's way of adding an item.
 func askingOfEpics(t *testing.T, pipeline *Pipeline, members ...string) (*[]maystart.Start, *countedFetch, func(string)) {
 	t.Helper()
-	decide, add := epicMode(t, members...)
+	asked, fetch, add, _ := askingOfEpicsKept(t, pipeline, members...)
+	return asked, fetch, add
+}
+
+// askingOfEpicsKept is askingOfEpics with the check of the refused starts.
+func askingOfEpicsKept(t *testing.T, pipeline *Pipeline, members ...string) (*[]maystart.Start, *countedFetch, func(string), func(maystart.Path, string)) {
+	t.Helper()
+	decide, add, refused := epicModeKept(t, members...)
 	asked := &[]maystart.Start{}
 	pipeline.MayStart = func(start maystart.Start) maystart.Decision {
 		*asked = append(*asked, start)
@@ -906,7 +913,7 @@ func askingOfEpics(t *testing.T, pipeline *Pipeline, members ...string) (*[]mays
 	}
 	fetch := &countedFetch{OutsideFileFetcher: pipeline.OutsideFiles}
 	pipeline.OutsideFiles = fetch
-	return asked, fetch, add
+	return asked, fetch, add, refused
 }
 
 // nothingSpentOn fails where a refused record left anything behind.
@@ -935,7 +942,7 @@ func TestARecordOutsideTheNamedEpicsIsNotBroughtInUntilItsItemIsAdded(t *testing
 	if err != nil || !due {
 		t.Fatalf("NextOutsideFile() = %v, %v; want the record due", due, err)
 	}
-	asked, fetch, add := askingOfEpics(t, &pipeline, blockedMember)
+	asked, fetch, add, refused := askingOfEpicsKept(t, &pipeline, blockedMember)
 	for range 2 {
 		if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
 			t.Fatalf("NextOutsideFile() = %v, %v; want the record passed over", due, err)
@@ -946,6 +953,7 @@ func TestARecordOutsideTheNamedEpicsIsNotBroughtInUntilItsItemIsAdded(t *testing
 		}
 	}
 	nothingSpentOn(t, landing, store, fetch, reports, tracker.Notes)
+	refused(maystart.BringInFile, pinnedFor)
 
 	add(pinnedFor)
 	landing, due, err = pipeline.NextOutsideFile(ctx)

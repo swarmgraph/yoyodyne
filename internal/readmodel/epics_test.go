@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -91,14 +92,17 @@ func operatorOf(t *testing.T, root string) *epicscope.Operator {
 func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
 	t.Parallel()
 	_, sources := epicFixture(t)
-	want := fmt.Sprintf(`Mode: epic mode; only work in the epics you named starts
+	want := fmt.Sprintf(`Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and 12 ways of starting work do not ask yet
   Open epic: Epic mode (yoyodyne-ep) — 4 members: 1 done, 1 running, 1 ready, 1 waiting
   Ready items held out: 2, since %[1]s
   Role passes not started: 2, since %[1]s
   Rename the flag (yoyodyne-stop) has stopped before its next step because it is not in an epic you named. Its work is kept.
   Say the mode (yoyodyne-ep.4) waits for Read the file (yoyodyne-dep), which is not in an epic you named. To add it: yoyo epic add yoyodyne-ep yoyodyne-dep
-  Not started: Tidy the log (yoyodyne-out) is not in an epic you named. To add it: yoyo epic add yoyodyne-ep yoyodyne-out
+  Not started: Tidy the log (yoyodyne-out), by the scheduler pulling ready work (refused since %[1]s, last at %[1]s: it is not in an open epic the operator named). To add it: yoyo epic add yoyodyne-ep yoyodyne-out
 `, localMoment(moment))
+	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 12 {
+		t.Fatalf("%d paths do not ask, and the words below say 12", len(unwired))
+	}
 	if got := ReadStanding(context.Background(), sources).RenderEpics(); got != want {
 		t.Fatalf("RenderEpics() =\n%s\nwant\n%s", got, want)
 	}
@@ -147,7 +151,7 @@ func TestTheCommandThatAddsAnItemNamesTheEpicItIsBelow(t *testing.T) {
 		}
 	}
 	says = ReadStanding(context.Background(), sources).RenderEpics()
-	if !strings.Contains(says, "Every epic you named has ended.") || !strings.Contains(says, "Not started: Tidy the log (yoyodyne-out) is not in an epic you named.\n") {
+	if !strings.Contains(says, "Every epic you named has ended.") || !strings.Contains(says, "it is not in an open epic the operator named).\n") {
 		t.Fatalf("with every epic ended, status says\n%s", says)
 	}
 }
@@ -171,9 +175,46 @@ func TestARecordOfEpicsThatCannotBeReadIsAProblem(t *testing.T) {
 		t.Fatal(err)
 	}
 	says := ReadStanding(context.Background(), sources).RenderEpics()
-	if !strings.HasPrefix(says, "Mode: could not be read\n  Nothing new is starting: the record of the epics you named could not be read (the record of named epics, "+path) ||
-		!strings.HasSuffix(says, "unexpected EOF).\n") {
+	if !strings.HasPrefix(says, "Mode: could not be read\n  Every start that asks about the epics you named is refused: the record of them could not be read (the record of named epics, "+path) ||
+		!strings.Contains(says, "unexpected EOF).\n  Not started: Tidy the log (yoyodyne-out), by ") {
 		t.Fatalf("RenderEpics() = %q", says)
+	}
+	// What is refused for that is listed with that as its reason.
+	start := maystart.Run(maystart.NamedRun, "yoyodyne-dep")
+	if maystart.Ask(root, "yoyodyne", start, moment).MayStart() {
+		t.Fatal("a start went ahead on a record that could not be read")
+	}
+	if says = ReadStanding(context.Background(), sources).RenderEpics(); !strings.Contains(says, "Not started: Read the file (yoyodyne-dep), by a run the operator names (") || strings.Count(says, "unexpected EOF") != 2 {
+		t.Fatalf("RenderEpics() = %q", says)
+	}
+	if err := os.WriteFile(filepath.Join(home.ProductDirectory(root, "yoyodyne"), "not-started.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if says = ReadStanding(context.Background(), sources).RenderEpics(); !strings.Contains(says, "what was not started could not be read: ") {
+		t.Fatalf("RenderEpics() = %q", says)
+	}
+}
+
+// Each way an item was refused is listed, with its reason and times, on the one
+// line for the item and in the JSON.
+func TestStatusListsEachWayAnItemWasRefused(t *testing.T) {
+	t.Parallel()
+	root, sources := epicFixture(t)
+	later := moment.Add(time.Hour)
+	for _, path := range []maystart.Path{maystart.ReadyWork, maystart.BringInFile} {
+		maystart.Ask(root, "yoyodyne", maystart.Run(path, "yoyodyne-out"), later)
+	}
+	standing := ReadStanding(context.Background(), sources)
+	want := fmt.Sprintf("Not started: Tidy the log (yoyodyne-out), by the scheduler pulling ready work (refused since %[1]s, last at %[2]s: it is not in an open epic the operator named); the run that brings in a pinned outside file (refused since %[2]s, last at %[2]s: it is not in an open epic the operator named). To add it:",
+		localMoment(moment), localMoment(later))
+	if says := standing.RenderEpics(); strings.Count(says, "Not started: ") != 1 || !strings.Contains(says, want) {
+		t.Fatalf("RenderEpics() = %q, want %q", says, want)
+	}
+	if refused := standing.Epics.Refused; len(refused) != 2 || refused[0].Path != maystart.ReadyWork || refused[1].Path != maystart.BringInFile || refused[1].Why == "" {
+		t.Fatalf("Refused = %+v", refused)
+	}
+	if since := standing.Epics.ItemsHeldOutSince; since == nil || !since.Equal(moment) {
+		t.Fatalf("held out since %v, want the first refusal", since)
 	}
 }
 

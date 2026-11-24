@@ -15,6 +15,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -31,27 +32,37 @@ const (
 	maxRefusalsBytes = 8 << 20
 
 	refusalsLockWait = 5 * time.Second
+
+	// refusedAgainAfter bounds how often the same refusal moves its time. The
+	// scheduler asks about every item outside at every poll, and each move is a
+	// synced write.
+	refusedAgainAfter = 10 * time.Minute
 )
 
-// Refusals is what was not started because it is outside the epics the operator
-// named, as the paths that asked Decide recorded it with Note. It decides
+// Refusals is what was not started because of the epics the operator named: what
+// is outside them, and what could not be judged. Ask is what keeps it. It decides
 // nothing: it is kept so that status can say what was refused.
 type Refusals struct {
 	SchemaVersion int              `json:"schema_version"`
 	ProductID     domain.ProductID `json:"product_id"`
-	// Items is one entry for each work item, from its first refusal until it
-	// may start.
+	// Items is one entry for each work item and path, from its first refusal
+	// until the item may start, closes, or epic mode ends.
 	Items []RefusedItem `json:"items,omitempty"`
 	// Passes is one entry for each role, from its first refusal until a pass of
 	// that role may start.
 	Passes []RefusedPasses `json:"passes,omitempty"`
 }
 
-// RefusedItem is a work item whose start was refused.
+// RefusedItem is a work item whose start by one path was refused.
 type RefusedItem struct {
-	WorkItemID string    `json:"work_item_id"`
-	Path       Path      `json:"path"`
-	Since      time.Time `json:"since"`
+	WorkItemID string `json:"work_item_id"`
+	Path       Path   `json:"path"`
+	// Why is the reason last given.
+	Why string `json:"why"`
+	// Since is when it was first refused, and Last when it was last refused, to
+	// within refusedAgainAfter.
+	Since time.Time `json:"since"`
+	Last  time.Time `json:"last"`
 }
 
 // RefusedPasses is how many passes of a role were refused.
@@ -71,8 +82,8 @@ func (r Refusals) Validate() error {
 		problems = append(problems, err)
 	}
 	for _, item := range r.Items {
-		if !beads.ValidIssueID(item.WorkItemID) || item.Since.IsZero() {
-			problems = append(problems, fmt.Errorf("the refusal of %q needs a work item identifier and when it was first refused", item.WorkItemID))
+		if !beads.ValidIssueID(item.WorkItemID) || item.Path == "" || item.Why == "" || item.Since.IsZero() || item.Last.IsZero() {
+			problems = append(problems, fmt.Errorf("the refusal of %q needs a work item identifier, a path, a reason and when it was first and last refused", item.WorkItemID))
 		}
 	}
 	for _, passes := range r.Passes {
@@ -83,24 +94,66 @@ func (r Refusals) Validate() error {
 	return errors.Join(problems...)
 }
 
-// Note records what Decide answered about a start. A refusal is added, and a
-// start that may go ahead takes away the refusal it ends; anything else writes
-// nothing. A path calls it once for each pass that came due, because each call
-// counts one; an item refused again is already recorded.
+// Ask decides about a start and keeps the answer: the one way a path that is
+// wired asks, and the one writer of refused starts. An answer that could not be
+// kept is the same answer, and says so in NotKept and, where it is a refusal, in
+// its reason.
+func Ask(stateRoot string, product domain.ProductID, start Start, at time.Time) Decision {
+	decision := Decide(stateRoot, product, start)
+	decision.NotKept = Note(stateRoot, product, start, decision, at)
+	if decision.NotKept != nil && !decision.MayStart() {
+		decision.Why += fmt.Sprintf(" (and this refusal could not be recorded for yoyo status: %v)", decision.NotKept)
+	}
+	return decision
+}
+
+// Note records what Decide answered about a start, and takes away every refusal
+// that no longer holds. A refusal already recorded for the same item and path is
+// updated. A pass is noted once each time it came due, because each call counts
+// one.
 //
 // The review of unmet goals and the reading of outside messages are not role
 // passes and name no work item, so nothing is kept about them.
 func Note(stateRoot string, product domain.ProductID, start Start, decision Decision, at time.Time) error {
-	if decision.Answer != May && decision.Answer != MayNot {
-		return nil
-	}
-	if decision.Answer == May {
-		// Almost every start is allowed with nothing to take away, so the lock is
-		// not taken to find that out.
-		current, err := ReadRefusals(stateRoot, product)
-		if err != nil || !current.note(start, decision, at) {
-			return err
+	return change(stateRoot, product, func(current *Refusals, record epicscope.Record, readable bool) bool {
+		noted := current.note(start, decision, at)
+		return readable && current.settle(record) || noted
+	})
+}
+
+// Settle takes away every refusal that no longer holds. A command that changed
+// the record of named epics calls it, so what it lets start is not left as
+// refused until a path happens to ask again.
+func Settle(stateRoot string, product domain.ProductID) error {
+	return change(stateRoot, product, func(current *Refusals, record epicscope.Record, readable bool) bool {
+		return readable && current.settle(record)
+	})
+}
+
+// ItemsClosed takes away every refusal of a work item that has closed.
+func ItemsClosed(stateRoot string, product domain.ProductID, closed func(item string) bool) error {
+	return change(stateRoot, product, func(current *Refusals, _ epicscope.Record, _ bool) bool {
+		before := len(current.Items)
+		current.Items = slices.DeleteFunc(current.Items, func(item RefusedItem) bool { return closed(item.WorkItemID) })
+		return len(current.Items) != before
+	})
+}
+
+// change applies one change under the lock and writes the record where it
+// changed anything. Almost every call changes nothing, so that is found out
+// first, without the lock. The record of named epics is read again under it, so
+// a refusal decided before the operator's act is not kept after it.
+func change(stateRoot string, product domain.ProductID, apply func(current *Refusals, record epicscope.Record, readable bool) bool) error {
+	changes := func(strict bool) (Refusals, bool, error) {
+		current, err := readRefusals(stateRoot, product, strict)
+		if err != nil {
+			return Refusals{}, false, err
 		}
+		record, err := epicscope.Read(stateRoot, product)
+		return current, apply(&current, record, err == nil), nil
+	}
+	if _, changed, err := changes(false); err != nil || !changed {
+		return err
 	}
 	root, err := runstate.PinStateRoot(stateRoot)
 	if err != nil {
@@ -127,49 +180,86 @@ func Note(stateRoot string, product domain.ProductID, start Start, decision Deci
 		return fmt.Errorf("lock the record of what was not started: %w", err)
 	}
 	defer release()
-	current, err := readRefusals(root.Path(), product, true)
-	if err != nil {
+	current, changed, err := changes(true)
+	if err != nil || !changed {
 		return err
-	}
-	if !current.note(start, decision, at) {
-		return nil
 	}
 	return writeRefusals(pinned, current)
 }
 
 // note applies one answer, and reports whether it changed anything.
 func (r *Refusals) note(start Start, decision Decision, at time.Time) bool {
-	refused := decision.Answer == MayNot
 	changed := false
 	switch start.what {
 	case workItemRun, documentRun:
-		for _, id := range start.items {
-			index := slices.IndexFunc(r.Items, func(item RefusedItem) bool { return item.WorkItemID == id })
-			switch {
-			case refused && index < 0 && beads.ValidIssueID(id):
-				r.Items = append(r.Items, RefusedItem{WorkItemID: id, Path: start.path, Since: at.UTC()})
-				changed = true
+		if decision.MayStart() {
+			before := len(r.Items)
 			// A document may start for one of the items it answers, which says
 			// nothing about a run of the others.
-			case !refused && index >= 0 && (start.what == workItemRun || r.Items[index].Path == start.path):
-				r.Items = slices.Delete(r.Items, index, index+1)
+			r.Items = slices.DeleteFunc(r.Items, func(item RefusedItem) bool {
+				return slices.Contains(start.items, item.WorkItemID) && (start.what == workItemRun || item.Path == start.path)
+			})
+			return len(r.Items) != before
+		}
+		for _, id := range start.items {
+			if !beads.ValidIssueID(id) || start.path == "" {
+				continue
+			}
+			index := slices.IndexFunc(r.Items, func(item RefusedItem) bool { return item.WorkItemID == id && item.Path == start.path })
+			if index < 0 {
+				r.Items = append(r.Items, RefusedItem{WorkItemID: id, Path: start.path, Why: decision.Why, Since: at.UTC(), Last: at.UTC()})
+				changed = true
+				continue
+			}
+			if entry := &r.Items[index]; entry.Why != decision.Why || at.Sub(entry.Last) >= refusedAgainAfter {
+				entry.Why, entry.Last = decision.Why, at.UTC()
 				changed = true
 			}
 		}
 	case rolePass:
 		index := slices.IndexFunc(r.Passes, func(passes RefusedPasses) bool { return passes.Role == start.role })
 		switch {
-		case refused && index < 0:
-			r.Passes = append(r.Passes, RefusedPasses{Role: start.role, Count: 1, Since: at.UTC()})
-			changed = true
-		case refused:
+		case !decision.MayStart() && index >= 0:
 			r.Passes[index].Count++
 			changed = true
-		case index >= 0:
+		case !decision.MayStart() && start.role != "":
+			r.Passes = append(r.Passes, RefusedPasses{Role: start.role, Count: 1, Since: at.UTC()})
+			changed = true
+		case decision.MayStart() && index >= 0:
 			r.Passes = slices.Delete(r.Passes, index, index+1)
 			changed = true
 		}
 	}
+	return changed
+}
+
+// settle takes away each refusal of what the record now lets start, and reports
+// whether there was one. One made while the record could not be read is given
+// the reason the record now gives.
+func (r *Refusals) settle(record epicscope.Record) bool {
+	changed := false
+	kept := make([]RefusedItem, 0, len(r.Items))
+	for _, item := range r.Items {
+		start := Run(item.Path, item.WorkItemID)
+		if item.Path.starts() == startsDocument {
+			start = DocumentRun(item.Path, item.WorkItemID)
+		}
+		now := decide(record, start)
+		if now.MayStart() {
+			changed = true
+			continue
+		}
+		if now.Answer == MayNot && now.Why != item.Why {
+			item.Why, changed = now.Why, true
+		}
+		kept = append(kept, item)
+	}
+	r.Items = kept
+	r.Passes = slices.DeleteFunc(r.Passes, func(passes RefusedPasses) bool {
+		allowed := decide(record, Pass(RecurringPass, passes.Role)).MayStart()
+		changed = changed || allowed
+		return allowed
+	})
 	return changed
 }
 

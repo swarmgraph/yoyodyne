@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -326,6 +327,9 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// from before any of them did.
 	closedWithItem, listingCut, closedErr := closeEntriesOfClosedItems(ctx, parts, closedListing)
 	err = errors.Join(err, closedErr)
+	// A refused start of an item that has closed no longer holds, whichever
+	// process closed it.
+	err = errors.Join(err, clearRefusalsOfClosedItems(ctx, parts, closedListing))
 	// A step that could not read which work items are closed is reported to the
 	// development manager the first time, with what the tracker said, rather than
 	// left in the pass's record until the pass has failed three times in a row.
@@ -709,6 +713,29 @@ func sweepClosedItems(ctx context.Context, docketer orchestrator.Docketer, track
 	}
 	closed, err := docketer.SettleClosedItems(orchestrator.ClosedItemReasons(read.items, "a reconcile sweep"))
 	return closed, read.cut, err
+}
+
+// clearRefusalsOfClosedItems takes away the starts refused because of the named
+// epics whose item the tracker holds as closed. Where none was refused the
+// tracker is not asked.
+func clearRefusalsOfClosedItems(ctx context.Context, parts components, tracker itemLister) error {
+	refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
+	if err != nil || len(refusals.Items) == 0 {
+		return err
+	}
+	var named []string
+	for _, item := range refusals.Items {
+		named = append(named, item.WorkItemID)
+	}
+	read, err := readDocketItems(ctx, tracker, "closed", named)
+	if err != nil {
+		return &orchestrator.ClosedItemsUnread{Need: "take away the refused starts of closed items", Err: err}
+	}
+	closed := make(map[string]bool, len(read.items))
+	for _, item := range read.items {
+		closed[item.ID] = true
+	}
+	return maystart.ItemsClosed(parts.stateRoot, parts.config.Product.ID, func(item string) bool { return closed[item] })
 }
 
 // sweepSupervision takes one voice-less pass of the management loop. A product

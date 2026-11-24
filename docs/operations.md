@@ -1826,30 +1826,37 @@ waits for a person to merge it, up to date, taking up the checks of a run that
 stopped because GitHub refused the harness's login, publishing a document, a
 role's pass, the review of unmet goals and the reading of outside messages.
 
-A refused start of the run that resolves a conflict in the team's branch, or of
-the run that brings in a pinned outside file, is not recorded for `yoyo status`
-yet. On the other starts that ask, one refused because its item is outside is
-recorded there where that record can be written; one that could not be recorded
-says so in its reason. A start refused because the named epics could not be read
-is not recorded there.
+Each start that asks and is refused is recorded, and so is one refused because
+the named epics could not be read. There is one entry for each item and way of
+starting it, in `not-started.json` in the product's state directory: the reason,
+when it was first refused, and when it was last refused, which is brought up to
+date at most every ten minutes while the reason stays the same. Recording one
+spends nothing, and it is not a report. An entry is taken away when the item
+starts, when it may start because you added it, when epic mode is turned off,
+and, after the item closes, by the next [`yoyo reconcile`](#recovering-interrupted-runs).
+A refusal that could not be recorded is still a refusal: it says so in its
+reason, and the failure is printed on standard error.
 
-Otherwise `yoyo status` says the mode under its four lines, and `yoyo status
---json` carries the same under `standing.epics`. With epic mode on it also says:
+For a product that has named one, `yoyo status` says the mode under its four
+lines, and `yoyo status --json` carries the same under `standing.epics`. With
+epic mode on it also says:
 
+- how many ways of starting work do not ask yet, where there are any;
 - each open epic, with how many of its recorded items are done, running, ready
   and waiting;
 - how many ready items are outside every open epic, with when the first of them
   was refused a start where one was, and how many role passes were not started,
   since when;
 - each problem: a run stopped before its next step because its item is outside,
-  an item that waits for one outside, and a start that was refused. The last two
-  give the `yoyo epic add` command that adds the item, where an epic is open to
-  add it to. Where several are and the item is below none of them, the command
-  for each is given. The first ten problems are printed, with how many more
-  there are, and the JSON carries all of them.
+  an item that waits for one outside, and each item refused a start, with each
+  way it was refused, why, and when first and last. The last two give the `yoyo
+  epic add` command that adds the item, where an epic is open to add it to. Where
+  several are and the item is below none of them, the command for each is given.
+  The first ten problems are printed, with how many more there are, and the JSON
+  carries all of them.
 
-A record of the named epics that cannot be read is said there with the reason. It
-is never taken for no record.
+A record of the named epics that cannot be read is said there with the reason and
+the starts refused. It is never taken for no record.
 
 ## Where a finding that needs your hand goes
 
