@@ -536,7 +536,9 @@ in the repository the run works in. It is outside the working tree so it is not
 untracked content in anybody's checkout, and every
 worktree of one repository shares it — so a run's own execution probe and the
 checks the harness then applies to its change compile against one cache rather
-than two. `internal/execution/gocache.go` names that path without creating it.
+than two. `internal/execution/gocache.go` names that path without creating it,
+and the supervisor holds the folder under `execution.build_cache_limit_gib`
+([the design](designs/shared-build-cache-size.md)).
 
 Sharing one cache saves work only where the cache's entries do not name the
 folder they were compiled in. Go keys a package's entry on its absolute source

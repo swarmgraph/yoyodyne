@@ -350,6 +350,16 @@ func (e Execution) BuildMoveEvery() time.Duration {
 	return e.BuildMoveInterval.Duration()
 }
 
+// BuildCacheLimitBytes is execution.build_cache_limit_gib in bytes, with zero
+// read as the default the way ForgeCheckEvery reads it.
+func (e Execution) BuildCacheLimitBytes() int64 {
+	limit := e.BuildCacheLimitGiB
+	if limit <= 0 {
+		limit = DefaultBuildCacheLimitGiB
+	}
+	return int64(limit) << 30
+}
+
 // MainCheckEvery is execution.main_check_interval, with zero read as the
 // default the way ForgeCheckEvery reads it.
 func (e Execution) MainCheckEvery() time.Duration {
@@ -534,6 +544,13 @@ type Execution struct {
 	// MaxBuildMoveInterval when the configuration is read. Zero, which a
 	// configuration built in code rather than loaded carries, is the default.
 	BuildMoveInterval Duration `yaml:"build_move_interval" json:"build_move_interval"`
+	// BuildCacheLimitGiB is the size the build cache the harness names for every
+	// run is held to: past it, the oldest files in the folder are removed until
+	// it is at 80% of this (docs/designs/shared-build-cache-size.md). Held
+	// between MinBuildCacheLimitGiB and MaxBuildCacheLimitGiB when the
+	// configuration is read. Zero, which a configuration built in code rather
+	// than loaded carries, is the default.
+	BuildCacheLimitGiB int `yaml:"build_cache_limit_gib" json:"build_cache_limit_gib"`
 	// FactoryStallAfter is how long the product may go with no work pulled and
 	// no recurring pass succeeding before the harness says the factory has
 	// stalled: a critical report filed once when it begins, a note when passes
@@ -824,6 +841,11 @@ const (
 	DefaultBuildMoveInterval = Duration(3 * time.Hour)
 	MinBuildMoveInterval     = Duration(time.Hour)
 	MaxBuildMoveInterval     = Duration(24 * time.Hour)
+	// The shared build cache's size limit and its bounds, as ruled in
+	// docs/designs/shared-build-cache-size.md.
+	DefaultBuildCacheLimitGiB = 40
+	MinBuildCacheLimitGiB     = 5
+	MaxBuildCacheLimitGiB     = 1000
 	// defaultFactoryStallAfter is two hours: twice the development manager's
 	// hourly sweep, so one failed pass is not a stall and two in a row with
 	// nothing pulled between them is.
@@ -1502,6 +1524,10 @@ func (c Config) Validate() error {
 	// configuration built in code, which is never validated with this key unset.
 	if c.Execution.BuildMoveInterval < MinBuildMoveInterval || c.Execution.BuildMoveInterval > MaxBuildMoveInterval {
 		problems = append(problems, fmt.Sprintf("execution.build_move_interval is %s, and the least time between two moves onto a new build must be at least one hour and at most twenty-four hours", time.Duration(c.Execution.BuildMoveInterval)))
+	}
+	// Zero is refused too, as it is for build_move_interval above.
+	if c.Execution.BuildCacheLimitGiB < MinBuildCacheLimitGiB || c.Execution.BuildCacheLimitGiB > MaxBuildCacheLimitGiB {
+		problems = append(problems, fmt.Sprintf("execution.build_cache_limit_gib is %d, and the limit on the shared build cache must be at least %d and at most %d GiB", c.Execution.BuildCacheLimitGiB, MinBuildCacheLimitGiB, MaxBuildCacheLimitGiB))
 	}
 	// Zero is a configuration assembled without the key, which reads the
 	// default; only a negative limit describes nothing anybody could mean.

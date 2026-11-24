@@ -148,6 +148,7 @@ type executionDocument struct {
 	MainCheckInterval                      *Duration `yaml:"main_check_interval"`
 	RedeployDrainLimit                     *Duration `yaml:"redeploy_drain_limit"`
 	BuildMoveInterval                      *Duration `yaml:"build_move_interval"`
+	BuildCacheLimitGiB                     *int      `yaml:"build_cache_limit_gib"`
 	FactoryStallAfter                      *Duration `yaml:"factory_stall_after"`
 	CouldNotRunBeforeStatus                *int      `yaml:"could_not_run_before_status"`
 	UsageWindowDegradedPercent             *int      `yaml:"usage_window_degraded_percent"`
