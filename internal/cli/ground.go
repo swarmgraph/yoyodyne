@@ -1182,6 +1182,7 @@ func feedbackRepairerFrom(parts components) orchestrator.TeamFeedbackRepairer {
 		},
 		Budget:   feedbackRepairBudget{store: parts.store.Triage(), caps: orchestrator.TriageCaps(parts.config.Execution, parts.config.Triage)},
 		Intake:   parts.intake,
+		MayStart: parts.mayStart(),
 		Gates:    parts.store,
 		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
 		Start: func(ctx context.Context, workItemID string, selection runstate.Selection) (orchestrator.Outcome, error) {
