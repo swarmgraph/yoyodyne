@@ -56,7 +56,10 @@ func (e epicRecords) NotStarted() (maystart.Refusals, error) {
 type Epics struct {
 	// Mode is empty where the record of named epics could not be read.
 	Mode epicscope.Mode `json:"mode,omitempty"`
-	Open []OpenEpic     `json:"open,omitempty"`
+	// WaysNotAsking is how many ways of starting work do not ask about the named
+	// epics yet, so epic mode does not hold them out.
+	WaysNotAsking int        `json:"ways_not_asking,omitempty"`
+	Open          []OpenEpic `json:"open,omitempty"`
 	// ItemsHeldOut is how many ready items are not a member of an open epic, and
 	// ItemsHeldOutSince when the first of them was refused a start, where one was.
 	ItemsHeldOut      int        `json:"items_held_out"`
@@ -65,6 +68,9 @@ type Epics struct {
 	// PassesNotStartedSince when the first of them was.
 	PassesNotStarted      int        `json:"passes_not_started"`
 	PassesNotStartedSince *time.Time `json:"passes_not_started_since,omitempty"`
+	// Refused is each start that was refused and not made since, one for each
+	// item and way of starting it.
+	Refused []maystart.RefusedItem `json:"refused,omitempty"`
 	// Problems is each problem in full, one line each: the runs that stopped,
 	// then the members that wait, then the starts that were refused.
 	Problems []string `json:"problems,omitempty"`
@@ -92,8 +98,21 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	}
 	record, err := sources.Epics.Named()
 	if err != nil {
-		return &Epics{Problems: []string{fmt.Sprintf("Nothing new is starting: the record of the epics you named could not be read (%s).",
+		epics := &Epics{Problems: []string{fmt.Sprintf("Every start that asks about the epics you named is refused: the record of them could not be read (%s).",
 			singleLine(err.Error(), maxEpicReasonBytes))}}
+		facts := epicFacts{items: make(map[string]beads.WorkItem, len(listed)), readable: sources.Tracker != nil && listedErr == nil, running: map[string]bool{}}
+		for _, item := range listed {
+			facts.items[item.ID] = item
+		}
+		refusals, err := sources.Epics.NotStarted()
+		if err != nil {
+			epics.NotStartedProblem = singleLine(err.Error(), maxEpicReasonBytes)
+		}
+		for _, run := range standing.Running {
+			facts.running[run.WorkItemID] = true
+		}
+		epics.refuse(facts, refusals, nil)
+		return epics
 	}
 	if len(record.Epics) == 0 {
 		return nil
@@ -101,6 +120,11 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	epics := &Epics{Mode: record.Mode}
 	if !record.On() {
 		return epics
+	}
+	for _, path := range maystart.Paths() {
+		if !path.Wired {
+			epics.WaysNotAsking++
+		}
 	}
 	for _, problem := range []string{standing.RunningProblem, standing.NotStartableProblem} {
 		epics.ItemsProblem = joinProblems(epics.ItemsProblem, problem)
@@ -149,7 +173,9 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	}
 	refusedSince := map[string]time.Time{}
 	for _, refused := range refusals.Items {
-		refusedSince[refused.WorkItemID] = refused.Since
+		if since, known := refusedSince[refused.WorkItemID]; !known || refused.Since.Before(since) {
+			refusedSince[refused.WorkItemID] = refused.Since
+		}
 	}
 	for id := range facts.ready {
 		// An epic is carried out by its members and is not work of its own.
@@ -177,16 +203,43 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 		}
 	}
 	epics.Problems = append(epics.Problems, facts.waitsOutside()...)
+	epics.refuse(facts, refusals, stopped)
+	return epics
+}
+
+// refuse says each refused start, one line for each item. The run that stopped
+// is already said, and an item that is running, is finished or has joined since
+// was not left unstarted.
+func (e *Epics) refuse(facts epicFacts, refusals maystart.Refusals, stopped map[string]bool) {
+	var order []string
+	byItem := map[string][]maystart.RefusedItem{}
 	for _, refused := range refusals.Items {
 		id := refused.WorkItemID
-		// The run that stopped is already said, and an item that is running, is
-		// finished or has joined since was not left unstarted.
 		if stopped[id] || facts.running[id] || facts.inside(id) || facts.isOpenEpic(id) || facts.done(id) || facts.gone(id) {
 			continue
 		}
-		epics.Problems = append(epics.Problems, fmt.Sprintf("Not started: %s is not in an epic you named.%s", facts.name(id, ""), facts.toAdd(id)))
+		if byItem[id] == nil {
+			order = append(order, id)
+		}
+		byItem[id] = append(byItem[id], refused)
+		e.Refused = append(e.Refused, refused)
 	}
-	return epics
+	says := map[maystart.Path]string{}
+	for _, path := range maystart.Paths() {
+		says[path.Path] = path.Says
+	}
+	for _, id := range order {
+		var ways []string
+		for _, refused := range byItem[id] {
+			way := says[refused.Path]
+			if way == "" {
+				way = string(refused.Path)
+			}
+			ways = append(ways, fmt.Sprintf("%s (refused since %s, last at %s: %s)", way, localMoment(refused.Since), localMoment(refused.Last),
+				singleLine(strings.ReplaceAll(refused.Why, id, "it"), maxEpicReasonBytes)))
+		}
+		e.Problems = append(e.Problems, fmt.Sprintf("Not started: %s, by %s.%s", facts.name(id, ""), strings.Join(ways, "; "), facts.toAdd(id)))
+	}
 }
 
 // epicFacts is what the epic lines are worked out from.
@@ -327,7 +380,11 @@ func (s Standing) RenderEpics() string {
 	var rendered strings.Builder
 	switch e.Mode {
 	case epicscope.ModeEpic:
-		rendered.WriteString("Mode: epic mode; only work in the epics you named starts\n")
+		if e.WaysNotAsking == 0 {
+			rendered.WriteString("Mode: epic mode; only work in the epics you named starts\n")
+		} else {
+			fmt.Fprintf(&rendered, "Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and %s of starting work do not ask yet\n", count(e.WaysNotAsking, "way"))
+		}
 	case epicscope.ModeGoal:
 		rendered.WriteString("Mode: goal mode; epic mode is off\n")
 	default:
@@ -357,6 +414,9 @@ func (s Standing) RenderEpics() string {
 		}
 	}
 	listed, further := bound(len(e.Problems))
+	if e.Mode == "" && e.NotStartedProblem != "" {
+		fmt.Fprintf(&rendered, "%swhat was not started could not be read: %s\n", partialRead, e.NotStartedProblem)
+	}
 	for _, problem := range e.Problems[:listed] {
 		fmt.Fprintf(&rendered, "  %s\n", problem)
 	}

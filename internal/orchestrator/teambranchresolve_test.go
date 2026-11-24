@@ -304,7 +304,7 @@ func TestARunOutsideTheNamedEpicsIsNotStartedOnAConflict(t *testing.T) {
 
 	f, _, _ := conflictFixture(t)
 	f.developer = writeIn("", "app.txt", "one\nstaging and team two\nthree\n")
-	decide, add := epicMode(t, blockedMember)
+	decide, add, refused := epicModeKept(t, blockedMember)
 	var asked []maystart.Start
 	unreadable := false
 	f.pipeline.MayStart = func(start maystart.Start) maystart.Decision {
@@ -335,6 +335,7 @@ func TestARunOutsideTheNamedEpicsIsNotStartedOnAConflict(t *testing.T) {
 		t.Fatal("the refusal moved the target or told the development manager")
 	}
 
+	refused(maystart.ResolveConflict, "yoyodyne-task")
 	unreadable = false
 	add("yoyodyne-task")
 	if outcome := f.update(); outcome.Landed == "" {

@@ -36,6 +36,7 @@ type epicCommand struct {
 	jsonOutput     bool
 	words          string
 	product        domain.ProductID
+	stateRoot      string
 }
 
 type epicOutput struct {
@@ -112,7 +113,7 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	if err != nil {
 		return c.fail(err)
 	}
-	c.product = resolved.Config.Product.ID
+	c.product, c.stateRoot = resolved.Config.Product.ID, stateRoot
 	if verb == "list" {
 		return c.list(ctx, stateRoot)
 	}
@@ -194,6 +195,7 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 			}
 		}
 	}
+	c.settle()
 	if c.jsonOutput {
 		return writeJSON(c.stdout, c.stderr, output)
 	}
@@ -245,6 +247,7 @@ func (c epicCommand) add(ctx context.Context, operator *epicscope.Operator, epic
 	if err != nil {
 		return c.refused(titles, err, epic, item)
 	}
+	c.settle()
 	if c.jsonOutput {
 		return writeJSON(c.stdout, c.stderr, epicOutput{Record: &record})
 	}
@@ -275,6 +278,7 @@ func (c epicCommand) off(ctx context.Context, operator *epicscope.Operator) int 
 	if err != nil {
 		return c.fail(err)
 	}
+	c.settle()
 	if c.jsonOutput {
 		return writeJSON(c.stdout, c.stderr, epicOutput{Record: &record})
 	}
@@ -336,6 +340,14 @@ func (c epicCommand) list(ctx context.Context, stateRoot string) int {
 
 func printIndented(writer io.Writer, heading, text string) {
 	fmt.Fprintf(writer, "  %s\n    %s\n", heading, strings.ReplaceAll(strings.TrimSpace(text), "\n", "\n    "))
+}
+
+// settle takes away the refused starts the act just made lets go ahead. The act
+// stands where it fails: the next start that is asked about takes them away.
+func (c epicCommand) settle() {
+	if err := maystart.Settle(c.stateRoot, c.product); err != nil {
+		fmt.Fprintf(c.stderr, "the record of starts refused because of the named epics was not updated: %v\n", err)
+	}
 }
 
 // items is every work item of the tracker, closed ones included.

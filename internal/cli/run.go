@@ -234,22 +234,25 @@ type roots struct {
 
 // mayStart asks the one decision on what may start under the epics the operator
 // named, of this product's record, and keeps the answer where `yoyo status`
-// reads what was not started. A refusal that could not be kept is still a
-// refusal, and says so. What the run that resolves a conflict and the run that
-// brings a file in were answered is not kept.
+// reads what was not started. An answer that could not be kept is the same
+// answer, and is said on standard error once, because a path may drop the
+// refusal's own words.
 func (c components) mayStart() orchestrator.StartDecision {
 	return func(start maystart.Start) maystart.Decision {
-		decision := maystart.Decide(c.stateRoot, c.config.Product.ID, start)
-		if start.Path() == maystart.ResolveConflict || start.Path() == maystart.BringInFile {
-			return decision
-		}
-		err := maystart.Note(c.stateRoot, c.config.Product.ID, start, decision, time.Now())
-		if err != nil && decision.Answer == maystart.MayNot {
-			decision.Why += fmt.Sprintf(" (and this refusal could not be recorded for yoyo status: %v)", err)
+		decision := maystart.Ask(c.stateRoot, c.config.Product.ID, start, time.Now())
+		if decision.NotKept != nil {
+			said := fmt.Sprintf("the record of starts refused because of the named epics was not updated: %v", decision.NotKept)
+			if _, already := saidNotKept.LoadOrStore(said, true); !already {
+				fmt.Fprintln(os.Stderr, said)
+			}
 		}
 		return decision
 	}
 }
+
+// saidNotKept is each failure this process has said, since every poll meets the
+// same one again.
+var saidNotKept sync.Map
 
 // resolveRoots resolves the three from the configuration. It is separate from
 // the components because a surface that reads without acting — `yoyo status`,
