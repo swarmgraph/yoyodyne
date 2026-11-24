@@ -89,6 +89,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -230,17 +231,17 @@ func (t Trigger) instanceNames() []string {
 	return names
 }
 
-// pass considers one instance for a pass at this pull, and claims it where the
-// schedule is due or an armed wake has settled. It reports whether a pass was
-// claimed, with the turns to take where there are any; an error is something
+// pass considers one instance for a pass at this pull, and finds it due where
+// the schedule is due or an armed wake has settled. It claims nothing: what it
+// returns claims the pass, once it may start. An error is something
 // that stopped the instance being considered at all, said beside the pull rather
 // than recorded as a pass. The due time is when the pass fell due, where the
 // caller knows, and it rides the pass's record.
-func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentConfig, outage runstate.ProviderOutage, away bool, dueAt time.Time) (claimedFiring, bool, error) {
+func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentConfig, outage runstate.ProviderOutage, away bool, dueAt time.Time) (passDue, error) {
 	triggers := instance.Triggers
 	request, requested, requestProblem := t.openRequest(agent)
 	if !triggers.Defined() && !requested {
-		return claimedFiring{}, false, requestProblem
+		return passDue{}, requestProblem
 	}
 	// A pass that was claimed and never ended is recorded as missed before the
 	// next one is claimed over it.
@@ -248,7 +249,7 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 	now := t.now()
 	wake, err := t.readWake(ctx, agent, triggers, now)
 	if err != nil {
-		return claimedFiring{}, false, errors.Join(unfinished, err)
+		return passDue{}, errors.Join(unfinished, err)
 	}
 	readProblem := unfinished
 	if len(wake.problems) > 0 {
@@ -258,33 +259,48 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 		return t.requestedPass(ctx, agent, instance, request, wake, outage, away, now, unfinished, readProblem)
 	}
 
-	var claimed runstate.SweepClaim
 	due := false
+	start := maystart.Pass(maystart.RecurringPass, domain.RoleProgramManager).OfAgent(agent)
 	if every := triggers.Every.Duration(); every > 0 {
-		claimed, err = t.Claims.Claim(ctx, agent, every, now)
-		switch {
-		case err == nil:
-			due = true
-		case errors.Is(err, runstate.ErrSweepNotDue):
-		default:
-			return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the scheduled pass of the program manager instance %s: %w", agent, err))
+		fell, owed, err := t.scheduleDue(agent, every)
+		if err != nil {
+			return passDue{}, errors.Join(readProblem, fmt.Errorf("claim the scheduled pass of the program manager instance %s: %w", agent, err))
 		}
+		due, start = owed, start.Due(scheduleSource(agent), fell)
 	}
 	if !due {
 		if !wake.armed() || !wake.settled(now) || away {
-			return claimedFiring{}, false, readProblem
+			return passDue{}, readProblem
 		}
 		last, fired, err := t.Claims.Find(agent)
 		if err != nil {
-			return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("read when the program manager instance %s last passed: %w", agent, err))
+			return passDue{}, errors.Join(readProblem, fmt.Errorf("read when the program manager instance %s last passed: %w", agent, err))
 		}
 		if fired && now.Before(last.FiredAt.Add(config.MinRecurringInterval)) {
-			return claimedFiring{}, false, readProblem
+			return passDue{}, readProblem
 		}
-		claimed, err = t.Claims.Summon(ctx, agent, now)
+		start = maystart.Pass(maystart.PromptedPass, domain.RoleProgramManager).OfAgent(agent).Due("events", eventDue(wake.events[0]))
+	}
+	return passDue{start: start, unasked: away, claim: func(ctx context.Context) (claimedFiring, bool, error) {
+		return t.claimPass(ctx, agent, instance, outage, away, dueAt, due, wake, now, unfinished)
+	}}, readProblem
+}
+
+// claimPass claims the pass found due: by its schedule, or by its events.
+func (t Trigger) claimPass(ctx context.Context, agent string, instance config.AgentConfig, outage runstate.ProviderOutage, away bool, dueAt time.Time, due bool, wake passWake, now time.Time, unfinished error) (claimedFiring, bool, error) {
+	triggers := instance.Triggers
+	var claimed runstate.SweepClaim
+	var err error
+	if due {
+		claimed, err = t.Claims.Claim(ctx, agent, triggers.Every.Duration(), now)
+		if errors.Is(err, runstate.ErrSweepNotDue) {
+			return claimedFiring{}, false, nil
+		}
 		if err != nil {
-			return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the pass of the program manager instance %s: %w", agent, err))
+			return claimedFiring{}, false, fmt.Errorf("claim the scheduled pass of the program manager instance %s: %w", agent, err)
 		}
+	} else if claimed, err = t.Claims.Summon(ctx, agent, now); err != nil {
+		return claimedFiring{}, false, fmt.Errorf("claim the pass of the program manager instance %s: %w", agent, err)
 	}
 
 	// The triggers' own model, where they name one, is asked for by the passes
@@ -370,7 +386,7 @@ func (t Trigger) openRequest(agent string) (runstate.PassRequest, bool, error) {
 // closes it, so a failure is not retried pull after pull. A provider answering
 // nobody leaves the request open with that recorded as what it waits on, and
 // claims nothing.
-func (t Trigger) requestedPass(ctx context.Context, agent string, instance config.AgentConfig, request runstate.PassRequest, wake passWake, outage runstate.ProviderOutage, away bool, now time.Time, unfinished, readProblem error) (claimedFiring, bool, error) {
+func (t Trigger) requestedPass(ctx context.Context, agent string, instance config.AgentConfig, request runstate.PassRequest, wake passWake, outage runstate.ProviderOutage, away bool, now time.Time, unfinished, readProblem error) (passDue, error) {
 	if away {
 		// Said from the outage's cause and start rather than its whole sentence,
 		// which counts refusals, so a long outage is one wait on the request
@@ -380,7 +396,7 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 		if _, err := t.Requests.Wait(agent, request.ID, reason, now); err != nil {
 			readProblem = errors.Join(readProblem, fmt.Errorf("record what the pass request %s of %s waits on: %w", request.ID, agent, err))
 		}
-		return claimedFiring{}, false, readProblem
+		return passDue{}, readProblem
 	}
 	// A request already taken whose instance has a turn in flight is being
 	// carried by another process's pass, and is not taken a second time; where
@@ -388,12 +404,22 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 	// again.
 	if request.TakenAt != nil && t.Conversations != nil {
 		if busy, err := t.Conversations.InFlight(agent); err == nil && busy {
-			return claimedFiring{}, false, readProblem
+			return passDue{}, readProblem
 		}
 	}
+	return passDue{
+		start: maystart.Pass(maystart.PromptedPass, domain.RoleProgramManager).OfAgent(agent).Due("request", request.ID),
+		claim: func(ctx context.Context) (claimedFiring, bool, error) {
+			return t.claimRequestedPass(ctx, agent, instance, request, wake, now, unfinished)
+		},
+	}, readProblem
+}
+
+// claimRequestedPass claims the pass a request asks for and records it taken.
+func (t Trigger) claimRequestedPass(ctx context.Context, agent string, instance config.AgentConfig, request runstate.PassRequest, wake passWake, now time.Time, unfinished error) (claimedFiring, bool, error) {
 	claimed, err := t.Claims.Summon(ctx, agent, now)
 	if err != nil {
-		return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the requested pass of the program manager instance %s: %w", agent, err))
+		return claimedFiring{}, false, fmt.Errorf("claim the requested pass of the program manager instance %s: %w", agent, err)
 	}
 	// No model is named: the triggers did not start this pass, so it asks for
 	// the agent's own model even where the triggers name one.

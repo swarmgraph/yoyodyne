@@ -48,8 +48,8 @@ type Refusals struct {
 	// Items is one entry for each work item and path, from its first refusal
 	// until the item may start, closes, or epic mode ends.
 	Items []RefusedItem `json:"items,omitempty"`
-	// Passes is one entry for each role, from its first refusal until a pass of
-	// that role may start.
+	// Passes is one entry for each role, agent and path, from its first refusal
+	// until a pass of that role may start.
 	Passes []RefusedPasses `json:"passes,omitempty"`
 }
 
@@ -65,11 +65,20 @@ type RefusedItem struct {
 	Last  time.Time `json:"last"`
 }
 
-// RefusedPasses is how many passes of a role were refused.
+// RefusedPasses is how many passes of a role were refused by one path. An entry
+// with no path was written before paths were kept, and counts for its whole role.
 type RefusedPasses struct {
-	Role  domain.AgentRole `json:"role"`
-	Count int              `json:"count"`
-	Since time.Time        `json:"since"`
+	Role domain.AgentRole `json:"role"`
+	// Agent is the program manager instance, and empty for every other role.
+	Agent string `json:"agent,omitempty"`
+	Path  Path   `json:"path,omitempty"`
+	// Why is the reason last given.
+	Why   string    `json:"why,omitempty"`
+	Count int       `json:"count"`
+	Since time.Time `json:"since"`
+	// Counted is, for each thing that can start the pass, the last time it came
+	// due that was counted. The same one is not counted again.
+	Counted map[string]string `json:"counted,omitempty"`
 }
 
 // Validate refuses a record this build cannot speak for.
@@ -109,8 +118,8 @@ func Ask(stateRoot string, product domain.ProductID, start Start, at time.Time) 
 
 // Note records what Decide answered about a start, and takes away every refusal
 // that no longer holds. A refusal already recorded for the same item and path is
-// updated. A pass is noted once each time it came due, because each call counts
-// one.
+// updated. A pass is counted once each time it came due (Start.Due), and every
+// refusal of a role is taken away when a pass of that role may start.
 //
 // The review of unmet goals and the reading of outside messages are not role
 // passes and name no work item, so nothing is kept about them.
@@ -217,17 +226,35 @@ func (r *Refusals) note(start Start, decision Decision, at time.Time) bool {
 			}
 		}
 	case rolePass:
-		index := slices.IndexFunc(r.Passes, func(passes RefusedPasses) bool { return passes.Role == start.role })
-		switch {
-		case !decision.MayStart() && index >= 0:
-			r.Passes[index].Count++
+		if decision.MayStart() {
+			before := len(r.Passes)
+			r.Passes = slices.DeleteFunc(r.Passes, func(passes RefusedPasses) bool { return passes.Role == start.role })
+			return len(r.Passes) != before
+		}
+		if start.role == "" {
+			return false
+		}
+		index := slices.IndexFunc(r.Passes, func(passes RefusedPasses) bool {
+			return passes.Role == start.role && passes.Agent == start.agent && passes.Path == start.path
+		})
+		if index < 0 {
+			index = len(r.Passes)
+			r.Passes = append(r.Passes, RefusedPasses{Role: start.role, Agent: start.agent, Path: start.path, Since: at.UTC()})
+		}
+		entry := &r.Passes[index]
+		last, counted := entry.Counted[start.source]
+		if start.source == "" || !counted || last != start.due {
+			entry.Count++
+			if start.source != "" {
+				if entry.Counted == nil {
+					entry.Counted = map[string]string{}
+				}
+				entry.Counted[start.source] = start.due
+			}
 			changed = true
-		case !decision.MayStart() && start.role != "":
-			r.Passes = append(r.Passes, RefusedPasses{Role: start.role, Count: 1, Since: at.UTC()})
-			changed = true
-		case decision.MayStart() && index >= 0:
-			r.Passes = slices.Delete(r.Passes, index, index+1)
-			changed = true
+		}
+		if entry.Why != decision.Why {
+			entry.Why, changed = decision.Why, true
 		}
 	}
 	return changed

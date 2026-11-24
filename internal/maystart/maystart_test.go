@@ -234,7 +234,8 @@ func TestTheClosedListOfPaths(t *testing.T) {
 	}
 	wired := map[Path]bool{
 		ReadyWork: true, NamedRun: true, HoldTest: true, DecidedRerun: true, DecidedRepair: true, FeedbackRepair: true,
-		ResolveConflict: true, BringInFile: true,
+		ResolveConflict: true, BringInFile: true, BringUpToDate: true,
+		RecurringPass: true, PromptedPass: true, UnmetGoalReview: true, MessagesForWork: true,
 	}
 
 	got := Paths()

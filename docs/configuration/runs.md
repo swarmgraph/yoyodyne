@@ -891,7 +891,8 @@ other item: the scheduler leaves it in the queue, a fresh run or repair the
 development manager decided keeps its decision and spends nothing, a repair
 asked for on a pull request is left for the next check, a run decided on to
 resolve a conflict with the team's branch waits with its round unspent, a pinned
-outside file is passed over, and a run you name is refused with the command that
+outside file is passed over, the attempt to repair a change the merge queue
+handed back stays owed, and a run you name is refused with the command that
 adds the item to an open epic. Adding the item, or turning epic mode off, lets
 the same start go ahead. Being in a named epic lifts
 no other check: a member held for its design still waits for it. Other starts do

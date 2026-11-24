@@ -47,6 +47,10 @@ type Start struct {
 	what  what
 	items []string
 	role  domain.AgentRole
+	// agent, source and due are said of a role's pass only; see OfAgent and Due.
+	agent  string
+	source string
+	due    string
 }
 
 // Path is the way it is about to start, and empty for what is on no path.
@@ -80,6 +84,21 @@ func DocumentRun(path Path, answers ...string) Start {
 // Pass is a role's pass that nobody is talking to the role in.
 func Pass(path Path, role domain.AgentRole) Start {
 	return Start{path: path, what: rolePass, role: role}
+}
+
+// OfAgent is a pass of one agent of its role: a program manager instance. Every
+// other role's pass names none.
+func (s Start) OfAgent(agent string) Start {
+	s.agent = agent
+	return s
+}
+
+// Due says what the pass came due for, so that a refusal of it is counted once
+// however often it is asked about: source is what can start it, and due names
+// this one time that source did. A pass that says neither is counted every time.
+func (s Start) Due(source, due string) Start {
+	s.source, s.due = source, due
+	return s
 }
 
 // GoalReview is the review of unmet goals.
