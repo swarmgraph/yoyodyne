@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 const namedEpic, blockedMember = "yoyodyne-9k1y", "yoyodyne-9k1y.1"
@@ -277,9 +278,7 @@ func TestADecidedFreshRunOutsideTheNamedEpicsKeepsItsClaim(t *testing.T) {
 	}
 	refused(maystart.DecidedRerun, docketedItem)
 	before, beforeItem := rerunBudget(t, harness), harness.item
-	if _, err := carrying.RecordUnattempted(context.Background(), 0, nil); err != nil {
-		t.Fatal(err)
-	}
+	recordedAsWaitingOnTheEpics(t, carrying, harness.runs)
 	carried, _, err := carrying.Carry(context.Background(), task)
 	if err != nil || carried.Carried || !carried.Waiting || carried.Gate != runstate.TriageGateNamedEpics || carried.RecordProblem != "" {
 		t.Fatalf("carried = %#v, %v; want a wait on the named epics", carried, err)
@@ -297,6 +296,88 @@ func TestADecidedFreshRunOutsideTheNamedEpicsKeepsItsClaim(t *testing.T) {
 
 	add(docketedItem)
 	carried, _, err = carrying.Carry(context.Background(), theOneOutstanding(t, carrying))
+	if err != nil || !carried.Carried || len(harness.started) != 1 {
+		t.Fatalf("carried = %#v, %v with %d started; want the same decision carried out", carried, err, len(harness.started))
+	}
+}
+
+// recordedAsWaitingOnTheEpics has the pass write down the decision it did not
+// offer, within the poll interval, and checks the record says it waits for the
+// named epics: not refused, not unattempted, and still standing.
+func recordedAsWaitingOnTheEpics(t *testing.T, carrying CarryOut, store *runstate.Store) {
+	t.Helper()
+	written, err := carrying.RecordUnattempted(context.Background(), 365*24*time.Hour, nil)
+	if err != nil || len(written) != 1 || written[0].Gate != runstate.TriageGateNamedEpics || strings.Contains(written[0].Problem, "has not been attempted") {
+		t.Fatalf("written = %#v, %v; want the wait on the named epics written down at once", written, err)
+	}
+	if again, err := carrying.RecordUnattempted(context.Background(), 0, nil); err != nil || len(again) != 0 {
+		t.Fatalf("written again = %#v, %v; want the same wait written once", again, err)
+	}
+	counters, err := store.Triage().Counters(docketedItem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding, found := counters.CarryOutOf(docketedRunID)
+	if !found || !finding.WaitsOnNamedEpics() || !strings.Contains(finding.Refusal, "is not in an open epic the operator named") ||
+		!strings.Contains(finding.Describe(), "waits because the epics the operator named do not let its item start") {
+		t.Fatalf("finding = %#v, want it waiting because its item is outside the named epics", finding)
+	}
+	if refused, unattempted := counters.CarryOutFindings(); refused != 0 || unattempted != 0 {
+		t.Fatalf("findings = %d refused, %d unattempted; want the wait counted as neither", refused, unattempted)
+	}
+	if standing := counters.Standing(docketedRunID); !triage.WaitingOnNamedEpics(standing) || !triage.DecisionStands(standing) {
+		t.Fatalf("standing = %#v, want the decision standing and waiting on the named epics", standing)
+	}
+}
+
+// A decision held back by the named epics replaces what an earlier attempt met,
+// and is carried out once epic mode is turned off; a decision the pass then does
+// not reach stops naming the epics.
+func TestADecisionOutsideTheNamedEpicsIsCarriedOutOnceEpicModeIsOff(t *testing.T) {
+	t.Parallel()
+	harness := newRerunHarness(t, stoppedState())
+	root := t.TempDir()
+	operator, err := epicscope.ForOperator(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operator.Start(epicscope.Naming{Epic: namedEpic, From: "terminal", Members: []string{blockedMember}}, baseTime); err != nil {
+		t.Fatal(err)
+	}
+	decide := StartDecision(func(start maystart.Start) maystart.Decision {
+		return maystart.Ask(root, "yoyodyne", start, baseTime)
+	})
+	rerunner := harness.rerunner()
+	rerunner.MayStart = decide
+	carrying := harness.carryOutAt(time.Minute)
+	carrying.Rerunner, carrying.Notes = rerunner, harness
+	if _, err := harness.intake.Hold(runstate.IntakeHolderOperator, "held", docketedNow); err != nil {
+		t.Fatal(err)
+	}
+	if carried, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil || carried.Gate != runstate.TriageGateIntakeHold {
+		t.Fatalf("carried = %#v, %v; want it waiting on the hold", carried, err)
+	}
+	if _, _, err := harness.intake.Release(); err != nil {
+		t.Fatal(err)
+	}
+	carrying.MayStart = decide
+	recordedAsWaitingOnTheEpics(t, carrying, harness.runs)
+
+	if _, err := operator.TurnOff(); err != nil {
+		t.Fatal(err)
+	}
+	task := theOneOutstanding(t, carrying)
+	if _, err := carrying.RecordUnattempted(context.Background(), 0, map[string]string{docketedRunID: "no slot"}); err != nil {
+		t.Fatal(err)
+	}
+	counters, err := harness.runs.Triage().Counters(docketedItem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finding, _ := counters.CarryOutOf(docketedRunID); finding.Gate != runstate.TriageGateCapacity {
+		t.Fatalf("finding = %#v, want it to name what holds the decision now", finding)
+	}
+	carried, _, err := carrying.Carry(context.Background(), task)
 	if err != nil || !carried.Carried || len(harness.started) != 1 {
 		t.Fatalf("carried = %#v, %v with %d started; want the same decision carried out", carried, err, len(harness.started))
 	}
@@ -338,6 +419,7 @@ func TestADecidedRepairOutsideTheNamedEpicsKeepsItsGrant(t *testing.T) {
 		t.Fatalf("outstanding = %#v, %v; want the decision held back", outstanding, err)
 	}
 	refused(maystart.DecidedRepair, docketedItem)
+	recordedAsWaitingOnTheEpics(t, carrying, harness.runs)
 	before, stopped, notes := harness.spent(t), harness.reload(t), harness.tracker.Notes
 	carried, _, err := carrying.Carry(context.Background(), task)
 	if err != nil || carried.Carried || !carried.Waiting || carried.Gate != runstate.TriageGateNamedEpics {

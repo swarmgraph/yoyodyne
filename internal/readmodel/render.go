@@ -744,6 +744,9 @@ func (s Standing) heldSplit() string {
 	if s.AwaitingWork > 0 {
 		split += fmt.Sprintf("; %d %s admitted work the development manager decided to wait for", s.AwaitingWork, awaits(s.AwaitingWork))
 	}
+	if s.AwaitingNamedEpics > 0 {
+		split += fmt.Sprintf("; %d %s the epics the operator named letting the item start, with the decision already recorded", s.AwaitingNamedEpics, awaits(s.AwaitingNamedEpics))
+	}
 	if s.CarryOutsRefused > 0 || s.CarryOutsUnattempted > 0 {
 		split += fmt.Sprintf("; decisions not carried out: %d refused, %d unattempted", s.CarryOutsRefused, s.CarryOutsUnattempted)
 	}

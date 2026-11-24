@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // A stoppage the development manager decided to wait on named work for is not
@@ -316,6 +317,42 @@ func TestARerunWaitingOnAParkedItemIsNotCountedAsOwedByTheHarness(t *testing.T) 
 	released := backlog.Order([]beads.WorkItem{parked}, nil, holds, nil).Entries[0]
 	if !released.AwaitingCarryOut || released.AwaitingUnparking {
 		t.Fatalf("entry = %#v, want the decision the harness's to carry out once the item is unparked", released)
+	}
+}
+
+// A decision waiting for the named epics holds its item and is counted apart
+// from the decisions the harness carries out at its next pull, with the harness
+// still the one that moves.
+func TestADecisionWaitingOnTheNamedEpicsIsCountedApart(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
+	run := preservedRun("run-008b0e25", "yoyodyne-outside", stopped)
+	run.Blocker = "a check failed"
+	counters := runstate.TriageCounters{WorkItemID: run.WorkItemID, Reruns: 1,
+		Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRerun, RunID: run.RunID, DecidedAt: stopped.Add(time.Minute)}},
+		CarryOuts: []runstate.TriageCarryOut{{Decision: runstate.TriageDecisionRerun, RunID: run.RunID, Gate: runstate.TriageGateNamedEpics, Unattempted: true, RefusedAt: stopped.Add(time.Hour)}}}
+	recorded := func(string) (runstate.TriageCounters, string) { return counters, "" }
+	gone := func(runstate.State) triage.Found { return triage.Found{} }
+	for name, look := range map[string]Look{"change kept": asRecorded, "nothing left": gone} {
+		hold := heldReasons([]runstate.State{run}, nil, recorded, nil, look)[run.WorkItemID]
+		if !hold.Decided || !hold.WaitsOnNamedEpics || !strings.Contains(hold.Reason, awaitingNamedEpicsClause) {
+			t.Fatalf("%s: hold = %#v, want it waiting on the named epics", name, hold)
+		}
+		item := beads.WorkItem{ID: run.WorkItemID, Title: "outside", Status: "open"}
+		entry := backlog.Order([]beads.WorkItem{item}, nil, backlog.ReadHolds(map[string]backlog.Hold{item.ID: hold}), nil).Entries[0]
+		work := heldWork{}
+		work.count(entry)
+		if entry.Ready || work.awaitingNamedEpics != 1 || work.awaitingCarryOut != 0 || work.awaitingDecision != 0 {
+			t.Fatalf("%s: entry = %#v, counted %#v", name, entry, work)
+		}
+		groups := newWaitGroups(Stall{}, switches{})
+		if group := groups.shape(entry, entry.HoldKind()); group.Awaiting != HeldAwaitingNamedEpics || group.Mover != MoverHarness {
+			t.Fatalf("%s: group = %#v, want a group of its own with the harness moving next", name, group)
+		}
+		if split := (Standing{AwaitingNamedEpics: 1}).heldSplit(); !strings.Contains(split, "1 awaits the epics the operator named") || strings.Contains(split, "not carried out") {
+			t.Fatalf("heldSplit() = %q", split)
+		}
 	}
 }
 

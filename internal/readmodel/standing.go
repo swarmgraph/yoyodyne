@@ -819,6 +819,10 @@ type Refused struct {
 	// (backlog.Hold.WaitsOnParking). Empty for every other entry, a parked item
 	// nobody has decided about included.
 	AwaitingUnparking string `json:"awaiting_unparking,omitempty"`
+	// AwaitingNamedEpics reports an item whose hold is a recorded decision that
+	// waits for the epics the operator named to let the item start
+	// (backlog.Hold.WaitsOnNamedEpics).
+	AwaitingNamedEpics bool `json:"awaiting_named_epics,omitempty"`
 }
 
 // WorkItemRef names one admitted work item, by id and title, for a surface that
@@ -1105,6 +1109,10 @@ type Standing struct {
 	// AwaitingDecision; what moves next is that work landing, after which each is
 	// back on her docket and counted as awaiting a decision again.
 	AwaitingWork int `json:"awaiting_work"`
+	// AwaitingNamedEpics is the held stoppages with a decision recorded whose
+	// item the epics the operator named do not let start. They are not in
+	// AwaitingCarryOut: nothing pulls them until the item may start.
+	AwaitingNamedEpics int `json:"awaiting_named_epics,omitempty"`
 	// CarryOutsRefused and CarryOutsUnattempted count, over the same held items,
 	// the recorded decisions the harness has not carried out, by what became of
 	// them: a gate refused the attempt, or no pass attempted it at all. They are
@@ -1315,6 +1323,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.AwaitingDecision = waits.awaitingDecision
 	standing.AwaitingCarryOut = waits.awaitingCarryOut
 	standing.AwaitingWork = waits.awaitingWork
+	standing.AwaitingNamedEpics = waits.awaitingNamedEpics
 	standing.CarryOutsRefused = waits.carryOutsRefused
 	standing.CarryOutsUnattempted = waits.carryOutsUnattempted
 	standing.Startable = len(waits.startable)
@@ -2375,6 +2384,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 				held.RunID = entry.AwaitingRun
 				held.MergeQueued = entry.AwaitingMergeQueue
 				held.MergeQueueHandedBack = entry.MergeQueueHandedBack
+				held.AwaitingNamedEpics = entry.AwaitingNamedEpics
 			}
 			refused = append(refused, held)
 			groups.add(entry, kind)
@@ -2477,6 +2487,8 @@ type heldWork struct {
 	awaitingDecision int
 	awaitingCarryOut int
 	awaitingWork     int
+	// awaitingNamedEpics is Standing.AwaitingNamedEpics.
+	awaitingNamedEpics int
 	// unfinished is the work items a decision to wait may still be waiting on.
 	unfinished map[string]bool
 	// startable is the other side of the same count: the entries nothing
@@ -2521,6 +2533,8 @@ func (h *heldWork) countCarryOuts(decisions Decisions, entry backlog.Entry) {
 func (h *heldWork) count(entry backlog.Entry) {
 	switch held, carryOut := entry.Awaits(); {
 	case !held:
+	case entry.AwaitingNamedEpics:
+		h.awaitingNamedEpics++
 	case carryOut:
 		h.awaitingCarryOut++
 	case waitingOnWork(entry, h.unfinished):
@@ -2795,6 +2809,7 @@ func readAlsoHeld(ctx context.Context, sources Sources, holds backlog.Holds, ref
 		if hold.WaitsOnParking {
 			entry.AwaitingUnparking = item.Parking.Reason()
 		}
+		entry.AwaitingNamedEpics = hold.WaitsOnNamedEpics
 		if !hold.Since.IsZero() {
 			since := hold.Since
 			entry.HeldSince = &since

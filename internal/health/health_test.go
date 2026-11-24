@@ -1142,3 +1142,46 @@ func TestARerunWaitingOnTheUnparkingIsAWaitAndNotActionable(t *testing.T) {
 		}
 	}
 }
+
+// Nor is a decided re-run waiting for the named epics to let its item start.
+func TestARerunWaitingOnTheNamedEpicsIsAWaitAndNotActionable(t *testing.T) {
+	t.Parallel()
+
+	const runID = "run-0123456789abcdef0123456789abcdef"
+	for _, status := range []string{"open", "in_progress"} {
+		completed := observedAt.Add(-time.Hour)
+		state := run(runID, "yoyodyne-waits")
+		state.Status, state.CompletedAt, state.UpdatedAt = runstate.StatusFailed, &completed, completed
+		state.Branch, state.WorktreePath = "yoyodyne/waits", "/state/worktrees/waits"
+		state.Blocker = "a check failed"
+		decided := observedAt.Add(-30 * time.Minute)
+		counters := runstate.TriageCounters{WorkItemID: "yoyodyne-waits", Reruns: 1,
+			Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRerun, RunID: runID, DecidedAt: decided}},
+			CarryOuts: []runstate.TriageCarryOut{{Decision: runstate.TriageDecisionRerun, RunID: runID, Gate: runstate.TriageGateNamedEpics, Unattempted: true, Refusal: "outside", Clears: "adding it", RefusedAt: observedAt}}}
+		observer, _ := whole(t)
+		services := observer.standing(context.Background()).Services
+		sources := readmodel.Sources{Runs: fakeRuns{}, Stoppages: stoppedRuns{state}, Decisions: parkedDecisions{"yoyodyne-waits": counters},
+			Tracker:  trackerOf{status: {{ID: "yoyodyne-waits", Title: "waits", Status: status}}},
+			Capacity: 2, Now: func() time.Time { return observedAt }}
+		observer.Standing = func(ctx context.Context) readmodel.Standing {
+			standing := readmodel.ReadStanding(ctx, sources)
+			standing.Services = services
+			return standing
+		}
+		observation := observer.Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+		found := 0
+		for _, anomaly := range observation.Anomalies {
+			if anomaly.WorkItem != "yoyodyne-waits" {
+				continue
+			}
+			found++
+			if anomaly.Classification != ClassWait || anomaly.Actionable || anomaly.Owner != ownership.MoverHarness ||
+				!strings.Contains(anomaly.Needs, "the epics the operator named do not let the item start") {
+				t.Fatalf("%s: anomaly = %+v, want a wait on the named epics", status, anomaly)
+			}
+		}
+		if found != 1 {
+			t.Fatalf("%s: found %d conditions, want 1: %+v", status, found, observation.Anomalies)
+		}
+	}
+}

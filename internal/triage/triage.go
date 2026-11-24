@@ -829,6 +829,11 @@ type Standing struct {
 	// meanwhile, and nothing is the development manager's to decide: the next
 	// move is whoever parked the item.
 	WaitsOnParking bool `json:"waits_on_parking,omitempty"`
+	// WaitsOnNamedEpics is the harness having found that the epics the operator
+	// named do not let this decision's item start, and left the decision standing
+	// to be carried out once they do. The harness still moves next
+	// (AwaitingCarryOut); only what it waits for differs.
+	WaitsOnNamedEpics bool `json:"waits_on_named_epics,omitempty"`
 	// CarriedOut is a repair decided about this run having been carried out on
 	// it, so the run stopped again since. The later stop is not decided by it:
 	// Decided, GrantOutstanding and Refused are all false beside it, and the
@@ -911,6 +916,12 @@ func DecisionStands(standing Standing) bool {
 // unparked, by the rules above.
 func WaitingOnParking(standing Standing) bool {
 	return standing.WaitsOnParking && DecisionStands(standing)
+}
+
+// WaitingOnNamedEpics reports a decision that stands and waits for the epics
+// the operator named to let its item start, by the rules above.
+func WaitingOnNamedEpics(standing Standing) bool {
+	return standing.WaitsOnNamedEpics && DecisionStands(standing)
 }
 
 // AwaitingCarryOut reports a decision standing about this entry's own stoppage
@@ -1236,6 +1247,11 @@ func (c Closure) Describe() string {
 // harness's own record names it as runstate.TriageGateParked.
 const ParkedGate = "the work item being parked"
 
+// NamedEpicsGate is the reason a carry-out records where a decision waits
+// because the epics the operator named do not let its item start. The harness's
+// own record names it as runstate.TriageGateNamedEpics.
+const NamedEpicsGate = "the epics the operator named"
+
 // CarryOutCause names a refusal no later attempt of the same decision can clear.
 // Empty means the refusal may be retried at the ordinary paced interval.
 type CarryOutCause string
@@ -1339,6 +1355,10 @@ type CarryOut struct {
 // WaitsOnParking reports a decision that waits for its item to be unparked,
 // which asks nothing of the development manager.
 func (c CarryOut) WaitsOnParking() bool { return c.Gate == ParkedGate && c.Cause == "" }
+
+// WaitsOnNamedEpics reports a decision that waits for the epics the operator
+// named to let its item start, which asks nothing of the development manager.
+func (c CarryOut) WaitsOnNamedEpics() bool { return c.Gate == NamedEpicsGate && c.Cause == "" }
 
 // waitedSays is when the decision was made and how long it had stood by the
 // finding, or nothing where the decision's time is not known.
@@ -2621,6 +2641,9 @@ func (e Entry) nextMover() string {
 	if WaitingOnParking(e.Counters.Standing) {
 		return "      Next mover: whoever parked the item — " + gone + "a decision about this stoppage is recorded and waits for the item to be unparked, as the carry-out below says; the harness carries it out by itself once it is, so nothing here needs a decision.\n"
 	}
+	if WaitingOnNamedEpics(e.Counters.Standing) {
+		return "      Next mover: the harness — " + gone + "a decision about this stoppage is recorded and waits because the epics the operator named do not let its item start now, as the carry-out below says; the harness carries it out by itself once they do, so nothing here needs a decision.\n"
+	}
 	if e.Counters.AwaitingCarryOut() {
 		return "      Next mover: the harness — " + gone + "a decision about this stoppage is already recorded and has not been carried out, so what is outstanding is the carry-out rather than a decision.\n"
 	}
@@ -2838,6 +2861,13 @@ func (e Entry) renderCarryOut() string {
 			stopped.Decision, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
 		rendered.WriteString(indented("What it is waiting for", stopped.Clears))
 		rendered.WriteString("      Nothing was spent and the decision still stands; the first pass after the item is unparked carries it out.\n")
+		return rendered.String()
+	}
+	if stopped.WaitsOnNamedEpics() {
+		fmt.Fprintf(&rendered, "      The %q you decided waits because the epics the operator named do not let its item start, as the harness found at %s: %s\n",
+			stopped.Decision, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
+		rendered.WriteString(indented("What it is waiting for", stopped.Clears))
+		rendered.WriteString("      Nothing was spent and the decision still stands; the first pass after the item may start carries it out.\n")
 		return rendered.String()
 	}
 	if stopped.Unattempted {

@@ -273,7 +273,7 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 	}
 	// The docket asks the same shared rule of the same run and ledger.
 	standing := counters.StandingOf(run)
-	reading := decidedStanding{carryOut: triage.AwaitingCarryOut(standing), parked: triage.WaitingOnParking(standing), decided: standing.Decided, carriedOut: standing.CarriedOut, problem: problem}
+	reading := decidedStanding{carryOut: triage.AwaitingCarryOut(standing), parked: triage.WaitingOnParking(standing), namedEpics: triage.WaitingOnNamedEpics(standing), decided: standing.Decided, carriedOut: standing.CarriedOut, problem: problem}
 	// A refusal of a repair since carried out is about a decision that no
 	// longer stands over the run, so it does not hold the later stop.
 	if refused, found := counters.RefusedCarryOut(run.RunID); found && !standing.CarriedOut {
@@ -301,6 +301,10 @@ type decidedStanding struct {
 	// is not pulled fresh beside the decision once it is unparked, and says that
 	// the next move is whoever parked it.
 	parked bool
+	// namedEpics is a decision that waits for the epics the operator named to let
+	// its item start (triage.WaitingOnNamedEpics). carryOut is true beside it: it
+	// holds the item the same way, and says what the harness waits for.
+	namedEpics bool
 	// decided is a decision standing about the run's current stoppage, and
 	// carriedOut a repair decided about it carried out since, which leaves the
 	// current stoppage undecided (runstate's StandingOf).
@@ -392,6 +396,9 @@ const (
 	// item to be unparked: the next move is whoever parked it, and the harness
 	// carries the decision out by itself once they have.
 	awaitingUnparkingClause = "the development manager has already decided what happens to it, and that decision waits for the item to be unparked; once whoever parked it releases it, the harness carries the decision out by itself"
+	// awaitingNamedEpicsClause closes the hold of a decision that waits for the
+	// named epics to let its item start.
+	awaitingNamedEpicsClause = "the development manager has already decided what happens to it, and that decision waits because the epics the operator named do not let the item start now; once they do, the harness carries the decision out by itself"
 	// awaitingWorkClause closes the hold of a stoppage the development manager
 	// decided to wait on named work for; %s is that work item. It is the words
 	// endWaits replaces once that work is closed, or where nothing could say
@@ -427,6 +434,8 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 		return backlog.Hold{Reason: account + "; " + rerunCarriedOut(*reading.rerunBy, reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
 	case reading.parked:
 		return backlog.Hold{Reason: account + "; " + awaitingUnparkingClause, Decided: true, WaitsOnParking: true, Since: since, RunID: runID}
+	case reading.carryOut && reading.namedEpics:
+		return backlog.Hold{Reason: account + "; " + awaitingNamedEpicsClause, Decided: true, WaitsOnNamedEpics: true, Since: since, RunID: runID}
 	case reading.carryOut:
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	case reading.waitsOn != "":
@@ -831,7 +840,7 @@ func stoppageHold(run, latest runstate.State, decided standing, found triage.Fou
 	if preserved && !reading.carryOut && !reading.parked && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
 		return backlog.Hold{Reason: preservedChange(run, found) + "; " + opens + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
-	if !preserved && reading.rerun && reading.carryOut && !reading.parked && reading.problem == "" {
+	if !preserved && reading.rerun && reading.carryOut && !reading.namedEpics && !reading.parked && reading.problem == "" {
 		return backlog.Hold{Reason: freshRerun(run), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
 	if !preserved {
