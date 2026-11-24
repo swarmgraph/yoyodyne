@@ -80,6 +80,34 @@ func TestAReleaseThatReturnsTheEntryIsNotRecordedAsLanded(t *testing.T) {
 	}
 }
 
+// "set-aside" sets the entry aside rather than handing it back or recording it
+// as landed.
+func TestASetAsideReachesTheQueueAsASetAside(t *testing.T) {
+	t.Parallel()
+
+	heads := &fakeQueueHeads{}
+	action := strings.Replace(queueLandedAction, `"decision":"landed"`, `"decision":"set-aside"`, 1)
+	reply := triageSend(t, queueHeadOptions(t, heads, action))
+	if len(reply.Actions) != 1 || !reply.Actions[0].Applied || len(heads.releases) != 1 ||
+		!heads.releases[0].SetAside || heads.releases[0].Landed {
+		t.Fatalf("actions = %#v, releases %#v; want one release that sets the entry aside", reply.Actions, heads.releases)
+	}
+}
+
+// "readmit" asks the queue to put a set-aside entry's change back, not to
+// release anything.
+func TestAReadmitReachesTheQueueAsAReadmission(t *testing.T) {
+	t.Parallel()
+
+	heads := &fakeQueueHeads{}
+	action := strings.Replace(queueLandedAction, `"decision":"landed"`, `"decision":"readmit"`, 1)
+	reply := triageSend(t, queueHeadOptions(t, heads, action))
+	if len(reply.Actions) != 1 || !reply.Actions[0].Applied || len(heads.releases) != 1 ||
+		!heads.releases[0].Readmit || heads.releases[0].Landed || heads.releases[0].SetAside {
+		t.Fatalf("actions = %#v, releases %#v; want one readmission", reply.Actions, heads.releases)
+	}
+}
+
 // A release is refused whole where it names no entry or an unknown decision,
 // where nothing can reach the queue, and where the queue refuses it, and in
 // each case nothing is said to have been done.

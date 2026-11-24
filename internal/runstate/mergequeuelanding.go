@@ -612,12 +612,22 @@ type MergeQueueHandback struct {
 	// for the development manager, and the queue goes on to the entries behind
 	// it. SetAsideAt is when that was decided; the two are set together, and
 	// never beside HandedBackAt.
+	//
+	// The development manager can also set aside the entry the queue is
+	// stopped on, whatever stopped it (orchestrator's ReleaseHead). SetAsideBy
+	// then names who decided it, and SetAside is her reason; it is empty for a
+	// set-aside the queue made itself. Such a set-aside writes nothing to the
+	// run's record: the run keeps its approved commit and its approval, and is
+	// put on her list of stopped runs instead. DocketedAt is when that was done,
+	// and is set only beside SetAsideBy.
 	SetAside   string     `json:"set_aside,omitempty"`
 	SetAsideAt *time.Time `json:"set_aside_at,omitempty"`
+	SetAsideBy string     `json:"set_aside_by,omitempty"`
+	DocketedAt *time.Time `json:"docketed_at,omitempty"`
 }
 
-// IsSetAside reports a handback its run's record refused, kept for the
-// development manager rather than given to the run.
+// IsSetAside reports a handback kept for the development manager rather than
+// given to its run: one its run's record refused, or one she set aside.
 func (h MergeQueueHandback) IsSetAside() bool {
 	return h.SetAsideAt != nil
 }
@@ -629,6 +639,12 @@ func (h MergeQueueHandback) IsSetAside() bool {
 // was set aside.
 func (h MergeQueueHandback) AwaitsDevelopmentManager() bool {
 	return h.Continuation.Reported() || h.IsSetAside()
+}
+
+// DecidedSetAside reports an entry somebody set aside by a decision, rather
+// than one the queue set aside because its run's record refused the hand-back.
+func (h MergeQueueHandback) DecidedSetAside() bool {
+	return h.SetAsideAt != nil && h.SetAsideBy != ""
 }
 
 // MergeQueueConflict is an approved head that would not merge onto the target
@@ -711,6 +727,15 @@ func (h MergeQueueHandback) validate() []error {
 	}
 	if err := mergeQueueText("the reason a handback was set aside", h.SetAside, false); err != nil {
 		problems = append(problems, err)
+	}
+	if err := mergeQueueText("who set a handback aside", h.SetAsideBy, false); err != nil {
+		problems = append(problems, err)
+	}
+	switch {
+	case h.SetAsideBy != "" && h.SetAsideAt == nil:
+		problems = append(problems, errors.New("a handback names who set it aside only where it was set aside"))
+	case h.DocketedAt != nil && (h.SetAsideBy == "" || h.DocketedAt.IsZero()):
+		problems = append(problems, errors.New("only an entry somebody set aside is put on the development manager's list for being set aside"))
 	}
 	for field, value := range map[string]string{"target base": h.TargetBase, "candidate": h.Candidate, "approved head": h.ApprovedHead} {
 		if (released && value == "" && field != "approved head") || (conflicted && field == "candidate") {
@@ -1252,8 +1277,10 @@ func extendsLanding(recorded, revised MergeQueueLanding) error {
 			return conflict("a handback, once given to its run, is never withdrawn")
 		case was.ReportedAt != nil && !sameTime(was.ReportedAt, now.ReportedAt):
 			return conflict("a handback, once on the docket, is never withdrawn from it")
-		case was.SetAsideAt != nil && (!sameTime(was.SetAsideAt, now.SetAsideAt) || was.SetAside != now.SetAside):
+		case was.SetAsideAt != nil && (!sameTime(was.SetAsideAt, now.SetAsideAt) || was.SetAside != now.SetAside || was.SetAsideBy != now.SetAsideBy):
 			return conflict("a handback, once set aside, is never taken back or rewritten")
+		case was.DocketedAt != nil && !sameTime(was.DocketedAt, now.DocketedAt):
+			return conflict("an entry set aside, once on the development manager's list, is never taken off it")
 		case !sameHandback(*was, *now):
 			return conflict("a handback is never rewritten")
 		}
@@ -1276,6 +1303,7 @@ func sameHandback(a, b MergeQueueHandback) bool {
 	a.Heads, b.Heads, a.HandedBackAt, b.HandedBackAt, a.At, b.At = nil, nil, nil, nil, time.Time{}, time.Time{}
 	a.ReportedAt, b.ReportedAt = nil, nil
 	a.SetAside, b.SetAside, a.SetAsideAt, b.SetAsideAt = "", "", nil, nil
+	a.SetAsideBy, b.SetAsideBy, a.DocketedAt, b.DocketedAt = "", "", nil, nil
 	return reflect.DeepEqual(a, b)
 }
 

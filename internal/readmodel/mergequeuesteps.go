@@ -120,7 +120,7 @@ func setStep(read *QueueEntryStanding, entry runstate.MergeQueueEntry, landing r
 			read.left = handback.At
 		}
 		return
-	case QueueEntryReleased:
+	case QueueEntryReleased, QueueEntrySetAside:
 		if handback := landing.Handback; handback != nil {
 			read.left = handback.At
 		}
@@ -367,7 +367,7 @@ func overdueSteps(queue *MergeQueueStanding, open []QueueEntryStanding, now time
 			continue
 		}
 		switch entry.State {
-		case QueueEntryHandedBack, QueueEntryLanded, QueueEntryReleased:
+		case QueueEntryHandedBack, QueueEntryLanded, QueueEntryReleased, QueueEntrySetAside:
 			continue
 		case QueueEntryWaiting:
 			if index != 0 || strings.HasPrefix(entry.Step, "passed over") {

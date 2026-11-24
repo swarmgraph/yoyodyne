@@ -1308,6 +1308,10 @@ func unreadQueuedChange(run runstate.State, problem error) string {
 // and why the queue handed it back.
 func handedBackChange(run runstate.State, handback runstate.MergeQueueHandback) string {
 	queued := run.MergeQueue
+	if handback.DecidedSetAside() {
+		return fmt.Sprintf("run %s's approved change was entry %d in the merge queue for %s, which landed nothing; %s set it aside: %s",
+			run.RunID, queued.Order, queued.TargetBranch, handback.SetAsideBy, handback.SetAside)
+	}
 	if handback.IsSetAside() {
 		return fmt.Sprintf("run %s's approved change was entry %d in the merge queue for %s, which landed nothing and set it aside: %s; it had come back from the queue because %s",
 			run.RunID, queued.Order, queued.TargetBranch, handback.SetAside, handback.Reason)

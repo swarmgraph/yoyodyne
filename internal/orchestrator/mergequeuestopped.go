@@ -9,9 +9,11 @@ package orchestrator
 // candidate cannot be built, such as one whose approved commit is already on
 // the target. These are the supported ways past it: take the entry up again, so
 // the next pass intends a fresh attempt on the same verified candidate; hand it
-// back to its run with a reason, so the entries behind it go on; or, for the
-// head entry whose approved commit the target already holds, record it as
-// landed outside the queue. None moves a target or pushes anything itself, and
+// back to its run with a reason, so the entries behind it go on; set the head
+// entry aside, writing nothing to its run's record, for one that cannot be
+// handed back; or, for the head entry whose approved commit the target already
+// holds, record it as landed outside the queue. None moves a target or pushes
+// anything itself, and
 // each refuses where something the queue asked for could still land the
 // change.
 
@@ -108,6 +110,10 @@ type MergeQueueRelease struct {
 	// it back, and is refused unless the target already holds its approved
 	// commit.
 	Landed bool
+	// SetAside sets the entry aside rather than handing it back, and writes
+	// nothing to its run's record (setAsideStopped). It is refused beside
+	// Landed.
+	SetAside bool
 	// Reason is why, and By who released it, in words a person reads on the
 	// queue entry and the work item.
 	Reason string
@@ -117,7 +123,10 @@ type MergeQueueRelease struct {
 // ReleaseHead ends the turn of the entry at the head of the queue, for the
 // development manager, whatever stopped it there: a push the remote refused, a
 // push cut off before it was answered, an approved commit already on the
-// target, or a candidate that could not be built. Two things can become of it.
+// target, or a candidate that could not be built. Three things can become of
+// it. Set aside, it leaves the queue with nothing written to its run's record,
+// and its run is put on her list of stopped runs (setAsideStopped); that is
+// the answer for an entry that cannot be handed back, whatever the cause.
 // Handed back, it leaves the queue exactly as HandBack leaves it: with its
 // change kept on its run and the item blocked with the reason, or, where the
 // target shows the change already landed (reachedTarget), as landed. Recorded as
@@ -136,6 +145,9 @@ type MergeQueueRelease struct {
 func (p MergeQueuePromoter) ReleaseHead(ctx context.Context, key runstate.MergeQueueKey, release MergeQueueRelease) (MergeQueuePromotion, error) {
 	if strings.TrimSpace(release.By) == "" {
 		return MergeQueuePromotion{}, errors.New("releasing the head of a merge queue says who released it")
+	}
+	if release.Landed && release.SetAside {
+		return MergeQueuePromotion{}, errors.New("an entry is either recorded as landed or set aside, not both")
 	}
 	why := fmt.Sprintf("released from the head of the queue by %s: %s", strings.TrimSpace(release.By), strings.TrimSpace(release.Reason))
 	q, unlock, err := p.stoppedEntry(ctx, key, release.EntryID, release.Reason)
@@ -163,10 +175,69 @@ func (p MergeQueuePromoter) ReleaseHead(ctx context.Context, key runstate.MergeQ
 	if q.landing.Handback != nil {
 		return refuse("it already left the queue (%s): %s", q.landing.Handback.Continuation, q.landing.Handback.Reason)
 	}
-	if !release.Landed {
+	switch {
+	case release.SetAside:
+		return p.setAsideStopped(ctx, q, refuse, strings.TrimSpace(release.By), strings.TrimSpace(release.Reason))
+	case !release.Landed:
 		return p.handBackStopped(ctx, q, refuse, why)
 	}
 	return p.releaseLandedOutside(ctx, q, refuse, why)
+}
+
+// setAsideStopped sets the head entry aside for the development manager. It
+// is the release for an entry the queue cannot hand back, most often because
+// its run's record refuses what a hand-back writes, so it writes only the
+// queue's own record of the entry: the run keeps its approved commit, its
+// checks and its approval exactly as they stand, and is put on her list of
+// stopped runs with that commit, so she can admit the same change to the queue
+// again rather than have it redone. Whatever the queue asked the forge for is
+// withdrawn first, as a hand-back's is, and the set-aside is refused while
+// that is not confirmed. An entry whose change the target already carries is
+// refused too, because recording it as landed is the answer for that.
+//
+// The entries behind it go on at the queue's next pass. Putting the run on her
+// list is tried again on every pass until it is done (handbackOwed), so a
+// docket or a tracker that cannot be reached delays that and holds up nothing.
+func (p MergeQueuePromoter) setAsideStopped(ctx context.Context, q *queuePromotion, refuse func(string, ...any) (MergeQueuePromotion, error), by, reason string) (MergeQueuePromotion, error) {
+	why := fmt.Sprintf("set aside from the head of the queue by %s: %s", by, reason)
+	if err := q.withdraw(ctx, why); err != nil {
+		return q.result(), err
+	}
+	if q.landing.Completion != nil {
+		return refuse("its change has landed")
+	}
+	if !q.outcome.Withdrawn {
+		return refuse("what the queue asked for is not confirmed withdrawn (%s)",
+			nonEmpty(q.outcome.Unresolved, q.outcome.Refusal, q.outcome.Waiting, "no answer was recorded"))
+	}
+	q.outcome.Refusal, q.outcome.Unresolved, q.outcome.Waiting = "", "", ""
+	if refusal := q.landing.HeadRewriteRefusal(); refusal != "" {
+		return refuse("%s", refusal)
+	}
+	target, head := q.key.TargetBranch, q.entry.ApprovedHead
+	// A target that cannot be read does not refuse the set-aside: it is the
+	// recovery for an entry nothing else gets past, and setting a landed change
+	// aside loses nothing, since the run keeps it and her list shows it.
+	if held, err := p.Lander.TargetHolds(ctx, target, head); err == nil && held {
+		return refuse("%s already carries its approved commit %s, so it has landed; record it as landed instead", target, head)
+	}
+	at := q.now()
+	q.landing.Handback = &runstate.MergeQueueHandback{
+		At: at, Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverDevelopmentManager,
+		Reason: oneline.Fold(fmt.Sprintf("%s; nothing was written to run %s, which keeps its approved commit %s and its approval, and the entries behind it go on",
+			why, q.entry.RunID, head), 1500),
+		ApprovedHead: head,
+		SetAside:     oneline.Fold(reason, 1500), SetAsideAt: &at, SetAsideBy: oneline.Fold(by, 1500),
+	}
+	if err := q.save(); err != nil {
+		q.landing.Handback = nil
+		return q.result(), err
+	}
+	q.outcome.HandedBack = q.landing.Handback
+	// The set-aside stands once it is saved; a list that could not be written
+	// now is written by a later pass, so its failure is not this decision's.
+	_ = q.handBack(ctx)
+	return q.result(), nil
 }
 
 // handBackStopped withdraws whatever the entry's queue asked the forge for and
