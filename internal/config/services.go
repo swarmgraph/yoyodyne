@@ -189,6 +189,12 @@ const (
 	// written under it would share the pass's cadence claim, so one is refused
 	// when the configuration loads.
 	MaintenanceTaskName = "maintenance"
+	// BuildCacheTaskName is the name a trim of the shared build cache taken
+	// outside the maintenance pass is recorded under, and BuildCacheWarningName
+	// the claim that holds its warning to one a day. Both are reserved as
+	// MaintenanceTaskName is.
+	BuildCacheTaskName    = "build-cache"
+	BuildCacheWarningName = "build-cache-warning"
 )
 
 // DashboardService is the dashboard's entry. The bind address and the allowed

@@ -116,8 +116,8 @@ func PassSucceeded(pass runstate.Sweep) bool {
 // FactoryStallOf reads the stall from the run records and the sweep log.
 //
 // The factory is stalled when the later of its last pull and its last
-// successful pass is further back than the limit, and at least one pass has
-// been attempted since then. The attempt is what separates a factory whose
+// successful pass is further back than the limit, and at least one pass that
+// wakes a role has been attempted since then. The attempt is what separates a factory whose
 // passes are failing from one whose recurring tasks are simply switched off
 // over an empty queue: the second is a rest, and a report every few hours about
 // it is one nobody would keep reading. Where nothing has ever succeeded, the
@@ -150,8 +150,11 @@ func FactoryStallOf(runs []runstate.State, passes []runstate.Sweep, paused bool,
 	var earliest time.Time
 	for _, pass := range passes {
 		// A skipped firing is neither a success nor a failure: nothing was new,
-		// so nothing was attempted.
-		if PassSucceeded(pass) || pass.IsSkip() || pass.StartedAt.Before(stall.Since) {
+		// so nothing was attempted. A pass of the harness's own, the maintenance
+		// pass or a build cache trim, takes no turn whatever it came to, so it
+		// says nothing about whether the factory is working; its failures are
+		// raised as their own finding (runstate.PassFailuresOf).
+		if PassSucceeded(pass) || pass.IsSkip() || pass.HarnessPass() || pass.StartedAt.Before(stall.Since) {
 			continue
 		}
 		if earliest.IsZero() || pass.StartedAt.Before(earliest) {

@@ -219,6 +219,13 @@ redirect the first Go command in a run fails at setup with `operation not
 permitted`, which reads as a broken toolchain. A project whose checks are not Go
 is unaffected by a variable its tools never read.
 
+The harness also holds that folder to a size, `execution.build_cache_limit_gib`
+(40 GiB by default; 5 to 1000). At least once an hour, where the folder is over
+the limit, the files in it are removed oldest last change first until it is at
+80% of it. A file changed in the last two hours is never removed, folders and
+the files standing directly in the cache folder are left, and a link is removed
+as a link. [The maintenance pass](../operations.md#the-supervisors-maintenance-pass) says what each trim came to.
+
 On the network, a developer's sandbox permits this much and no more:
 
 - **Claude Code.** Commands may bind a local port, accept connections on it,

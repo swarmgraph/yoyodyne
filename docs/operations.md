@@ -500,7 +500,7 @@ services:
       max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes thirteen steps, in this order, and each is recorded:
+Each pass takes fourteen steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -543,6 +543,16 @@ Each pass takes thirteen steps, in this order, and each is recorded:
   `.git` any more, so after the first pass on a build that carries the move
   the step finds nothing and says so, unless it left a folder for a run still
   going, which the first pass after that run ends removes.
+- **`build-cache`** — the build cache folder the harness names for every run, held
+  under `execution.build_cache_limit_gib`, 40 GiB by default
+  ([the design](designs/shared-build-cache-size.md)). Over the limit, files are
+  removed oldest last change first until the folder is at 80% of it, and the
+  step says the size before and after, how many files were removed, and when. A
+  file changed in the last two hours is never removed, so a folder can still be
+  over its limit after a trim; the development manager is then warned, at most
+  once a day. Where an hour passes without this step, because the pass is off,
+  runs less often, or ran long, the supervisor takes a trim of its own and
+  records it in `yoyo sweeps` under the name `build-cache`.
 - **cleanup** — the work tracker's store in the primary checkout
   cleaned up with `bd gc --skip-decay`, which bd never does on its own. Every
   tracker call opens the whole store, so one nobody cleans up makes every call
@@ -782,9 +792,10 @@ skipped or failed in capitals and saying why:
 carries the failures as its problem and on its cadence's claim, so a pass that
 runs and achieves nothing is findable rather than quiet. The cadence is kept
 under the same claim a recurring task's is, so two supervisors cannot take one
-pass twice, and a recurring task may not be named `maintenance`. A product
-whose maintenance part is off gets none of this: `yoyo reconcile` is then yours
-to schedule, and the supervisor stays on the build it was started from until it
+pass twice, and a recurring task may not be named `maintenance`, `build-cache`,
+or `build-cache-warning`. A product whose maintenance part is off gets none of
+this but the build cache trim, which the supervisor then takes by itself every
+hour: `yoyo reconcile` is yours to schedule, and the supervisor stays on the build it was started from until it
 is restarted.
 
 #### Cutting a decided release
