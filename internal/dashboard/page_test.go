@@ -228,6 +228,13 @@ func TestTheFixturesAreTheReadModelsShape(t *testing.T) {
 				(standing.AdmittedItems != nil && len(standing.AdmittedItems) != standing.Admitted) || (standing.StartableItems != nil && len(standing.StartableItems) != standing.Startable) {
 				t.Fatalf("fixture %s names items the counts do not count: admitted %d over %d, startable %d over %d", name, standing.Admitted, len(standing.AdmittedItems), standing.Startable, len(standing.StartableItems))
 			}
+			// A queued change marked as a problem carries the owner and reason the
+			// read model's registry gives it, so a render shows no other owner.
+			for _, marked := range readmodel.MergeQueueOverdue(standing.MergeQueues) {
+				if overdue := marked.QueueOverdue; overdue.Mover != marked.Mover || overdue.OwnerReason != marked.Ownership.ReasonSays() {
+					t.Fatalf("fixture %s marks entry %s as %q's because %q, and the read model says %q because %q", name, marked.ID, overdue.Mover, overdue.OwnerReason, marked.Mover, marked.Ownership.ReasonSays())
+				}
+			}
 			standings++
 		case strings.HasPrefix(name, "throughput-"):
 			var throughput readmodel.Throughput
@@ -907,6 +914,16 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"4. yoyodyne-ifd.231 Name the target branch in the landing line — uncertain whether it landed, in the harness's own queue — landing attempt 1 asked for moving main onto the candidate",
 			"5. yoyodyne-ifd.232 Keep the reviewer's summary on the card — waiting, in the harness's own queue",
 			"2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, in the harness's own queue — landed on main as 4b825dc642cb, confirmed on the target",
+		},
+		// A queued change the read model marked as a problem, under the owner it
+		// names: a stop that repeats is the development manager's, with the
+		// repetition and the reason; one only a person can clear is the
+		// operator's, with that reason said; and a step past its bound is the
+		// development manager's with no stop to count.
+		"queues-stopped": {
+			"Problem, the development manager's to move: stopped the queue the same way on 3 passes in a row since 2026-09-19 13:57 UTC; it stops because a locked checkout record names a folder that is gone; waiting on somebody finding and clearing",
+			"Problem, the operator's to move, because it takes a credential or account only a person holds: stopped the queue the same way on 4 passes in a row since 2026-09-19 13:56 UTC; it stops because the forge refused the harness's token access; waiting on the step only a person can take",
+			"Problem, the development manager's to move: waiting on the queue's worker beginning to land it",
 		},
 		// Each decision of the owner's on the summary's "Needs your decision" —
 		// a proposed change, a concern, and a document — carries what changes,

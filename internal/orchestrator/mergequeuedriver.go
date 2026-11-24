@@ -35,6 +35,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -219,6 +221,19 @@ func (d MergeQueueDriver) Pass(ctx context.Context, key runstate.MergeQueueKey) 
 	return pass
 }
 
+// stopPersonOnly is the act only a person can take that an error a pass
+// stopped on establishes by its type, and empty for any other error. A forge
+// that refused the harness's token is a credential only a person can give; the
+// pass records it so a stop that repeats is put to the operator for that
+// reason rather than to a role (readmodel's mergequeuesteps.go). Nothing is
+// read off the error's words.
+func stopPersonOnly(err error) ownership.PersonOnlyReason {
+	if errors.Is(err, publish.ErrForgeAccessRefused) {
+		return ownership.PersonCredential
+	}
+	return ""
+}
+
 func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) runstate.MergeQueuePass {
 	landed, handedBack := 0, 0
 	var untidied []string
@@ -270,7 +285,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		if errors.Is(err, ErrMergeQueueWorkerBusy) {
 			return done(runstate.MergeQueuePassWaiting, entry, "another process is working this queue")
 		}
-		return done(runstate.MergeQueuePassStopped, entry, err.Error())
+		pass := done(runstate.MergeQueuePassStopped, entry, err.Error())
+		if pass.Outcome == runstate.MergeQueuePassStopped {
+			pass.PersonOnly = stopPersonOnly(err)
+		}
+		return pass
 	}
 	// An entry whose handback is recorded has already left the line, so a
 	// handback that could not be given to its run holds up nothing behind it:
