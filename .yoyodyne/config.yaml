@@ -115,26 +115,12 @@ services:
     hide_summary: true
 
 execution:
-  # Two developer slots, both preferring cost work, at the operator's direction
-  # of 2026-11-22: "focus on cost items until they're done but i don't want to
-  # prevent merge conflicts from being fixed". Once the cost items needing a
-  # slot are done, this goes to one slot with no preference ("When the last cost
-  # item is done, please remove its dev slot as well").
-  max_concurrent_developers: 2  # both slots prefer cost
-  # docs/configuration.md, "A developer slot that prefers a label", explains
-  # what a preference does and does not change: it selects what a slot pulls
-  # first, and never what it may do.
-  developer_slots:
-    # Both slots prefer cost-labelled work, the work that cuts what the factory
-    # spends. Each takes, in order: work on a change already written (repairs of
-    # what the merge queue hands back among it), then ready cost work ahead of
-    # fresh priority-0 work carrying no cost label, then the ordinary order when
-    # no cost work is ready, so neither sits idle. Only slot 2 is marked
-    # dedicated, which changes how it is named and nothing about its order; the
-    # configuration refuses every slot dedicated.
-    - prefer: [cost]
-    - prefer: [cost]
-      dedicated: true
+  # One developer slot with no preference, at the operator's direction of
+  # 2026-11-23: "Close? We are still burning way too many tokens.", choosing to
+  # go to one slot now rather than after the last cost item lands. It replaces
+  # the two cost-preferring slots of 2026-11-22. Work on a change already
+  # written (a repair the merge queue hands back) still takes the slot first.
+  max_concurrent_developers: 1
   repair_attempts_before_replan: 4
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
