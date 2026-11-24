@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -789,6 +790,49 @@ func TestARoleMayNotHandleAReportAddressedToItAsAMissingCapability(t *testing.T)
 	}
 	if len(reports.handled) != 0 {
 		t.Fatalf("handlings = %#v, want none recorded", reports.handled)
+	}
+}
+
+// The one thing the architect may do that touches a work item is the note a
+// handling leaves on an item it names as covering a request. That note is all
+// the handling writes there: no label, status, or other field, so no handling
+// can take an item's needs-design label off.
+func TestTheArchitectsHandlingWritesOnlyANoteOnACoveringItem(t *testing.T) {
+	t.Parallel()
+
+	authority, _ := AuthorityFor(domain.RoleArchitect)
+	if len(authority.AddressedActions) != 1 || authority.AddressedActions[0] != actionHandle {
+		t.Fatalf("the architect's actions on a report addressed to her = %v, want handling alone", authority.AddressedActions)
+	}
+	const (
+		mine     = "report-00000000000000000000000000000031"
+		covering = "yoyodyne-ifd.150"
+	)
+	reported := collectedReport(mine, report.SeverityWarning, "a report asking for a design", 1)
+	reported.For = domain.RoleArchitect
+	reports := &fakeReports{}
+	seedReports(t, reports, reported)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: trackerReply("Recording it.",
+			`{"action":"handle","report":"`+mine+`","requests":[{"request":"a design","covered_by":"`+covering+`"}],"reason":"the item carries the design"}`)},
+		{SessionID: "session-1", FinalText: "Recorded."},
+	}}
+	tracker := &fakeTracker{items: map[string]beads.WorkItem{covering: {ID: covering, Title: "the design", Status: "open"}}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleArchitect
+	options.Agent = string(domain.RoleArchitect)
+	options.Reports = reports
+	options.Tracker = tracker
+	reply, err := openTestSession(t, options).Send(context.Background(), "deal with what is addressed to you")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if len(reply.Actions) != 1 || !reply.Actions[0].Applied || len(tracker.updates) != 1 {
+		t.Fatalf("actions = %#v, updates = %#v, want the handling recorded and one note", reply.Actions, tracker.updates)
+	}
+	change := tracker.updates[0].change
+	if change.AppendNotes == "" || !reflect.DeepEqual(change, beads.WorkItemChange{AppendNotes: change.AppendNotes}) {
+		t.Fatalf("change = %#v, want a note and nothing else", change)
 	}
 }
 

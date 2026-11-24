@@ -55,17 +55,21 @@ type Authority struct {
 	// persona.
 	Contract string
 	// TrackerActions are the operations on the work tracker this role may ask
-	// for, named by the same constants the actions themselves are. An empty list
-	// is a role that may not touch the tracker at all.
+	// for, named by the same constants the actions themselves are. What a role may
+	// ask for only on a report addressed to it is in AddressedActions instead, and
+	// Actions is the two together.
 	TrackerActions []string
 	// LaneActions are the ones among TrackerActions this role holds only through
 	// a lane-scoped capability, which is the program manager's whole tracker
 	// authority beyond reading. Such an action is permitted on an item inside the
 	// role's own lane and nowhere else.
 	LaneActions []string
-	// AddressedActions are the ones among TrackerActions this role holds only
-	// over reports addressed to it by name: handling, for a role that holds
-	// ReportHandleAddressed and not BacklogAdmit. Such a role is not delivered the
+	// AddressedActions are the operations this role holds only over reports
+	// addressed to it by name: handling, for a role that holds
+	// ReportHandleAddressed and not BacklogAdmit. They are kept apart from
+	// TrackerActions because their subject is a report and never a work item; a
+	// handling's one write to the tracker is a note on each item it names as
+	// covering a request, and it can change no other field of one. Such a role is not delivered the
 	// unaddressed pile, and a handling of a report addressed to anybody else is
 	// refused before anything is written.
 	AddressedActions []string
@@ -183,7 +187,19 @@ type Authority struct {
 
 // MayAct reports whether this role may ask for one tracker action.
 func (a Authority) MayAct(action string) bool {
-	return slices.Contains(a.TrackerActions, action)
+	return slices.Contains(a.TrackerActions, action) || a.AddressedOnly(action)
+}
+
+// Actions is every action this role may ask for in a tracker block, in the order
+// the contract states them, so a refusal names them all.
+func (a Authority) Actions() []string {
+	var permitted []string
+	for _, action := range trackerActionNames {
+		if a.MayAct(action) {
+			permitted = append(permitted, action)
+		}
+	}
+	return permitted
 }
 
 // AddressedOnly reports whether this role may ask for an action only on a
@@ -306,13 +322,13 @@ func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capabi
 	}
 }
 
-// trackerActionsFor is the operations a role may ask for: the ones whose
-// capability it holds, unscoped or lane-scoped, in the order the contract states
-// them, so a refusal names them the way the contract does.
+// trackerActionsFor is the operations on the tracker a role may ask for: the
+// ones whose capability it holds, unscoped or lane-scoped, in the order the
+// contract states them.
 func trackerActionsFor(has func(capability.Capability) bool) []string {
 	var permitted []string
 	for _, action := range trackerActionNames {
-		if has(trackerCapabilities[action]) || holdsLaneScoped(has, action) || holdsAddressed(has, action) {
+		if has(trackerCapabilities[action]) || holdsLaneScoped(has, action) {
 			permitted = append(permitted, action)
 		}
 	}
@@ -538,7 +554,7 @@ func (s *Session) authorize(parsed parsedReply) error {
 	if len(parsed.Actions) == 0 {
 		return nil
 	}
-	if len(authority.TrackerActions) == 0 {
+	if len(authority.Actions()) == 0 {
 		return &AuthorityError{
 			Role:    authority.Role,
 			Refused: "tracker actions",
@@ -554,7 +570,7 @@ func (s *Session) authorize(parsed parsedReply) error {
 			return &AuthorityError{
 				Role:    authority.Role,
 				Refused: fmt.Sprintf("the %q tracker action", action.Action),
-				Reason:  "this role may ask for " + renderActions(authority.TrackerActions),
+				Reason:  "this role may ask for " + renderActions(authority.Actions()),
 			}
 		}
 		// What the block alone shows is outside the lane is refused here, whole;
