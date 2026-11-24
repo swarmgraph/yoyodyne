@@ -1725,7 +1725,10 @@ notes as related, once, and the item stays open; the note says which named
 documents still have no revision. Only the item's title, description, design
 and acceptance criteria are read for names, never its notes. An item that
 names no document the role owns closes on the first such revision, as before,
-and its close reason says no named document was checked. A close you
+and its close reason says no named document was checked. A parked item is
+never closed this way, whatever has landed: the pull names it, saying what it is
+parked for, and it stays open until the Lead Product Manager closes or retires
+it, or releases it, when the next pull closes it. A close you
 disagree with is one you can read and reopen with a note, and the reopen
 holds: the revision the item was closed on is written onto the item, as
 `yoyodyne_landed` in its metadata, before the close, and a pull that finds an

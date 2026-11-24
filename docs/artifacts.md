@@ -200,7 +200,9 @@ item's identifier: `yoyodyne-ifd.330 - side conversations designed`. A reason
 that mentions an item further in is about something else and closes nothing.
 Where the item's text names documents that role owns, by path or identifier,
 it closes only once each of them has such a revision; one in a document it does
-not name is noted on the item and leaves it open. So when the revision is the
+not name is noted on the item and leaves it open. A parked item is left open
+whatever is revised, until the Lead Product Manager closes, retires or releases
+it. So when the revision is the
 landing of a tracked item, write the identifier first, in each document the
 item names, and when it is not, do not. [How work flows](work.md#letting-the-harness-choose-the-work)
 says what the close records and how it is undone: reopening the item with a
