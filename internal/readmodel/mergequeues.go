@@ -79,6 +79,10 @@ const (
 	// withdrawn for something other than a defect, such as a move to the other
 	// queue mode.
 	QueueEntryReleased QueueEntryState = "released"
+	// QueueEntrySetAside is an entry somebody set aside by a decision: it left
+	// the queue with nothing written to its run's record, and its run is on the
+	// development manager's list of stopped runs.
+	QueueEntrySetAside QueueEntryState = "set-aside"
 )
 
 // Label is the state in ordinary words, as `yoyo status` and the dashboard
@@ -112,6 +116,8 @@ func (s QueueEntryState) Label() string {
 		return "handed back"
 	case QueueEntryReleased:
 		return "left the queue"
+	case QueueEntrySetAside:
+		return "set aside"
 	}
 	return string(s)
 }
@@ -227,6 +233,10 @@ type QueueEntryStanding struct {
 	// Landed is the commit a confirmed landing put on the target.
 	Landed     string `json:"landed,omitempty"`
 	Supersedes string `json:"supersedes,omitempty"`
+	// SetAsideBy and SetAsideWhy are who set the entry aside and why, for an
+	// entry somebody set aside by a decision.
+	SetAsideBy  string `json:"set_aside_by,omitempty"`
+	SetAsideWhy string `json:"set_aside_why,omitempty"`
 	// Step is what the queue is doing with the entry now, in ordinary words,
 	// and StepSince when that step began; both are empty for an entry the
 	// queue is done with, and StepSince where no record says when it began
@@ -262,7 +272,7 @@ func (e QueueEntryStanding) StepSays() string {
 // Finished reports an entry the queue is done with.
 func (e QueueEntryStanding) Finished() bool {
 	switch e.State {
-	case QueueEntryLanded, QueueEntryReleased:
+	case QueueEntryLanded, QueueEntryReleased, QueueEntrySetAside:
 		return true
 	}
 	return false
@@ -467,6 +477,16 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 			if handback.HandedBackAt == nil {
 				read.State, read.Why = QueueEntryRecording, handback.Reason+"; recording the landing on the run and the work item is not finished"
 			}
+			return true
+		}
+		if handback.DecidedSetAside() {
+			read.State, read.SetAsideBy, read.SetAsideWhy = QueueEntrySetAside, handback.SetAsideBy, handback.SetAside
+			listed := "is on the development manager's list of stopped runs"
+			if handback.DocketedAt == nil {
+				listed = "is not on the development manager's list of stopped runs yet; the queue's next pass puts it there"
+			}
+			read.Why = fmt.Sprintf("set aside by %s: %s; nothing was written to run %s, which keeps its approved commit %s and its approval, and %s",
+				handback.SetAsideBy, handback.SetAside, read.RunID, shortened(handback.ApprovedHead), listed)
 			return true
 		}
 		defer func() {
