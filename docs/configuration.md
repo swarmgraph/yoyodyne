@@ -3830,7 +3830,8 @@ latest run came to where it did not pass. A check that fails is run once more on
 the same commit, in the same worktree, with the tests and packages its output
 named failing given to it in `YOYODYNE_FAILING_TESTS`, one to a line. A check
 that reads the variable runs only those; one that does not runs whole again.
-This repository's `make race` reads it (`scripts/rerun-failing.sh`). Where that
+This repository's `make race` and `make race-macos` read it
+(`scripts/rerun-failing.sh`). Where that
 second run passes, the tests fail under load rather than on the commit: the run
 is recorded as passed, `yoyo status` names them, and a warning names them with
 both runs' results. Such a run is not a clean run: the last clean commit that
