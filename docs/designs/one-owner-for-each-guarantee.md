@@ -62,6 +62,10 @@ revisions:
       by: architect
       at: 2026-11-23T22:33:28.592922Z
       reason: 'From the design review against the code, read at main e4ebef1ccbe7, answering the review that returned document-3708.1: the sharing of listings is built in the tracker client and the scheduler''s layer within one pull stays. The section now names the two passages that still say otherwise, migration item 13 and the list of what was not read, decides over both, and says what remains of item 13; each follows in its own revision. Adds the ruling that optional tracker abilities are methods of one interface with a not supported error.'
+    - action: amended
+      by: architect
+      at: 2026-11-24T01:29:29.583283Z
+      reason: 'From the architect''s review of every design against the code: migration item 13 still said shared listings move from the scheduler into the tracker client, which guarantee 7 of this design has replaced. It now names what is built, what remains and what was not settled; the opening paragraph names the commits read. Every other sentence of the section is unchanged. Read whole at main b7991bace3a0.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -133,6 +137,11 @@ approvals:
       by: harness
       at: 2026-11-23T22:33:28.592922Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3749, for document-3749.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 14
+      by: harness
+      at: 2026-11-24T01:29:29.583283Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3791, for document-3791.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -436,7 +445,7 @@ Each step is an ordinary work item that leaves the factory running and moves one
 
 The items keep the numbers they were first given, so work already citing an item stays right. The checks group was added later and is numbered 15 to 21, but it comes second.
 
-What is built of each item was read from the code at main 697f81f62 on November 22, 2026, in the architect's review of every design against the code, and is said after each item. Items 2, 3 and 13 were looked at again at main 4e6572cd9 on November 23, 2026. Where an item says its status was not checked, nothing here claims it either way, and its build item reads the code first as before.
+What is built of each item was read from the code at main 697f81f62 on November 22, 2026, in the architect's review of every design against the code, and is said after each item. Items 2, 3 and 13 were looked at again at main 4e6572cd9 on November 23, 2026, and the listings of item 13 at mains e4ebef1ccbe7 and b7991bace3a0 the same day. Where an item says its status was not checked, nothing here claims it either way, and its build item reads the code first as before.
 
 **Storage**
 
@@ -491,8 +500,9 @@ What is built of each item was read from the code at main 697f81f62 on November 
    Built.
 12. Spend added up once for each completed stream, the spend query reading only its window, and one index for each dashboard reading. This is the second half of yoyodyne-ifd.428.119. Whether that item is built as one change or two is the development manager's.
    Status not checked in the review.
-13. The tracker client: shared listings move from the scheduler into `internal/beads`, the status reading uses them once yoyodyne-ifd.432.46 has landed, and the check that nothing else runs the tracker's command goes in.
-   The check is not built. The review looked in the scripts directory, the run store, the conformance and separation packages, and the tests in `internal/beads`. The two guards there refuse, in the text of a command an agent is about to run, a status change with no note saying why and a wholesale replacement of an item's notes. Two more tests name what held the store when a call ran out of time, and count calls. None of them refuses code that runs the tracker's command outside the client. On November 23 `internal/beads` held `sharedlistings.go` and `listingshare.go`, known by name only; whether the scheduler and the status reading both use them was not read, and the build item reads it first.
+13. The tracker client: listings are shared in `internal/beads`, the status reading makes its listings through the client, each ability a tracker may lack is a method of the one interface its callers hold, and the check that nothing else runs the tracker's command goes in. Guarantee 7 says what each of these means. The scheduler's layer within one pull stays where it is.
+   Partly built. The sharing is built, in `sharedlistings.go` and `listingshare.go` of `internal/beads`. The ruling on optional abilities was not built when last read, at main e4ebef1ccbe7. Whether every listing the status reading makes goes through the client was looked for and not settled, so the build item reads it first.
+   The check is not built. The review looked in the scripts directory, the run store, the conformance and separation packages, and the tests in `internal/beads`. The two guards there refuse, in the text of a command an agent is about to run, a status change with no note saying why and a wholesale replacement of an item's notes. Two more tests name what held the store when a call ran out of time, and count calls. None of them refuses code that runs the tracker's command outside the client.
 
 **Tests across component boundaries**
 
