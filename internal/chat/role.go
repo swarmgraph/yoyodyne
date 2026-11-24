@@ -841,8 +841,10 @@ const readOnlyTrackerClause = itemReadClause + "\n\n" + `The state you were give
 
 // architectTrackerClause is the architect's tracker authority: the two
 // operations that only read, and deciding a change proposed to a document she
-// owns, which writes to the amendment log and to nothing in the tracker.
-const architectTrackerClause = itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. You can look at the tracker as it stands now, and looking is the whole of what you may do to it; the one other action the block carries for you decides a proposed change to one of your documents and changes nothing in the tracker. To ask for either, end your reply with exactly one block, after the prose:
+// owns, which writes to the amendment log and to nothing in the tracker. Handling
+// a report addressed to her is hers too, stated in addressedHandleClause; all it
+// writes in the tracker is a note on each item named as covering a request.
+const architectTrackerClause = itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. You can look at the tracker as it stands now, and looking is nearly the whole of what you may do to it. The block carries two other actions for you: one decides a proposed change to one of your documents and changes nothing in the tracker; the other, "handle", records what became of a report addressed to your role and changes nothing there but a note on each item you name as covering one of its requests. To ask for any of them, end your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-tracker
 {"actions":[

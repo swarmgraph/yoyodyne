@@ -1584,8 +1584,8 @@ project rewrites any persona it likes and the boundaries do not move:
 | Role | Reads the tracker | Writes to the tracker | Reads the repository by path | Its own documents |
 | --- | --- | --- | --- | --- |
 | Lead Product Manager | yes | admits (governed by [`approvals.work_items`](configuration.md#what-reaches-the-queue)), orders, attributes, labels, parks and releases, closes, retires, [repairs stale state](#backlog-state-that-has-stopped-being-true), [ends a directive](#directives-and-the-work-they-pause) | yes, [labelled as description](#reading-the-repository-at-a-recorded-commit) | brief and goals: proposes, never writes |
-| architect | yes | nothing | yes | designs, decisions, invariants: decides, and you record |
-| development manager | yes | creates and links **only underneath admitted work**; updates and labels items; records triage decisions on stopped work | yes | none |
+| architect | yes | nothing, except the note that recording what became of [a report addressed to it](reporting.md#whom-a-report-is-for) puts on an item it names as covering one of the report's requests | yes | designs, decisions, invariants: decides, and you record |
+| development manager | yes | creates and links **only underneath admitted work**; updates and labels items; records triage decisions on stopped work; and, recording what became of [a report addressed to it](reporting.md#whom-a-report-is-for), puts a note on an item it names as covering one of the report's requests | yes | none |
 | developer, reviewer | yes | nothing | no | none |
 | [program manager](designs/program-manager.md) | yes | admits (governed by [`approvals.work_items`](configuration.md#what-reaches-the-queue)), attributes, updates, labels, reparents, orders, parks and releases, and links **only inside its own lane** — [the lane label, read off the item as each action runs](#a-program-managers-lane); never closes, retires, or records triage | yes | none; it rewrites [its lane report](#a-program-managers-lane-report), which is kept under the state root rather than in the repository |
 
