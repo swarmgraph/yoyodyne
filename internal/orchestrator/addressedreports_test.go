@@ -185,6 +185,6 @@ func TestASummonedTurnListsTheReportsAddressedToTheRole(t *testing.T) {
 // fixedConversationWork is one reading of the work waiting in a conversation.
 type fixedConversationWork ConversationWorkReading
 
-func (w fixedConversationWork) Read(context.Context, domain.AgentRole) (ConversationWorkReading, error) {
+func (w fixedConversationWork) Read(context.Context, domain.AgentRole, StandingRulings) (ConversationWorkReading, error) {
 	return ConversationWorkReading(w), nil
 }
