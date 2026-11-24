@@ -90,6 +90,12 @@ var ErrRemoteTargetMismatch = errors.New("remote target branch does not carry th
 // the remote moves it — somebody loading the key or renewing the login does.
 var ErrRemoteAuthRefused = errors.New("the remote refused the credential the harness presented")
 
+// ErrRemoteCredentialNotPresented is beside ErrRemoteAuthRefused where the
+// connection ended before any credential was presented: this machine could not
+// name the user the harness runs as, or did not recognize the remote's host
+// key. No key or login was refused, so it is not a credential to renew.
+var ErrRemoteCredentialNotPresented = errors.New("the connection ended before any credential was presented")
+
 // authRefusal is the failure a remote command ends on when what refused it was
 // the credential, and nil for every other result. Every remote command reaches
 // it through runRemote, so a push, a fetch, and a listing refused for a key all
@@ -98,7 +104,11 @@ func authRefusal(args []string, result execution.ProcessResult) error {
 	if result.Status == execution.ProcessSucceeded || !recovery.AuthenticationRefusedDetail(result.Stderr) {
 		return nil
 	}
-	return fmt.Errorf("%w: git %s exited %d: %s", ErrRemoteAuthRefused, remoteVerb(args), result.ExitCode, strings.TrimSpace(result.Stderr))
+	refused := fmt.Errorf("%w: git %s exited %d: %s", ErrRemoteAuthRefused, remoteVerb(args), result.ExitCode, strings.TrimSpace(result.Stderr))
+	if recovery.CredentialNotPresentedDetail(result.Stderr) {
+		return fmt.Errorf("%w (%w)", refused, ErrRemoteCredentialNotPresented)
+	}
+	return refused
 }
 
 // remoteVerb names the Git subcommand a remote command ran, past the options

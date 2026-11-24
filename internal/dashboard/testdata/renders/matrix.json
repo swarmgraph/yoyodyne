@@ -57,6 +57,26 @@
       "decide": "closed"
     }
   },
+  "queues-stopped": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "factory": "empty",
+      "managers": "empty",
+      "queues": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "queues-unreadable": {
     "page": "ready",
     "sections": {

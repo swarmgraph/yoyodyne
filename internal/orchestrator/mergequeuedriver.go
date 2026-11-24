@@ -35,6 +35,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -219,6 +222,22 @@ func (d MergeQueueDriver) Pass(ctx context.Context, key runstate.MergeQueueKey) 
 	return pass
 }
 
+// stopPersonOnly is the act only a person can take that an error a pass
+// stopped on establishes by its type, and empty for any other error. A forge
+// that refused the harness's token, or a Git remote that refused its key or
+// login, is a credential only a person can give; the pass records it so a stop
+// that repeats is put to the operator for that reason rather than to a role
+// (readmodel's mergequeuesteps.go). Nothing is read off the error's words here.
+func stopPersonOnly(err error) ownership.PersonOnlyReason {
+	if errors.Is(err, gitworktree.ErrRemoteAuthRefused) && !errors.Is(err, gitworktree.ErrRemoteCredentialNotPresented) {
+		return ownership.PersonCredential
+	}
+	if errors.Is(err, publish.ErrForgeAccessRefused) {
+		return ownership.PersonCredential
+	}
+	return ""
+}
+
 func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) runstate.MergeQueuePass {
 	landed, handedBack := 0, 0
 	var untidied []string
@@ -266,11 +285,20 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		}
 		return pass
 	}
+	// stoppedOn is a pass stopped on an entry, saying why, where cause is the
+	// error behind it and nil where there is none.
+	stoppedOn := func(entry runstate.MergeQueueEntry, says string, cause error) runstate.MergeQueuePass {
+		pass := done(runstate.MergeQueuePassStopped, entry, says)
+		if pass.Outcome == runstate.MergeQueuePassStopped {
+			pass.PersonOnly = stopPersonOnly(cause)
+		}
+		return pass
+	}
 	stopped := func(entry runstate.MergeQueueEntry, err error) runstate.MergeQueuePass {
 		if errors.Is(err, ErrMergeQueueWorkerBusy) {
 			return done(runstate.MergeQueuePassWaiting, entry, "another process is working this queue")
 		}
-		return done(runstate.MergeQueuePassStopped, entry, err.Error())
+		return stoppedOn(entry, err.Error(), err)
 	}
 	// An entry whose handback is recorded has already left the line, so a
 	// handback that could not be given to its run holds up nothing behind it:
@@ -412,11 +440,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 				gitHubWait = withdrawn.GitHubWait
 				return done(runstate.MergeQueuePassWaiting, promoted.Entry, withdrawn.Waiting)
 			}
-			return done(runstate.MergeQueuePassStopped, promoted.Entry, nonEmpty(withdrawn.Unresolved, withdrawn.Refusal, withdrawn.Waiting, "the merge could not be withdrawn"))
+			return stoppedOn(promoted.Entry, nonEmpty(withdrawn.Unresolved, withdrawn.Refusal, withdrawn.Waiting, "the merge could not be withdrawn"), withdrawn.UnresolvedBy)
 		case promoted.Waiting != "":
 			return done(runstate.MergeQueuePassWaiting, promoted.Entry, promoted.Waiting)
 		case promoted.Unresolved != "":
-			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Unresolved)
+			return stoppedOn(promoted.Entry, promoted.Unresolved, promoted.UnresolvedBy)
 		case underWay && promoted.Refusal != "":
 			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Refusal)
 		case promoted.Uncovered:

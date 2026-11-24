@@ -1723,8 +1723,31 @@ func TestGitHubDisableAutoMergeWithdrawsTheQueuedMerge(t *testing.T) {
 	refused := &scriptedRunner{}
 	refused.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
 	refused.reply("pr merge 713", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "GraphQL: Resource not accessible by integration"})
-	if err := (GitHub{Runner: refused}).DisableAutoMerge(context.Background(), 713); err == nil {
-		t.Error("DisableAutoMerge() reported a refused withdrawal as done")
+	if err := (GitHub{Runner: refused}).DisableAutoMerge(context.Background(), 713); !errors.Is(err, ErrForgeAccessRefused) {
+		t.Errorf("DisableAutoMerge() = %v, want the forge refusing the token", err)
+	}
+
+	// A rate limit is answered 403 as well, and passes by itself; an outage and a
+	// withdrawal refused over the request itself say nothing about the token.
+	for _, stderr := range []string{"HTTP 403: API rate limit exceeded for user ID 1", "HTTP 502: Bad Gateway", "GraphQL: Pull request is in a state that cannot be changed"} {
+		other := &scriptedRunner{}
+		other.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+		other.reply("pr merge 713", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: stderr})
+		if err := (GitHub{Runner: other}).DisableAutoMerge(context.Background(), 713); err == nil || errors.Is(err, ErrForgeAccessRefused) {
+			t.Errorf("DisableAutoMerge() on %q = %v, want a failure that is not the token's", stderr, err)
+		}
+	}
+	for _, stderr := range []string{"HTTP 401: Bad credentials", "To get started with GitHub CLI, please run:  gh auth login"} {
+		login := &scriptedRunner{}
+		login.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+		login.reply("pr merge 713", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: stderr})
+		login.reply("pr list", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: stderr})
+		if err := (GitHub{Runner: login}).DisableAutoMerge(context.Background(), 713); !errors.Is(err, ErrForgeAccessRefused) {
+			t.Errorf("DisableAutoMerge() on %q = %v, want the login refused", stderr, err)
+		}
+		if _, err := (GitHub{Runner: login}).State(context.Background(), "run"); !errors.Is(err, ErrForgeAccessRefused) {
+			t.Errorf("State() on %q = %v, want the login refused", stderr, err)
+		}
 	}
 }
 
@@ -1777,7 +1800,7 @@ func TestGitHubDisableAutoMergeTakesAQueuedRequestOutOfTheMergeQueue(t *testing.
 
 	failed := script()
 	failed.reply("dequeuePullRequest", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "GraphQL: Resource not accessible by integration (dequeuePullRequest)"})
-	if err := (GitHub{Runner: failed}).DisableAutoMerge(context.Background(), 713); err == nil || !strings.Contains(err.Error(), "take pull request 713 out of the merge queue") {
+	if err := (GitHub{Runner: failed}).DisableAutoMerge(context.Background(), 713); !errors.Is(err, ErrForgeAccessRefused) || !strings.Contains(err.Error(), "take pull request 713 out of the merge queue") {
 		t.Errorf("DisableAutoMerge() with a refused dequeue error = %v, want the withdrawal refused naming the dequeue", err)
 	}
 

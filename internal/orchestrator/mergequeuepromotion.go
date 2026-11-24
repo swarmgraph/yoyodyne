@@ -204,6 +204,10 @@ type MergeQueuePromotion struct {
 	// Unresolved is a mutation whose outcome is retained as it stands, because
 	// observation did not establish it or it is for later work to settle.
 	Unresolved string
+	// UnresolvedBy is the error the forge answered with, set beside Unresolved
+	// where one is why, so what its type establishes is kept until the pass
+	// records it (stopPersonOnly).
+	UnresolvedBy error
 	// Withdrawn is nothing the queue asked for able to land the change any
 	// more: no merge was asked for, or the forge confirmed it withdrawn.
 	Withdrawn bool
@@ -1600,6 +1604,7 @@ func (q *queuePromotion) observe(ctx context.Context, record runstate.MergeQueue
 		}
 		if err != nil {
 			q.outcome.Unresolved = fmt.Sprintf("the merge of pull request %d was asked for and its answer never recorded, and the forge could not be asked what it did: %v", attempt.PullRequest, err)
+			q.outcome.UnresolvedBy = err
 			return nil
 		}
 		switch {

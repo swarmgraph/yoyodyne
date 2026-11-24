@@ -708,8 +708,16 @@ func keptHeavyCheckRule(Record) (Answer, bool) {
 // step is a hang to clear or something to let finish, and whether the entry is
 // taken up again or handed back so the entries behind it go on, is a judgement
 // about run reliability, which is the development manager's, and both are
-// commands she has. Nothing about it is on the operator's closed list.
-func mergeQueueOverdueRule(Record) (Answer, bool) {
+// commands she has. The same holds of an entry the queue's worker stopped on
+// the same way pass after pass. The one exception is such a stop whose error
+// established, by its type, an act only a person can take — a credential the
+// forge refused, a repository setting, a protected file — which is the
+// operator's for that reason, carried on the record.
+func mergeQueueOverdueRule(r Record) (Answer, bool) {
+	switch r.Reason {
+	case OperatorCredential, OperatorRepositorySetting, OperatorProtectedFile:
+		return operator(r.Reason, "take the step only a person can take that the queue's stop names, and the next pass goes on by itself", "the step the entry cites")
+	}
 	return owned(MoverDevelopmentManager, "find what holds the entry, then take it up again or hand it back so the entries behind it go on", "yoyo queue retry|hand-back")
 }
 

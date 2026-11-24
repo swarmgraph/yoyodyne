@@ -590,6 +590,7 @@ func (q *queuePromotion) withdrawQueued(ctx context.Context) error {
 	}
 	q.outcome.Unresolved = fmt.Sprintf("the forge %s the merge of pull request %d (%s); it may still land, so the change is not handed back or rewritten until a later call confirms the withdrawal",
 		verb, w.PullRequest, answer.Detail)
+	q.outcome.UnresolvedBy = errors.Join(asked, readErr)
 	return nil
 }
 
