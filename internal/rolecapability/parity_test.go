@@ -267,12 +267,18 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // after three returned runs (docs/designs/document-landing-route.md, point 7).
 // It decides stopped work, so it is held under work.triage.
 //
+// The architect's `agree` has the harness add one note to a work item saying she
+// checked a revision of a design against it and found they agree
+// (docs/designs/unpublished-designs-and-admitted-work.md, section 5). It is held
+// under a capability of its own, work-item.agreement-note, so it grants her no
+// other write on an item.
+//
 // The development manager's `keep_version` records which of two machines'
 // versions of a held item stands, the design's rule that such an item is hers
 // to decide (docs/designs/working-alongside-other-contributors.md, section 5).
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
 	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
-	domain.RoleArchitect:          {"amendment"},
+	domain.RoleArchitect:          {"amendment", "agree"},
 	domain.RoleDevelopmentManager: {"brake", "held_document", "keep_version", "label", "queue", "team_conflict"},
 }
 

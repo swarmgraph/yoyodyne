@@ -1702,18 +1702,5 @@ func (d unpublishedDocuments) Unpublished() ([]runstate.PendingWrite, error) {
 	if err != nil {
 		return nil, err
 	}
-	var writes []runstate.PendingWrite
-	for _, conversation := range conversations {
-		writes = append(writes, conversation.PendingWrites...)
-	}
-	// A revision handed back without landing is unpublished too, and is checked
-	// like any other until its author revises it.
-	for _, conversation := range conversations {
-		for _, back := range conversation.HandedBack {
-			if !slices.ContainsFunc(writes, func(w runstate.PendingWrite) bool { return w.ID == back.ID }) {
-				writes = append(writes, back.AsWrite())
-			}
-		}
-	}
-	return writes, nil
+	return runstate.UnpublishedWrites(conversations), nil
 }

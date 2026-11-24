@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -616,6 +617,26 @@ type HandedBackDocument struct {
 func (h HandedBackDocument) AsWrite() PendingWrite {
 	return PendingWrite{ID: h.ID, Artifact: h.Artifact, Turn: h.Turn, WrittenAt: h.Written,
 		Action: h.Action, Body: h.Body, Names: h.Names, Revises: h.Revises}
+}
+
+// UnpublishedWrites is every document revision the conversations hold that is
+// not yet published: the ones waiting, and the ones handed back without landing,
+// which are unpublished until their author revises them. Identifiers are unique
+// only within a conversation, so a revision handed back is left out only where
+// that document's revision is listed already.
+func UnpublishedWrites(conversations []Conversation) []PendingWrite {
+	var writes []PendingWrite
+	for _, conversation := range conversations {
+		writes = append(writes, conversation.PendingWrites...)
+	}
+	for _, conversation := range conversations {
+		for _, back := range conversation.HandedBack {
+			if !slices.ContainsFunc(writes, func(w PendingWrite) bool { return w.ID == back.ID && w.Artifact == back.Artifact }) {
+				writes = append(writes, back.AsWrite())
+			}
+		}
+	}
+	return writes
 }
 
 // MaxHandedBackDocuments bounds the revisions handed back a conversation keeps

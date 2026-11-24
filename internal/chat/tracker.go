@@ -282,6 +282,11 @@ const (
 	// more for the item, never past ten in all. It names the item and the cap, and
 	// the harness carries it out as it is recorded. See capgrant.go.
 	actionGrant = "grant"
+	// actionAgree has the harness add a note to an item saying the architect
+	// checked a named revision of a named document against the item as it stood and
+	// found they agree. Its subject is an item and it changes nothing on it but
+	// that one note. See agreement.go.
+	actionAgree = "agree"
 	// handleNeedsOperator is the one value "needs" takes on a handling: the
 	// report asks for a change only the operator can make, and the handling is
 	// a finding for him rather than a decision that closes the report.
@@ -322,6 +327,7 @@ var trackerActionArguments = map[string][]string{
 	actionHeldDocument: {"document", "decision"},
 	actionTeamConflict: {},
 	actionGrant:        {"budget"},
+	actionAgree:        {"document", "revision", "item_changed"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -398,6 +404,9 @@ var trackerCapabilities = map[string]capability.Capability{
 	// admitting and retiring work are, and it is the Lead Product Manager's alone,
 	// so it has no lane-scoped name.
 	actionGrant: capability.BacklogAdmit,
+	// The agreement note is the one write the architect has on an item, and it
+	// is a capability of its own so holding it grants no other tracker write.
+	actionAgree: capability.WorkItemAgreementNote,
 }
 
 // laneCapabilities is the lane-scoped name of each operation that has one: the
@@ -429,7 +438,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionKeepVersion, actionWithdraw,
-	actionDirective, actionAmendment, actionQueue, actionHeldDocument, actionTeamConflict, actionGrant,
+	actionDirective, actionAmendment, actionQueue, actionHeldDocument, actionTeamConflict, actionGrant, actionAgree,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -554,12 +563,21 @@ type TrackerAction struct {
 	Entry string `json:"entry,omitempty"`
 	// Document names the held document a "held_document" action decides, as the
 	// development manager's list names it: its conversation, a slash, and the
-	// write. It is taken by that action and by nothing else.
+	// write; and the document an "agree" action says agrees with its item, by its
+	// identifier. It is taken by those two actions and by nothing else.
 	Document string `json:"document,omitempty"`
 	// Amendment names the proposed change an "amendment" action decides, by its
 	// whole id or a prefix of it that names exactly one, and is taken by that
 	// action and by nothing else.
 	Amendment string `json:"amendment,omitempty"`
+	// Revision names the revision of the document an "agree" action says agrees
+	// with its item: its number in the document's own revision log, counting from
+	// zero as an approval counts, or the identifier of a revision waiting to be
+	// published (AgreedRevision). It is taken by that action and by nothing else.
+	Revision *AgreedRevision `json:"revision,omitempty"`
+	// ItemChanged is when the item last changed as the role was shown it, which
+	// ties an "agree" to the item she checked. It is taken by that action alone.
+	ItemChanged string `json:"item_changed,omitempty"`
 	// Became is what a directive resolved from the conversation now lives on as:
 	// the document it was written into, or the work item that answers it. It is
 	// required on a "directive" action's "resolve" and taken by nothing else.
@@ -1336,6 +1354,8 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, a.correctionProblems()...)
 	case actionWithdraw:
 		problems = append(problems, proposalReferenceProblems(a.Proposal)...)
+	case actionAgree:
+		problems = append(problems, a.agreementProblems()...)
 	case actionDirective:
 		problems = append(problems, a.directiveActionProblems()...)
 	case actionAmendment:
@@ -1624,6 +1644,12 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Amendment) != "" {
 		carried = append(carried, "amendment")
+	}
+	if a.Revision != nil {
+		carried = append(carried, "revision")
+	}
+	if strings.TrimSpace(a.ItemChanged) != "" {
+		carried = append(carried, "item_changed")
 	}
 	if strings.TrimSpace(a.Add) != "" {
 		carried = append(carried, "add")
@@ -2099,6 +2125,9 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			outcome.fail(err)
 			return
 		}
+		if s.authority().MayAct(actionAgree) {
+			detail = itemChangedLine(item) + detail
+		}
 		outcome.Detail = detail + s.renderInheritedBlocks(ctx, item) + s.renderItemRuns(ctx, item.ID)
 		outcome.applied("read %s: %s", item.ID, singleLine(item.Title, maxSurveyTitleBytes))
 	case actionSurvey:
@@ -2535,6 +2564,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.decideKeepVersion(ctx, outcome)
 	case actionWithdraw:
 		s.withdrawProposal(outcome)
+	case actionAgree:
+		s.carryOutAgreement(ctx, outcome)
 	case actionDirective:
 		s.endDirective(ctx, outcome)
 	default:
