@@ -58,6 +58,10 @@ revisions:
       by: architect
       at: 2026-11-23T16:56:46.184818Z
       reason: 'From the architect''s review of every design against the code, read at main 4e6572cd9: item 3''s check is built beside item 2''s and only its one function is not; a listed save made while holding the run''s lease is not a defect, and the list stays if only such saves and the test stores remain; item 13 names the shared listing files now in internal/beads; items 17 and 21 match the race check points as ruled; three differences in order, not two. Every other sentence is unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T22:33:28.592922Z
+      reason: 'From the design review against the code, read at main e4ebef1ccbe7, answering the review that returned document-3708.1: the sharing of listings is built in the tracker client and the scheduler''s layer within one pull stays. The section now names the two passages that still say otherwise, migration item 13 and the list of what was not read, decides over both, and says what remains of item 13; each follows in its own revision. Adds the ruling that optional tracker abilities are methods of one interface with a not supported error.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -124,6 +128,11 @@ approvals:
       by: harness
       at: 2026-11-23T16:56:46.184818Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3703, for document-3703.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-11-23T22:33:28.592922Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3749, for document-3749.1 under the automatic approval policy
 ---
 # Guarantees the whole system relies on: one owning component and one way in for each
 
@@ -284,9 +293,25 @@ Way in: the client, which is the only code that runs the tracker's command. It:
 
 - carries each call's time limit;
 - records how long a call that ran past its limit took and what held the store (yoyodyne-ifd.433.49);
-- shares a listing between its users within one cycle.
+- shares a listing between its users.
 
-The sharing built for the scheduler (yoyodyne-ifd.433.45, in `internal/orchestrator/cyclelistings.go`) moves into the client. The status reading behind the dashboard, `yoyo status` and Slack (yoyodyne-ifd.432.46) uses it once both have landed. The run already in progress for that item is not stopped or rewritten.
+The sharing is built, in `internal/beads/sharedlistings.go`, as read at main e4ebef1ccbe7 on November 23, 2026:
+
+- Each process keeps, for each store, one listing of the unfinished items and one of what is ready. A caller is answered from a listing while it is younger than 30 seconds and nothing the process wrote has cleared it. A caller that arrives while a listing is being read waits for that read.
+- A listing of one or several unfinished statuses is read out of the first. A listing that names closed work, or every status, is made afresh.
+- Every command that is not a read clears both listings, before it runs and again once it has ended.
+- A listing that fails is handed to the callers that waited for it and is not kept.
+
+A write made by another process does not clear this process's listings, so nothing on the way to a write is decided from a shared listing. Code about to change an item reads that item, or lists, afresh first. This is a rule for every caller, and not only for the ones that keep it today.
+
+The scheduler keeps a second layer of its own, in `internal/orchestrator/cyclelistings.go` (yoyodyne-ifd.433.45), read at the same commit. It gives every part of one pull the same answer, failures included, so a listing that failed is not asked for again in the same pull. That is a different question from the client's, which is how old an answer may be, so the layer stays. It makes its listings only through the client. This replaces the earlier statement here that the layer would move into the client.
+
+Two other passages of this design were written before that, and this section decides over both until each follows in its own revision:
+
+- Migration item 13 says shared listings move from the scheduler into `internal/beads`. They do not move: the sharing is built in the client and the scheduler's layer stays. What remains of item 13 is the check that nothing else runs the tracker's command, the ruling below on optional abilities, and reading whether the status reading makes its listings through the client, which has not been read.
+- The list of what was not read names whether the shared listings have moved into `internal/beads`. They have been read, as said above.
+
+**A tracker's optional abilities are methods of one interface.** The scheduler finds out whether a tracker can list several statuses at once by testing whether it also satisfies a second interface. A wrapper around the client that leaves the method out loses the ability, and nothing says so. So each ability a tracker may lack becomes a method of the one interface its callers hold, and a tracker that lacks it returns an error saying it is not supported. The caller reads that error and takes its other way, such as asking once for each status. Any other error is a failure, as it is now. A wrapper that leaves a method out then does not compile. Ruled on November 23, 2026; not built at the commit above. Keeping the second interface and testing each wrapper for it was rejected, because the next wrapper has to remember the test.
 
 ### 8. Routine reads never walk all kept history
 
