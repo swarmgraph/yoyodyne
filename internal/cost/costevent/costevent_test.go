@@ -47,3 +47,21 @@ func TestATerminalWithoutTheFlagIsPricedByWhetherItCarriesAFigure(t *testing.T) 
 		t.Fatalf("Read() = %+v, %t; want a duplicate terminal priced against the session before it", duplicate, ok)
 	}
 }
+
+func TestCarriesKeepsOnlyTheEventsACostIsRecordedOn(t *testing.T) {
+	for _, test := range []struct {
+		event execution.Event
+		want  bool
+	}{
+		{execution.Event{Type: execution.EventRunCompleted}, true},
+		{execution.Event{Type: execution.EventRunFailed}, true},
+		{execution.Event{Type: execution.EventProcessOutput, Payload: []byte(`{"anomaly":"` + execution.DuplicateTerminalAnomaly + `","total_cost_usd":1}`)}, true},
+		{execution.Event{Type: execution.EventProcessOutput, Payload: []byte(`{"text":"` + execution.DuplicateTerminalAnomaly + `"}`)}, false},
+		{execution.Event{Type: execution.EventReviewStarted}, false},
+		{execution.Event{Type: execution.EventReviewCompleted}, false},
+	} {
+		if got := Carries(test.event); got != test.want {
+			t.Errorf("Carries(%s %s) = %v, want %v", test.event.Type, test.event.Payload, got, test.want)
+		}
+	}
+}

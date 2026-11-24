@@ -465,6 +465,13 @@ var structuredStrings = map[string]string{
 	"routing.operations[].attempts[].unreleased[].launcher":                                  "the launcher generation, bounded where the execution is validated",
 	"routing.operations[].attempts[].unreleased[].hold":                                      "checked against the attempt's hold name",
 	"routing.operations[].attempts[].unreleased[].hold_file":                                 "a random mark, bounded where the execution is validated",
+
+	// A document review made a second time on the cheaper model.
+	"review_comparisons[].head_commit":       "a commit hash",
+	"review_comparisons[].deciding_model":    "a model selector from the configuration",
+	"review_comparisons[].deciding_decision": "a review decision from the fixed vocabulary",
+	"review_comparisons[].cheaper_model":     "a model selector from the configuration",
+	"review_comparisons[].cheaper_decision":  "a review decision from the fixed vocabulary",
 }
 
 var timeType = reflect.TypeOf(time.Time{})

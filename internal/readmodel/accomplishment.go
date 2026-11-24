@@ -38,6 +38,8 @@ package readmodel
 // was an approval; the findings were not fixed where it asked for a repair and
 // no approval followed; it escalated where it sent the item to the development
 // manager; and it has no verdict where the reviewer was paid and recorded none.
+// A review made only to compare a cheaper model's verdict with the deciding one
+// is not one of these: its cost stays in the reviewer's spend and its item's.
 //
 // A completed item is one whose change merged in the range, read exactly as the
 // delivery measures read a merge. Its cost is every invocation that named it,
@@ -890,7 +892,7 @@ func (r *accomplishmentRead) reviews(ctx context.Context, runs AccomplishmentRun
 	reviewed := map[string]bool{}
 	for runID, runLines := range byRun {
 		for _, line := range runLines {
-			if line.Phase == runstate.SpendPhaseReview && !line.At.Before(from) && line.At.Before(to) {
+			if line.JudgingReview() && !line.At.Before(from) && line.At.Before(to) {
 				reviewed[runID] = true
 			}
 		}
@@ -978,7 +980,7 @@ func classifyReviews(runID string, state runstate.State, lines []runstate.Spend,
 	for _, each := range verdicts {
 		review := ReviewAccomplishment{RunID: runID, WorkItemID: workItem, Title: state.WorkItemTitle, At: each.at, Decision: each.decision, Findings: each.findings}
 		for next < len(lines) && !lines[next].At.After(each.at) {
-			if lines[next].Phase == runstate.SpendPhaseReview {
+			if lines[next].JudgingReview() {
 				review.Invocations++
 				if lines[next].Known() {
 					review.CostUSD += lines[next].AmountUSD
@@ -1000,7 +1002,7 @@ func classifyReviews(runID string, state runstate.State, lines []runstate.Spend,
 	}
 	unanswered := ReviewAccomplishment{RunID: runID, WorkItemID: workItem, Title: state.WorkItemTitle, Outcome: ReviewNoVerdict}
 	for ; next < len(lines); next++ {
-		if lines[next].Phase != runstate.SpendPhaseReview {
+		if !lines[next].JudgingReview() {
 			continue
 		}
 		unanswered.Invocations++

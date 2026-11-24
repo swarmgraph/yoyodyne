@@ -10429,7 +10429,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	if a.landsInIntentRepository() {
 		projectCode, projectCodeCommit = a.projectCodeFor(ctx)
 	}
-	result, reviewErr := reviewer.Review(ctx, review.Request{
+	request := review.Request{
 		RunID:      a.state.RunID,
 		WorkItemID: a.state.WorkItemID,
 		// The item as the developer was given it, with every file it references
@@ -10492,7 +10492,8 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		AccountAlias:     account.Alias,
 		AccountConfigDir: account.Directory,
 		LaunchGate:       launchGate,
-	})
+	}
+	result, reviewErr := reviewer.Review(ctx, request)
 	if result.LastSequence > a.state.LastSequence {
 		a.state.LastSequence = result.LastSequence
 	}
@@ -10592,6 +10593,13 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	}
 	if result.RequestedModel != configured {
 		return "", providerEvidence{}, stoppedBy(runstate.StopProvider, fmt.Errorf("reviewer ran with model %q, configured reviewer model is %q", result.RequestedModel, configured))
+	}
+	// A document publication's review may be made a second time on the cheaper
+	// model for the trial; that verdict is recorded and decides nothing
+	// (reviewcomparison.go). A review on an endpoint pair names its own model
+	// and is not compared.
+	if route == nil && isDocumentReview(a.state) && result.Decision.Valid() {
+		a.compareDocumentReview(ctx, request, result, changes.HeadCommit)
 	}
 	return result.Decision, providerEvidence{
 		servedCleanly: result.ProcessStatus == execution.ProcessSucceeded &&
