@@ -56,6 +56,7 @@ func TestARerunOfAClosedItemIsRefusedOnceAndNotTriedAgain(t *testing.T) {
 	if shown == nil || shown.Cause != triage.CarryOutItemClosed || shown.Attempts != 1 || !strings.Contains(shown.Refusal, "is closed") {
 		t.Fatalf("docketed refusal = %+v, want the one refusal with its reason", shown)
 	}
+	assertDoesNotAdviseTheRefusedRerun(t, shown.Clears, built.Entries[0].Render())
 
 	counters, err := harness.runs.Triage().Counters(docketedItem)
 	if err != nil {
@@ -64,6 +65,23 @@ func TestARerunOfAClosedItemIsRefusedOnceAndNotTriedAgain(t *testing.T) {
 	if finding, found := counters.CarryOutOf(docketedRunID); !found ||
 		finding.BlocksDecision(runstate.TriageDecisionRerun, docketedNow.Add(48*time.Hour), docketedNow.Add(48*time.Hour)) {
 		t.Fatalf("finding = %+v; want a decision recorded later not answered by it", finding)
+	}
+}
+
+// assertDoesNotAdviseTheRefusedRerun holds that neither what the record says
+// would clear a refused re-run nor the entry she reads tells her to record the
+// same re-run, and that both still say it is not tried again.
+func assertDoesNotAdviseTheRefusedRerun(t *testing.T, clears, rendered string) {
+	t.Helper()
+	if !strings.Contains(clears, "no later pull retries") || !strings.Contains(rendered, "no further attempt of this decision is made") {
+		t.Fatalf("clears = %q, entry:\n%s\nwant both to say the decision is not tried again", clears, rendered)
+	}
+	for _, text := range []string{clears, rendered} {
+		for _, advice := range []string{"records a re-run", "recording a re-run", "records the re-run", "recording the re-run"} {
+			if strings.Contains(text, advice) {
+				t.Fatalf("%q advises the refused re-run:\n%s", advice, text)
+			}
+		}
 	}
 }
 
@@ -98,6 +116,11 @@ func TestADecisionNamingARunWithNoRecordIsRefusedForGood(t *testing.T) {
 	if err != nil || carried.Cause != triage.CarryOutRunGone {
 		t.Fatalf("Carry() = %+v, %v; want the missing run recorded as a refusal for good", carried, err)
 	}
+	built, err := docketerDeciding(nil, harness.docket, harness.runs.Triage(), harness.reruns).Build()
+	if err != nil || len(built.Entries) != 1 || built.Entries[0].CarryOut == nil {
+		t.Fatalf("Build() = %+v, %v; want the refusal shown", built.Entries, err)
+	}
+	assertDoesNotAdviseTheRefusedRerun(t, built.Entries[0].CarryOut.Clears, built.Entries[0].Render())
 	if later, err := harness.carryOutAt(24 * time.Hour).Outstanding(); err != nil || len(later) != 0 {
 		t.Fatalf("Outstanding() a day later = %v, %v; want the refused decision not tried again", later, err)
 	}

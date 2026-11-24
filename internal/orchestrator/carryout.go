@@ -1712,6 +1712,8 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	case carried.ReleasedHold:
 		clears += fmt.Sprintf("; this condition will not clear on its own, so no later pull retries this decision. Run %s left no branch or worktree, so a fresh run of %s would start from the target branch exactly as this re-run would have: the hold this decision placed on the item is released, and the next pull may start it like any other ready item",
 			task.RunID, task.WorkItemID)
+	case carried.Cause.ClearsSayDecision():
+		clears += "; this condition will not clear on its own, so no later pull retries this decision"
 	case carried.Cause != "":
 		clears += "; this condition will not clear on its own, so no later pull retries this decision. The development manager records a re-run or an escalation instead; a missing decision must be recorded again, with an override where the budget requires it"
 	}

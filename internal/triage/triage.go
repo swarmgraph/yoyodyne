@@ -1253,6 +1253,13 @@ func CarryOutCauses() []CarryOutCause {
 		CarryOutCheckRerunsSpent, CarryOutItemClosed, CarryOutRunGone}
 }
 
+// ClearsSayDecision reports a cause for which another re-run about the same run
+// may be the decision just refused, so what the finding says would clear it
+// names the decisions that apply and no general advice is added beside it.
+func (c CarryOutCause) ClearsSayDecision() bool {
+	return c == CarryOutItemClosed || c == CarryOutRunGone || c == CarryOutStoppageMissing
+}
+
 func (c CarryOutCause) Valid() bool {
 	return slices.Contains(CarryOutCauses(), c)
 }
@@ -2815,7 +2822,9 @@ func (e Entry) renderCarryOut() string {
 		stopped.Decision, stopped.Gate, plural(stopped.Attempts, "attempt", "attempts"),
 		stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
 	rendered.WriteString(indented("What would clear it", stopped.Clears))
-	if stopped.Cause != "" {
+	if stopped.Cause.ClearsSayDecision() {
+		rendered.WriteString("      This condition will not clear on its own; no further attempt of this decision is made, and what is said above names what can be decided instead.\n")
+	} else if stopped.Cause != "" {
 		rendered.WriteString("      This condition will not clear on its own; no further attempt is made until the development manager changes the decision, by recording a re-run or an escalation.\n")
 	} else {
 		rendered.WriteString("      Nothing was spent, so this decision is carried out by the first pass after that is no longer so; until then the harness keeps trying it at a paced interval rather than every pass.\n")
