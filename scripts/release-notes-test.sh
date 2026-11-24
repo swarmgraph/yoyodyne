@@ -418,6 +418,30 @@ else
   fail "notes naming another commit reached the body -- got: $(cat "$composed")"
 fi
 
+# The tree at the tag may hold an earlier draft of the same notes, landed before
+# the commit this one names; the notes on the default branch replace it.
+printf '# v0.4.0\n\nEverything up to and including commit `%s`.\n\n- **Earlier draft**\n' \
+  "$(git -C "$project" rev-parse 'v0.1.0^{commit}')" > "$project/docs/releases/v0.4.0.md"
+output="$( ( cd "$project" && RELEASE_NOTES_FROM=later-main bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )" || true
+body="$(cat "$composed" 2>/dev/null || true)"
+contains "$body" "Landed later" "notes on the default branch that name the tag replace an earlier draft in the tagged tree"
+missing "$body" "Earlier draft" "and none of the earlier draft is published"
+missing "$output" "warning: $project/docs/releases" "with no warning about it"
+output="$( ( cd "$project" && RELEASE_NOTES_FROM=other-main bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )" || true
+contains "$(cat "$composed" 2>/dev/null || true)" "Earlier draft" "a draft nothing replaces is still published"
+contains "$output" "published as they stand" "with a warning that it names another commit"
+printf '# v0.4.0\n\n- **No commit named**\n' > "$project/docs/releases/v0.4.0.md"
+output="$( ( cd "$project" && RELEASE_NOTES_FROM=later-main bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )" || true
+body="$(cat "$composed" 2>/dev/null || true)"
+contains "$body" "Landed later" "notes on the default branch that name the tag replace a tree's draft that names no commit"
+missing "$body" "No commit named" "and none of that draft is published"
+for branch in other-main no-such-branch; do
+  output="$( ( cd "$project" && RELEASE_NOTES_FROM="$branch" bash scripts/release-body.sh v0.4.0 "$composed" ) 2>&1 )" || fail "release-body.sh failed for notes naming no commit against $branch -- got: $output"
+  contains "$(cat "$composed" 2>/dev/null || true)" "No commit named" "notes in the tree that name no commit are kept where $branch has none that name the tag"
+  missing "$output" "published as they stand" "with no warning about them"
+done
+rm -f "$project/docs/releases/v0.4.0.md"
+
 notes_on untagged-main v0.5.0 "$tagged"
 output="$( ( cd "$project" && RELEASE_NOTES_FROM=untagged-main bash scripts/release-body.sh v0.5.0 "$composed" ) 2>&1 )" || true
 contains "$output" "no tag v0.5.0 here" "notes for a tag that does not exist here are not matched against anything"
