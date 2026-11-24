@@ -178,7 +178,10 @@ type Reconciler struct {
 	// StateRoot is the harness's state directory, where each developer run's
 	// scratch directory is; a run's is removed with its worktree. Empty removes
 	// none.
-	StateRoot     string
+	StateRoot string
+	// MayStart is the decision on what may start under the named epics, asked
+	// before a repair round is put on a run. See StartDecision.
+	MayStart      StartDecision
 	ConfigFiles   ConfigComparisonFiles
 	ConfigReaders ConfigReaders
 	// Publisher answers what became of a merge the forge queued. It is required
