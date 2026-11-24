@@ -26,6 +26,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/queuemode"
@@ -229,6 +230,21 @@ type roots struct {
 	repository   string
 	worktreeRoot string
 	stateRoot    string
+}
+
+// mayStart asks the one decision on what may start under the epics the operator
+// named, of this product's record, and keeps the answer where `yoyo status`
+// reads what was not started. A refusal that could not be kept is still a
+// refusal, and says so.
+func (c components) mayStart() orchestrator.StartDecision {
+	return func(start maystart.Start) maystart.Decision {
+		decision := maystart.Decide(c.stateRoot, c.config.Product.ID, start)
+		err := maystart.Note(c.stateRoot, c.config.Product.ID, start, decision, time.Now())
+		if err != nil && decision.Answer == maystart.MayNot {
+			decision.Why += fmt.Sprintf(" (and this refusal could not be recorded for yoyo status: %v)", err)
+		}
+		return decision
+	}
 }
 
 // resolveRoots resolves the three from the configuration. It is separate from
@@ -756,6 +772,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	mcpCalls, mcpRecords := runMCPCalls(parts)
 
 	return orchestrator.Pipeline{
+		MayStart:     parts.mayStart(),
 		Availability: machineAvailability(parts),
 		Tracker:      parts.tracker(),
 		// The priorities the merge queue last read, which order its entries while
@@ -1065,6 +1082,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		Store:           parts.store,
 		Repository:      parts.repository,
 		StateRoot:       parts.stateRoot,
+		MayStart:        parts.mayStart(),
 		// An escalation to the operator naming his own hold is checked against
 		// his pause and his hold on intake while it waits.
 		OwnHold:       ownHoldOf(parts),

@@ -141,6 +141,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/humangate"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -282,7 +283,10 @@ type Rerunner struct {
 	Docket  RerunDocket
 	Runs    RerunRuns
 	Intake  IntakeHolds
-	Reruns  RerunRecords
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart StartDecision
+	Reruns   RerunRecords
 	// Decisions is the item's durable triage record, which is what says the
 	// development manager decided this at all. Required: a re-run carried out on
 	// nobody's decision would record the development manager as having chosen
@@ -351,6 +355,9 @@ type RerunResult struct {
 	// IntakeHeld is the operator's hold, when one is what stopped this. Nothing
 	// was claimed and the stoppage keeps its re-run.
 	IntakeHeld *runstate.IntakeHold `json:"intake_held,omitempty"`
+	// OutsideNamedEpics is the item being in none of the epics the operator named,
+	// when that is what stopped this. Nothing was spent and the decision stands.
+	OutsideNamedEpics *OutsideNamedEpicsError `json:"outside_named_epics,omitempty"`
 	// CapacityFull is every developer slot being occupied, when that is what this
 	// is waiting on. It is not a refusal and not a failure: nothing was claimed,
 	// the decision stands until it is carried out or the development manager
@@ -510,6 +517,12 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	}
 	if held && !hold.RecoveryProbing(entry.WorkItemID, entry.RunID) {
 		result.IntakeHeld = &hold
+		return result, nil
+	}
+	// Whether the item is in an epic the operator named is asked beside the hold,
+	// before anything is written, so a refusal spends nothing.
+	if refused := r.MayStart.refuseRun(maystart.DecidedRerun, entry.WorkItemID); refused != nil {
+		result.OutsideNamedEpics = refused
 		return result, nil
 	}
 	// Capacity is read last of everything asked before the claim, because it is
@@ -1818,6 +1831,11 @@ func (result RerunResult) Render() string {
 		if result.RecordProblem != "" {
 			fmt.Fprintln(&rendered, result.RecordProblem)
 		}
+		return rendered.String()
+	}
+	if result.OutsideNamedEpics != nil {
+		fmt.Fprintf(&rendered, "WAITING FOR THE ITEM TO BE IN A NAMED EPIC: %v\n", result.OutsideNamedEpics)
+		fmt.Fprintf(&rendered, "nothing was started, and the stoppage of run %s keeps its one re-run\n", result.PriorRunID)
 		return rendered.String()
 	}
 	if result.ItemParked != nil {

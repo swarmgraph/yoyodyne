@@ -28,8 +28,8 @@ package orchestrator
 //     information. Nothing that gates a promotion reads it, so it never stands
 //     in for the independent review and never changes what the item is for.
 //
-// A check that cannot read the forge, or cannot take a slot for the round,
-// changes nothing and acts on the same feedback next time; one that acted moves
+// A check that cannot read the forge, or cannot take a slot for the round, or
+// whose item is outside the epics the operator named, changes nothing and acts on the same feedback next time; one that acted moves
 // the run's cursor past what it acted on, in the same write as the action, so
 // nothing is acted on twice.
 //
@@ -47,6 +47,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -203,6 +204,10 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 	// next check finds all of it again rather than the comments and approvals
 	// acted on and the cursor past the feedback the round was owed.
 	if startsRound {
+		if refused := r.MayStart.refuseRun(maystart.FeedbackRepair, state.WorkItemID); refused != nil {
+			result.Detail = fmt.Sprintf("changes were asked for on pull request %d, and %v; what was said is left for the next check", published.Number, refused)
+			return result
+		}
 		if free, err := r.slotFree(); err != nil || !free {
 			if err != nil {
 				result.Detail = fmt.Sprintf("changes were asked for on pull request %d, and what is in flight could not be read (%v), so the repair round is left for the next check", published.Number, err)

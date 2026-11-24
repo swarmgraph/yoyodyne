@@ -608,7 +608,10 @@ type Pipeline struct {
 	// under it, and that path is this machine's business rather than the
 	// configuration's — which is why it is wired here rather than written down in
 	// a file that is versioned with the repository.
-	StateRoot  string
+	StateRoot string
+	// MayStart is the decision on what may start under the named epics, asked of
+	// a fresh run. See StartDecision.
+	MayStart   StartDecision
 	Repository string
 	Config     config.Config
 	// ConfigPath is the configuration file this pipeline's configuration was read
@@ -1475,6 +1478,11 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// already under way carries on while intake is held.
 	if outcome, held, err := p.holdIntake(workItemID); err != nil || held {
 		return outcome, err
+	}
+	// So is whether the item is in an epic the operator named, and this is asked
+	// of a run the operator named too.
+	if refused := p.MayStart.refuseRun(p.startPath(), workItemID); refused != nil {
+		return Outcome{}, refused
 	}
 	// The needs-design label is asked at the same point and for the same reason:
 	// it holds new starts only, so a run adopted above carries on whatever the
