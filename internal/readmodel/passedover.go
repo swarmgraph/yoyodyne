@@ -401,7 +401,7 @@ func are(count int) string {
 var passedOverClauses = map[runstate.PassedOverClass]string{
 	runstate.PassedOverCarriedInConversation: "carried in conversation",
 	runstate.PassedOverParked:                "parked, and no pull selects a parked item however far the queue drains",
-	runstate.PassedOverWaitingOnDesign:       "labelled needs-design, and no pull starts one until the architect's design for it is readable",
+	runstate.PassedOverWaitingOnDesign:       "labelled needs-design, and no pull starts one until the architect's design for it has landed and the label is off",
 	runstate.PassedOverHeldForAPerson:        "stopped, waiting on the development manager's decision or the harness carrying it out",
 	runstate.PassedOverAwaitingDecision:      "awaiting the development manager's decision",
 	runstate.PassedOverAwaitingCarryOut:      "awaiting carry-out of decisions already recorded",
@@ -449,7 +449,7 @@ var passedOverOwned = map[runstate.PassedOverClass]struct {
 	settles string
 }{
 	runstate.PassedOverParked:            {ownership.KindHeldWork, ownership.Record{Parked: true}, "a parked item is passed over at every pull until it is released"},
-	runstate.PassedOverWaitingOnDesign:   {ownership.KindHeldWork, ownership.Record{NeedsDesign: true}, "an item labelled needs-design is passed over at every pull until she removes the label"},
+	runstate.PassedOverWaitingOnDesign:   {ownership.KindHeldWork, ownership.Record{NeedsDesign: true}, "an item labelled needs-design is passed over at every pull until her design for it lands and the development manager, for now, removes the label"},
 	runstate.PassedOverAwaitingDecision:  {ownership.KindHeldWork, ownership.Record{}, "nothing pulls a stopped item until she decides what happens to it"},
 	runstate.PassedOverAwaitingCarryOut:  {ownership.KindHeldWork, ownership.Record{AwaitingCarryOut: true}, "the decisions are recorded, and what is outstanding is the harness acting on them"},
 	runstate.PassedOverWaitingOnAPerson:  {ownership.KindHumanGate, ownership.Record{}, "the item declares a step only a person can take, and `yoyo gate record` is the only thing that records it"},
