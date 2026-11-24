@@ -113,6 +113,11 @@ func bundles() []Bundle {
 				// proposed to the product manager instead.
 				capability.WorkItemRead,
 				capability.ReportFile,
+				// Recording what became of a report addressed to the architect by
+				// name, so one she has answered leaves her own list without the Lead
+				// Product Manager recording it for her. It writes no tracker state of
+				// its own beyond the note a mapped request puts on its covering item.
+				capability.ReportHandleAddressed,
 				capability.RepositoryRead,
 				capability.RepositoryList,
 				capability.RepositoryAsk,
@@ -146,6 +151,12 @@ func bundles() []Bundle {
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
 				capability.ReportFile,
+				// Recording what became of a report addressed to her by name, as the
+				// architect does for hers. The program manager's design grants it too
+				// (docs/designs/program-manager.md); building that is the follow-up
+				// giving the program manager the same action (yoyodyne-ifd.430.103),
+				// and until then the Lead Product Manager handles a report for it.
+				capability.ReportHandleAddressed,
 				capability.WorkItemMutate,
 				capability.RepositoryRead,
 				capability.RepositoryList,

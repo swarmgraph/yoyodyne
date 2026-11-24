@@ -11084,9 +11084,10 @@ outlive the session that produced them and are written once and never revised.
 
 The other standing loop worth configuring is the one that drains the
 [collected reports](reporting.md#who-reads-them-and-what-became-of-each-one).
-Every role files what it noticed into one pile, the Lead Product Manager is the only
-role that can record what became of a report, and until something wakes it for
-that the pile is worked only when you happen to open a conversation. Reports
+Every role files what it noticed into one pile, and the Lead Product Manager is the only
+role that can record what became of any report; the architect and the
+development manager record it only for reports addressed to that role by name.
+Until something wakes the Lead Product Manager for that, the pile is worked only when you happen to open a conversation. Reports
 arrive at twenty to forty-five a day in this project, which is more than that
 reaches.
 

@@ -865,7 +865,8 @@ func renderScaffoldList(values []string) string {
 // so the harness hands the sweep what closed and it admits a correction for a
 // violation. The pass over the reports is here because the pile has no other
 // standing reader — every role files into it, only the product manager can
-// record what became of a report, and a project that schedules nothing works
+// record what became of any report (the architect and the development manager
+// only of those addressed to them), and a project that schedules nothing works
 // the pile only when somebody opens a conversation. That is not a hypothetical:
 // this project reached 564 unhandled reports with the oldest three weeks old
 // before the pass existed to be configured. The pass over the proposals is here
@@ -967,8 +968,10 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       decision that breaks a standing goal is a defect to report: name
 #       the goal and where it was broken.
 #       Work the collected reports. Every role files what it noticed into one
-#       pile and you are the only role that can record what became of one, so
-#       a pile nobody wakes you for is a pile nothing drains.
+#       pile and you are the only role that can record what became of any of
+#       them; the architect and the development manager record it only for
+#       reports addressed to them. So a pile nobody wakes you for is a pile
+#       nothing drains.
 #       The unhandled ones are carried into this turn already, oldest first
 #       with anything critical ahead of them, resuming where the last turn
 #       stopped. Decide about every one you are shown and record each decision

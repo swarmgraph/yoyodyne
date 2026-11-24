@@ -796,6 +796,17 @@ local time (`passed_over` in `--json`):
 > recorded neither a decision about it nor that they left it, the latest
 > starting 2026-11-11 18:07 PST
 
+The architect or the development manager, when a report is addressed to it,
+records that handling itself once it has acted on the report or decided
+nothing is to be done, with the same `handle` action the Lead Product Manager
+uses and the same mapping of each request to
+the item that covers it, an admission, or a reason it is declined. The handling
+names the role that recorded it, and the report is then offered neither to that
+role nor to the Lead Product Manager again. A role other than hers may handle
+only a report addressed to it by name: one addressed to another role, or to
+none, is refused and nothing is recorded. A report addressed to the program
+manager is still handled by the Lead Product Manager.
+
 A report is never addressed to you, and a critical report is never shown to you
 as needing your hand. A critical one still reaches the channel, so you see it,
 and it says whose it is:
@@ -805,8 +816,9 @@ and it says whose it is:
 > development manager and is with that role, not the operator; a handling of
 > the report records what became of it.
 
-Only the Lead Product Manager's handling of a report can make it yours, and only
-for something a person must do: see
+Only a handling of a report can make it yours — the Lead Product Manager's of
+any report, or the architect's or the development manager's of one addressed to
+it — and only for a reason on your closed list: see
 [a finding that needs your hand](#a-finding-that-needs-your-hand).
 
 ### Which build a report is about
@@ -994,8 +1006,10 @@ on that conversation's ordinary turns; it comes back at the start of the
 conversation's next recurring pass, and to any new conversation. Each turn's
 closing lines count the reports the conversation has not been shown yet apart
 from those it was shown and left undecided, and name the second kind, so a
-pass is told it has more only when its next turn will carry some. No other
-role has the action.
+pass is told it has more only when its next turn will carry some. The architect
+and the development manager have the action too, but only for the reports
+addressed to them by name (see [whom a report is for](#whom-a-report-is-for));
+neither of them is shown the pile.
 
 What is recorded is a second file beside the pile rather than a change to it. The
 report stays exactly as its author wrote it — that is what makes the pile evidence
@@ -1053,21 +1067,24 @@ another repository — is never yours: a role could do it with read access, so
 the Lead Product Manager handles it with
 `"missing_capability": {"role": "...", "system": "..."}` instead, which records
 it as a capability the harness lacks, keeps it off your list, and leaves it
-with her as a defect to admit. That record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
+with her as a defect to admit. The architect and the development manager may
+not record one, because a report they handle is not offered to her; they file a
+report addressed to her about it instead. A handling that does name you is [a finding that needs your hand](#a-finding-that-needs-your-hand):
 said to you once, directly, and named on `yoyo status` until a later handling of
-the same report records the change made. A report whose answer is the Lead
-Product Manager's own decision that only your keyboard can carry out — a
-configuration value she decided for `.yoyodyne/config.yaml` — is handled with
+the same report records the change made. A report whose answer is the
+handling role's own decision that only your keyboard can carry out — a
+configuration value it decided for `.yoyodyne/config.yaml` — is handled with
 `"hand": "operational-configuration"` instead: it is said to you the same way,
-but it stays hers, listed under **A role's decision that needs your hand**
+but it stays that role's, listed under **A role's decision that needs your hand**
 rather than as yours to decide. It is a field the harness reads rather
 than a sentence in the reason, because a sentence is what six such reports were
 for a month. A report filed at `critical` is the same kind of finding on its
 own, until somebody handles it. A report handled as yours counts as handled and
-is not offered to the Lead Product Manager again, so her turns list the findings she
-has handed you, each with its identifier, until she records it done: tell her
-when the change is made, and she handles the same report once more, without
-`needs`.
+is not offered to any role again. So the Lead Product Manager's turns list every
+finding handed to you, each with its identifier, until it is recorded done, and
+the architect's and the development manager's turns list the ones that role
+recorded itself. Tell her, or the role that recorded it, when the change is
+made, and that role handles the same report once more, without `needs`.
 
 For a [repeatedly failing product pass](operations.md#the-supervisors-maintenance-pass),
 the handling also requires `person_only` with a closed reason, a specific
@@ -2018,8 +2035,9 @@ So the class is one the harness reads, and **each such finding is said to you
 once, directly, tagged by member id** — the communication rule's own test for a
 tag, since it is both important and yours — the pass after it is recorded.
 [Operations](operations.md#where-a-finding-that-needs-your-hand-goes) says what
-makes one: the Lead Product Manager handling a report with `"needs":
-"operator"` and a reason from the operator's closed list, a stopped run the
+makes one: the Lead Product Manager handling a report, or the architect or the
+development manager handling one addressed to it, with `"needs": "operator"` and
+a reason from the operator's closed list, a stopped run the
 development manager escalated to you with such a reason, and the
 batch of recommendations an owning role argued on a recurring pass over the
 changes to its documents that you decide — changes to the brief or the goals

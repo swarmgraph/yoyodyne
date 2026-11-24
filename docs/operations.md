@@ -996,8 +996,8 @@ developer a question, which it may not do, so the actions of turn 4 were not
 carried out" — and then gives the count, the start time, and the record's own
 text.
 
-An error does not by itself make the finding the operator's. If the Lead
-Product Manager records a report handling as needing a step only a person can
+An error does not by itself make the finding the operator's. If a role
+records its handling of the report as needing a step only a person can
 take, that handling must supply `person_only` with a permitted reason, its
 target, and the exact step. The reasons are `credential`, `repository-setting`,
 and `protected-file`; the last accepts only provider-refused settings files
@@ -1762,8 +1762,9 @@ gives it back to the role that raised it, the role that handled the report for
 a handling and the development manager for an escalation.
 
 **A reason is not enough on its own: the step it asks of you is checked too.**
-When the Lead Product Manager records a handling naming you, or the development
-manager an escalation to you, the harness refuses it with the reason, and
+When the Lead Product Manager records a handling naming you, or the architect or
+the development manager records one of a report addressed to it, or the
+development manager records an escalation to you, the harness refuses it with the reason, and
 records nothing, where:
 
 - it is given as `protected-file` and names no file, names a file or folder the
@@ -1789,24 +1790,29 @@ every check; the channel reads no repository, so it applies only the hold and
 the restart checks, and a request whose files fail is dropped from it when the
 next `yoyo reconcile` or status reading records that.
 
-- **The Lead Product Manager handling a report as yours.** Her `handle` action takes
+- **A role handling a report as yours.** The Lead Product Manager may handle any
+  report; the architect and the development manager may handle only a report
+  addressed to that role by name. The `handle` action takes
   `"needs": "operator"` for a report whose answer is yours for a reason on your
   closed list, named in `"operator_reason"` or by a `person_only` remedy, with
   the reason saying what you have to do. A handling that names you without one
   is refused and records nothing. Under `credential` it also says which secret
   or account only you hold, in `"credential"`; a check that needs only read
   access to an outside system is recorded as a missing capability for a role
-  instead, a defect for her to admit, and never reaches you. One recorded before that was refused may
+  instead, a defect for the Lead Product Manager to admit, and never reaches
+  you. Only she records one: the architect or the development manager files a
+  report addressed to her about it instead, so that it reaches her. One recorded before that was refused may
   still name you with no reason: it was never yours, so it is not said to you
   in the channel, and `yoyo status` and the dashboard list it under the role
   that handled it, labelled `report to handle again`, as open for that role to
   finish; that role's turns list it as its own until a later handling records
   what became of the report. That handling does not close the
   report; it records the finding, and a later handling of the same report
-  without `needs` is what records the change made. She is not handed the report
-  again as unhandled, so her turns list the findings she has handed you, with
-  their identifiers, until she records each one done — tell her when you have
-  made the change, or she will see it.
+  without `needs` is what records the change made. No role is handed the report again as
+  unhandled, so the Lead Product Manager's turns list every finding handed to
+  you, with its identifier, until it is recorded done, and the architect's and
+  the development manager's turns list the ones that role recorded itself. Tell
+  her, or the role that recorded it, when you have made the change.
 - **A run stopping on a condition only a person can clear.** The harness does
   not judge a stoppage itself; the development manager does, on
   [her docket](conversation.md#deciding-what-becomes-of-stopped-work), and her
@@ -1865,9 +1871,9 @@ next `yoyo reconcile` or status reading records that.
   finding ends when the last one in it is decided.
 
 A finding of the first two shapes can also be a role's own decision that only
-your keyboard can carry out, which is not yours to decide: the Lead Product
-Manager's handling recorded with `"hand"` in place of `"needs"` — a
-configuration value she decided that only a person can write into
+your keyboard can carry out, which is not yours to decide: a report handling
+recorded with `"hand"` in place of `"needs"` — a configuration value the role
+that handled the report decided, and only a person can write into
 `.yoyodyne/config.yaml`. (The development manager's escalation recorded with
 `"hand": "cap-crossing"`, for a raise past her own five, is no longer one: the
 Lead Product Manager grants that raise herself with the `grant` action, and an
@@ -1897,8 +1903,9 @@ what the brake counts, what it does not, and how it is worked.
 A report is not one of these, whatever its severity. A critical report nobody
 has handled is the role's it was addressed to, or the Lead Product Manager's
 where it names none: it is listed under that role, reaches the channel saying
-whose it is, and becomes yours only if her handling records that a person must
-act. See [whom a report is for](reporting.md#whom-a-report-is-for).
+whose it is, and becomes yours only if a handling — the Lead Product
+Manager's, or the architect's or the development manager's of a report addressed
+to it — records that a person must act, for a reason on your closed list. See [whom a report is for](reporting.md#whom-a-report-is-for).
 
 Two stops a run makes on its own are named to you elsewhere and are not
 findings of this class: a run the provider refused and the harness would not
@@ -6563,7 +6570,7 @@ your hand**, never under **Yours to decide**.
 | `outage` | yours for a lapsed login (`credential`); nobody's for a provider nobody can reach |
 | `stall` | by its reason: yours for a target branch that diverged (`diverged-history`) or your own hold; the harness for a session to start or a read to retry; nobody's for waits that clear by themselves |
 | `held-work` | the development manager for a decision, the harness for a carry-out or named work, the Lead Product Manager for parked work |
-| `operator-action` | yours for the closed-list reason it was recorded with; the role that decided it, with your hand, where it was recorded with a hand; otherwise back to the Lead Product Manager or the development manager who raised it |
+| `operator-action` | yours for the closed-list reason it was recorded with; the role that decided it, with your hand, where it was recorded with a hand; otherwise back to the role that handled the report, or, for an escalation, to the development manager |
 | `human-gate` | yours (`human-gate`); the Lead Product Manager for a declaration nothing could read |
 | `untraced-pass` | the role whose pass it was |
 | `capacity-degraded` | nobody's |
@@ -6572,8 +6579,8 @@ your hand**, never under **Yours to decide**.
 | `concern` | yours (`fundamental-intent`), whichever role raised it |
 
 A role records a decision that needs your hand with `hand` in place of a
-reason of yours: the Lead Product Manager's report handling with
-`"hand": "operational-configuration"`. It is said to you directly once, like
+reason of yours: a report handling, by whichever role may handle the report,
+with `"hand": "operational-configuration"`. It is said to you directly once, like
 any finding, and stands until a later handling ends it. A raise past the
 development manager's five is the Lead Product Manager's to grant and needs no
 hand: a new escalation naming `"hand": "cap-crossing"` is refused, and one

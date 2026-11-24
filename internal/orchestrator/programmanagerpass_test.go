@@ -642,4 +642,9 @@ func TestAReportAddressedToTheProgramManagerIsPutInFrontOfAnInstancesPass(t *tes
 	if strings.Contains(message, forOther) {
 		t.Fatalf("the instance's message names a report for the development manager:\n%s", message)
 	}
+	// A program manager holds no handling of its own, so it is not told to
+	// record one; the Lead Product Manager records it.
+	if strings.Contains(message, `record that with a "handle" action`) || !strings.Contains(message, "The Lead Product Manager records the handling") {
+		t.Fatalf("the instance's message tells it to handle reports it cannot:\n%s", message)
+	}
 }

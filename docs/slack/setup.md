@@ -131,7 +131,8 @@ channel and sent to nobody directly. The second is **advisory-once** — a
 fact said exactly once and never repeated: a value the project's template has
 improved that this project never edited, and
 [a finding that needs your hand](../reporting.md#a-finding-that-needs-your-hand)
-— a report the Lead Product Manager handled as yours, a stopped run the
+— a report the Lead Product Manager handled as yours, or the architect or the
+development manager did where it was addressed to that role, a stopped run the
 development manager escalated to you, or the batch
 of recommendations an owning role argued on a recurring pass over the changes
 proposed to its documents — which is
