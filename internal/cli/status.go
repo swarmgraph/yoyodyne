@@ -520,6 +520,7 @@ func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *read
 	}
 	if standing != nil {
 		fmt.Fprint(stdout, standing.RenderLines())
+		fmt.Fprint(stdout, standing.RenderEpics())
 		fmt.Fprint(stdout, standing.RenderLandingHolds())
 		fmt.Fprint(stdout, standing.RenderUsageWindows())
 		fmt.Fprint(stdout, standing.RenderOwnerInterventions())
@@ -844,6 +845,9 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewLandingHoldStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.LandingHolds = store
 	}
+	// The epics the operator named, and what was not started because it is
+	// outside them. A product that never named one prints nothing.
+	sources.Epics = readmodel.NewEpicRecords(stateRoot, cfg.Product.ID)
 	// Since when each item has carried the needs-design label, so an item waiting
 	// on the architect's design is shown with its age.
 	if store, err := runstate.NewNeedsDesignLabelledStore(stateRoot, cfg.Product.ID); err == nil {
