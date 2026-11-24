@@ -111,6 +111,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -467,6 +468,13 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	// reconciliation takes to act on one: what is read here is what is written,
 	// and a sweep settling the same run beside this cannot lose either half.
 	prior, lease, err := c.Runs.AdoptRun(ctx, entry.RunID)
+	if errors.Is(err, os.ErrNotExist) {
+		// Taking the run touches more than its record, so the record is asked for
+		// itself before it is called gone.
+		if _, readErr := c.Runs.Load(entry.RunID); errors.Is(readErr, os.ErrNotExist) {
+			return result, runGone(entry.RunID, readErr)
+		}
+	}
 	if err != nil {
 		return result, fmt.Errorf("take the stopped run to re-enter its repair loop: %w", err)
 	}
@@ -1290,6 +1298,8 @@ func continuableItem(item beads.WorkItem, workItemID string) error {
 	}
 	switch item.Status {
 	case "open", "in_progress", "blocked":
+	case closedStatus:
+		return itemClosed(item.ID)
 	default:
 		return fmt.Errorf("%w: work item %s status is %q, so it is not one a stopped run may be continued on; nothing was spent, so the same decision is carried out by asking again once it is",
 			ErrItemNotStartable, item.ID, item.Status)

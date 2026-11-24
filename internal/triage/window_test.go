@@ -76,6 +76,30 @@ func TestLiveKeepsOneEntryPerLiveStoppedRunOldestFirst(t *testing.T) {
 	}
 }
 
+// A decision refused because its item is closed is listed, once for its run,
+// although every other entry of a closed item is left out, and leaves the list
+// once she decides differently.
+func TestLiveListsADecisionRefusedBecauseItsItemIsClosed(t *testing.T) {
+	t.Parallel()
+
+	refused := windowEntry(ClassStoppedRun, "run-refused", "item-closed", 9)
+	refused.Closed = &Closure{Decision: "rerun", ClosedAt: windowNow.Add(-2 * time.Hour)}
+	refused.CarryOut = &CarryOut{Cause: CarryOutItemClosed, Decision: "rerun", RefusedAt: windowNow.Add(-time.Hour)}
+	repeat := windowEntry(ClassPublication, "run-refused", "item-closed", 3)
+	repeat.Closed, repeat.CarryOut = refused.Closed, refused.CarryOut
+	other := windowEntry(ClassStoppedRun, "run-dead", "item-closed", 5)
+
+	live := Live([]Entry{refused, repeat, other}, closedAmong("item-closed"), windowNow)
+	if live.Dead != 1 || len(live.Stoppages) != 1 || live.Stoppages[0].Entry.RunID != "run-refused" {
+		t.Fatalf("dead = %d, stoppages = %v; want the refused run listed once", live.Dead, stoppageKeys(live.Stoppages))
+	}
+
+	refused.Closed = &Closure{Decision: "escalate", ClosedAt: windowNow.Add(-time.Minute)}
+	if live := Live([]Entry{refused}, closedAmong("item-closed"), windowNow); len(live.Stoppages) != 0 {
+		t.Fatalf("stoppages = %v; want it gone once she decided differently", stoppageKeys(live.Stoppages))
+	}
+}
+
 // A tracker nobody could read closes nothing: every entry stays live rather than
 // being hidden on the strength of a listing that was never read.
 func TestLiveTakesNothingForDeadWithoutATrackerAnswer(t *testing.T) {

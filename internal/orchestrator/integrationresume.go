@@ -660,6 +660,7 @@ func (r IntegrationResumer) supersedeOnRun(ctx context.Context, prior runstate.S
 	if err := r.Runs.ReserveLive(withPairs(ctx, r.SlotPairs), resumed, r.Capacity); err != nil {
 		return runstate.State{}, err
 	}
+	carryOutBegun(ctx)
 	return resumed, nil
 }
 

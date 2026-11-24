@@ -2110,13 +2110,24 @@ fire does not starve the ones behind it. **A refusal whose cause will not clear
 on its own is recorded once and is not retried until the development manager
 changes the decision.** A retired or missing worktree, a deleted branch, a HEAD
 that moved from the harness's recorded commit, a superseded or missing decision,
-a missing stoppage record, and a publication no re-arm can make are these
-permanent causes. The item and her docket carry the refusal's own words and the
+a missing stoppage record, a publication no re-arm can make, an item that was
+already closed, and a run whose record is gone are among these causes; the list
+linked below has them all. The item and her docket carry the refusal's own words and the
 ways forward: a re-run or an escalation, or recording a missing decision again
-with an override where the budget requires it. The exact item note is saved
+with an override where the budget requires it. For three of them another re-run
+could be the decision just refused, so that general advice is left out and the
+refusal itself names what can be decided instead: for a closed item, the item
+reopened first and a decision then recorded, or a wait or an escalation; for a
+run whose record is gone, a decision about a run of the item that still has a
+record, or an escalation; for a missing stoppage, the run and decision that
+apply. The exact item note is saved
 with the refusal; if the tracker refuses its delivery, later pulls retry the
 note alone and check whether it is already there before appending it. Changing
 the decision or clearing the refusal does not discard an undelivered note.
+A try that was refused keeps no developer slot, whether the refusal is for good
+or can clear: the same pull gives the slot to the next decision and then to
+ready work, and does the same where the try has not said within two minutes
+whether its run began.
 The refusal is delivered to her
 as a new stoppage even when the original stoppage was already delivered; later
 pulls neither attempt it nor deliver the same gate again. A new decision,
@@ -2170,8 +2181,10 @@ It is written onto the item's triage record as no longer applying, naming the
 closed item or the replacement, with a note on the item, and her docket says
 it was set aside and for which item; a request to finish a merge is written
 onto the run's own request as not carried out, so it is not asked again. A
-recovery she decides after the close or after the replacement was made is her
-deciding past it, and is carried out as before. A child item that builds on the
+recovery she decides after the replacement was made is her deciding past it,
+and is carried out as before. A re-run or a repair she decides after the close
+is not set aside: while the item stays closed it is refused once and put to her,
+as above, and one recorded after the item is reopened is carried out. A child item that builds on the
 run's change, or only cites the run, sets nothing aside.
 
 This holds whatever became of the docket entry for the decision's run. A
@@ -2189,8 +2202,8 @@ and a re-run is attempted even where a later decision about another of the
 item's runs, such as a wait, came after it, because the re-run still holds the
 item.
 Until the pass starts it, the item's hold says it waits on the harness; a re-run
-refused for a cause that will not clear, over a run that left no branch or
-worktree, releases the item and says so on it, as
+refused for a cause that will not clear, other than its item being closed, over
+a run that left no branch or worktree, releases the item and says so on it, as
 [a refused carry-out](run-stops.md#permanent-carry-out-refusals) does. A run of the item started since the
 decision answers it, so it is not started a second time. What such a run cannot take
 is a repair, because a repair re-enters a docketed stoppage's worktree. A repair
@@ -2198,10 +2211,10 @@ of it, or a re-run of a run the harness holds no record of, is attempted and
 refused. The refusal says how the run ended and names the decision the harness
 would carry out instead: the re-run of that same run for a repair, or else the
 same decision against a docketed stoppage of the item that can still take it,
-or a re-run of the item's latest recorded run. That refusal, and an
-unattempted record about such a run, is shown on every docket entry of the item
-for as long as it is her latest decision, labelled with the run it is about.
-Otherwise no entry would carry it, because each entry shows only the findings
+or a re-run of the item's latest recorded run. That refusal is shown on one
+docket entry of the item, and an unattempted record or a refusal that can clear
+about such a run on every one, for as long as it is her latest decision,
+labelled with the run it is about. Otherwise no entry would carry it, because each entry shows only the findings
 about its own run. The re-run recorded for yoyodyne-ifd.187 against run-04e578ce
 on 2026-09-26 was refused thirty-nine times this way while every entry she read
 was silent;

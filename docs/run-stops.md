@@ -251,6 +251,17 @@ or a cleared finding does not discard a pending note.
 | `merge-dropped` | A repair was decided on a run whose approved change the forge did not merge — dropped from its queue, or withdrawn after waiting past `triage.stuck_merge_age` — nothing was ever returned to its developer, and the change cannot be brought up to date from the run: it was promoted locally, its pull request is closed, or its branch, worktree, approval, developer session or remaining resumptions are gone. Where none of those holds, the repair is carried out instead by putting the run back at its merge, bringing the kept change up to date with the target, checking and reviewing it again, and queuing the merge again, with no repair attempt counted unless that conflicts. Recorded on the item once, with the forge's reason the run carries and why the change cannot be replayed. | A re-run, which builds the change again on the current target branch, or a re-arm of the same merge where the forge's reason has passed. |
 | `backend-unavailable` | The stopped run's developer worked on a backend this harness can no longer start — the project no longer describes it, or this build cannot launch it — so its session cannot be carried on, reported as `RecordedBackendError`; or it worked on a backend other than the configured developer's and neither its record nor the run's own lines in the spend log name the model it was developed with there, reported as `RecordedModelError`. A run's developer is always invoked on the backend the run recorded, never on the one the developer is configured for now, and on that backend with the model the run was developed with, never the configured developer's. | A re-run, which starts the item again on the configured backend; the run's session stays on its record. |
 | `check-reruns-spent` | A decided repair would run checks a time limit left unfinished again on a candidate whose reruns or time allowance are already spent. The bounds are shared by the harness's own continuations after either limit and by decided repairs, and are never reset by a restart or a change of path. | A re-run of the item, which starts a new candidate from the change on the run's branch, merged onto the target branch with any conflicts left for its developer to resolve, or parking it. The run's branch, worktree, and session stay as they were. |
+| `item-closed` | A re-run or a repair was decided on an item that is closed, whether finished or retired, and no record settles the run's work as `no-longer-applies` reads it: the decision was made after the item closed. It is refused once, whatever else about the run would have refused it too. | Reopening the item, where its work is still wanted, and a new decision; or another decision about the run, such as a wait or an escalation. A reopened item on its own does not have the refused decision tried again. |
+| `run-gone` | The run the decision names no longer has a record. A record that is there and cannot be read is not this, and keeps the ordinary paced retry. | The decision recorded against a run of the item the harness still holds a record of, or an escalation. |
+
+A refusal that can change — no free developer slot, the tracker not answering in
+time, the item waiting on other work, the operator's pause — has no cause here
+and is tried again. Neither kind keeps a developer slot: a try that comes back
+without starting a run gives its slot back, and the same pull offers it to the
+next decision and then to the queue. A try that has not said whether its run
+began within two minutes gives its slot back too, and is not counted against a
+slot until a run of it is on record; if it then finds no slot free it is refused
+for that and tried again.
 
 Classification reads typed refusals and confirmed repository findings, never a
 match on the refusal's prose. An unreadable branch or checkout is not proof that
@@ -262,10 +273,14 @@ A re-run asks nothing of the stopped run except that it has ended. A run that
 ended with no durable blocker and no branch or worktree left is started again
 from the target branch like any other re-run, and until the next pull with a
 free developer slot does that, the item's hold says it waits on the harness. If
-such a re-run is refused by one of the causes above, the decision stops holding
+such a re-run is refused by one of the causes above other than `item-closed`, the decision stops holding
 the item: nothing remains for a fresh run to start beside, so the next pull may
 take it like any other ready item. The note written onto the item carries the
-refusal and says the hold was released.
+refusal and says the hold was released. A re-run refused because its item is
+closed says nothing of the kind, since no pull starts a closed item: the note
+says the item has to be reopened first, or another decision recorded. If the
+item is reopened, the refused re-run does not hold it where the run left no
+branch or worktree, and the item is started like any other ready item.
 
 A refusal before the action starts spends no repair round, repair grant, or
 re-run claim. The stopped run and whatever remains of its change stay as found.

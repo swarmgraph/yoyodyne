@@ -132,6 +132,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -441,6 +442,9 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 		DocketKey:  entry.Key,
 	}
 	prior, err := r.Runs.Load(entry.RunID)
+	if errors.Is(err, os.ErrNotExist) {
+		return result, runGone(entry.RunID, err)
+	}
 	if err != nil {
 		return result, fmt.Errorf("read the run the docket entry is about: %w", err)
 	}
@@ -992,6 +996,9 @@ func (r Rerunner) itemCanBeRun(ctx context.Context, workItemID string) (beads.Wo
 	item, err := r.Items.Show(ctx, workItemID)
 	if err != nil {
 		return beads.WorkItem{}, fmt.Errorf("read the work item the stoppage is about: %w", err)
+	}
+	if item.ID == workItemID && item.Status == closedStatus {
+		return beads.WorkItem{}, fmt.Errorf("%w, so the stoppage keeps its re-run", itemClosed(workItemID))
 	}
 	statuses := startableStatuses
 	if item.Status == claimedItemStatus {
