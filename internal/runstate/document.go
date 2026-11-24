@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,6 +39,21 @@ type DocumentPublication struct {
 	// Released is set on a handoff the development manager released for one run
 	// after automatic publication had stopped at MaxDocumentReturns.
 	Released *DocumentReturnsDecision `json:"released,omitempty"`
+	// Answers are the work items the role said the document is the design or
+	// ruling for. AnsweredItems is what to read.
+	Answers []string `json:"answers,omitempty"`
+}
+
+// AnsweredItems is every work item the document answers: each one its owner said
+// it is the design or ruling for, and the one its latest revision names.
+func (d DocumentPublication) AnsweredItems() []string {
+	var answered []string
+	for _, id := range append(slices.Clone(d.Answers), DocumentAnswers(d.Candidate)) {
+		if id = strings.TrimSpace(id); id != "" && !slices.Contains(answered, id) {
+			answered = append(answered, id)
+		}
+	}
+	return answered
 }
 
 // DocumentCountRestart is the reason a document's count of returned runs began
@@ -213,6 +229,9 @@ type DocumentDelivery struct {
 	// publishing its copy, which kept this handoff's run from starting (see
 	// PublishingAhead), and nil otherwise.
 	WaitingBehind *DocumentAhead `json:"waiting_behind,omitempty"`
+	// Outside is why the epics the operator named kept the run from starting,
+	// and empty otherwise.
+	Outside string `json:"outside,omitempty"`
 	// Queued is where a run that passed the document waits to land, in the
 	// words State.MergeQueueSays gives, set on an unsettled delivery whose
 	// document waits in a merge queue and empty on every other.

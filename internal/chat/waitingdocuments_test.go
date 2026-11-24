@@ -21,7 +21,10 @@ type standingPublisher struct {
 	standings map[string]runstate.DocumentStanding
 	withdrawn []string
 	offered   []string
+	ended     []string
 }
+
+func (p *standingPublisher) DocumentEnded(id string) { p.ended = append(p.ended, id) }
 
 // PublishesDocuments is false, so a new revision is never confirmed by policy
 // here: what these tests follow is where it waits.
@@ -93,6 +96,9 @@ func TestANewRevisionReplacesAConfirmedOneWhoseRunHasNotStarted(t *testing.T) {
 		t.Fatalf("decided = %v, withdrawn = %v; want the unstarted revision replaced and taken off the wait", waiting.decided, publisher.withdrawn)
 	}
 	fresh := latestRecord(session)
+	if len(publisher.ended) != 0 {
+		t.Fatalf("ended = %v, want the replaced document still waiting as its newer revision", publisher.ended)
+	}
 	if !strings.Contains(told, "Document "+fresh.pending.ID+" (rules") || !strings.Contains(told, "it replaces document-1.1, whose run had not started") {
 		t.Fatalf("the role was told %q", told)
 	}
@@ -401,6 +407,9 @@ func TestARoleWithdrawsItsOwnUnstartedOrHandedBackDocumentAndNothingElse(t *test
 	}
 	if !unstarted.decided || started.decided || !back.decided {
 		t.Fatalf("decided = %v, %v, %v; want the unstarted ones and those handed back withdrawn and the running one kept", unstarted.decided, started.decided, back.decided)
+	}
+	if strings.Join(publisher.ended, " ") != "rules-a rules-c" {
+		t.Fatalf("ended = %v, want the two withdrawn documents", publisher.ended)
 	}
 	if len(publisher.withdrawn) != 2 {
 		t.Fatalf("taken off the wait = %v", publisher.withdrawn)

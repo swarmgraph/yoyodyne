@@ -572,6 +572,7 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		return s.unwrittenApproval(record, outcome, err)
 	}
 	record.decided = true
+	s.documentEnded(record)
 	s.noteHandStep(intervention.KindApprove, nil, "", written.ID,
 		fmt.Sprintf("approved document %s, which wrote %s", record.pending.ID, written.ID))
 	outcome.Path = written.Path
@@ -629,6 +630,7 @@ func (s *Session) unwrittenApproval(record *writeRecord, outcome WriteOutcome, e
 	outcome.Problem = err.Error()
 	if errors.Is(err, artifact.ErrUnauthorized) {
 		record.decided = true
+		s.documentEnded(record)
 		s.notice("the operator approved document %s, and the harness refused it: %v", record.pending.ID, err)
 		s.noteHandStep(intervention.KindApprove, nil, "", id,
 			fmt.Sprintf("approved document %s, which the harness then refused to write", record.pending.ID))
@@ -750,6 +752,7 @@ func (s *Session) DeclineWrite(writeID, reason string) error {
 		return fmt.Errorf("record document rejection: %w", err)
 	}
 	record.decided = true
+	s.documentEnded(record)
 	s.notice("the operator declined document %s (%s), because: %s",
 		record.pending.ID, strings.TrimSpace(record.pending.Write.ID), trimmed)
 	s.noteHandStep(intervention.KindDecline, nil, "", strings.TrimSpace(record.pending.Write.ID),

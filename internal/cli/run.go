@@ -240,13 +240,18 @@ type roots struct {
 func (c components) mayStart() orchestrator.StartDecision {
 	return func(start maystart.Start) maystart.Decision {
 		decision := maystart.Ask(c.stateRoot, c.config.Product.ID, start, time.Now())
-		if decision.NotKept != nil {
-			said := fmt.Sprintf("the record of starts refused because of the named epics was not updated: %v", decision.NotKept)
-			if _, already := saidNotKept.LoadOrStore(said, true); !already {
-				fmt.Fprintln(os.Stderr, said)
-			}
-		}
+		sayNotKept(decision.NotKept)
 		return decision
+	}
+}
+
+func sayNotKept(err error) {
+	if err == nil {
+		return
+	}
+	said := fmt.Sprintf("the record of starts refused because of the named epics was not updated: %v", err)
+	if _, already := saidNotKept.LoadOrStore(said, true); !already {
+		fmt.Fprintln(os.Stderr, said)
 	}
 }
 
@@ -779,7 +784,11 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	mcpCalls, mcpRecords := runMCPCalls(parts)
 
 	return orchestrator.Pipeline{
-		MayStart:     parts.mayStart(),
+		MayStart: parts.mayStart(),
+		// A document that no longer waits is no longer one the named epics hold out.
+		EndRefusedDocument: func(id string) {
+			sayNotKept(maystart.DocumentEnded(parts.stateRoot, parts.config.Product.ID, id))
+		},
 		Availability: machineAvailability(parts),
 		Tracker:      parts.tracker(),
 		// The priorities the merge queue last read, which order its entries while

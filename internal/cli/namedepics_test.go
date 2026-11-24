@@ -80,8 +80,8 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 	}
 	decide := pipelineFrom(parts).MayStart
 	for _, path := range maystart.Paths() {
-		if !path.Wired {
-			continue
+		if !path.Wired || path.Path == maystart.PublishDocument {
+			continue // a document is kept by its own entry, below
 		}
 		if len(wiredTo[path.Path]) == 0 {
 			t.Errorf("%s is marked wired, and no part here is known to start work that way", path.Path)
@@ -102,6 +102,25 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 			}
 		}
 	}
+	document := maystart.DocumentRun(maystart.PublishDocument, "yoyodyne-other0").Of(maystart.Document{ID: "a-design", WriteID: "document-1.1"})
+	documents := func() int {
+		t.Helper()
+		refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(refusals.Documents)
+	}
+	for _, asking := range []orchestrator.StartDecision{pipelineFrom(parts).MayStart, pull.MayStart} {
+		if asking(document).MayStart() || documents() != 1 {
+			t.Fatalf("%d documents are recorded as refused, want the one", documents())
+		}
+	}
+	pipelineFrom(parts).DocumentEnded("a-design")
+	if documents() != 0 {
+		t.Fatal("a document that ended is still recorded as refused")
+	}
+	decide(document)
 	before := len(items())
 	if _, err := operator.Add("yoyodyne-9k1y", "yoyodyne-other1", time.Now()); err != nil {
 		t.Fatal(err)
@@ -118,6 +137,9 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 	}
 	if got := items(); len(got) == 0 || slices.ContainsFunc(got, func(item maystart.RefusedItem) bool { return item.WorkItemID == "yoyodyne-other0" }) {
 		t.Fatalf("refusals = %+v; want only the closed item's taken away", got)
+	}
+	if documents() != 1 {
+		t.Fatal("an item it answers closing took away a refused document")
 	}
 	blocking := filepath.Join(home.ProductDirectory(parts.stateRoot, string(parts.config.Product.ID)), "not-started.json")
 	if err := os.WriteFile(blocking, []byte("{"), 0o600); err != nil {

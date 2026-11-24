@@ -51,6 +51,10 @@ type Refusals struct {
 	// Passes is one entry for each role, from its first refusal until a pass of
 	// that role may start.
 	Passes []RefusedPasses `json:"passes,omitempty"`
+	// Documents is one entry for each document, from its first refusal until a
+	// run of it starts or may start, or it ends (DocumentEnded). An item it
+	// answers closing does not end it.
+	Documents []RefusedDocument `json:"documents,omitempty"`
 }
 
 // RefusedItem is a work item whose start by one path was refused.
@@ -61,6 +65,22 @@ type RefusedItem struct {
 	Why string `json:"why"`
 	// Since is when it was first refused, and Last when it was last refused, to
 	// within refusedAgainAfter.
+	Since time.Time `json:"since"`
+	Last  time.Time `json:"last"`
+}
+
+// RefusedDocument is a document whose run was refused, as its newest refused
+// write stands.
+type RefusedDocument struct {
+	DocumentID string `json:"document_id"`
+	Title      string `json:"title,omitempty"`
+	Path       Path   `json:"path"`
+	WriteID    string `json:"write_id"`
+	// Answers is the work items it answers, where it answers any.
+	Answers     []string  `json:"answers,omitempty"`
+	ConfirmedAt time.Time `json:"confirmed_at,omitzero"`
+	Why         string    `json:"why"`
+	// Since and Last are as a RefusedItem's.
 	Since time.Time `json:"since"`
 	Last  time.Time `json:"last"`
 }
@@ -91,6 +111,11 @@ func (r Refusals) Validate() error {
 			problems = append(problems, fmt.Errorf("the refused passes of %q need a role, a count and when the first was refused", passes.Role))
 		}
 	}
+	for _, document := range r.Documents {
+		if document.DocumentID == "" || document.Path == "" || document.WriteID == "" || document.Why == "" || document.Since.IsZero() || document.Last.IsZero() {
+			problems = append(problems, fmt.Errorf("the refusal of document %q needs its identifier, a path, the write, a reason and when it was first and last refused", document.DocumentID))
+		}
+	}
 	return errors.Join(problems...)
 }
 
@@ -115,6 +140,9 @@ func Ask(stateRoot string, product domain.ProductID, start Start, at time.Time) 
 // The review of unmet goals and the reading of outside messages are not role
 // passes and name no work item, so nothing is kept about them.
 func Note(stateRoot string, product domain.ProductID, start Start, decision Decision, at time.Time) error {
+	if start.what == documentRun && !decision.MayStart() && (start.document.ID == "" || start.document.WriteID == "" || start.path == "") {
+		return errors.New("what asked did not say which document, write and path it is")
+	}
 	return change(stateRoot, product, func(current *Refusals, record epicscope.Record, readable bool) bool {
 		noted := current.note(start, decision, at)
 		return readable && current.settle(record) || noted
@@ -136,6 +164,15 @@ func ItemsClosed(stateRoot string, product domain.ProductID, closed func(item st
 		before := len(current.Items)
 		current.Items = slices.DeleteFunc(current.Items, func(item RefusedItem) bool { return closed(item.WorkItemID) })
 		return len(current.Items) != before
+	})
+}
+
+// DocumentEnded takes away the refusal of a document that no longer waits to be
+// published: it was withdrawn, handed back or settled some other way, or a run
+// of it is recorded.
+func DocumentEnded(stateRoot string, product domain.ProductID, id string) error {
+	return change(stateRoot, product, func(current *Refusals, _ epicscope.Record, _ bool) bool {
+		return current.endDocument(id)
 	})
 }
 
@@ -199,7 +236,11 @@ func (r *Refusals) note(start Start, decision Decision, at time.Time) bool {
 			r.Items = slices.DeleteFunc(r.Items, func(item RefusedItem) bool {
 				return slices.Contains(start.items, item.WorkItemID) && (start.what == workItemRun || item.Path == start.path)
 			})
-			return len(r.Items) != before
+			ended := start.what == documentRun && r.endDocument(start.document.ID)
+			return ended || len(r.Items) != before
+		}
+		if start.what == documentRun {
+			return r.noteDocument(start, decision, at)
 		}
 		for _, id := range start.items {
 			if !beads.ValidIssueID(id) || start.path == "" {
@@ -233,6 +274,43 @@ func (r *Refusals) note(start Start, decision Decision, at time.Time) bool {
 	return changed
 }
 
+// noteDocument keeps one refusal of a document. Its entry takes the place of the
+// entries an earlier build made for each item a document answers. A write older
+// than the one the entry is about changes nothing.
+func (r *Refusals) noteDocument(start Start, decision Decision, at time.Time) bool {
+	before := len(r.Items)
+	r.Items = slices.DeleteFunc(r.Items, func(item RefusedItem) bool {
+		return item.Path == start.path && slices.Contains(start.items, item.WorkItemID)
+	})
+	changed := len(r.Items) != before
+	document := start.document
+	refused := RefusedDocument{
+		DocumentID: document.ID, Title: document.Title, Path: start.path, WriteID: document.WriteID,
+		Answers: start.items, ConfirmedAt: document.ConfirmedAt.UTC(), Why: decision.Why, Since: at.UTC(), Last: at.UTC(),
+	}
+	index := slices.IndexFunc(r.Documents, func(entry RefusedDocument) bool { return entry.DocumentID == document.ID })
+	if index < 0 {
+		r.Documents = append(r.Documents, refused)
+		return true
+	}
+	entry := r.Documents[index]
+	if refused.ConfirmedAt.Before(entry.ConfirmedAt) {
+		return changed
+	}
+	if entry.WriteID == refused.WriteID && entry.Path == refused.Path && entry.Why == refused.Why && at.Sub(entry.Last) < refusedAgainAfter {
+		return changed
+	}
+	refused.Since = entry.Since
+	r.Documents[index] = refused
+	return true
+}
+
+func (r *Refusals) endDocument(id string) bool {
+	before := len(r.Documents)
+	r.Documents = slices.DeleteFunc(r.Documents, func(entry RefusedDocument) bool { return entry.DocumentID == id })
+	return len(r.Documents) != before
+}
+
 // settle takes away each refusal of what the record now lets start, and reports
 // whether there was one. One made while the record could not be read is given
 // the reason the record now gives.
@@ -255,6 +333,19 @@ func (r *Refusals) settle(record epicscope.Record) bool {
 		kept = append(kept, item)
 	}
 	r.Items = kept
+	documents := make([]RefusedDocument, 0, len(r.Documents))
+	for _, entry := range r.Documents {
+		now := decide(record, DocumentRun(entry.Path, entry.Answers...))
+		if now.MayStart() {
+			changed = true
+			continue
+		}
+		if now.Answer == MayNot && now.Why != entry.Why {
+			entry.Why, changed = now.Why, true
+		}
+		documents = append(documents, entry)
+	}
+	r.Documents = documents
 	r.Passes = slices.DeleteFunc(r.Passes, func(passes RefusedPasses) bool {
 		allowed := decide(record, Pass(RecurringPass, passes.Role)).MayStart()
 		changed = changed || allowed

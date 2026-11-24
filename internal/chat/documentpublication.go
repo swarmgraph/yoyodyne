@@ -489,13 +489,32 @@ func (s *Session) returnUnconfirmed(record *writeRecord, told string) error {
 		return saved
 	}
 	record.decided = true
+	s.documentEnded(record)
 	return s.carryResults(told)
+}
+
+// refusedDocuments is the part of the publisher that keeps which documents the
+// named epics refused. It is satisfied by orchestrator.Pipeline.
+type refusedDocuments interface{ DocumentEnded(id string) }
+
+// documentEnded says a settled document no longer waits, unless another
+// revision of it here does, which then is what its refusal is about.
+func (s *Session) documentEnded(record *writeRecord) {
+	id := strings.TrimSpace(record.pending.Write.ID)
+	for _, other := range s.writes {
+		if !other.decided && strings.TrimSpace(other.pending.Write.ID) == id {
+			return
+		}
+	}
+	if refused, ok := s.options.DocumentPublisher.(refusedDocuments); ok && id != "" {
+		refused.DocumentEnded(id)
+	}
 }
 
 // publicationFor is the handoff that lands one confirmed or approved document,
 // bound to the conversation, turn, and provider that wrote it.
 func (s *Session) publicationFor(record *writeRecord, candidate artifact.ConfirmedDocument) *runstate.DocumentPublication {
-	return &runstate.DocumentPublication{Candidate: candidate, ConversationID: record.pending.ConversationID, WriteID: record.pending.ID, Turn: record.pending.Turn, Owner: s.state.Role, AuthorSession: s.state.ProviderSessionID, AuthorBackend: string(s.state.Backend), AuthorModel: s.requestedModel(), AuthorAccount: s.options.AccountAlias, AuthorConfigRevision: s.options.ConfigRevision}
+	return &runstate.DocumentPublication{Candidate: candidate, ConversationID: record.pending.ConversationID, WriteID: record.pending.ID, Turn: record.pending.Turn, Owner: s.state.Role, AuthorSession: s.state.ProviderSessionID, AuthorBackend: string(s.state.Backend), AuthorModel: s.requestedModel(), AuthorAccount: s.options.AccountAlias, AuthorConfigRevision: s.options.ConfigRevision, Answers: trimmedItems(record.pending.Write.Answers)}
 }
 
 // resumeStoppedDocuments puts back a document whose automatic publication in

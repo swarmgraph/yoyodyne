@@ -29,15 +29,42 @@ func (d StartDecision) refuseRun(path maystart.Path, workItemID string) *Outside
 	return &OutsideNamedEpicsError{WorkItemID: workItemID, Decision: decision}
 }
 
+// refuseDocument is why a run that publishes the document may not start, and nil
+// where it may.
+func (d StartDecision) refuseDocument(document runstate.DocumentPublication) *OutsideNamedEpicsError {
+	if d == nil {
+		return nil
+	}
+	written := document.Candidate.Artifact
+	decision := d(maystart.DocumentRun(maystart.PublishDocument, document.AnsweredItems()...).Of(maystart.Document{
+		ID: written.ID, Title: written.Title, WriteID: document.WriteID, ConfirmedAt: written.ConfirmedAt(),
+	}))
+	if decision.MayStart() {
+		return nil
+	}
+	return &OutsideNamedEpicsError{Document: fmt.Sprintf("document %s (%s)", document.WriteID, written.Title), Decision: decision}
+}
+
 // OutsideNamedEpicsError is a start declined because the factory works only on
 // the epics the operator named and the item is in none of them, or because the
 // record of them could not be read. Nothing was reserved, claimed or spent.
 type OutsideNamedEpicsError struct {
-	WorkItemID string            `json:"work_item_id"`
-	Decision   maystart.Decision `json:"decision"`
+	WorkItemID string `json:"work_item_id,omitempty"`
+	// Document is the document, in words, where it is one that was to be
+	// published rather than a run of a work item.
+	Document string            `json:"document,omitempty"`
+	Decision maystart.Decision `json:"decision"`
+	// Says is the refusal already in words, where only those were kept.
+	Says string `json:"-"`
 }
 
 func (e *OutsideNamedEpicsError) Error() string {
+	if e.Says != "" {
+		return e.Says
+	}
+	if e.Document != "" {
+		return fmt.Sprintf("the run publishing %s was not started: %s; it starts after %s", e.Document, e.Decision.Why, e.Clears())
+	}
 	return fmt.Sprintf("%s was not started: %s; it starts after %s", e.WorkItemID, e.Decision.Why, e.Clears())
 }
 
@@ -45,6 +72,9 @@ func (e *OutsideNamedEpicsError) Error() string {
 func (e *OutsideNamedEpicsError) Clears() string {
 	if e.Decision.Answer != maystart.MayNot {
 		return "the record of the named epics can be read again"
+	}
+	if e.Document != "" {
+		return "it answers a member of an open epic or the open epic itself, or the operator runs `yoyo epic off`"
 	}
 	var ways []string
 	for _, epic := range e.Decision.Open {
