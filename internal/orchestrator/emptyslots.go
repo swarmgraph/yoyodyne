@@ -195,11 +195,11 @@ func noReadyWork() *runstate.EmptySlots {
 // keptOutByRule is the classes a ready item is passed over in for a rule of
 // the line's rather than for anything about the item: work overlapping a run
 // in flight, an item already tried, the provider's limit, another slot, a
-// directive pausing it.
+// directive pausing it, or the epics the operator named.
 func keptOutByRule(class runstate.PassedOverClass) bool {
 	switch class {
 	case runstate.PassedOverSequencedBehindWork, runstate.PassedOverAlreadyTried, runstate.PassedOverWaitingOnUsageWindow,
-		runstate.PassedOverLeftForAnotherSlot, runstate.PassedOverPausedByDirective:
+		runstate.PassedOverLeftForAnotherSlot, runstate.PassedOverPausedByDirective, runstate.PassedOverOutsideNamedEpics:
 		return true
 	}
 	return false

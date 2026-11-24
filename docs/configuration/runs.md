@@ -885,7 +885,18 @@ execution:
   max_concurrent_developers: 1   # the default
 ```
 
-It reads the admitted work in the order you set — highest priority first — takes
+Both are asked whether the item is in an epic you named, where you have named
+any. While the factory works only on those epics, these starts are refused for any
+other item: the scheduler leaves it in the queue, a fresh run or repair the
+development manager decided keeps its decision and spends nothing, a repair
+asked for on a pull request is left for the next check, and a run you name is
+refused with the command that adds the item to an open epic. Adding the item, or
+turning epic mode off, lets the same start go ahead. Being in a named epic lifts
+no other check: a member held for its design still waits for it. Other starts do
+not ask yet; [which epics the factory works on](../operations.md#which-epics-the-factory-works-on)
+names some of them.
+
+`yoyo work` reads the admitted work in the order you set — highest priority first — takes
 the items the tracker itself reports as ready to pull, and starts as many of them
 at once as this leaves free. Each run gets a worktree and a branch of its own,
 and the command returns once every run it started has ended. `--limit <n>` stops

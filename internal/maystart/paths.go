@@ -47,15 +47,15 @@ const (
 // Paths is the closed list. Each call returns its own copy.
 func Paths() []PathEntry {
 	return []PathEntry{
-		{Path: ReadyWork, Says: "the scheduler pulling ready work", starts: startsRun},
-		{Path: NamedRun, Says: "a run the operator names", starts: startsRun},
-		{Path: HoldTest, Says: "the test run that checks whether a hold can lift", starts: startsRun},
-		{Path: DecidedRerun, Says: "a fresh run the development manager decides after a stop", starts: startsRun},
-		{Path: DecidedRepair, Says: "a repair the development manager decides", starts: startsRun},
+		{Path: ReadyWork, Says: "the scheduler pulling ready work", Wired: true, starts: startsRun},
+		{Path: NamedRun, Says: "a run the operator names", Wired: true, starts: startsRun},
+		{Path: HoldTest, Says: "the test run that checks whether a hold can lift", Wired: true, starts: startsRun},
+		{Path: DecidedRerun, Says: "a fresh run the development manager decides after a stop", Wired: true, starts: startsRun},
+		{Path: DecidedRepair, Says: "a repair the development manager decides", Wired: true, starts: startsRun},
 		{Path: FinishMerge, Says: "finishing an interrupted merge", starts: startsRun},
 		{Path: ContinueRun, Says: "continuing a silent run or one whose checks ran out of time", starts: startsRun},
 		{Path: PickUpRun, Says: "picking up a waiting or interrupted run", starts: startsRun},
-		{Path: FeedbackRepair, Says: "a repair from feedback on a pull request", starts: startsRun},
+		{Path: FeedbackRepair, Says: "a repair from feedback on a pull request", Wired: true, starts: startsRun},
 		{Path: PublishDocument, Says: "publishing a document", starts: startsDocument},
 		{Path: BringUpToDate, Says: "the attempt to bring a handed back change up to date", starts: startsRun},
 		{Path: RecurringPass, Says: "a role's recurring pass", starts: startsPass},

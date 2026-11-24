@@ -28,6 +28,9 @@ const (
 type Decision struct {
 	Answer Answer
 	Why    string
+	// Open is the epics that have not ended, on a run refused for being in none
+	// of them: each is one the operator can add its item to.
+	Open []string
 }
 
 // MayStart reports a yes. Being unable to tell is not one, and nor is a decision
@@ -42,6 +45,9 @@ type Start struct {
 	items []string
 	role  domain.AgentRole
 }
+
+// Path is the way it is about to start, and empty for what is on no path.
+func (s Start) Path() Path { return s.path }
 
 type what int
 
@@ -157,7 +163,13 @@ func decideRun(record epicscope.Record, item string) Decision {
 	if _, held := record.Holding(item); held {
 		return Decision{Answer: May}
 	}
-	return mayNot("%s is not in an open epic the operator named", item)
+	decision := mayNot("%s is not in an open epic the operator named", item)
+	for _, epic := range record.Epics {
+		if epic.Open() {
+			decision.Open = append(decision.Open, epic.WorkItemID)
+		}
+	}
+	return decision
 }
 
 func decideDocument(record epicscope.Record, answers []string) Decision {
