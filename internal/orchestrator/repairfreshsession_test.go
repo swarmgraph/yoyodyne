@@ -185,7 +185,7 @@ func TestAFreshSessionIsHandedTheFailureTheRunsRecordAndTheItem(t *testing.T) {
 	state := harnessContinuedState()
 	state.Changes = &runstate.Changes{Files: "M\tinternal/orchestrator/pipeline.go"}
 	state.DeveloperSummary = &runstate.DeveloperSummary{Text: "made the pipeline wait"}
-	repair, err := resumedDeveloperPrompt(state, "persona", "", "", "/scratch", []string{"make test"}, protectedpath.Set{}, 3)
+	repair, err := resumedDeveloperPrompt(state, "persona", "", "", "/scratch", []string{"make test"}, gitworktree.DiffLimits{}, protectedpath.Set{}, 3)
 	if err != nil {
 		t.Fatalf("resumedDeveloperPrompt() error = %v", err)
 	}

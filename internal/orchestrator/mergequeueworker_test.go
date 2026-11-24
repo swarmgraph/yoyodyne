@@ -260,6 +260,36 @@ func TestTheQueueWorkerVerifiesTheExactCandidateWithoutThePromotionLease(t *test
 	}
 }
 
+// The candidate's own review is rendered under the project's review_limits, so a
+// change its run was reviewed whole under is not measured against other limits
+// in the queue.
+func TestTheQueuesReviewIsRenderedUnderTheProjectsReviewLimits(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	f.worker.Pipeline.Config.ReviewLimits = gitworktree.ReviewLimits{DiffKiB: 128, FileKiB: 96, Files: 300}
+	recorded := &limitsRecorder{MergeQueueCandidates: f.worker.Candidates}
+	f.worker.Candidates = recorded
+	if _, err := f.work(); err != nil {
+		t.Fatalf("Work() error = %v", err)
+	}
+	want := gitworktree.DiffLimits{MaxTotalBytes: 128 << 10, MaxFileBytes: 96 << 10, MaxFiles: 300}
+	if recorded.limits != want {
+		t.Fatalf("the candidate was rendered under %+v, want the project's %+v", recorded.limits, want)
+	}
+}
+
+// limitsRecorder keeps the limits a candidate's change was rendered under.
+type limitsRecorder struct {
+	MergeQueueCandidates
+	limits gitworktree.DiffLimits
+}
+
+func (r *limitsRecorder) CandidateChanges(ctx context.Context, base, candidate string, limits gitworktree.DiffLimits) (gitworktree.BranchChange, error) {
+	r.limits = limits
+	return r.MergeQueueCandidates.CandidateChanges(ctx, base, candidate, limits)
+}
+
 func TestTheTargetMovingDuringTheChecksRebuildsAndVerifiesAfresh(t *testing.T) {
 	t.Parallel()
 

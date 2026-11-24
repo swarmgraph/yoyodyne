@@ -27,6 +27,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
@@ -79,6 +80,15 @@ type Config struct {
 	// large it may be. It is empty unless the project fills it, and with no
 	// host listed the harness fetches nothing.
 	OutsideFiles OutsideFiles `yaml:"outside_files,omitempty" json:"outside_files,omitempty"`
+	// ReviewLimits are the project's limits on the reviewer's copy of a change:
+	// the diff in all, one new file, and the number of new files, each held to
+	// the bounds internal/gitworktree keeps (docs/decisions/review-size-limits.md).
+	// The code that renders the reviewer's copy and the size check in front of
+	// the checks both read them from here, so the two always agree. A limit left
+	// out takes its default, and the section is omitted from the serialized form
+	// while empty, so a project that says nothing keeps the revision it had
+	// before the key existed.
+	ReviewLimits gitworktree.ReviewLimits `yaml:"review_limits,omitempty" json:"review_limits,omitzero"`
 	// MCP is the MCP servers the project declares and every tool of each it will
 	// use (mcp.go). It is the operator's, as an account is, and empty unless the
 	// project names one; omitted from the serialized form while empty, so a
@@ -1615,6 +1625,7 @@ func (c Config) Validate() error {
 	}
 	problems = append(problems, c.Research.problems()...)
 	problems = append(problems, c.OutsideFiles.problems()...)
+	problems = append(problems, c.ReviewLimits.Problems("review_limits")...)
 	problems = append(problems, c.mcpProblems()...)
 	problems = append(problems, c.intakeProblems()...)
 	problems = append(problems, c.reviewThreadProblems()...)
