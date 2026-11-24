@@ -1815,16 +1815,23 @@ other check, and are refused for an item outside them: the scheduler's pull, the
 test run that checks whether a hold on new work can lift, a fresh run or a
 repair the development manager decided, a repair from feedback on a pull
 request, a run you name, the run that resolves a conflict in the team's branch
-(asked about the item the development manager named), and the run that brings in
-a pinned outside file (asked about the item its record is for). A refused item is
+(asked about the item the development manager named), the run that brings in
+a pinned outside file (asked about the item its record is for), and a new run that
+publishes a document. A refused item is
 free to start, subject to every other check, once it is added to an open epic or
 epic mode is turned off.
+
+A document may be published where the work items it answers include a member of
+an open epic, or the open epic itself. It answers each item its owner listed and
+the one its latest revision names. A refused document stays confirmed and waiting
+with nothing counted against it, and the harness starts it once it is allowed; a
+document run already recorded carries on to its end.
 
 Other starts do not ask yet, so epic mode does not hold them out. Among them are
 carrying on a run already begun, bringing a change that is queued to merge, or
 waits for a person to merge it, up to date, taking up the checks of a run that
-stopped because GitHub refused the harness's login, publishing a document, a
-role's pass, the review of unmet goals and the reading of outside messages.
+stopped because GitHub refused the harness's login, a role's pass, the review of
+unmet goals and the reading of outside messages.
 
 Each start that asks and is refused is recorded, and so is one refused because
 the named epics could not be read. There is one entry for each item and way of
@@ -1834,6 +1841,10 @@ date at most every ten minutes while the reason stays the same. Recording one
 spends nothing, and it is not a report. An entry is taken away when the item
 starts, when it may start because you added it, when epic mode is turned off,
 and, after the item closes, by the next [`yoyo reconcile`](#recovering-interrupted-runs).
+A refused document has one entry of its own, whatever it answers, which a newer
+revision updates. It is taken away when a run of the document starts or may
+start, when the document is withdrawn, handed back or otherwise settled, and when
+epic mode is turned off, and not because an item it answers closes.
 A refusal that could not be recorded is still a refusal: it says so in its
 reason, and the failure is printed on standard error.
 
@@ -1852,6 +1863,8 @@ epic mode on it also says:
   way it was refused, why, and when first and last. The last two give the `yoyo
   epic add` command that adds the item, where an epic is open to add it to. Where
   several are and the item is below none of them, the command for each is given.
+  Each refused document is there once too, with the items it answers and the
+  commands that would add one of them.
   The first ten problems are printed, with how many more there are, and the JSON
   carries all of them.
 

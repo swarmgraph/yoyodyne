@@ -128,6 +128,7 @@ func (s *Session) settleLanded(record *writeRecord, file LandedFile, how string)
 		return fmt.Errorf("record document landing: %w", err)
 	}
 	record.decided = true
+	s.documentEnded(record)
 	var told string
 	if how == landedAsConfirmed {
 		told = fmt.Sprintf("Document %s (%s) is on %s of %s at commit %s, as confirmed, so it is recorded as landed and its waiting place is given back. A later change to it is written as a revision of what landed.\n",
@@ -212,6 +213,7 @@ func (s *Session) MarkLanded(ctx context.Context, writeID, commit string) (strin
 		return "", fmt.Errorf("record document landing: %w", err)
 	}
 	record.decided = true
+	s.documentEnded(record)
 	s.noteHandStep(intervention.KindOther, nil, "", id,
 		fmt.Sprintf("recorded document %s as landed by hand as commit %s", record.pending.ID, shortCommit(file.Commit)))
 	if err := s.carryResults(fmt.Sprintf("The operator says document %s (%s) landed by hand as commit %s of %s, and the harness found it at %s there. Its waiting place is given back, and your next revision of %s is taken as a revision of what landed.\n",
@@ -244,6 +246,7 @@ func (s *Session) DropWrite(writeID, reason string) (string, error) {
 		return "", fmt.Errorf("record document drop: %w", err)
 	}
 	record.decided = true
+	s.documentEnded(record)
 	id := strings.TrimSpace(record.pending.Write.ID)
 	s.noteHandStep(intervention.KindDecline, nil, "", id, fmt.Sprintf("dropped document %s", record.pending.ID))
 	if err := s.carryResults(fmt.Sprintf("The operator dropped document %s (%s) because: %s. It is no longer offered and its waiting place is given back.\n", record.pending.ID, id, trimmed)); err != nil {

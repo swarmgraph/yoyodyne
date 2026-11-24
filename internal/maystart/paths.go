@@ -61,7 +61,7 @@ func Paths() []PathEntry {
 		{Path: ContinueRun, Says: "continuing a silent run or one whose checks ran out of time", starts: startsRun},
 		{Path: PickUpRun, Says: "picking up a waiting or interrupted run", starts: startsRun},
 		{Path: FeedbackRepair, Says: "a repair from feedback on a pull request", Wired: true, starts: startsRun},
-		{Path: PublishDocument, Says: "publishing a document", starts: startsDocument},
+		{Path: PublishDocument, Says: "publishing a document", Wired: true, starts: startsDocument},
 		{Path: BringUpToDate, Says: "the attempt to bring a handed back change up to date", starts: startsRun},
 		{Path: ResolveConflict, Says: "the run that resolves a conflict with the team's branch", Wired: true, starts: startsRun},
 		{Path: BringInFile, Says: "the run that brings in a pinned outside file", Wired: true, starts: startsRun},

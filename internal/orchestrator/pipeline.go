@@ -611,9 +611,12 @@ type Pipeline struct {
 	StateRoot string
 	// MayStart is the decision on what may start under the named epics, asked of
 	// a fresh run. See StartDecision.
-	MayStart   StartDecision
-	Repository string
-	Config     config.Config
+	MayStart StartDecision
+	// EndRefusedDocument takes a document off the record of refused starts. Nil
+	// is a caller that keeps no such record.
+	EndRefusedDocument func(id string)
+	Repository         string
+	Config             config.Config
 	// ConfigPath is the configuration file this pipeline's configuration was read
 	// from. It is held beside the resolved values because a project keeps its own
 	// workflow definitions beside that file, exactly as it keeps its personas

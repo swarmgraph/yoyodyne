@@ -18,6 +18,7 @@ package readmodel
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -512,8 +513,10 @@ func (s Standing) renderPlacedFirst() string {
 // frees, and after them the revisions held for the development manager.
 func (s Standing) renderDocumentWaits() string {
 	var rendered strings.Builder
-	listed, further := bound(len(s.DocumentsWaitingForSlot))
-	for _, wait := range s.DocumentsWaitingForSlot[:listed] {
+	// One the named epics refused is said with their problems.
+	waiting := slices.DeleteFunc(slices.Clone(s.DocumentsWaitingForSlot), func(wait DocumentSlotWait) bool { return wait.Outside != "" })
+	listed, further := bound(len(waiting))
+	for _, wait := range waiting[:listed] {
 		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, wait.Says(), wait.Next())
 	}
 	rendered.WriteString(remainder(further, "waiting document"))

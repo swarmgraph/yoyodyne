@@ -116,6 +116,7 @@ func (s *Session) settleReturnsHold(record *writeRecord) (bool, error) {
 		return false, err
 	}
 	record.decided = true
+	s.documentEnded(record)
 	s.keepHandedBack(record, runstate.DocumentDelivery{Detail: told})
 	return false, s.carryResults(told)
 }

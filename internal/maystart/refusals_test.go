@@ -1,8 +1,10 @@
 package maystart
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +51,7 @@ func TestARefusalIsKeptUntilItsStartMayGoAhead(t *testing.T) {
 
 	// A document that answers a member may start, and says nothing about a run
 	// of the other item it answers.
-	if record = noted(t, root, DocumentRun(PublishDocument, member, outside), at); len(record.Items) != 1 {
+	if record = noted(t, root, DocumentRun(PublishDocument, member, outside).Of(Document{ID: "a-design", WriteID: "document-1.1"}), at); len(record.Items) != 1 {
 		t.Fatalf("a document's start took away the refusal of a run: %+v", record.Items)
 	}
 	added, err := operatorAt(t, root).Add(openEpicID, outside, at)
@@ -115,7 +117,7 @@ func asked(t *testing.T, root string, path Path, when time.Time) {
 func TestRefusingTheSameStartAgainUpdatesItsOneEntry(t *testing.T) {
 	t.Parallel()
 	for _, entry := range Paths() {
-		if !entry.Wired {
+		if !entry.Wired || entry.starts != startsRun {
 			continue
 		}
 		root := t.TempDir()
@@ -251,7 +253,7 @@ func TestAFailedWriteIsReportedAndTheStartIsStillRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range Paths() {
-		if !entry.Wired {
+		if !entry.Wired || entry.starts != startsRun {
 			continue
 		}
 		decision := Ask(root, product, Run(entry.Path, outside), at)
@@ -261,5 +263,136 @@ func TestAFailedWriteIsReportedAndTheStartIsStillRefused(t *testing.T) {
 		if decision = Ask(root, product, Run(entry.Path, member), at); !decision.MayStart() || decision.NotKept == nil {
 			t.Errorf("%s: %+v, want a member still allowed and the failure said", entry.Path, decision)
 		}
+	}
+}
+
+const documentOut = "the document answers no open epic the operator named and no work item in one"
+
+func designRun(id, write string, confirmed time.Time, answers ...string) Start {
+	return DocumentRun(PublishDocument, answers...).Of(Document{ID: id, Title: "A design", WriteID: write, ConfirmedAt: confirmed})
+}
+
+func documentAsked(t *testing.T, root string, start Start, when time.Time) {
+	t.Helper()
+	if decision := Ask(root, product, start, when); decision.MayStart() || decision.NotKept != nil {
+		t.Fatalf("Ask() = %+v, want a refusal that was kept", decision)
+	}
+}
+
+func documentsKept(t *testing.T, root string) []RefusedDocument {
+	t.Helper()
+	record, err := ReadRefusals(root, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.Documents
+}
+
+func TestARefusedDocumentHasOneEntryWhateverItAnswers(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		answers []string
+		why     string
+	}{
+		"nothing": {nil, "the document answers no work item, so it waits until epic mode is turned off or it is written again naming a member of an open epic"},
+		"one":     {[]string{outside}, documentOut},
+		"several": {[]string{outside, "yoyodyne-other"}, documentOut},
+	} {
+		root := t.TempDir()
+		on(t, root)
+		documentAsked(t, root, designRun("a-design", "document-1.1", at, test.answers...), at)
+		documentAsked(t, root, designRun("a-design", "document-1.1", at, test.answers...), at.Add(time.Minute))
+		want := RefusedDocument{DocumentID: "a-design", Title: "A design", Path: PublishDocument, WriteID: "document-1.1", Answers: test.answers, ConfirmedAt: at, Why: test.why, Since: at, Last: at}
+		if got := documentsKept(t, root); len(got) != 1 || !reflect.DeepEqual(got[0], want) || len(kept(t, root)) != 0 {
+			t.Errorf("%s: %+v and items %+v, want %+v alone", name, got, kept(t, root), want)
+		}
+		if err := ItemsClosed(root, product, func(string) bool { return true }); err != nil {
+			t.Fatal(err)
+		}
+		if got := documentsKept(t, root); len(got) != 1 {
+			t.Errorf("%s: an item it answers closing left %+v", name, got)
+		}
+		// A newer write updates the entry, and an older one asked after it does not.
+		documentAsked(t, root, designRun("a-design", "document-2.1", at.Add(time.Hour), "yoyodyne-newer"), at.Add(time.Hour))
+		documentAsked(t, root, designRun("a-design", "document-1.1", at, test.answers...), at.Add(2*time.Hour))
+		want.WriteID, want.Answers, want.ConfirmedAt, want.Why, want.Last = "document-2.1", []string{"yoyodyne-newer"}, at.Add(time.Hour), documentOut, at.Add(time.Hour)
+		if got := documentsKept(t, root); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+			t.Errorf("%s: after a newer write %+v, want %+v", name, got, want)
+		}
+	}
+}
+
+func TestARefusedDocumentIsTakenAwayWhenItNoLongerWaits(t *testing.T) {
+	t.Parallel()
+	add := func(t *testing.T, root string) {
+		record, err := operatorAt(t, root).Add(openEpicID, outside, at)
+		must(t, record, err)
+	}
+	for name, test := range map[string]struct {
+		ends func(t *testing.T, root string) error
+		left int
+	}{
+		"a run of it starts": {func(t *testing.T, root string) error {
+			return Ask(root, product, designRun("a-design", "document-2.1", at, member), at).NotKept
+		}, 1},
+		"the decision would allow it": {func(t *testing.T, root string) error { add(t, root); return Settle(root, product) }, 1},
+		"it is withdrawn, or handed back": {func(t *testing.T, root string) error {
+			return DocumentEnded(root, product, "a-design")
+		}, 1},
+		"epic mode is turned off": {func(t *testing.T, root string) error {
+			record, err := operatorAt(t, root).TurnOff()
+			must(t, record, err)
+			return Settle(root, product)
+		}, 0},
+		"nothing ended it": {func(t *testing.T, root string) error { return Settle(root, product) }, 2},
+	} {
+		root := t.TempDir()
+		on(t, root)
+		documentAsked(t, root, designRun("a-design", "document-1.1", at, outside), at)
+		documentAsked(t, root, designRun("another-design", "document-1.2", at), at)
+		if err := test.ends(t, root); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if got := documentsKept(t, root); len(got) != test.left || (test.left == 1 && got[0].DocumentID != "another-design") {
+			t.Errorf("%s: the record holds %+v, want %d", name, got, test.left)
+		}
+	}
+}
+
+// A record an earlier build wrote has an entry for each item a document answers.
+// It loads, and the document's own entry takes the place of those.
+func TestARecordWithAnEntryForEachItemADocumentAnswersStillLoads(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	on(t, root)
+	entry := `{"work_item_id":"%s","path":"%s","why":"an earlier reason","since":"2026-11-24T09:00:00Z","last":"2026-11-24T09:00:00Z"}`
+	text := fmt.Sprintf(`{"schema_version":1,"product_id":"%s","items":[`+entry+","+entry+","+entry+`]}`,
+		product, outside, PublishDocument, "yoyodyne-other", PublishDocument, outside, ReadyWork)
+	if err := os.WriteFile(filepath.Join(home.ProductDirectory(root, product), refusalsFile), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Settle(root, product); err != nil || len(kept(t, root)) != 3 {
+		t.Fatalf("Settle() = %v and left %+v, want all three", err, kept(t, root))
+	}
+	documentAsked(t, root, designRun("a-design", "document-1.1", at, outside, "yoyodyne-other"), at)
+	if got := kept(t, root); len(got) != 1 || got[0].Path != ReadyWork || len(documentsKept(t, root)) != 1 {
+		t.Fatalf("items %+v and documents %+v, want the run's entry and the document's", got, documentsKept(t, root))
+	}
+}
+
+func TestARefusedDocumentThatCouldNotBeRecordedIsStillRefused(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	on(t, root)
+	// A document that was not named is refused and never silently dropped.
+	if decision := Ask(root, product, DocumentRun(PublishDocument, outside), at); decision.Answer != MayNot || decision.NotKept == nil {
+		t.Fatalf("Ask() = %+v", decision)
+	}
+	if err := os.Mkdir(filepath.Join(home.ProductDirectory(root, product), refusalsFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	decision := Ask(root, product, designRun("a-design", "document-1.1", at), at)
+	if decision.Answer != MayNot || decision.NotKept == nil || !strings.Contains(decision.Why, "could not be recorded") {
+		t.Fatalf("Ask() = %+v, want a refusal that says it was not recorded", decision)
 	}
 }

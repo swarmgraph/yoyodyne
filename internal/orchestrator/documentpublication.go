@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -257,6 +256,10 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if errors.As(err, &held) {
 		return runstate.DocumentDelivery{RunID: held.runID, Detail: held.summary, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and its run has not started: %s. %s\n", document.WriteID, document.Candidate.Artifact.Title, held.summary, triedAgain(document))}, nil
 	}
+	var outside *OutsideNamedEpicsError
+	if errors.As(err, &outside) {
+		return p.waitOutsideEpics(ctx, document, attempt, outside)
+	}
 	var waiting documentWaiting
 	if errors.As(err, &waiting) {
 		return p.waitForSlot(ctx, document, waiting)
@@ -472,9 +475,12 @@ func (p Pipeline) DocumentStanding(document runstate.DocumentPublication) (runst
 // was handed back without landing it. It refuses one whose run is still going
 // or has passed. The wait is cleared before the run store is read again, so a
 // run the scheduler reserved in between is found and named rather than left
-// publishing a document its owner withdrew.
+// publishing a document its owner withdrew. It leaves the refusal of the
+// document as it stands, because a newer revision may be taking this one's
+// place; a caller that withdraws the document altogether ends it with
+// DocumentEnded.
 func (p Pipeline) WithdrawDocument(document runstate.DocumentPublication) error {
-	p.clearDocumentWait(document)
+	p.clearRecordedWait(document)
 	standing, err := p.DocumentStanding(document)
 	if err != nil {
 		return err
@@ -555,6 +561,25 @@ func (p Pipeline) waitBehind(ctx context.Context, document runstate.DocumentPubl
 		next = "The harness starts its reviewed run itself once that copy lands or is handed back, without waiting for a message here; it does not need writing again."
 	}
 	delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and its run has not started: %s. %s\n", document.WriteID, document.Candidate.Artifact.Title, ahead.Says(), next)
+	return delivery, nil
+}
+
+// waitOutsideEpics keeps a document the named epics refused where the scheduler
+// starts it, which passes it over until the decision allows it. Nothing is
+// counted against the document.
+func (p Pipeline) waitOutsideEpics(ctx context.Context, document runstate.DocumentPublication, attempt int, refused *OutsideNamedEpicsError) (runstate.DocumentDelivery, error) {
+	delivery := runstate.DocumentDelivery{RunID: document.RunIDFor(attempt), Outside: refused.Error()}
+	next := triedAgain(document)
+	if waits, ok := p.Store.(DocumentWaits); ok {
+		if _, waiting, err := waits.WaitForSlot(ctx, document, attempt, p.clock().Now()); err != nil {
+			return runstate.DocumentDelivery{}, fmt.Errorf("record document %s as waiting for the named epics: %w", document.WriteID, err)
+		} else if !waiting {
+			// Another process reserved its run under the same lock just now.
+			return runstate.DocumentDelivery{RunID: delivery.RunID}, nil
+		}
+		next = "The harness starts it itself then, without waiting for a message here. Nothing is counted against it."
+	}
+	delivery.Retrying = fmt.Sprintf("Document %s (%s) is confirmed and waiting: %s. %s\n", document.WriteID, document.Candidate.Artifact.Title, refused.Error(), next)
 	return delivery, nil
 }
 
@@ -845,7 +870,7 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 			return runstate.State{}, false, err
 		}
 		defer lease.Release()
-		if !reflect.DeepEqual(state.Document, &document) {
+		if state.Document == nil || !state.Document.SameHandoff(document) {
 			return runstate.State{}, false, errors.New("the run already records a different document handoff")
 		}
 		record.carry(&state)
@@ -864,6 +889,9 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 				return runstate.State{}, false, err
 			}
 			return runstate.State{}, false, documentHeld{runID: runID, summary: nonEmpty(strings.TrimSpace(outcome.Summary), "intake is held, and the hold gave no reason")}
+		}
+		if refused := p.MayStart.refuseDocument(document); refused != nil {
+			return runstate.State{}, false, refused
 		}
 		target, err := p.Worktrees.CurrentBranch(ctx)
 		if err != nil {
@@ -1044,8 +1072,22 @@ func (p Pipeline) waitForSlot(ctx context.Context, document runstate.DocumentPub
 // clearDocumentWait takes a document off the slot wait. It is called where a
 // run of the document is recorded, or where none ever can be, and a wait it
 // could not clear decides nothing: the next offer of it finds the run recorded
-// or the confirmation lapsed and clears it then.
+// or the confirmation lapsed and clears it then. The refusal of it under the
+// named epics ends with the wait.
 func (p Pipeline) clearDocumentWait(document runstate.DocumentPublication) {
+	p.clearRecordedWait(document)
+	p.DocumentEnded(document.Candidate.Artifact.ID)
+}
+
+// DocumentEnded takes a document that no longer waits off the record of starts
+// the named epics refused.
+func (p Pipeline) DocumentEnded(id string) {
+	if p.EndRefusedDocument != nil {
+		p.EndRefusedDocument(id)
+	}
+}
+
+func (p Pipeline) clearRecordedWait(document runstate.DocumentPublication) {
 	if waits, ok := p.Store.(DocumentWaits); ok {
 		_ = waits.ClearDocumentWait(document.RunID())
 	}
@@ -1072,6 +1114,9 @@ func (p Pipeline) PublishWaitingDocument(ctx context.Context, document runstate.
 	}
 	if err == nil && delivery.WaitingBehind != nil {
 		return outcome, DocumentBehindError{Ahead: *delivery.WaitingBehind}
+	}
+	if err == nil && delivery.Outside != "" {
+		return outcome, &OutsideNamedEpicsError{Document: fmt.Sprintf("document %s (%s)", document.WriteID, document.Candidate.Artifact.Title), Says: delivery.Outside}
 	}
 	return outcome, err
 }
