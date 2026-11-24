@@ -19,6 +19,10 @@ revisions:
       by: architect
       at: 2026-11-22T03:53:17.775361Z
       reason: 'Writes in three approved but unwritten changes: amendment-25324898 and amendment-097450b4 (the queue passes on its own every minute while it waits on GitHub, reads only, lease unchanged, stops when the watch session drains or ends, waits recorded for the weekly figures) and amendment-cec9c712 (checking ahead gives nothing on the GitHub path, so it is off there). Adds build piece 6 and two reviewer lines. Whole revision from main 3220fd777.'
+    - action: amended
+      by: architect
+      at: 2026-11-24T03:21:30.585149Z
+      reason: Says piece by piece what is built in the merge queue pace design, from the November 21 comparison and a read of the checking ahead and quick check code at 9cde11a1e429. Rules how decisions 1 and 2 apply where GitHub's required checks are used, names the design that decides what the run on main covers, and says which design decides where this one and the merge queue design differ. Serves the review of every design against the code (yoyodyne-ifd.437.84).
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -35,6 +39,11 @@ approvals:
       by: harness
       at: 2026-11-22T03:53:17.775361Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3396, for document-3396.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-24T03:21:30.585149Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3808, for document-3808.1 under the automatic approval policy
 ---
 # How the harness's merge queue lands more than one change an hour
 
@@ -170,20 +179,48 @@ It is reconsidered from the figures that build piece 5 records, if the queue is 
 
 ## Build pieces
 
-1. **The queue's declared check list.**
+What is built was compared with the code on November 21, at commit 848d86190. The code for checking ahead and for the quick checks was read again on November 23, at commit 9cde11a1e429. Where this section and a decision above differ about how the queue works today, this section says which holds.
+
+1. **The queue's declared check list. Built.**
    - Guarantee 9's plan reads it, and it is recorded with the candidate's evidence.
-   - This repository declares format, vet and `make test`.
+   - A project declares it with `merge_queue_checks`, and names the queue's race check with `merge_queue_race_check`. This repository declares format, vet and `make test`.
    - At admission, the queue reads the approved head's race result and adds the narrowed race check where Go code changed and none passed.
    - Case 2 of choosing checks by change takes the new condition.
-   - It takes effect here only once the run on main every four hours is running.
-   - It depends on the work on stopping the local full race check at landing (yoyodyne-ifd.428.126.6.5) and on migration item 21 of the guarantees design.
-2. **Checks and the review side by side on one candidate.** A failing check stops the review, and the review's spend is recorded.
-3. **Checking the next candidate ahead, for queues that land on a local branch.** One candidate deep. Thrown away and rebuilt when the target is not the base it was built on. Off when the queue lands through GitHub, and that is stated on status rather than left silent.
-4. **Keeping a queue candidate's result across a moved main by the analyser's answer.** No new piece: this is migration item 19 of the guarantees design, and the queue calls it.
-5. **The queue's weekly figures,** from its own records: candidates started and landed, time from admission to landing, time for each candidate, the wait from each landing to the next candidate's first check, and candidates thrown away by checking ahead. They are shown with the weekly check time figures.
-6. **The queue's own pass every minute while it waits on GitHub.** Reads GitHub only; changes go through the promotion lease as before; stops when the watch session drains or ends; records each wait for piece 5. The piece reads the queue's code first and builds only what is not already there.
+   - It took effect here only once the run on main every four hours was running.
+2. **Checks and the review side by side on one candidate. Built.** A failing check stops the review, and the review's spend is recorded. Where GitHub's required checks are used, the order is the one given below.
+3. **Checking the next candidate ahead, for queues that land on a local branch. Built.** One candidate deep. Thrown away and rebuilt when the target is not the base it was built on. Where the project lands through pull requests, the queue builds nothing ahead and gives the reason with its result. Whether status shows that reason was not read.
+4. **Keeping a queue candidate's result across a moved main by the analyser's answer.** No new piece: this is migration item 19 of the guarantees design, and the queue calls it. Whether that item is built was not read.
+5. **The queue's weekly figures. Not found in the code.** From the queue's own records: candidates started and landed, time from admission to landing, time for each candidate, the wait from each landing to the next candidate's first check, and candidates thrown away by checking ahead. They are to be shown with the weekly check time figures. Those figures count starts of the heavy checks today, and nothing about the queue was found beside them.
+6. **The queue's own pass every minute while it waits on GitHub.** Reads GitHub only; changes go through the promotion lease as before; stops when the watch session drains or ends; records each wait for piece 5. Whether it is built was not read. The piece reads the queue's code first and builds only what is not already there.
 
-Pieces 1, 2, 3 and 6 are independent of each other and can be built in any order the Lead Product Manager sets. Turning them into work items is the development manager's.
+The pieces not yet built are independent of each other and can be built in any order the Lead Product Manager sets. Turning them into work items is the development manager's.
+
+### Where GitHub's required checks are used
+
+Ruled on November 23. Where a project has checks on CI switched on, names required checks, and lands through the forge, as this repository does, a code candidate is checked as follows. Decisions 1 and 2 describe the queue that runs its whole declared list on this machine.
+
+- The queue runs the quick local checks that `execution.ci_checks.local` names, on the candidate. GitHub's required checks, on exactly that commit, take the place of the rest of the declared list.
+- The queue's own narrowed race check is added where the change owes one and no required check is the race check. The code recognises a required check as the race check when its name is one of the words of the queue's race command, as `race` is in `make race`. In that case GitHub runs the race check on the candidate itself, and the queue adds none.
+- The quick checks run first. The candidate is pushed for GitHub's checks only once they pass, and the review then runs beside GitHub's checks. A required check that GitHub reports failed stops the review. This order is kept: the quick checks are short, and a candidate that fails one is never pushed.
+- Where GitHub cannot settle a candidate, the entry's next candidate runs the full local checks, and nothing is charged for it.
+
+The rest of how GitHub's checks are used is in [integration through a merge queue](integration-through-a-merge-queue.md), and is not restated here.
+
+### The run on main
+
+What the run on main covers is decided under race point 4 of [one owner for each guarantee](one-owner-for-each-guarantee.md). Decision 1 says how a failure there is reported, and that stands.
+
+- The single second run of the failing tests, and the warning when they pass, are built.
+- The rule that the same test failing and then passing twice within seven days files the critical report is not built. It is the work on when main's scheduled check is critical (yoyodyne-ifd.429.240).
+- Pointing this repository's run on main at the narrower set of packages is the work on the race check for the packages only macOS covers (yoyodyne-ifd.429.279), which was open on November 23.
+
+### Documents
+
+Landing several documents as one candidate is ruled in integration through a merge queue, and its build (yoyodyne-ifd.429.267) was open on November 23. Where this design says documents are now combined, that is the ruling and not yet the code.
+
+### Which design decides
+
+Integration through a merge queue was revised after this design was first written. Where the two differ about the queue's order, combining documents, or GitHub's path, that design decides, whatever the closing sentence under "Designs this changes" says.
 
 ## How a reviewer checks an implementation
 
