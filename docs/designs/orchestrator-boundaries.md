@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-11-23T16:52:31.888087Z
       reason: 'Replaces the revision the reviewer returned: the rule forbade methods of the tracker''s package that run storage already calls. Calls that answer only from the values they are given are allowed by a named list, and the planned check resolves types so it sees methods and embedded types in every file. The byte count formatter meets the same test, so it joins the list. Written from reads of the code at main 4e6572cd; the files not read are named as unread. Part of the review of every design against the code.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T21:42:54.578566Z
+      reason: 'Part of the review of every design against the code: brings the command line constructors into line with internal/cli/run.go at main 4e6572cd. Corrects the counts of stores and forge clients, names withTrackerRecords in place of the function that is gone, adds the intent repository''s worktree manager, the merge queue driver, the routed reviewer and team spending, says the state marker and first binding are what a first start asks for, and lists what was not read.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -61,6 +65,11 @@ approvals:
       by: harness
       at: 2026-11-23T16:52:31.888087Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3697, for document-3697.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-23T21:42:54.578566Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3700, for document-3700.1 under the automatic approval policy
 ---
 # How internal/orchestrator is split, one admitted change at a time
 
@@ -189,37 +198,43 @@ Before the graph may perform a real action rather than observe one, these must h
 
 ## Shared constructors in the command line
 
-At ed48d235, `buildComponents` in `internal/cli/run.go` resolves the roots, opens twenty-one stores under the state root, and builds the worktree manager, all for every command that acts on runs. `pipelineFrom`, `reconcilerFrom`, `docketerFrom`, `ledgerFrom` and `supervisionLoopFrom` then wire their services from that one set, and the forge client is built twice, field for field, in `pipelineFrom` and `reconcilerFrom`. Surfaces that only read build none of this: they call `resolveRoots` and `standingRemains` and open the stores they read.
+At 4e6572cd, `buildComponents` in `internal/cli/run.go` resolves the roots, opens twenty-four stores under the state root, builds the worktree manager and, where the project has one, the companion intent repository's worktree manager, and wires how team spending is counted (`wireTeamSpends`), all for every command that acts on runs. `pipelineFrom`, `reconcilerFrom`, `mergeQueueDriverFrom`, `docketerFrom`, `ledgerFrom` and `supervisionLoopFrom` then wire their services from that one set. The forge client is built three times in that file, field for field, in `pipelineFrom`, `reconcilerFrom` and `mergeQueueDriverFrom`. Surfaces that only read build none of this: they call `resolveRoots` and `standingRemains` and open the stores they read.
 
 The rule:
 
 - Each store or service that more than one command uses gets one constructor, in the package that owns it, taking the state root and the configuration (or the parts of the configuration it reads).
 - `internal/cli` parses flags, calls those constructors, and formats output. It prints what a constructor reports (such as a first binding of a project) rather than the constructor printing it.
 - No constructor builds everything for every command. `components` stays in `internal/cli` as the set the acting commands assemble from these constructors, and loses each part as that part's constructor exists.
-- A constructor opens and connects; it writes nothing a command did not ask for.
+- A constructor opens and connects; it writes nothing a command did not ask for. Starting the harness in a project is what asks for the marker of the state root and for the first binding of the project, which [the machine home design](machine-home.md) sets, so the constructor of the roots writes those two and nothing else.
 - Commands that only read, and status commands, call constructors that only read, so they keep their narrower access and cost.
 
 The constructors, each with its owner:
 
 | What | Built today in | Constructor goes to | Used by |
 | --- | --- | --- | --- |
-| The three roots: repository, worktree root, state root, agreed with the marker and the project binding | `resolveRoots`, `productStateRoot`, `agreeProductStateRoot`, `primaryCheckout` | `internal/home`, returning the roots and the agreement | every command, acting or only reading |
-| Each product store (runs, reports, amendments, evaluations, restart requests, stopped runs waiting on the development manager, branch reviews, directives, intake, watch, released claims, usage limits, outages, capacity served, diverged targets, launch settings, spend, tracker listings, interventions) and the machine-wide pause | `buildComponents` | `internal/runstate`, one constructor per store, as today; no constructor that opens them all | each command opens only the stores it reads or writes |
-| The tracker client that records how its listings end | `components.tracker`, `withListingRecord` | `internal/beads` | acting commands and commands that only read |
+| The three roots: repository, worktree root, state root, agreed with the marker and the project binding | `resolveRoots`, `productStateRoot`, `agreeProductStateRoot`, `agreedHome`, `primaryCheckout` | `internal/home`, which already holds the agreement with the project binding, returning the roots and the agreement | every command, acting or only reading |
+| Each product store `buildComponents` opens (runs, reports, amendments, evaluations, restart requests, stopped runs waiting on the development manager, merge queues, branch reviews, directives, intake, watch, released claims, usage limits, outages, capacity served, capacity probes, diverged targets, launch settings, landing holds, spend, tracker listings, slow tracker calls, interventions) and the pause that covers the whole machine | `buildComponents` | `internal/runstate`, one constructor per store, as today; no constructor that opens them all | each command opens only the stores it reads or writes |
+| The tracker client that records how its listings end and which calls ran out of time | `components.tracker`, `withTrackerRecords` | `internal/beads`, taking the two records through the interfaces it declares, so it imports nothing from `internal/runstate` | acting commands and commands that only read |
 | The worktree manager for acting commands | `buildComponents` | `internal/gitworktree`, taking the export refresh as an argument so it imports nothing from `internal/beads` | run, work, reconcile, conversations that steer work |
-| The worktree manager for looking only | `standingRemains` | `internal/gitworktree`, a second constructor with the narrow options | status, the dashboard, the Slack sink |
-| The forge client | `pipelineFrom` and `reconcilerFrom`, twice | `internal/publish` | the pipeline, the reconciler |
-| The check runner and the places for checks that need one | `pipelineFrom`, `heavyCheckPermits` | the runner in `internal/checks`; the places move into `internal/runstate` (responsibility 2), in the same change | the pipeline |
-| The reviewer | `pipelineFrom` | `internal/review` | the pipeline, branch review |
+| The worktree manager of the companion intent repository, or none where the project has none or it does not exist yet | `buildIntentWorktrees` | `internal/gitworktree`, a constructor of its own that returns nothing rather than an error for a repository not there yet | the pipeline, the reconciler |
+| The worktree manager for looking only | `standingRemains` | `internal/gitworktree`, a further constructor with the narrow options | status, the dashboard, the Slack sink |
+| The forge client | `pipelineFrom`, `reconcilerFrom` and `mergeQueueDriverFrom` | `internal/publish` | the pipeline, the reconciler, the merge queue driver |
+| The check runner and the places for checks that need one | `pipelineFrom`, `heavyCheckPermits` | the runner in `internal/checks`; the places move into `internal/runstate` (responsibility 2), in the same change. What the merge queue needs a place for is handed to the places as a function, as today, and the code that reads it stays with the queue | the pipeline |
+| The reviewer | `pipelineFrom`, and `reviewerForEndpoint` for a review routed to one of the reviewer's providers | `internal/review`, one constructor taking the endpoint, which both use | the pipeline, branch review |
 | The cost ledger | `ledgerFrom` | `internal/cost` | the pipeline, `yoyo cost` |
-| The pipeline, the reconciler, the docket, the supervision loop | `pipelineFrom`, `reconcilerFrom`, `docketerFrom`, `supervisionLoopFrom` | stay in `internal/cli` until their boundary's package exists, then move there: the pipeline to `internal/orchestrator`, the reconciler to `internal/integration`, the docket to `internal/continuation` after the recovery slices, the supervision loop to `internal/rolepass` | the commands that use them today |
+| The pipeline, the reconciler, the merge queue driver, the docket, the supervision loop | `pipelineFrom`, `reconcilerFrom`, `mergeQueueDriverFrom`, `docketerFrom`, `supervisionLoopFrom` | stay in `internal/cli` until their boundary's package exists, then move there: the pipeline to `internal/orchestrator`, the reconciler to `internal/integration`, the merge queue driver to `internal/mergequeue`, the docket to `internal/continuation` after the recovery slices, the supervision loop to `internal/rolepass` | the commands that use them today |
 
-Two things were not read for this revision and are left to the change that touches them:
+What one of these takes that only the queue driver adds, such as the resumer of held changes, is handed to it by `internal/cli` as an argument, so no boundary's package imports another's to build its own service.
+
+Five things were not read for this revision and are left to the change that touches them:
 
 - `observeProgramManagers`, which `buildComponents` calls. The change that moves the roots reads it; if it writes a record, it moves out to the commands that need it rather than into a constructor.
+- `wireTeamSpends`, which `buildComponents` calls last and which can refuse the whole start. The first change that touches it reads it the same way, and gives it a constructor in the package that owns team spending if it opens or connects anything.
 - `standingSources` in `internal/cli/status.go`. The first change that touches it lists the stores it opens against the constructors above that only read.
+- Whether `internal/runstate`, which holds `ResolveRoot` and `AgreeRoot`, imports `internal/home`. The change that moves the roots checks; where it does, those two are handed to the constructor as arguments, so the two packages never import each other.
+- Other files in `internal/cli` that may build a forge client of their own. The change that moves the forge client finds them and moves them onto the one constructor.
 
-The machine-home build (yoyodyne-ifd.434.12) is the first change to use these constructors, starting with the roots.
+At 4e6572cd `resolveRoots` and the functions it calls are still in `internal/cli`. Where nothing forces the choice, the roots move first, because every other constructor takes the state root.
 
 ## The rule on admitted work
 
