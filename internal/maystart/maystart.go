@@ -31,6 +31,9 @@ type Decision struct {
 	// Open is the epics that have not ended, on a run refused for being in none
 	// of them: each is one the operator can add its item to.
 	Open []string
+	// NotKept is why Ask could not keep the answer in the record of refused
+	// starts. The answer stands either way.
+	NotKept error `json:"-"`
 }
 
 // MayStart reports a yes. Being unable to tell is not one, and nor is a decision
@@ -105,6 +108,11 @@ func Decide(stateRoot string, product domain.ProductID, start Start) Decision {
 	if err != nil {
 		return couldNotTell("the record of the epics the operator named could not be read (%v)", err)
 	}
+	return decide(record, start)
+}
+
+// decide is the answer a record that was read gives.
+func decide(record epicscope.Record, start Start) Decision {
 	if !record.On() {
 		return Decision{Answer: May}
 	}

@@ -28,6 +28,14 @@ const namedEpic, blockedMember = "yoyodyne-9k1y", "yoyodyne-9k1y.1"
 // and the operator's own way of adding an item.
 func epicMode(t *testing.T, members ...string) (StartDecision, func(item string)) {
 	t.Helper()
+	decide, add, _ := epicModeKept(t, members...)
+	return decide, add
+}
+
+// epicModeKept is epicMode with a check of the record of refused starts: that
+// it has exactly one entry for the item by the path, and no other path's.
+func epicModeKept(t *testing.T, members ...string) (StartDecision, func(item string), func(path maystart.Path, item string)) {
+	t.Helper()
 	root := t.TempDir()
 	operator, err := epicscope.ForOperator(root, "yoyodyne")
 	if err != nil {
@@ -36,13 +44,29 @@ func epicMode(t *testing.T, members ...string) (StartDecision, func(item string)
 	if _, err := operator.Start(epicscope.Naming{Epic: namedEpic, From: "terminal", Members: members}, baseTime); err != nil {
 		t.Fatal(err)
 	}
-	decide := func(start maystart.Start) maystart.Decision { return maystart.Decide(root, "yoyodyne", start) }
+	decide := func(start maystart.Start) maystart.Decision {
+		return maystart.Ask(root, "yoyodyne", start, baseTime)
+	}
+	refused := func(path maystart.Path, item string) {
+		t.Helper()
+		record, err := maystart.ReadRefusals(root, "yoyodyne")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []maystart.RefusedItem{{WorkItemID: item, Path: path, Why: item + " is not in an open epic the operator named", Since: baseTime.UTC(), Last: baseTime.UTC()}}
+		if path == "" {
+			want = nil
+		}
+		if len(record.Items) != len(want) || (len(want) == 1 && record.Items[0] != want[0]) {
+			t.Fatalf("refused starts = %+v, want %+v", record.Items, want)
+		}
+	}
 	return decide, func(item string) {
 		t.Helper()
 		if _, err := operator.Add(namedEpic, item, baseTime); err != nil {
 			t.Fatal(err)
 		}
-	}
+	}, refused
 }
 
 // Every selection is refused at the pipeline's door, the operator's own naming
@@ -70,7 +94,7 @@ func TestThePipelineStartsOnlyAMemberOfANamedEpic(t *testing.T) {
 			if got := pipeline.startPath(); got != path {
 				t.Fatalf("startPath() = %q, want %q", got, path)
 			}
-			decide, add := epicMode(t, blockedMember)
+			decide, add, refused := epicModeKept(t, blockedMember)
 			var asked []maystart.Path
 			pipeline.MayStart = func(start maystart.Start) maystart.Decision {
 				asked = append(asked, start.Path())
@@ -91,11 +115,13 @@ func TestThePipelineStartsOnlyAMemberOfANamedEpic(t *testing.T) {
 			if outcome.RunID != "" || tracker.Claimed || len(provider.Requests) != 0 || incompleteErr != nil || len(incomplete) != 0 {
 				t.Fatalf("outcome = %#v, claimed = %t, requests = %d, in flight = %v, %v; want nothing begun", outcome, tracker.Claimed, len(provider.Requests), incomplete, incompleteErr)
 			}
+			refused(path, "yoyodyne-task")
 
 			add("yoyodyne-task")
 			if outcome, err = pipeline.Run(context.Background(), tracker.Item.ID); err != nil || outcome.RunID == "" {
 				t.Fatalf("Run() of a member = %#v, %v; want it started", outcome, err)
 			}
+			refused("", "")
 		})
 	}
 }
@@ -132,7 +158,7 @@ func TestTheSchedulerPullsOnlyMembersOfANamedEpic(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			harness := newScheduleHarness(outside, test.member)
-			decide, add := epicMode(t, blockedMember)
+			decide, add, refused := epicModeKept(t, blockedMember)
 			open := func(ctx context.Context) (Pull, error) {
 				pull, err := harness.open(ctx)
 				pull.MayStart = decide
@@ -152,6 +178,7 @@ func TestTheSchedulerPullsOnlyMembersOfANamedEpic(t *testing.T) {
 			if !said || harness.Items[0].SchedulingWait != nil || harness.Items[0].Status != "open" {
 				t.Fatalf("deferred = %#v, item = %#v; want the item outside named on the pass and left as it was", schedule.Deferred, harness.Items[0])
 			}
+			refused(maystart.ReadyWork, outside.ID)
 			add(outside.ID)
 			schedule, err = Scheduler{Open: open}.Schedule(context.Background())
 			if err != nil || len(schedule.Started) == 0 || schedule.Started[0].WorkItemID != outside.ID {
@@ -237,7 +264,7 @@ func TestTheHoldsTestRunIsOnlyAMember(t *testing.T) {
 func TestADecidedFreshRunOutsideTheNamedEpicsKeepsItsClaim(t *testing.T) {
 	t.Parallel()
 	harness := newRerunHarness(t, stoppedState())
-	decide, add := epicMode(t, blockedMember)
+	decide, add, refused := epicModeKept(t, blockedMember)
 	rerunner := harness.rerunner()
 	rerunner.MayStart = decide
 	carrying := harness.carryOut()
@@ -248,6 +275,7 @@ func TestADecidedFreshRunOutsideTheNamedEpicsKeepsItsClaim(t *testing.T) {
 	if outstanding, err := carrying.Outstanding(); err != nil || len(outstanding) != 0 {
 		t.Fatalf("outstanding = %#v, %v; want the decision held back", outstanding, err)
 	}
+	refused(maystart.DecidedRerun, docketedItem)
 	before, beforeItem := rerunBudget(t, harness), harness.item
 	if _, err := carrying.RecordUnattempted(context.Background(), 0, nil); err != nil {
 		t.Fatal(err)
@@ -298,7 +326,7 @@ func decideRefusal(decide StartDecision, item string) error {
 func TestADecidedRepairOutsideTheNamedEpicsKeepsItsGrant(t *testing.T) {
 	t.Parallel()
 	harness := newContinueHarness(t, continuableState())
-	decide, add := epicMode(t, blockedMember)
+	decide, add, refused := epicModeKept(t, blockedMember)
 	continuer := harness.continuer()
 	continuer.MayStart = decide
 	carrying := harness.carryOut()
@@ -309,6 +337,7 @@ func TestADecidedRepairOutsideTheNamedEpicsKeepsItsGrant(t *testing.T) {
 	if outstanding, err := carrying.Outstanding(); err != nil || len(outstanding) != 0 {
 		t.Fatalf("outstanding = %#v, %v; want the decision held back", outstanding, err)
 	}
+	refused(maystart.DecidedRepair, docketedItem)
 	before, stopped, notes := harness.spent(t), harness.reload(t), harness.tracker.Notes
 	carried, _, err := carrying.Carry(context.Background(), task)
 	if err != nil || carried.Carried || !carried.Waiting || carried.Gate != runstate.TriageGateNamedEpics {
@@ -338,7 +367,7 @@ func TestARepairDecidedFromFeedbackOutsideTheNamedEpicsStands(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	f, items, _, starts, repairer := repairFixture(t)
-	decide, add := epicMode(t, blockedMember)
+	decide, add, refused := epicModeKept(t, blockedMember)
 	repairer.MayStart = decide
 	if _, err := repairer.Decide(ctx, decideRequest("yoyodyne-a", "line-comment-21")); err != nil {
 		t.Fatal(err)
@@ -353,6 +382,7 @@ func TestARepairDecidedFromFeedbackOutsideTheNamedEpicsStands(t *testing.T) {
 		len(f.load(t, "yoyodyne-a").TeamMerge.RepairsOwed()) != 1 {
 		t.Fatalf("owed = %v, %v, starts = %v; want nothing offered, taken or written", owed, err, *starts)
 	}
+	refused(maystart.FeedbackRepair, "yoyodyne-a")
 	add("yoyodyne-a")
 	if carried, err = repairer.CarryOut(ctx); err != nil || len(carried) != 1 || !carried[0].Started || len(*starts) != 1 {
 		t.Fatalf("carried = %#v, %v; want the repair started once its item is added", carried, err)
@@ -369,7 +399,7 @@ func TestARepairRoundFromFeedbackOutsideTheNamedEpicsIsLeftForTheNextCheck(t *te
 	reading := f.feedback.readings[number]
 	reading.Reviews = append(reading.Reviews, publish.FeedbackReview{ID: 61, Author: "teammate", State: publish.ReviewChangesRequested, Body: "Please rename the flag.", At: reading.Comments[0].At})
 	f.feedback.readings[number] = reading
-	decide, add := epicMode(t, blockedMember)
+	decide, add, refused := epicModeKept(t, blockedMember)
 	reconciler := f.reconciler(t)
 	reconciler.Feedback, reconciler.Reports, reconciler.MayStart = f.feedback, f.reports, decide
 	reconciler.Capacity, reconciler.RepairLimit = 1, 3
@@ -385,6 +415,7 @@ func TestARepairRoundFromFeedbackOutsideTheNamedEpicsIsLeftForTheNextCheck(t *te
 	if err != nil || after.Status != before.Status || after.RepairAttempts != before.RepairAttempts || after.PullRequest.Feedback != nil || len(f.reports.reported) != 0 {
 		t.Fatalf("run = %s with %d attempts, feedback %#v, %v; want the run as it was", after.Status, after.RepairAttempts, after.PullRequest.Feedback, err)
 	}
+	refused(maystart.FeedbackRepair, f.run.WorkItemID)
 	add(f.run.WorkItemID)
 	settled, err = reconciler.TakeUpFeedback(context.Background())
 	if err != nil || len(settled) != 1 || !settled[0].RepairStarted {

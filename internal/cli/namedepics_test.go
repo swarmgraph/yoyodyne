@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -54,26 +57,67 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		}
 	}
 
-	// What was refused is kept for yoyo status, until it may start, except on the
-	// two paths whose refusals are not kept.
+	// What is refused is kept for yoyo status by the decision the part that starts
+	// work each wired way is wired, until it may start.
+	carrying := carryOutFrom(parts).MayStart
+	wiredTo := map[maystart.Path][]orchestrator.StartDecision{
+		maystart.ReadyWork:       {pull.MayStart, pipelineFrom(parts).MayStart},
+		maystart.HoldTest:        {pull.MayStart, pipelineFrom(parts).MayStart},
+		maystart.NamedRun:        {pipelineFrom(parts).MayStart},
+		maystart.DecidedRerun:    {carrying, rerunnerFrom(parts).MayStart, pipelineFrom(parts).MayStart},
+		maystart.DecidedRepair:   {carrying, repairContinuerFrom(parts).MayStart},
+		maystart.FeedbackRepair:  {feedbackRepairerFrom(parts).MayStart, reconcilerFrom(parts).MayStart, pipelineFrom(parts).MayStart},
+		maystart.ResolveConflict: {pipelineFrom(parts).MayStart},
+		maystart.BringInFile:     {pipelineFrom(parts).MayStart},
+	}
+	items := func() []maystart.RefusedItem {
+		t.Helper()
+		refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return refusals.Items
+	}
 	decide := pipelineFrom(parts).MayStart
-	for _, path := range []maystart.Path{maystart.ResolveConflict, maystart.BringInFile} {
-		if decide(maystart.Run(path, "yoyodyne-unkept")).MayStart() {
-			t.Errorf("%s starts an item outside the named epics", path)
+	for _, path := range maystart.Paths() {
+		if !path.Wired {
+			continue
+		}
+		if len(wiredTo[path.Path]) == 0 {
+			t.Errorf("%s is marked wired, and no part here is known to start work that way", path.Path)
+		}
+		for part, asking := range wiredTo[path.Path] {
+			item := fmt.Sprintf("yoyodyne-other%d", part)
+			before, began := len(items()), time.Now().UTC()
+			refused := asking(maystart.Run(path.Path, item))
+			got := items()
+			if refused.MayStart() || len(got) != before+1 {
+				t.Fatalf("%s, part %d: %+v and %d entries, want it refused and one more than %d", path.Path, part, refused, len(got), before)
+			}
+			if entry := got[before]; entry.WorkItemID != item || entry.Path != path.Path || entry.Why != refused.Why || entry.Since.Before(began) || entry.Last.Before(began) {
+				t.Errorf("%s, part %d: %+v, want its item, path, reason and time", path.Path, part, entry)
+			}
+			if asking(maystart.Run(path.Path, item)); len(items()) != before+1 {
+				t.Errorf("%s, part %d: refused again, it has %d entries, want %d", path.Path, part, len(items()), before+1)
+			}
 		}
 	}
-	start := maystart.Run(maystart.NamedRun, "yoyodyne-other")
-	decide(start)
-	refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
-	if err != nil || len(refusals.Items) != 2 || refusals.Items[1].WorkItemID != "yoyodyne-other" || refusals.Items[1].Path != maystart.NamedRun {
-		t.Fatalf("refusals = %+v, %v; want each item refused above kept once", refusals.Items, err)
-	}
-	if _, err := operator.Add("yoyodyne-9k1y", "yoyodyne-other", time.Now()); err != nil {
+	before := len(items())
+	if _, err := operator.Add("yoyodyne-9k1y", "yoyodyne-other1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	decide(start)
-	if refusals, err = maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID); err != nil || len(refusals.Items) != 1 {
-		t.Fatalf("refusals = %+v, %v; want the added item's taken away", refusals.Items, err)
+	decide(maystart.Run(maystart.NamedRun, "yoyodyne-other1"))
+	if got := items(); len(got) == 0 || len(got) >= before || slices.ContainsFunc(got, func(item maystart.RefusedItem) bool { return item.WorkItemID == "yoyodyne-other1" }) {
+		t.Fatalf("refusals = %+v; want only the added item's taken away", got)
+	}
+	// A refused start of an item that closed is taken away by the sweep, which
+	// asks the tracker nothing where none is recorded.
+	tracker := &listedItems{{ID: "yoyodyne-other0", Title: "Other", Status: "closed"}}
+	if err := clearRefusalsOfClosedItems(context.Background(), parts, tracker); err != nil {
+		t.Fatal(err)
+	}
+	if got := items(); len(got) == 0 || slices.ContainsFunc(got, func(item maystart.RefusedItem) bool { return item.WorkItemID == "yoyodyne-other0" }) {
+		t.Fatalf("refusals = %+v; want only the closed item's taken away", got)
 	}
 	blocking := filepath.Join(home.ProductDirectory(parts.stateRoot, string(parts.config.Product.ID)), "not-started.json")
 	if err := os.WriteFile(blocking, []byte("{"), 0o600); err != nil {

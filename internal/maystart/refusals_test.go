@@ -3,12 +3,15 @@ package maystart
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 )
+
+const notInAny = outside + " is not in an open epic the operator named"
 
 func noted(t *testing.T, root string, start Start, when time.Time) Refusals {
 	t.Helper()
@@ -35,9 +38,9 @@ func TestARefusalIsKeptUntilItsStartMayGoAhead(t *testing.T) {
 	}
 	noted(t, root, Run(ReadyWork, outside), at)
 	noted(t, root, Pass(RecurringPass, domain.RoleProgramManager), at)
-	noted(t, root, Run(NamedRun, outside), at.Add(time.Hour))
+	noted(t, root, Run(ReadyWork, outside), at.Add(time.Minute))
 	record := noted(t, root, Pass(RecurringPass, domain.RoleProgramManager), at.Add(time.Hour))
-	if len(record.Items) != 1 || record.Items[0] != (RefusedItem{WorkItemID: outside, Path: ReadyWork, Since: at}) {
+	if len(record.Items) != 1 || record.Items[0] != (RefusedItem{WorkItemID: outside, Path: ReadyWork, Why: notInAny, Since: at, Last: at}) {
 		t.Fatalf("Items = %+v, want the one first refusal", record.Items)
 	}
 	if len(record.Passes) != 1 || record.Passes[0] != (RefusedPasses{Role: domain.RoleProgramManager, Count: 2, Since: at}) {
@@ -74,6 +77,7 @@ func TestARecordOfRefusalsThatCannotBeReadIsNeverReplaced(t *testing.T) {
 		"another product's":  {`{"schema_version":1,"product_id":"another"}`, false},
 		"a newer build's":    {`{"schema_version":1,"product_id":"yoyodyne","added":true}`, true},
 		"one with no time":   {`{"schema_version":1,"product_id":"yoyodyne","items":[{"work_item_id":"yoyodyne-1"}]}`, false},
+		"one with no reason": {`{"schema_version":1,"product_id":"yoyodyne","items":[{"work_item_id":"yoyodyne-1","path":"ready-work","since":"2026-11-24T09:00:00Z","last":"2026-11-24T09:00:00Z"}]}`, false},
 		"something after it": {`{"schema_version":1,"product_id":"yoyodyne"} {}`, false},
 	} {
 		if err := os.WriteFile(path, []byte(test.text), 0o600); err != nil {
@@ -88,6 +92,174 @@ func TestARecordOfRefusalsThatCannotBeReadIsNeverReplaced(t *testing.T) {
 		}
 		if kept, _ := os.ReadFile(path); string(kept) != test.text {
 			t.Errorf("%s: the record now reads %s", name, kept)
+		}
+	}
+}
+
+func kept(t *testing.T, root string) []RefusedItem {
+	t.Helper()
+	record, err := ReadRefusals(root, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.Items
+}
+
+func asked(t *testing.T, root string, path Path, when time.Time) {
+	t.Helper()
+	if decision := Ask(root, product, Run(path, outside), when); decision.MayStart() || decision.NotKept != nil {
+		t.Fatalf("Ask() = %+v, want a refusal that was kept", decision)
+	}
+}
+
+func TestRefusingTheSameStartAgainUpdatesItsOneEntry(t *testing.T) {
+	t.Parallel()
+	for _, entry := range Paths() {
+		if !entry.Wired {
+			continue
+		}
+		root := t.TempDir()
+		on(t, root)
+		asked(t, root, entry.Path, at)
+		asked(t, root, entry.Path, at.Add(time.Hour))
+		want := RefusedItem{WorkItemID: outside, Path: entry.Path, Why: notInAny, Since: at, Last: at.Add(time.Hour)}
+		if got := kept(t, root); len(got) != 1 || got[0] != want {
+			t.Errorf("%s: %+v, want %+v", entry.Path, got, want)
+		}
+	}
+	// Another path is another entry.
+	root := t.TempDir()
+	on(t, root)
+	asked(t, root, ReadyWork, at)
+	asked(t, root, BringInFile, at)
+	asked(t, root, ReadyWork, at.Add(time.Hour))
+	if got := kept(t, root); len(got) != 2 || got[0].Path != ReadyWork || got[0].Last != at.Add(time.Hour) || got[1].Path != BringInFile || got[1].Last != at {
+		t.Fatalf("%+v, want an entry for each path", got)
+	}
+}
+
+// Each of these ends every entry of the item, and leaves another item's.
+func TestARefusalThatNoLongerHoldsIsTakenAway(t *testing.T) {
+	t.Parallel()
+	const other = "yoyodyne-other"
+	add := func(t *testing.T, root string) {
+		record, err := operatorAt(t, root).Add(openEpicID, outside, at)
+		must(t, record, err)
+	}
+	for name, test := range map[string]struct {
+		ends func(t *testing.T, root string) error
+		left int
+	}{
+		"it starts": {func(t *testing.T, root string) error {
+			add(t, root)
+			return Ask(root, product, Run(NamedRun, outside), at).NotKept
+		}, 1},
+		"it becomes allowed": {func(t *testing.T, root string) error {
+			add(t, root)
+			return Settle(root, product)
+		}, 1},
+		"it becomes allowed, found when another item is asked about": {func(t *testing.T, root string) error {
+			add(t, root)
+			return Ask(root, product, Run(ReadyWork, member), at).NotKept
+		}, 1},
+		"it closes": {func(t *testing.T, root string) error {
+			return ItemsClosed(root, product, func(item string) bool { return item == outside })
+		}, 1},
+		"epic mode ends": {func(t *testing.T, root string) error {
+			record, err := operatorAt(t, root).TurnOff()
+			must(t, record, err)
+			return Settle(root, product)
+		}, 0},
+		"nothing ended it": {func(t *testing.T, root string) error { return Settle(root, product) }, 3},
+	} {
+		root := t.TempDir()
+		on(t, root)
+		asked(t, root, ReadyWork, at)
+		asked(t, root, DecidedRepair, at)
+		Ask(root, product, Run(ReadyWork, other), at)
+		if err := test.ends(t, root); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if got := kept(t, root); len(got) != test.left || (test.left == 1 && got[0].WorkItemID != other) {
+			t.Errorf("%s: the record holds %+v, want %d", name, got, test.left)
+		}
+	}
+}
+
+// A refusal decided before the operator added the item is not kept after it.
+func TestARefusalDecidedBeforeTheItemWasAddedIsNotKept(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	on(t, root)
+	start := Run(ReadyWork, outside)
+	decision := Decide(root, product, start)
+	record, err := operatorAt(t, root).Add(openEpicID, outside, at)
+	must(t, record, err)
+	if record := noted(t, root, start, at); len(record.Items) != 0 {
+		t.Fatalf("%+v", record.Items)
+	}
+	if err := Note(root, product, start, decision, at); err != nil {
+		t.Fatal(err)
+	}
+	if got := kept(t, root); len(got) != 0 {
+		t.Fatalf("the record holds %+v", got)
+	}
+}
+
+// A start refused because the named epics could not be read is recorded with
+// that reason, kept while they cannot be, and given the reason or taken away
+// once they can.
+func TestAStartThatCouldNotBeJudgedIsRecordedWithThatReason(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	on(t, root)
+	path := filepath.Join(home.ProductDirectory(root, product), "epic-scope.json")
+	whole, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asked(t, root, ReadyWork, at)
+	if decision := Ask(root, product, Run(ReadyWork, member), at); decision.Answer != CouldNotTell {
+		t.Fatalf("Ask() = %+v", decision)
+	}
+	if err := Settle(root, product); err != nil {
+		t.Fatal(err)
+	}
+	if got := kept(t, root); len(got) != 2 || !strings.Contains(got[0].Why, "could not be read") {
+		t.Fatalf("%+v, want both kept with that reason", got)
+	}
+	if err := os.WriteFile(path, whole, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Settle(root, product); err != nil {
+		t.Fatal(err)
+	}
+	if got := kept(t, root); len(got) != 1 || got[0].WorkItemID != outside || got[0].Why != notInAny {
+		t.Fatalf("%+v, want the member's taken away and the other's reason brought up to date", got)
+	}
+}
+
+func TestAFailedWriteIsReportedAndTheStartIsStillRefused(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	on(t, root)
+	// The record is a directory, so it can be neither read nor replaced.
+	if err := os.Mkdir(filepath.Join(home.ProductDirectory(root, product), refusalsFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range Paths() {
+		if !entry.Wired {
+			continue
+		}
+		decision := Ask(root, product, Run(entry.Path, outside), at)
+		if decision.Answer != MayNot || decision.NotKept == nil || !strings.Contains(decision.Why, "could not be recorded") {
+			t.Errorf("%s: %+v, want a refusal that says it was not recorded", entry.Path, decision)
+		}
+		if decision = Ask(root, product, Run(entry.Path, member), at); !decision.MayStart() || decision.NotKept == nil {
+			t.Errorf("%s: %+v, want a member still allowed and the failure said", entry.Path, decision)
 		}
 	}
 }

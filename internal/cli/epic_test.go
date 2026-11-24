@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 )
 
@@ -300,4 +305,53 @@ func TestATrackerThatCannotBeReadStopsNoActThatDoesNotNeedIt(t *testing.T) {
 	says(t, bench.does("end", "yoyodyne-a"), "ended epic yoyodyne-a (tracker unreadable at ")
 	bench.refuses([]string{"end", "yoyodyne-a"}, "yoyodyne-a (tracker unreadable at ", "has already ended")
 	bench.refuses([]string{"start", "yoyodyne-a"}, "the store is locked")
+}
+
+// What an act lets start is not left recorded as refused, and an act whose
+// record of it cannot be updated stands and says so.
+func TestAnActTakesAwayTheRefusalsItEnds(t *testing.T) {
+	bench := newEpicBench(t)
+	bench.does("start", "yoyodyne-b")
+	refuse := func(items ...string) {
+		t.Helper()
+		for _, item := range items {
+			if maystart.Ask(bench.stateRoot, "yoyodyne", maystart.Run(maystart.ReadyWork, item), time.Now()).MayStart() {
+				t.Fatalf("%s may start", item)
+			}
+		}
+	}
+	refused := func(want ...string) {
+		t.Helper()
+		refusals, err := maystart.ReadRefusals(bench.stateRoot, "yoyodyne")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := []string{}
+		for _, item := range refusals.Items {
+			got = append(got, item.WorkItemID)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("refused = %v, want %v", got, want)
+		}
+	}
+	refuse("yoyodyne-loose", "yoyodyne-a.2", "yoyodyne-else")
+	bench.does("add", "yoyodyne-b", "yoyodyne-loose")
+	refused("yoyodyne-a.2", "yoyodyne-else")
+	bench.does("start", "yoyodyne-a")
+	refused("yoyodyne-else")
+	bench.does("end", "yoyodyne-a")
+	refused("yoyodyne-else")
+	bench.does("off")
+	refused()
+
+	bench.does("start", "yoyodyne-a")
+	path := filepath.Join(home.ProductDirectory(bench.stateRoot, "yoyodyne"), "not-started.json")
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code := bench.run("off")
+	if code != 0 || bench.record().On() {
+		t.Fatalf("off exited %d: %s", code, stderr)
+	}
+	says(t, stderr, "was not updated")
 }
