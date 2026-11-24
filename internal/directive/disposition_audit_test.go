@@ -105,6 +105,10 @@ var auditedDispositionReads = []dispositionSite{
 		Means: "the same sentence at the command line: a pause withdrawn without ever being answered says so. The listing above it asks InForce.",
 	},
 	{
+		File: "internal/cli/goalreview.go", Declaration: "goalReviewReading", Read: "Resolved()", Reads: 1,
+		Means: "goal attribution, not a directive: only an item whose recorded goal matched a goal is counted as serving it in the daily review's fingerprint.",
+	},
+	{
 		File: "internal/cli/goals.go", Declaration: "attributionDetail", Read: "Resolved()", Reads: 1,
 		Means: "goal attribution, not a directive: the goal a work item resolved to, or what is wrong with the attribution.",
 	},

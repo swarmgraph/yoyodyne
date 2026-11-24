@@ -10713,6 +10713,27 @@ These passes are recorded under `architect-needs-design`, which `yoyo sweeps
 name. The wake has no key of its own, so nothing here is needed to turn it on,
 and an `architect-pass` is not needed to catch labelled work.
 
+The Lead Product Manager's recurring task also carries the daily review of
+unmet goals (docs/designs/unmet-goal-review.md). At the first pull from 09:00
+on this machine's clock, whether or not any developer is idle, the harness
+reads every goal in force and the work items serving it, and records a
+fingerprint for each goal: its wording, the open items and those closed in the
+last seven days that serve it with their status and priority, and the
+architect's entry for it. A goal whose fingerprint matches the one recorded by
+the last review that went through it and finished is one line, "unchanged
+since" with that review's time, and costs no provider call. Where any goal
+changed, her task fires out of its cadence with those goals listed, each with
+up to eight unfinished items serving it in priority order and a count of the
+rest, fewer where the whole review would pass 24 KiB. The items carrying the
+`raised-by-operator` label are listed apart, up to twenty with a count of the
+rest. That pass takes the place of
+her next ordinary pass rather than beside it. Where none changed, nobody is
+woken and the review is still recorded, as the unchanged goals and the raised
+items. Each review is recorded under the state root, in
+`product-manager/goal-reviews.json`, which is what the next one reads. A
+project whose Lead Product Manager has no recurring task runs no daily review.
+The review has no key of its own.
+
 | Key | What it says |
 | --- | --- |
 | `role` | which role is woken. It must be a role this project configures an agent for; a task naming a role nobody fills is refused rather than discovered as silence. |
