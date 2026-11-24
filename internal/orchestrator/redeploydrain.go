@@ -397,7 +397,13 @@ func (p *passPublications) active() int {
 // stopped between steps or let the step it was in finish; anything else is a
 // step the stop cut off part-way, which is recorded in its own words
 // (redeployCutOff) and treated as the restart's, never as that step failing.
-func (a *activeRun) pauseForRedeploy(drained RedeployDrain, cause error) (Outcome, error) {
+//
+// The run's workflow instance was left in the state the stop found it in
+// (stoppedForRestart). A run kept in flight leaves it there for the session that
+// comes back; a run ended as cancelled here sends it to that state's ending
+// first, so the instance does not read as still going beside a cancelled run
+// (observeRestartEnded).
+func (a *activeRun) pauseForRedeploy(ctx context.Context, drained RedeployDrain, cause error) (Outcome, error) {
 	stopped := runstate.RedeployStop{
 		At:           a.pipeline.clock().Now(),
 		Phase:        a.state.Phase,
@@ -411,6 +417,7 @@ func (a *activeRun) pauseForRedeploy(drained RedeployDrain, cause error) (Outcom
 	a.state.RedeployStop = &stopped
 	if !stoppedForRedeployIsResumable(a.state) {
 		a.state.RedeployStop = nil
+		a.observeRestartEnded(ctx)
 		return a.fail(fmt.Errorf("%w; the run was at its %s phase with nothing recorded that a continuation could pick up, so it is cancelled with its branch and worktree preserved rather than held for a session that could not re-adopt it",
 			drained, nonEmpty(string(a.state.Phase), "unrecorded")), runstate.StatusCancelled)
 	}
@@ -420,6 +427,7 @@ func (a *activeRun) pauseForRedeploy(drained RedeployDrain, cause error) (Outcom
 		// that comes back to re-adopt, so the run is ended as cancelled rather
 		// than left in flight claiming a continuation that is not recorded.
 		a.state.RedeployStop = nil
+		a.observeRestartEnded(ctx)
 		return a.fail(fmt.Errorf("%w; recording the stop failed, so the run is cancelled with its branch and worktree preserved rather than held: %v", drained, err), runstate.StatusCancelled)
 	}
 	a.outcome.Status = runstate.StatusRunning
