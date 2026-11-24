@@ -7479,7 +7479,10 @@ no named document was checked. A revision opening with the item's identifier in
 a document the item's text does not name closes nothing: it is written onto the
 item's notes once, as related, with the named documents that still have no such
 revision, and the item stays open. A revision that mentions an item further
-into its reason closes nothing either. A landing the tracker will not close is
+into its reason closes nothing either. A parked item is never closed this way,
+whatever has landed: the pull names it, saying what it is parked for, and it
+stays open until the Lead Product Manager closes or retires it, or releases it,
+when the next pull closes it. A landing the tracker will not close is
 reported on the pass and left for you, and so is the one case a person has to clear by hand — a close the tracker
 refused after the revision was recorded and the record could not be taken back
 off, which the pass names with the metadata key to clear. [How work

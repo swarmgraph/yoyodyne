@@ -26,6 +26,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
@@ -125,6 +126,10 @@ const (
 const (
 	maxTrackerTitleBytes = 200
 	maxTrackerTextBytes  = 8 << 10
+	// maxTrackerClosureBytes bounds the account of a closure a read of a closed
+	// item quotes: who closed it and why, which is a sentence or two and never
+	// the whole of the notes it stands above.
+	maxTrackerClosureBytes = 1 << 10
 	// maxTrackerFailureBytes keeps a tracker failure to one readable line, in the
 	// reply the operator reads and in the results the product manager is given.
 	maxTrackerFailureBytes = 512
@@ -2500,7 +2505,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			outcome.fail(err)
 			return
 		}
-		outcome.applied("closed %s as done%s", id, s.closeDocketForItem(ctx, id, fmt.Sprintf("closed as done by the %s in conversation %s", RoleTitle(s.state.Role), s.state.ConversationID)))
+		outcome.applied("closed %s as done%s%s", id, s.closeDocketForItem(ctx, id, fmt.Sprintf("closed as done by the %s in conversation %s", RoleTitle(s.state.Role), s.state.ConversationID)), endedParking(outcome.target))
 	case actionRetire:
 		// Retiring is how admitted work leaves the backlog without being done. The
 		// tracker has one mechanism for taking an item out of the queue, so what
@@ -2512,7 +2517,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			outcome.fail(err)
 			return
 		}
-		outcome.applied("retired %s from the backlog without it being done%s", id, s.closeDocketForItem(ctx, id, fmt.Sprintf("retired without being done by the %s in conversation %s", RoleTitle(s.state.Role), s.state.ConversationID)))
+		outcome.applied("retired %s from the backlog without it being done%s%s", id, s.closeDocketForItem(ctx, id, fmt.Sprintf("retired without being done by the %s in conversation %s", RoleTitle(s.state.Role), s.state.ConversationID)), endedParking(outcome.target))
 	case actionRepair:
 		s.carryOutRepair(ctx, outcome)
 	case actionTriage:
@@ -2542,6 +2547,21 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// than a badly formed request; it is reported as a failure all the same.
 		outcome.Failure = fmt.Sprintf("the harness does not carry out %q", action.Action)
 	}
+}
+
+// endedParking says, in the result of closing or retiring an item, what the
+// item was parked for when it was closed, or nothing when it was not parked or
+// could not be read. A parking is usually a run's account of what the item
+// still owes after it landed evidence rather than the work, so closing such an
+// item ends work somebody asked for; the role closing it is told so in its own
+// results, where the decision is made, rather than finding it later in notes
+// that still say the item stays open.
+func endedParking(target *beads.WorkItem) string {
+	if target == nil || !target.Parking.Parked() {
+		return ""
+	}
+	return "; it was parked, and closing it ends that parking and whatever it still owed: " +
+		singleLine(target.Parking.Reason(), domain.MaxWorkItemParkingBytes)
 }
 
 // closeDocketForItem closes the docket entries standing for an item this
@@ -3274,6 +3294,19 @@ func renderWorkItemHead(item beads.WorkItem, goals goal.Set, trim bool) string {
 	fmt.Fprintf(&rendered, "id: %s\n", item.ID)
 	fmt.Fprintf(&rendered, "title: %s\n", singleLine(item.Title, maxTrackerTitleBytes))
 	fmt.Fprintf(&rendered, "status: %s\npriority: %d\ntype: %s\n", item.Status, item.Priority, item.IssueType)
+	// Who closed a closed item, when, and why, in the words the closing recorded.
+	// The tracker keeps that account beside the notes rather than in them, so a
+	// read that printed only the status left the notes' last word as the
+	// account: an item a run had parked on landed evidence, closed afterwards by
+	// a role, read as though the harness had closed it against a run's note
+	// saying the item stays open.
+	if item.Status == closedWorkItemStatus {
+		closure := singleLine(item.CloseReason, maxTrackerClosureBytes)
+		if closure == "" {
+			closure = "the tracker recorded no reason"
+		}
+		fmt.Fprintf(&rendered, "closed: %s — %s\n", exchange.LocalTime(item.ClosedAt), closure)
+	}
 	// What the item is for, judged rather than quoted. The notes below carry the
 	// words it recorded; this is whether any goal in force is stated in them, and
 	// it is the difference between an item that traces to intent somebody
@@ -3294,7 +3327,14 @@ func renderWorkItemHead(item beads.WorkItem, goals goal.Set, trim bool) string {
 	// is not. Like the executor above it changes what happens to the item, and
 	// unlike the priority beside it, it is not something a reader can infer from
 	// anything else on the item.
-	if item.Parking.Parked() {
+	// Closing an item leaves its parking where it was, so on a closed item the
+	// parking is what it was waiting for when somebody closed it, not a hold on
+	// anything still to be pulled.
+	switch {
+	case item.Parking.Parked() && item.Status == closedWorkItemStatus:
+		fmt.Fprintf(&rendered, "parked when it was closed: %s\n",
+			singleLine(item.Parking.Reason(), domain.MaxWorkItemParkingBytes))
+	case item.Parking.Parked():
 		fmt.Fprintf(&rendered, "parked: %s — no pull selects it however far the queue drains, until it is released\n",
 			singleLine(item.Parking.Reason(), domain.MaxWorkItemParkingBytes))
 	}
