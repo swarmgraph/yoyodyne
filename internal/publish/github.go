@@ -1193,7 +1193,11 @@ func (g GitHub) find(ctx context.Context, head string) (PullRequest, bool, error
 		return PullRequest{}, false, fmt.Errorf("list pull requests for %s: %w", head, err)
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return PullRequest{}, false, fmt.Errorf("list pull requests for %s failed with exit code %d: %s", head, result.ExitCode, g.redact(strings.TrimSpace(result.Stderr)))
+		failure := fmt.Errorf("list pull requests for %s failed with exit code %d: %s", head, result.ExitCode, g.redact(strings.TrimSpace(result.Stderr)))
+		if accessRefused(result.Stderr) {
+			failure = fmt.Errorf("%w: %w", failure, ErrForgeAccessRefused)
+		}
+		return PullRequest{}, false, failure
 	}
 	var reported []struct {
 		Number     int    `json:"number"`
@@ -1342,7 +1346,7 @@ func (g GitHub) graphql(ctx context.Context, what string, args ...string) (strin
 		return "", fmt.Errorf("%s: %w", what, err)
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return "", fmt.Errorf("%s: exit code %d: %s", what, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+		return "", g.forgeFailure(what, result)
 	}
 	return result.Stdout, nil
 }

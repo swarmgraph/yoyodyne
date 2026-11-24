@@ -39,10 +39,18 @@ var ErrForgeAccessRefused = errors.New("the forge refused the harness's token ac
 // accessRefused recognizes the forge's refusal of a token's permissions in what
 // gh printed: GitHub answers 403 with "Resource not accessible by integration"
 // for an app or fine-grained token without the scope, and "Must have admin
-// rights" where the job needs more than read.
+// rights" where the job needs more than read. A login it does not take, or none
+// at all, is the same refusal. GitHub also answers 403 for a rate limit, which
+// passes by itself and is not one.
 func accessRefused(stderr string) bool {
 	lowered := strings.ToLower(stderr)
-	return strings.Contains(lowered, "http 403") ||
+	if strings.Contains(lowered, "rate limit") {
+		return false
+	}
+	return strings.Contains(lowered, "http 401") ||
+		strings.Contains(lowered, "bad credentials") ||
+		strings.Contains(lowered, "gh auth login") ||
+		strings.Contains(lowered, "http 403") ||
 		strings.Contains(lowered, "resource not accessible") ||
 		strings.Contains(lowered, "must have admin rights")
 }
@@ -671,7 +679,7 @@ func (g GitHub) DisableAutoMerge(ctx context.Context, number int) error {
 	if result.Status != execution.ProcessSucceeded {
 		reason := g.redact(strings.TrimSpace(result.Stderr))
 		if !nothingArmed(reason) {
-			return fmt.Errorf("withdraw the queued merge of pull request %d failed with exit code %d: %s", number, result.ExitCode, reason)
+			return g.forgeFailure(fmt.Sprintf("withdraw the queued merge of pull request %d failed", number), result)
 		}
 	}
 	if err := g.dequeue(ctx, number); err != nil {

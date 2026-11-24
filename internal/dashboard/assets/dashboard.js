@@ -1501,6 +1501,23 @@ var standingWarningAgeSeconds = 5 * 60;
     section("managers", "ready");
   }
 
+  // queueProblem is the problem the read model marked on a queued change: whose
+  // it is to move, and why where it is the operator's; the stop that repeats,
+  // where that is the problem, since when in the reader's zone; and what it
+  // waits on. Each is the read model's answer.
+  function queueProblem(overdue) {
+    var said = "Problem, " + moverLabel(overdue.mover) + " to move";
+    if (overdue.owner_reason) {
+      said += ", because it takes " + overdue.owner_reason;
+    }
+    said += ": ";
+    if (overdue.stopped_passes) {
+      said += "stopped the queue the same way on " + overdue.stopped_passes + " passes in a row since " + localMoment(overdue.since) +
+        "; it stops because " + overdue.stopped_because + "; ";
+    }
+    return said + "waiting on " + overdue.waiting_on;
+  }
+
   // The merge queues are shown only where the product has one: a product
   // that has never admitted a change to a queue, and a standing not read yet,
   // show no panel for them at all, so the page is what it was before queues
@@ -1542,7 +1559,7 @@ var standingWarningAgeSeconds = 5 * 60;
         }
         var item = el("li", "held-reason", said);
         if (entry.overdue) {
-          item.appendChild(el("p", "held-reason", "Problem, the development manager's to move: waiting on " + entry.overdue.waiting_on));
+          item.appendChild(el("p", "held-reason", queueProblem(entry.overdue)));
         }
         entries.appendChild(item);
       });

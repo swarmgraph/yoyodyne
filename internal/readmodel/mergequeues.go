@@ -35,6 +35,9 @@ type MergeQueues interface {
 	// ForgeReading is the latest reading of what GitHub said the entry's merge
 	// was waiting on (runstate's mergequeueforgereading.go).
 	ForgeReading(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueForgeReading, bool, error)
+	// PassHistory is the queue's recent passes, oldest first, which is what
+	// says that its worker stopped the same way pass after pass.
+	PassHistory(key runstate.MergeQueueKey) ([]runstate.MergeQueuePass, error)
 }
 
 // QueueEntryState is where one queued change stands, from a closed vocabulary
@@ -245,6 +248,9 @@ type QueueEntryStanding struct {
 	built          time.Time
 	selection      *runstate.MergeQueueSelection
 	forgeWontMerge string
+	// repeatedStop is the queue's worker stopping on this entry the same way
+	// on its latest passes, where it has (mergequeuesteps.go).
+	repeatedStop *queueRepeatedStop
 }
 
 // StepSays is the entry's step and since when, as every surface prints it,
@@ -343,6 +349,12 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey, now time.Tim
 	} else if found {
 		standing.LastPass, standing.LastPassLabel = &pass, passLabel(pass)
 	}
+	var repeated *queueRepeatedStop
+	if history, err := queues.PassHistory(key); err != nil {
+		problems = append(problems, fmt.Sprintf("the recent passes of the queue for %s could not be read: %v", key.TargetBranch, err))
+	} else {
+		repeated = repeatedStopOf(history, standing.LastPass)
+	}
 	entries, err := queues.Entries(key)
 	if err != nil {
 		problems = append(problems, fmt.Sprintf("the queue for %s could not be read: %v", key.TargetBranch, err))
@@ -362,6 +374,9 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey, now time.Tim
 		if read.Finished() {
 			finished = append(finished, read)
 			continue
+		}
+		if repeated != nil && repeated.entryID == read.EntryID {
+			read.repeatedStop = repeated
 		}
 		open = append(open, read)
 	}
@@ -596,7 +611,7 @@ func (s Standing) RenderMergeQueues() string {
 				fmt.Fprintf(&rendered, "     now: %s\n", step)
 			}
 			if entry.Overdue != nil {
-				fmt.Fprintf(&rendered, "     PROBLEM, the development manager's to move: %s\n", entry.Overdue.Says())
+				fmt.Fprintf(&rendered, "     PROBLEM, %s to move: %s\n", entry.Overdue.Mover.Possessive(), entry.Overdue.Says())
 			}
 		}
 	}

@@ -165,7 +165,7 @@ func (q *queuePromotion) settleGitHub(ctx context.Context, err error) error {
 	q.gitHubWait = &wait
 	// What the call had found before the step failed says nothing now: the
 	// queue is waiting for GitHub, and that is all it is doing.
-	q.outcome.Refusal, q.outcome.Unresolved = "", ""
+	q.outcome.Refusal, q.outcome.Unresolved, q.outcome.UnresolvedBy = "", "", nil
 	q.waitOn(wait)
 	return nil
 }

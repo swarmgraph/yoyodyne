@@ -3113,8 +3113,11 @@ it up at the try it had reached rather than starting again. A refusal about
 the change — a failing check, a conflict, a push refused for its content, a
 merge GitHub will not make — is an answer and is handled as it always was.
 
-GitHub refusing the harness's login can look like no answer at all, so a wait
-that has failed fifteen tries in a row, about half an hour, files one warning
+A Git remote refusing the harness's key or login in words the harness
+recognizes, such as `Permission denied (publickey)`, is an answer too: it stops
+the pass rather than being waited out, and
+[three such stops in a row are yours](work.md#merge-queues-on-yoyo-status-and-the-dashboard).
+GitHub refusing the login can also look like no answer at all, so a wait that has failed fifteen tries in a row, about half an hour, files one warning
 for the development manager and says on status that something other than the
 network may be wrong. It goes on waiting all the same.
 
@@ -6592,7 +6595,8 @@ your hand**, never under **Yours to decide**.
 | `publication` | the harness while it can look up, re-read, re-run, or wait on a red target; the forge while it holds the merge; the development manager for a merge dropped or never asked for |
 | `degraded-service`, `config-mismatch`, `tracker-unanswered`, `forge-certificate`, `factory-stall` | the harness |
 | `failing-task` | the harness for a firing refused before its first turn; for a repeatedly failing pass, the role that resolves its failures, and yours only for a recorded person-only step |
-| `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision`, `unreadable-run`, `merge-queue-overdue` | the development manager |
+| `service-copies`, `check-could-not-run`, `heavy-check-kept`, `product-decision`, `unreadable-run` | the development manager |
+| `merge-queue-overdue` | the development manager; yours only for a change the queue's worker stopped on the same way pass after pass because the forge refused the harness's token, or the Git remote refused its key or login (`credential`) |
 | `hold` | yours for your own pause or intake hold (`own-hold`); for the brake's hold, the development manager, the harness while it carries her decision out, and the Lead Product Manager once it is escalated; the harness for the provider holding every role |
 | `directive` | the Lead Product Manager |
 | `outage` | yours for a lapsed login (`credential`); nobody's for a provider nobody can reach |
@@ -8585,8 +8589,11 @@ slowly or not at all`.
    item by identifier and title, the queue it is in, where it stands, and why,
    all in the read model's words, then what the queue is doing with it now and
    since when, in the reader's zone, and the problem marked on a change whose
-   step ran past `execution.merge_queue_step_overdue_after` or whose merge
-   GitHub will not make. A change reads as landed only once the queue
+   step ran past `execution.merge_queue_step_overdue_after`, whose merge
+   GitHub will not make, or that the queue's worker stopped on the same way on
+   three passes in a row. The problem names whose it is to move, and why where
+   it is yours, and for a stop that repeats how many passes, since when, and
+   the reason. A change reads as landed only once the queue
    confirmed it on the target.
    [Merge queues on `yoyo status` and the dashboard](work.md#merge-queues-on-yoyo-status-and-the-dashboard)
    says the same for the terminal. While shown it is ready, or says what could
