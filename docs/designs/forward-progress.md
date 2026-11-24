@@ -22,6 +22,10 @@ revisions:
       by: architect
       at: 2026-11-19T16:57:30.982917Z
       reason: 'Replaces the retired word for a required check in the one sentence of this design that still used it, in the bounds on the harness''s own acts: the hold on new work, the operator''s pause and the pause for provider capacity now ''apply to it as they apply to any act that starts a provider''. Part of rewording the architect''s documents under the register of terms; nothing else changes. Read whole at main 473d3600.'
+    - action: amended
+      by: architect
+      at: 2026-11-24T02:29:58.979443Z
+      reason: 'Part of the architect''s review of every design against the code. The design read as though all of it were built. Its Build section now says, piece by piece, what is built and what remains, and decides where the code and the design differ: the two lists of reasons about empty slots, the continues the harness already makes, the release of a hold by a follow-up check, and the release act that has nothing left to release. Read at main d09aba1e586b.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-11-19T16:57:30.982917Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3106, for document-3106.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-24T02:29:58.979443Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3805, for document-3805.1 under the automatic approval policy
 ---
 # Forward progress: every admitted item moves or stops with an owner, slots fill when work and capacity exist, recovery ends, and the harness repairs within bounds when management cannot
 
@@ -301,16 +310,30 @@ No invariant is added. Every rule here goes through the read model, the schedule
 
 These are the pieces; turning them into work items is the development manager's.
 
-1. **Each item's state, and the problem of an item in none.** The read model works out the state of every admitted item. `health.observe` reports an item in no state, with the counts on `yoyo status` and on the dashboard. Items done by a conversation get their follow-up when admitted. Depends on piece 1 of [follow-ups](follow-ups.md).
-2. **Why ready work was not started.** The closed list of reasons, recorded at each pull, the problem of a slot empty beside ready work, and the bug filed or noted. Depends on nothing new.
-3. **Pulling when a place frees.** The pull within one minute of each event listed in point 2. Depends on nothing new.
-4. **A run waiting only to land holds no developer slot,** and takes one again ahead of fresh work if sent back to its developer. The developer reads the scheduler first. If the build already releases the slot, this piece is the test alone. Depends on nothing new.
-5. **What failed, recorded on each stop, and the limit on repeating an act.** The four things recorded, the refusal of a third use of the same act on the same failure, and the problem of the same failure across items. Depends on slices 1 and 3 of stopped run recovery.
-6. **When a management role is unavailable.** Worked out from pass records and endpoint state, shown for each role. Depends on nothing new.
-7. **The harness's own acts.** The five acts and their bounds, the recovery tool accepting the harness as the one who acts for those five, every wait the harness records keeping the stop listed, and the hand back at the next completed pass. Depends on pieces 5 and 6, on slice 3 of fresh factory health, and on piece 2 of follow-ups.
-8. **The landing that has waited more than one hour,** shown with what it waits behind and who owns that. Depends on nothing new.
+The points above say what this design asks for, and most of it is not built. Each piece below says what is built and what remains. The empty slot causes, the report of an empty slot, the release of a hold by a follow-up check, the recovery tool and the harness's continue of a silent run were read in the code at commit d09aba1e586b on November 23, 2026, after the list under "What it rests on, and what was not read" was written. The rest is taken from the comparison of this design with the code at commit 848d86190, in [its second reading](../diagnoses/yoyodyne-ifd-437-84-2b.md), and was not read again. A developer building a piece still reads its code first.
+
+1. **Each item's state, and the problem of an item in none.** The read model works out the state of every admitted item. `health.observe` reports an item in no state, with the counts on `yoyo status` and on the dashboard. Items done by a conversation get their follow-up when admitted. Depends on piece 1 of [follow-ups](follow-ups.md). Not built.
+2. **Why ready work was not started.** The closed list of reasons, recorded at each pull, the problem of a slot empty beside ready work, and the bug filed or noted. Depends on nothing new. Built in part: the scheduler records one cause for an empty slot beside ready work, `yoyo status` and the health observation show it with its age and its owner, and it names items it passed over with why. Not built: a reason from the closed list for every ready item not started, `execution.idle_slot_after`, and the bug.
+3. **Pulling when a place frees.** The pull within one minute of each event listed in point 2. Depends on nothing new. Built in part: a run of the session ending starts a pull at once. The comparison found nothing that does so for a hold being released, an item becoming ready or a provider becoming usable, and did not settle it.
+4. **A run waiting only to land holds no developer slot,** and takes one again ahead of fresh work if sent back to its developer. The developer reads the scheduler first. If the build already releases the slot, this piece is the test alone. Depends on nothing new. Built in part: a run waiting on GitHub's checks, on a forge that cannot be reached, or in the merge queue holds no slot. A run at the landing step itself still holds one.
+5. **What failed, recorded on each stop, and the limit on repeating an act.** The four things recorded, the refusal of a third use of the same act on the same failure, and the problem of the same failure across items. Depends on slices 1 and 3 of stopped run recovery. Not built. The program manager's count of stops by cause, side and step is a different thing: it names no item and no failing check, and nothing is refused by it.
+6. **When a management role is unavailable.** Worked out from pass records and endpoint state, shown for each role. Depends on nothing new. Not built.
+7. **The harness's own acts.** The five acts and their bounds, the recovery tool accepting the harness as the one who acts, every wait the harness records keeping the stop listed, and the hand back at the next completed pass. Depends on pieces 5 and 6, on slice 3 of fresh factory health, and on piece 2 of follow-ups. Built in part: act 2. The recovery tool takes requests from the development manager alone, and its release action refuses every request, because a run that has ended holds no developer slot and no file reservation to release.
+8. **The landing that has waited more than one hour,** shown with what it waits behind and who owns that. Depends on nothing new. Whether any of it is built was not established.
 
 Pieces 2, 3, 4, 6 and 8 can start at once. Piece 1 waits on the follow-up store, piece 5 on the stopped run recovery slices it names, and piece 7 comes last.
+
+### Where the code and the points above differ
+
+These were decided on November 23, 2026.
+
+- **Two lists, for two questions.** The code's causes answer why a slot is empty: a hold on new work, a rule keeping work out, a slot still counted as taken, no eligible item, runs waiting on GitHub's checks, and not known. The closed list in point 2 answers why one item was not started. Both are kept, and neither replaces the other.
+- **Which causes file the bug.** Once piece 2 is complete, the causes not known, a slot still counted as taken, and runs waiting on GitHub's checks file the bug after `execution.idle_slot_after`, because in each the pull's reasons do not account for that slot. A hold on new work, a rule keeping work out, and no eligible item do not, where the pull recorded a reason for each ready item that applies to the slot. The five minutes before the code shows runs waiting on GitHub's checks is when that cause is shown, and it stays.
+- **Continues the harness already makes.** The harness continues a run once itself when its AI session went silent or used its whole time. It also continues a check stage stopped by its time limit, within the limits in [recoverable and terminal failures](recoverable-and-terminal-failures.md). It does both whether or not the development manager is available. They stay: they are owed to the run and judge nothing. They are not acts under point 4, so they are not counted in its four an hour and do not go through the recovery tool. They do count as the one act of the harness's own on that stop, and toward the refusal of a third use of the same act on the same failure.
+- **Act 2 is not a recovery tool action.** The scheduler runs the follow-up checks and releases the hold itself when the check passes, as fresh factory health says. The sentence in point 4 that counts every act as already on the recovery tool's list, and the bound that every act goes through it, are true of the other four only.
+- **Act 4 has only a claim left to release.** A run that has ended holds no developer slot and no file reservation. What can remain is the item's claim, and giving that back is giving the item back, which the harness never does on its own. Piece 7 therefore builds no release act unless the code it reads shows something else a finished run still holds.
+
+Built apart from any piece: an unreadable run record is listed as unreadable and the rest are read, as point 3 asks.
 
 ## What a reviewer can check
 
