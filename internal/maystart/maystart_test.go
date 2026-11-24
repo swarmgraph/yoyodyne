@@ -231,7 +231,9 @@ func TestTheClosedListOfPaths(t *testing.T) {
 		ReadyWork, NamedRun, HoldTest, DecidedRerun, DecidedRepair, FinishMerge, ContinueRun, PickUpRun,
 		FeedbackRepair, PublishDocument, BringUpToDate, RecurringPass, PromptedPass, UnmetGoalReview, MessagesForWork,
 	}
-	wired := map[Path]bool{}
+	wired := map[Path]bool{
+		ReadyWork: true, NamedRun: true, HoldTest: true, DecidedRerun: true, DecidedRepair: true, FeedbackRepair: true,
+	}
 
 	got := Paths()
 	if len(got) != len(want) {
@@ -248,8 +250,8 @@ func TestTheClosedListOfPaths(t *testing.T) {
 			t.Errorf("%s is marked wired %t, want %t", entry.Path, entry.Wired, wired[entry.Path])
 		}
 	}
-	got[0].Wired = true
-	if Paths()[0].Wired {
+	got[0].Wired = !wired[want[0]]
+	if Paths()[0].Wired != wired[want[0]] {
 		t.Error("a caller can change the list")
 	}
 }

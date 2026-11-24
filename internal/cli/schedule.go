@@ -817,6 +817,7 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		Decisions: parts.store.Triage(),
 		Remains:   remainsOf(parts),
 		Intake:    parts.intake,
+		MayStart:  parts.mayStart(),
 		// The same pause every run and every turn reads. The pass enforces nothing
 		// with it; it is what tells the pass not to attempt, on every poll of a
 		// pause, a decision the pause has already stopped once.

@@ -175,6 +175,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readiness"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -740,6 +741,9 @@ type Pull struct {
 	// *gitworktree.Manager.
 	Remains readmodel.Remains
 	Intake  IntakeHolds
+	// MayStart is the decision on what may start under the named epics; the
+	// pipeline asks it again where the run would begin. See StartDecision.
+	MayStart StartDecision
 	// Holds is the operator's pause over everything the harness spends. The pass
 	// enforces nothing with it — the actions it fires read the same switch and
 	// refuse under it — and reads it for one thing: whether a decision the pause
@@ -1170,6 +1174,9 @@ type Started struct {
 	// heldForDesign marks a Declined that is the needs-design label rather than
 	// another process, so the exclusion says which.
 	heldForDesign bool
+	// heldByNamedEpics marks a Declined that is the item being outside the epics
+	// the operator named.
+	heldByNamedEpics bool
 	// heldOnRemote marks a Declined that is the item's claim on the shared
 	// remote, held by another factory or not reachable to take, in team mode.
 	heldOnRemote bool
@@ -4026,6 +4033,10 @@ pulling:
 		// repository and a pull with one free slot has no business reading the tree
 		// for forty items to fill it.
 		decided := make(map[string]eligibility)
+		path := maystart.ReadyWork
+		if probing {
+			path = maystart.HoldTest
+		}
 		eligible := func(entry backlog.Entry) (eligibility, error) {
 			if answer, asked := decided[entry.ID]; asked {
 				return answer, nil
@@ -4033,7 +4044,7 @@ pulling:
 			answer, err := s.eligibility(entry, eligibilityReading{
 				pull: pull, read: read, tried: tried, occupied: occupied, waiting: waitingRuns,
 				schedule: &schedule, poll: &poll, passOver: passOver, keepWait: keepWait,
-				windows: capacityWindows,
+				windows: capacityWindows, path: path,
 			})
 			if err == nil {
 				decided[entry.ID] = answer
@@ -4759,7 +4770,7 @@ func excludedBecause(started Started) string {
 			started.Outcome.RunID, started.Outcome.Environmental.ResetSays())
 	}
 	switch {
-	case started.heldForDesign, started.heldOnRemote:
+	case started.heldForDesign, started.heldOnRemote, started.heldByNamedEpics:
 		return "this session chose it and did not start it: " + started.Declined
 	case started.Declined != "":
 		return "this session started it and the work went to another process: " + started.Declined
@@ -8882,6 +8893,7 @@ func (s *Started) record(done completed) {
 	var notStarted feedbackRepairNotStarted
 	var note PauseNoteError
 	var design NeedsDesignError
+	var outside *OutsideNamedEpicsError
 	switch {
 	case done.outcome.Paused && errors.As(done.err, &note):
 		s.NoteProblem = done.err.Error()
@@ -8890,6 +8902,9 @@ func (s *Started) record(done completed) {
 	case errors.As(done.err, &design):
 		s.Declined = done.err.Error()
 		s.heldForDesign = true
+	case errors.As(done.err, &outside):
+		s.Declined = done.err.Error()
+		s.heldByNamedEpics = true
 	case errors.As(done.err, &capacity) && capacity.Landings:
 		s.Declined = fmt.Sprintf("the last free document landing went to another document before this one was reserved (%d landing, limit %d)",
 			capacity.Active, capacity.Limit)

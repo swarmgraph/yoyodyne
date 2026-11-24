@@ -76,6 +76,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -202,7 +203,10 @@ func harnessOwnTask(decision string) bool {
 // somebody else made that the harness has not acted on, hand it to the action
 // that already knows how to act on it, and write down what became of the attempt.
 type CarryOut struct {
-	Docket CarryOutDocket
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart StartDecision
+	Docket   CarryOutDocket
 	// Decisions is where the decisions are read and where a refused attempt is
 	// recorded. Required: a carry-out that could not read the record would be
 	// firing on nobody's decision, and one that could not write it would be the
@@ -590,6 +594,19 @@ func (c CarryOut) read() (carryOutReading, error) {
 				}
 			}
 		}
+		// Nor is a decision whose item is outside the epics the operator named. A
+		// repair already begun is not a start, so one being recovered is offered.
+		if path := carriedOutOn(task); path != "" && !task.Recover {
+			if refused := c.MayStart.refuseRun(path, entry.WorkItemID); refused != nil {
+				reading.held = append(reading.held, heldDecision{
+					task:   task,
+					gate:   runstate.TriageGateNamedEpics,
+					why:    refused.Error(),
+					clears: refused.Clears() + namedEpicsKeepDecision,
+				})
+				return
+			}
+		}
 		if task.Recover {
 			held, err := c.Runs.Held(task.RunID)
 			if err != nil {
@@ -809,7 +826,7 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	}
 	for _, held := range candidates {
 		task := held.task
-		if (task.Decision == "repair" || task.Decision == "rerun") && held.gate != runstate.TriageGateParked {
+		if (task.Decision == "repair" || task.Decision == "rerun") && held.gate != runstate.TriageGateParked && held.gate != runstate.TriageGateNamedEpics {
 			if err := recordSchedulingWait(ctx, c.Notes, task.WorkItemID, runstate.PassedOverAwaitingCarryOut, carryOutWaitReason(ctx, c.Notes, held.why), now); err != nil {
 				problems = append(problems, err)
 			}
@@ -1305,6 +1322,8 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 		return c.stopped(ctx, task, carried, runstate.TriageGateIntakeHold, true,
 			fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)),
 			"`yoyo release` lifting the hold; nothing was claimed, so the stoppage keeps its re-run"), Outcome{}, nil
+	case outsideNamedEpics(result.OutsideNamedEpics, runErr) != nil:
+		return c.outsideEpics(ctx, task, carried, outsideNamedEpics(result.OutsideNamedEpics, runErr)), Outcome{}, nil
 	case result.CapacityFull != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
 			capacityWaitSays(*result.CapacityFull),
@@ -1352,6 +1371,8 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 		return c.stopped(ctx, task, carried, runstate.TriageGateIntakeHold, true,
 			fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)),
 			"`yoyo release` lifting the hold; nothing was spent, so the item keeps its grant"), Outcome{}, nil
+	case result.OutsideNamedEpics != nil:
+		return c.outsideEpics(ctx, task, carried, result.OutsideNamedEpics), Outcome{}, nil
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
@@ -1376,6 +1397,34 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 	carried.Reason = result.Reason
 	carried.RecordProblem = result.RecordProblem
 	return carried, result.Outcome, runErr
+}
+
+// carriedOutOn is the path a decision's carry-out begins a run by, and empty for
+// what carries on a run already begun.
+func carriedOutOn(task CarryOutTask) maystart.Path {
+	switch task.Decision {
+	case runstate.TriageDecisionRerun:
+		return maystart.DecidedRerun
+	case runstate.TriageDecisionRepair:
+		return maystart.DecidedRepair
+	default:
+		return ""
+	}
+}
+
+const namedEpicsKeepDecision = "; nothing was spent and the decision stands, so the first pass after that carries it out"
+
+// outsideNamedEpics is the refusal a re-run met, before its claim or, where the
+// record changed in between, where its run would have begun.
+func outsideNamedEpics(refused *OutsideNamedEpicsError, runErr error) *OutsideNamedEpicsError {
+	if refused == nil {
+		errors.As(runErr, &refused)
+	}
+	return refused
+}
+
+func (c CarryOut) outsideEpics(ctx context.Context, task CarryOutTask, carried CarriedOut, refused *OutsideNamedEpicsError) CarriedOut {
+	return c.stopped(ctx, task, carried, runstate.TriageGateNamedEpics, true, refused.Error(), refused.Clears()+namedEpicsKeepDecision)
 }
 
 // checkoutNotReadyToTakeUp reports a continuation that left its run as
@@ -1755,7 +1804,8 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	}
 	// A parked item is passed over for its parking, which the item already says,
 	// rather than for a carry-out the harness owes.
-	if gate != runstate.TriageGateParked {
+	// One outside the named epics keeps its item as it was.
+	if gate != runstate.TriageGateParked && gate != runstate.TriageGateNamedEpics {
 		if err := recordSchedulingWait(ctx, c.Notes, task.WorkItemID, runstate.PassedOverAwaitingCarryOut, carryOutWaitReason(ctx, c.Notes, carried.Problem), c.now()); err != nil {
 			carried.RecordProblem = fmt.Sprintf("record the scheduling wait: %v", err)
 		}

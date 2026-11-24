@@ -41,6 +41,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -95,6 +96,9 @@ type eligibilityReading struct {
 	// windows is what the recorded usage windows hold at this pull, where they
 	// close some developer models and not every one; see usageWindow.
 	windows readmodel.CapacityWindows
+	// path is how this pull would start the entry: as ready work, or as the test
+	// run that finds out whether the hold on new work can lift.
+	path maystart.Path
 }
 
 // keepWaitOn keeps a ready entry's reason through keepWait, and names it
@@ -142,6 +146,14 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 	_, busy := reading.occupied[entry.ID]
 	if _, paused := reading.waiting[entry.ID]; busy || paused {
 		poll.pass(entry.ID, runstate.PassedOverAlreadyInFlight, "")
+		return passedOver, nil
+	}
+	// An item outside the epics the operator named starts nothing. It is named on
+	// the pass and nothing is written to the item, which waits on nothing about
+	// itself.
+	if refused := pull.MayStart.refuseRun(reading.path, entry.ID); refused != nil {
+		reading.passOver(entry.ID, refused.Error())
+		poll.pass(entry.ID, runstate.PassedOverOutsideNamedEpics, "")
 		return passedOver, nil
 	}
 	// A decomposed item is not itself a run. Its children are where the work
