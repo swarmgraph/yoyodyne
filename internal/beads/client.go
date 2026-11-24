@@ -1856,8 +1856,8 @@ func (c Client) Block(ctx context.Context, id, reason string) (WorkItem, error) 
 
 // confirmedGivenBack confirms the note a give-back wrote and then clears the
 // assignee the run's claim set, where it marked one (givenBack). Blocking,
-// releasing, reopening, and clearing a block answer through it, and closing
-// calls givenBack itself, so no write that ends a run's hold on an item leaves
+// releasing, reopening, returning for design, and clearing a block answer
+// through it, and closing calls givenBack itself, so no write that ends a run's hold on an item leaves
 // the claim's name on it.
 func (c Client) confirmedGivenBack(ctx context.Context, item WorkItem, note string) (WorkItem, error) {
 	confirmed, err := c.confirmWritten(ctx, item, appendedNote(note))
@@ -2180,6 +2180,35 @@ func (c Client) Reopen(ctx context.Context, id, reason string, parking domain.Wo
 			return WorkItem{}, fmt.Errorf("work item %s is parked %q after being reopened, want %q", item.ID, item.Parking, parking.Reason())
 		}
 		return WorkItem{}, fmt.Errorf("work item %s is still parked %q after being reopened unparked", item.ID, item.Parking)
+	}
+	return c.confirmedGivenBack(ctx, item, reason)
+}
+
+// ReturnForDesign returns a claimed item to the backlog open and carrying the
+// needs-design label, with the reason appended to its notes, in one write. The
+// harness uses it when a developer raised that the item waits on the
+// architect's design (docs/designs/needs-design-gate.md): the label is what
+// holds the item from the next start, so it goes on in the same write that
+// opens the item rather than after it, and the parking is left as it was. The
+// assignee the run's claim set is cleared as every give-back clears it.
+func (c Client) ReturnForDesign(ctx context.Context, id, reason string) (WorkItem, error) {
+	if err := validateIssueID(id); err != nil {
+		return WorkItem{}, err
+	}
+	if strings.TrimSpace(reason) == "" {
+		return WorkItem{}, errors.New("the reason for returning an item for design is required")
+	}
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool {
+		return statusAndNoteLanded(statusOpen, reason)(item) && domain.NeedsDesign(item.Labels)
+	}, "update", id, "--status=open", "--append-notes="+reason, "--add-label="+domain.NeedsDesignLabel, "--json")
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if item.Status != statusOpen {
+		return WorkItem{}, fmt.Errorf("work item %s status is %q after being returned for design, want open", item.ID, item.Status)
+	}
+	if !domain.NeedsDesign(item.Labels) {
+		return WorkItem{}, fmt.Errorf("work item %s does not carry the %s label after being returned for design", item.ID, domain.NeedsDesignLabel)
 	}
 	return c.confirmedGivenBack(ctx, item, reason)
 }

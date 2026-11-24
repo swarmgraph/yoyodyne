@@ -7376,7 +7376,8 @@ A claim also sets the item's assignee, to this machine's Git name, because that
 is what `bd update --claim` does. The claim records in the item's metadata
 (`yoyodyne_claim_assignee`) that it set that name, and every write that gives
 the item back afterwards — closing it, blocking it, releasing it, reopening it
-after an evidence landing, clearing a stale block — clears an assignee so
+after an evidence landing, returning it labelled for the architect's design,
+clearing a stale block — clears an assignee so
 marked. An assignee a person set by hand is never marked, so nothing the harness
 does clears it. If the clear after a give-back fails, the give-back still
 stands, and the name stays marked as the claim's, so every surface below says
@@ -7505,7 +7506,7 @@ without landing. It uses the existing closed list, extended with the bounds in
 `provider-idle`, `provider-budget`, `repair-budget`, `integration-budget`,
 `relaunch-budget`, `promotion-wait`, `usage-pause`, `operator-stop`, `manager-stop`,
 `redeploy-drain`, `dead-claim`, `developer-account`, `review-account`,
-`work-item-escalated`, `integration-policy`, `recovery-window`, `context-bound`,
+`work-item-escalated`, `work-item-needs-design`, `integration-policy`, `recovery-window`, `context-bound`,
 `state-bound`, `event-bound`, `review-bound`, `lost-races`, `review-budget`,
 `base-failing`, `forge-queue-required`, and the
 inventory's causes outside the work. Other refusals retain their gate names.

@@ -78,8 +78,8 @@ func TestAClaimMarksOnlyTheAssigneeItSets(t *testing.T) {
 }
 
 // Every write that gives an item back after a run — releasing it, reopening it
-// for an evidence landing, blocking it, clearing a block, closing it — clears
-// the assignee the run's claim set, and leaves one a person set exactly where it
+// for an evidence landing, returning it for design, blocking it, clearing a
+// block, closing it — clears the assignee the run's claim set, and leaves one a person set exactly where it
 // is.
 func TestEveryGiveBackClearsTheClaimsAssigneeAndNoPersons(t *testing.T) {
 	t.Parallel()
@@ -96,6 +96,10 @@ func TestEveryGiveBackClearsTheClaimsAssigneeAndNoPersons(t *testing.T) {
 			func(c Client) (WorkItem, error) { return c.Release(context.Background(), "yoyodyne-1", note) }},
 		{"reopen", "open", func(a string, m bool) string { return assignedItemJSON("open", note, a, m) },
 			func(c Client) (WorkItem, error) { return c.Reopen(context.Background(), "yoyodyne-1", note, parking) }},
+		{"return for design", "open", func(a string, m bool) string {
+			return strings.Replace(assignedItemJSON("open", note, a, m), `"metadata"`, `"labels":["needs-design"],"metadata"`, 1)
+		},
+			func(c Client) (WorkItem, error) { return c.ReturnForDesign(context.Background(), "yoyodyne-1", note) }},
 		{"block", "blocked", func(a string, m bool) string { return assignedItemJSON("blocked", note, a, m) },
 			func(c Client) (WorkItem, error) { return c.Block(context.Background(), "yoyodyne-1", note) }},
 		{"unblock", "open", func(a string, m bool) string { return assignedItemJSON("open", note, a, m) },
@@ -290,5 +294,66 @@ func TestAnOldClaimsNameMarkedLaterIsClearedOnGiveBackConformance(t *testing.T) 
 	}
 	if shown.Assignee != "" || shown.ClaimAssignee {
 		t.Fatalf("after the give-back the item names %q (marked %v), want nobody", shown.Assignee, shown.ClaimAssignee)
+	}
+}
+
+// Returning an item for design opens it, notes the question, and puts the label
+// on in one write, and refuses an answer showing any of it did not land.
+func TestReturnForDesignOpensLabelsAndNotesInOneWrite(t *testing.T) {
+	t.Parallel()
+
+	const reason = "which file survives an interrupted write?"
+	labelled := strings.Replace(assignedItemJSON("open", reason, "", false), `"metadata"`, `"labels":["needs-design"],"metadata"`, 1)
+	runner := &fakeRunner{responses: []string{labelled}}
+	if _, err := (Client{Runner: runner}).ReturnForDesign(context.Background(), "yoyodyne-1", reason); err != nil {
+		t.Fatalf("ReturnForDesign() error = %v", err)
+	}
+	want := [][]string{{"update", "yoyodyne-1", "--status=open", "--append-notes=" + FrameNote(reason), "--add-label=needs-design", "--json"}}
+	if !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("bd args = %#v, want %#v", runner.args, want)
+	}
+
+	unlabelled := &fakeRunner{responses: []string{assignedItemJSON("open", reason, "", false)}}
+	if _, err := (Client{Runner: unlabelled}).ReturnForDesign(context.Background(), "yoyodyne-1", reason); err == nil || !strings.Contains(err.Error(), "does not carry") {
+		t.Errorf("ReturnForDesign() with the label missing error = %v", err)
+	}
+	claimed := &fakeRunner{responses: []string{strings.Replace(labelled, `"status":"open"`, `"status":"in_progress"`, 1)}}
+	if _, err := (Client{Runner: claimed}).ReturnForDesign(context.Background(), "yoyodyne-1", reason); err == nil || !strings.Contains(err.Error(), "want open") {
+		t.Errorf("ReturnForDesign() with the item still claimed error = %v", err)
+	}
+	if _, err := (Client{Runner: &fakeRunner{}}).ReturnForDesign(context.Background(), "yoyodyne-1", " "); err == nil {
+		t.Error("ReturnForDesign() with no reason error = nil")
+	}
+}
+
+// Against the installed bd: a claimed item returned for design is open,
+// labelled, carries the question, and names nobody.
+func TestReturnForDesignConformance(t *testing.T) {
+	t.Parallel()
+
+	project := newTracker(t)
+	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
+	ctx := context.Background()
+
+	created, err := client.Create(ctx, NewWorkItem{Title: "Raised for design", Description: "A question nobody answered.", Type: "task"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if claimed, _, err := client.Claim(ctx, created.ID); err != nil || !claimed.HeldByClaimAssignee() {
+		t.Fatalf("Claim() = %#v, %v, want an assignee marked as the claim's", claimed, err)
+	}
+	const question = "which file survives an interrupted write?"
+	if _, err := client.ReturnForDesign(ctx, created.ID, question); err != nil {
+		t.Fatalf("ReturnForDesign() error = %v", err)
+	}
+	shown, err := client.Show(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Show() error = %v", err)
+	}
+	if shown.Status != "open" || !domain.NeedsDesign(shown.Labels) || !strings.Contains(shown.Notes, question) {
+		t.Errorf("item = %#v, want it open, labelled, and carrying the question", shown)
+	}
+	if shown.Assignee != "" || shown.ClaimAssignee {
+		t.Errorf("the returned item names %q (marked %v), want nobody", shown.Assignee, shown.ClaimAssignee)
 	}
 }

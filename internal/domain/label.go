@@ -47,7 +47,7 @@ func ValidateLabel(label string) error {
 }
 
 // NeedsDesignLabel marks an item that is not to be started until the architect's
-// design for it is readable (docs/designs/needs-design-gate.md). The harness
+// design for it has landed (docs/designs/needs-design-gate.md). The harness
 // holds such an item from every start it chooses for itself, exactly as it holds
 // a parked one; a run already going on it carries on, and a run the operator
 // names is not held, because naming one is an override.
