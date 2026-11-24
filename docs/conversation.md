@@ -30,7 +30,13 @@ says so beside the item. At most three items are placed in one priority at a
 time, `unplace` takes a placement back, and a placement ends by itself when the
 item closes or its priority changes. A placement never lifts an item above a
 higher priority, never starts one that is parked or otherwise held, and never
-goes ahead of work on a change a run has already written. Items at the same
+goes ahead of work on a change a run has already written. An item you raised on
+purpose stays where you put it: the Lead Product Manager records it with
+`operator_raised`, quoting your own words from a message you sent, and the
+harness puts the `raised-by-operator` label on it with a note saying what you
+said, when, and what it stood ahead of. While it carries that label no
+reordering moves other work ahead of it, the item's own included, until you say
+the raising is over and she records that the same way. Items at the same
 priority that nobody placed are in no order anybody decided: the harness takes
 them oldest-admitted first, so an item already waiting is not passed over for one
 admitted after it while it can start — one that is held, unready, or waiting for

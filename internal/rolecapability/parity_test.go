@@ -257,6 +257,14 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // until this action existed the operator typed each such raise. It is held under
 // backlog.admit, which only she holds, with no lane-scoped name.
 //
+// The product manager's `operator_raised` records that the operator raised an
+// item on purpose, or ended that, from his own words in a message the record
+// shows he sent, writing the raised-by-operator label and its note in one act.
+// It is build piece 4 of the architect's design for reviewing unmet goals
+// (docs/designs/unmet-goal-review.md, section 6; yoyodyne-ifd.433.65), which
+// gives the record to the Lead Product Manager alone, so it is held under
+// backlog.admit, which only she holds, with no lane-scoped name.
+//
 // The development manager's `team_conflict` decides that a run of one item
 // resolves a conflict met while the target branch is brought up to date with the
 // team's branch (docs/designs/integrating-to-a-local-branch.md, section 3), so it
@@ -271,7 +279,7 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // versions of a held item stands, the design's rule that such an item is hers
 // to decide (docs/designs/working-alongside-other-contributors.md, section 5).
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
+	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant", "operator_raised"},
 	domain.RoleArchitect:          {"amendment"},
 	domain.RoleDevelopmentManager: {"brake", "held_document", "keep_version", "label", "queue", "team_conflict"},
 }

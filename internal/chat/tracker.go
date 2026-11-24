@@ -282,6 +282,12 @@ const (
 	// more for the item, never past ten in all. It names the item and the cap, and
 	// the harness carries it out as it is recorded. See capgrant.go.
 	actionGrant = "grant"
+	// actionOperatorRaised records that the operator raised an item on purpose,
+	// or ended that, from his own words quoted with the turn they came from. It
+	// is the only way the raised-by-operator label is put on or taken off, and it
+	// writes the label and its fixed-form note in one tracker write. See
+	// raised.go and docs/designs/unmet-goal-review.md, section 6.
+	actionOperatorRaised = "operator_raised"
 	// handleNeedsOperator is the one value "needs" takes on a handling: the
 	// report asks for a change only the operator can make, and the handling is
 	// a finding for him rather than a decision that closes the report.
@@ -293,35 +299,36 @@ const (
 // action that names one was misunderstood, and carrying out the part of it that
 // parsed would do something nobody asked for.
 var trackerActionArguments = map[string][]string{
-	actionRead:         {"report", "offset"},
-	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects"},
-	actionAttribute:    {"goal"},
-	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals", "kind", "corrects"},
-	actionLabel:        {"add", "remove"},
-	actionReparent:     {"parent"},
-	actionReprioritize: {"priority"},
-	actionPark:         {},
-	actionUnpark:       {},
-	actionPlace:        {},
-	actionUnplace:      {},
-	actionLink:         {"depends_on"},
-	actionUnlink:       {"depends_on"},
-	actionRepair:       {"state", "depends_on", "goal"},
-	actionClose:        {},
-	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "credential", "hand", "pull_request", "feedback"},
-	actionInFlight:     {"decision", "superseded_by"},
-	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason", "credential", "missing_capability", "hand"},
-	actionBrake:        {"decision"},
-	actionKeepVersion:  {"decision"},
-	actionWithdraw:     {"proposal"},
-	actionDirective:    {"directive", "decision", "became"},
-	actionAmendment:    {"amendment", "decision"},
-	actionQueue:        {"entry", "decision"},
-	actionHeldDocument: {"document", "decision"},
-	actionTeamConflict: {},
-	actionGrant:        {"budget"},
+	actionRead:           {"report", "offset"},
+	actionSurvey:         {},
+	actionCreate:         {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects"},
+	actionAttribute:      {"goal"},
+	actionUpdate:         {"title", "description", "note", "executor", "relevant_goals", "kind", "corrects"},
+	actionLabel:          {"add", "remove"},
+	actionReparent:       {"parent"},
+	actionReprioritize:   {"priority"},
+	actionPark:           {},
+	actionUnpark:         {},
+	actionPlace:          {},
+	actionUnplace:        {},
+	actionLink:           {"depends_on"},
+	actionUnlink:         {"depends_on"},
+	actionRepair:         {"state", "depends_on", "goal"},
+	actionClose:          {},
+	actionRetire:         {},
+	actionTriage:         {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason", "credential", "hand", "pull_request", "feedback"},
+	actionInFlight:       {"decision", "superseded_by"},
+	actionHandle:         {"report", "requests", "needs", "person_only", "operator_reason", "credential", "missing_capability", "hand"},
+	actionBrake:          {"decision"},
+	actionKeepVersion:    {"decision"},
+	actionWithdraw:       {"proposal"},
+	actionDirective:      {"directive", "decision", "became"},
+	actionAmendment:      {"amendment", "decision"},
+	actionQueue:          {"entry", "decision"},
+	actionHeldDocument:   {"document", "decision"},
+	actionTeamConflict:   {},
+	actionGrant:          {"budget"},
+	actionOperatorRaised: {"decision", "turn", "words"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -398,6 +405,10 @@ var trackerCapabilities = map[string]capability.Capability{
 	// admitting and retiring work are, and it is the Lead Product Manager's alone,
 	// so it has no lane-scoped name.
 	actionGrant: capability.BacklogAdmit,
+	// Recording that the operator raised an item is recording why it stands
+	// where it does, which only the Lead Product Manager holds; it has no
+	// lane-scoped name, because what he raised belongs to the whole product.
+	actionOperatorRaised: capability.BacklogAdmit,
 }
 
 // laneCapabilities is the lane-scoped name of each operation that has one: the
@@ -429,7 +440,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionKeepVersion, actionWithdraw,
-	actionDirective, actionAmendment, actionQueue, actionHeldDocument, actionTeamConflict, actionGrant,
+	actionDirective, actionAmendment, actionQueue, actionHeldDocument, actionTeamConflict, actionGrant, actionOperatorRaised,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -572,6 +583,12 @@ type TrackerAction struct {
 	// Note is text appended to the item's notes, which is how the product
 	// manager writes on an item without replacing what is already there.
 	Note string `json:"note,omitempty"`
+	// Turn and Words are taken by "operator_raised" and nothing else: the turn
+	// the operator's message came after, as the conversation numbers it, and his
+	// words quoted from that message. The harness refuses the action unless the
+	// record shows that message is his and holds those words.
+	Turn  *int   `json:"turn,omitempty"`
+	Words string `json:"words,omitempty"`
 	// Run names the stopped run a triage decision settles, copied from the
 	// docket entry the decision is about. It is required there and taken by
 	// nothing else: an item can stop more than once, and a decision that does not
@@ -1327,6 +1344,9 @@ func (a TrackerAction) validateArguments() []error {
 				problems = append(problems, fmt.Errorf("labels: %w", err))
 			}
 		}
+		if domain.RaisedByOperator(a.Labels) {
+			problems = append(problems, errRaisedLabelElsewhere)
+		}
 		// A distinction with no sentence saying what is separate is refused here,
 		// where nothing has been created yet. Whether the item it names is closed
 		// needs the tracker, so that is asked as the creation is carried out.
@@ -1344,6 +1364,8 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, a.goalProblems()...)
 	case actionLabel:
 		problems = append(problems, a.labelProblems()...)
+	case actionOperatorRaised:
+		problems = append(problems, a.operatorRaisedProblems()...)
 	case actionUpdate:
 		if strings.TrimSpace(a.Title) == "" && strings.TrimSpace(a.Description) == "" &&
 			strings.TrimSpace(a.Note) == "" && strings.TrimSpace(string(a.Executor)) == "" && a.RelevantGoals == nil &&
@@ -1555,6 +1577,9 @@ func (a TrackerAction) labelProblems() []error {
 			return []error{fmt.Errorf("remove: %w", err)}
 		}
 	}
+	if add == domain.RaisedByOperatorLabel || remove == domain.RaisedByOperatorLabel {
+		return []error{errRaisedLabelElsewhere}
+	}
 	return nil
 }
 
@@ -1633,6 +1658,12 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Note) != "" {
 		carried = append(carried, "note")
+	}
+	if a.Turn != nil {
+		carried = append(carried, "turn")
+	}
+	if strings.TrimSpace(a.Words) != "" {
+		carried = append(carried, "words")
 	}
 	if strings.TrimSpace(string(a.State)) != "" {
 		carried = append(carried, "state")
@@ -2432,6 +2463,15 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			change.AppendNotes += "\n\n" + placementEndedByPriority(*placement, priority)
 			ended = fmt.Sprintf("; its placement first among priority %d ended with the change", placement.Priority)
 		}
+		moved := *outcome.target
+		moved.Priority = priority
+		if change.Placement != nil {
+			moved.Placement = nil
+		}
+		if refusal := s.raisedOrderRefusal(ctx, *outcome.target, moved); refusal != "" {
+			outcome.Failure = refusal
+			return
+		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)
 			return
@@ -2531,6 +2571,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.decideTeamConflict(ctx, outcome)
 	case actionGrant:
 		s.carryOutCapGrant(ctx, outcome)
+	case actionOperatorRaised:
+		s.recordOperatorRaising(ctx, outcome)
 	case actionKeepVersion:
 		s.decideKeepVersion(ctx, outcome)
 	case actionWithdraw:

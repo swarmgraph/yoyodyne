@@ -213,6 +213,23 @@ func TestALaneTheTrackerWouldNotCarryIsRefused(t *testing.T) {
 	}
 }
 
+// A lane's label is put on everything its program manager files, so a lane
+// named for the operator's raised mark would write that mark without his words.
+func TestALaneNamedForTheOperatorsRaisedLabelIsRefused(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadProjectError(t, minimalProjectConfig+`agents:
+  pm:
+    role: program-manager
+    backend: claude-code
+    model: opus
+    lane: raised-by-operator
+`, nil)
+	if err == nil || !strings.Contains(err.Error(), `agent "pm" lane is "raised-by-operator"`) {
+		t.Fatalf("error = %v, want the lane refused for taking the operator's label", err)
+	}
+}
+
 // A remit is guidance handed to every prompt, so editing one moves the revision
 // the way editing a persona does; an agent carrying none digests as before.
 func TestEditingARemitMovesTheConfigurationRevision(t *testing.T) {
