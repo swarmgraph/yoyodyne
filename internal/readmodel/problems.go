@@ -193,7 +193,7 @@ func problemFacts(a Attention) (since, latest time.Time, count, runs, waiting in
 	case a.UntracedPass != nil:
 		return a.UntracedPass.StartedAt, time.Time{}, 0, 0, 0
 	case a.DocumentApproval != nil:
-		return a.DocumentApproval.WrittenAt, time.Time{}, 0, 0, 0
+		return a.DocumentApproval.waitedSince(), time.Time{}, 0, 0, 0
 	case a.LaneHumanBlock != nil:
 		return a.LaneHumanBlock.Entry.Since, time.Time{}, 0, 0, 0
 	case a.KeptHeavyCheck != nil:

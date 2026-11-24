@@ -123,7 +123,7 @@ func (a Attention) Since() time.Time {
 		}
 	case AttentionDocumentApproval:
 		if a.DocumentApproval != nil {
-			return a.DocumentApproval.WrittenAt
+			return a.DocumentApproval.waitedSince()
 		}
 	}
 	return time.Time{}

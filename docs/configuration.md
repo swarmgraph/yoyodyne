@@ -3959,6 +3959,16 @@ branch, not from the project's code. That run runs `intent.checks` and never
 because those are the code repository's commands, and a repository that holds
 only documents has nothing for them to build or test.
 
+Where the intent repository is not at the path `intent.repository` names, the
+harness has nowhere to cut that run. The confirmed document stays saved in the
+conversation that wrote it, and `yoyo status` lists it on the needs-a-human
+line as a decision a role made that needs your hand: it names the document,
+the work item it answers, the repository and file it goes to, and how long it
+has waited, and that work item is not listed as waiting on the architect
+meanwhile. Commit the document there yourself, or put the repository where the
+configuration says and the harness lands it once it next starts; the entry
+clears once the conversation finds the document in place.
+
 When you name no list, the run uses two commands:
 
 ```yaml

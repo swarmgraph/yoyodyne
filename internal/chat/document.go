@@ -115,6 +115,9 @@ type PendingWrite struct {
 	// ReturnsHold and ReturnedFindings are runstate.PendingWrite's.
 	ReturnsHold      *runstate.DocumentReturnsHold `json:"returns_hold,omitempty"`
 	ReturnedFindings string                        `json:"returned_findings,omitempty"`
+	// AwaitsPlacement is where a confirmed document waits for a person to put
+	// it; see runstate.PendingWrite.AwaitsPlacement.
+	AwaitsPlacement *runstate.DocumentPlacement `json:"awaits_placement,omitempty"`
 }
 
 // writeRecord is one written document and whether confirmation and delivery finished
@@ -1028,6 +1031,8 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 
 		ReturnsHold:      p.ReturnsHold,
 		ReturnedFindings: p.ReturnedFindings,
+		// Where a confirmed document waits for a person to put it.
+		AwaitsPlacement: p.AwaitsPlacement,
 	}.RecordRevisedPath(p.RevisedPath)
 }
 
@@ -1048,6 +1053,8 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 
 		ReturnsHold:      recorded.ReturnsHold,
 		ReturnedFindings: recorded.ReturnedFindings,
+		// Where a confirmed document waits for a person to put it.
+		AwaitsPlacement: recorded.AwaitsPlacement,
 		Write: artifact.Write{
 			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),

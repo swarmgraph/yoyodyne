@@ -344,6 +344,25 @@ function over(name, beneath, steps) {
   return Object.assign({}, page, { name, beneath }, steps);
 }
 
+// A finished document that waits for a person to put it in a repository the
+// harness cannot reach: the busy page's document entry, already confirmed, with
+// where it goes, over the moment it was written.
+const placing = fixture("standing-busy");
+const placed = placing.needs_human.find((entry) => entry.kind === "document-approval");
+placed.label = "document waiting to be put in place";
+placed.what = "document document-412.1, a revision of ownership-and-the-operator finished by the architect in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, waits for a person to put it at docs/designs/ownership-and-the-operator.md in /work/intent, which the harness cannot reach to land it itself";
+placed.whose = "the architect's — the document is finished and confirmed, and the harness cannot reach /work/intent to land it, so a person puts it there; it leaves this line once the document is found there";
+placed.ownership = {
+  owner: "architect",
+  remedy: "put the finished document in the repository it is kept in; the entry clears once it is found there",
+  capability: "document placement",
+  hand: { who: "operator", need: "document-placement", missing: "landing a finished document in a repository it cannot reach", types: "commit the text confirmed as document-412.1 to docs/designs/ownership-and-the-operator.md on the target branch of /work/intent" }
+};
+placed.hand_says = "the architect's decision, which needs your hand because the harness has no way yet of landing a finished document in a repository it cannot reach: type `" + placed.ownership.hand.types + "`; no work item is admitted yet to give the harness that capability, which is the harness's defect to fix";
+delete placed.said_hand;
+delete placed.hand_ends;
+Object.assign(placed.document_approval, { written_at: "2026-09-18T01:00:00Z", placement: { repository: "/work/intent", path: "docs/designs/ownership-and-the-operator.md", since: "2026-09-18T07:30:00Z" } });
+
 const failingPasses = fixture("standing-pass-failures");
 failingPasses.factory_problems[0].what = "the product pass maintenance has failed 5 times in a row since 2026-10-04 12:00 UTC; latest: reconcile: last error";
 failingPasses.factory_problems[0].whose = "the program manager's — the factory-flow program manager factory-flow-pm watches and must answer this finding; the development manager resolves the cause; the affected pass succeeding clears this finding";
@@ -491,6 +510,7 @@ const scenarios = pages.concat([
   // list, and on its card what the harness has no way yet of doing, what to
   // type, and the item that ends the need.
   over("attention-hand", "busy", { open: [{ grouping: "attention" }, { entry: "document-approval:chat-a06587022b9caf04cbbb20d8f6fe8c13/document-412.1" }] }),
+  over("attention-placement", "busy", { standing: ok(placing), open: [{ grouping: "attention" }, { entry: "document-approval:chat-a06587022b9caf04cbbb20d8f6fe8c13/document-412.1" }] }),
   over("attention-carried-item-card", "busy", { items: items("yoyodyne-ifd.188"), open: [{ grouping: "attention" }, { entry: "conversation-carried-item:yoyodyne-ifd.188" }, { item: "yoyodyne-ifd.188" }] }),
   over("attention-settled", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }, { poll: { "/api/standing": ok(fixture("standing-settled")) } }] }),
   over("attention-unreadable", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }, { poll: { "/api/standing": ok(fixture("standing-degraded")) } }] }),
