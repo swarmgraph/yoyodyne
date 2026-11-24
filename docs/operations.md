@@ -1774,14 +1774,21 @@ The operator can name epics, and the factory then works only on the items
 recorded for each: that is epic mode. A product that has never named an epic is
 shown nothing about them.
 
-While epic mode is on, every way of beginning a run for a work item asks about
-them first, and begins none for an item outside: the scheduler's pull, the test
-run that checks whether a hold on new work can lift, a fresh run or a repair the
-development manager decided, a repair from feedback on a pull request, and a run
-you name. Each refusal is recorded, and the item starts once it is added. Carrying
-on a run already begun, publishing a document, a role's pass, the review of unmet
-goals and the reading of outside messages do not ask yet, so none of those is held
-out.
+While epic mode is on, these starts ask about the named epics first, and are
+refused for an item outside them: the scheduler's pull, the test run that checks
+whether a hold on new work can lift, a fresh run or a repair the development
+manager decided, a repair from feedback on a pull request, and a run you name. A
+refused item is free to start, subject to every other check, once it is added to
+an open epic or epic mode is turned off.
+
+Other starts do not ask yet, so epic mode does not hold them out. Among them are
+carrying on a run already begun, the run that resolves a conflict in the team's
+branch, the run that brings in a pinned outside file, publishing a document, a
+role's pass, the review of unmet goals and the reading of outside messages.
+
+A start refused because its item is outside is recorded for `yoyo status` where
+that record can be written; one that could not be recorded says so in its reason.
+A start refused because the named epics could not be read is not recorded there.
 
 Otherwise `yoyo status` says the mode under its four lines, and `yoyo status
 --json` carries the same under `standing.epics`. With epic mode on it also says:
