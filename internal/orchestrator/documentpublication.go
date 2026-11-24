@@ -86,12 +86,17 @@ func (p Pipeline) PublishStandingApproval(ctx context.Context, id, reason string
 // this pipeline was built without access to that repository
 // (Pipeline.IntentWorktrees), so it has nowhere to cut the run that lands the
 // document. Running this project's own checks over the project's repository, or
-// landing the document there, would each be wrong, and putting it to the
-// operator would route a routine confirmation to a person. So the document stays
-// confirmed and saved in its conversation, the owning role is told once what
-// holds it, and it is offered again at every later message, which is what lands
-// it once a pipeline with access to the repository offers it.
-var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent in a companion intent repository, and this session has no access to it to cut the reviewed run that lands a document there; the document stays confirmed and saved in this conversation and is tried again at each later message, and nothing about it is waiting on the operator")
+// landing the document there, would each be wrong, and asking the operator to
+// confirm it again would route a routine confirmation to a person. So the
+// document stays confirmed and saved in its conversation, the owning role is
+// told once what holds it, and it is offered again at every later message,
+// which is what lands it once a pipeline with access to the repository offers
+// it. Meanwhile the one step left is a person's: putting the finished document
+// in that repository, or making the repository reachable. PublishDocument
+// returns this inside a runstate.DocumentPlacementError naming the repository
+// and the file, so the status lists that step as the operator's, and the entry
+// clears once the document is found there.
+var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent in a companion intent repository, and this session has no access to it to cut the reviewed run that lands a document there; the document stays confirmed and saved in this conversation and is tried again at each later message, and until then it waits for a person to put it in that repository, which the status lists as the operator's step")
 
 // PublishDocument enters the ordinary delivery gates with an already written
 // candidate. Only the owning conversation, or the operator's approval of a
@@ -167,7 +172,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	if p.Config.Product.HasIntentRepository() {
 		if p.IntentWorktrees == nil {
-			return runstate.DocumentDelivery{}, ErrCompanionPublicationNotBuilt
+			return runstate.DocumentDelivery{}, &runstate.DocumentPlacementError{Repository: p.Config.Product.IntentRepository, Path: document.Candidate.Artifact.Path, Err: ErrCompanionPublicationNotBuilt}
 		}
 		p = p.intentRoute()
 	}

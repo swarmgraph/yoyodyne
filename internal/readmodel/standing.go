@@ -1574,7 +1574,9 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	// Each item waiting on the architect's design is a factory problem of hers,
 	// P0 first, and on the attention line, which is where `yoyo status` says it.
-	waitingOnDesign := DesignWaits(queue, now)
+	// An item whose design she has finished, and which waits only for a person
+	// to put it in place, is said once, as that step, rather than as hers.
+	waitingOnDesign := withoutFinishedDesigns(DesignWaits(queue, now), documents.attention)
 	standing.FactoryProblems = append(standing.FactoryProblems, waitingOnDesign...)
 	needs = append(needs, waitingOnDesign...)
 	// A merge queue entry the queue has made no progress with past the bound,

@@ -1274,6 +1274,14 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	if !strings.Contains(page("attention-hand"), "(P1) Confirm a conversation's document as its kind's approval setting says (yoyodyne-ifd.433.21)") || !strings.Contains(page("attention-hand"), "What to type") {
 		t.Errorf("the hand entry's card does not say what to type and the item that ends the need")
 	}
+	// A finished document to be put in place says where it goes, and waits since
+	// it waited for that rather than since it was written.
+	placementCard := strings.Join(strings.Fields(page("attention-placement")), " ")
+	for _, said := range []string{"<dt>Goes to repository</dt> <dd>/work/intent</dd>", "<dt>Goes to file</dt> <dd>docs/designs/ownership-and-the-operator.md</dd>", "<dt>Waiting since</dt> <dd>2026-09-18 07:30:00</dd>"} {
+		if !strings.Contains(placementCard, said) {
+			t.Errorf("the placement card does not say %q", said)
+		}
+	}
 	if !strings.Contains(page("attention-amendment"), `data-item="yoyodyne-ifd.210"`) {
 		t.Errorf("the amendment card does not open the item its proposer was working on")
 	}
