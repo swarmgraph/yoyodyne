@@ -1820,6 +1820,15 @@ a pinned outside file (asked about the item its record is for). A refused item i
 free to start, subject to every other check, once it is added to an open epic or
 epic mode is turned off.
 
+A fresh run or repair the development manager decided for an item outside them
+is written onto the item's triage record as waiting, with the command that adds
+the item, rather than as refused or as a decision nothing attempted. It is not
+critical on her list, is not counted under "decisions not carried out", and is
+said on the not-startable line as waiting on the epics you named. Nothing is
+spent and nobody decides it again: the first pass after the item is added, or
+after epic mode is turned off, carries it out. A decision that waits because the
+record of the named epics could not be read is recorded the same way, saying so.
+
 Other starts do not ask yet, so epic mode does not hold them out. Among them are
 carrying on a run already begun, bringing a change that is queued to merge, or
 waits for a person to merge it, up to date, taking up the checks of a run that

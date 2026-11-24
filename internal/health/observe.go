@@ -429,6 +429,18 @@ func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 			}
 			anomaly.Needs = fmt.Sprintf("released by whoever parked the item unparking it (parked because: %s); the harness then carries the decision out by itself", refused.AwaitingUnparking)
 		}
+		// Nor does one waiting for the named epics to let its item start.
+		if refused.AwaitingNamedEpics {
+			anomaly.Classification, anomaly.Owner = ClassWait, ownership.Resolve(ownership.KindHeldWork, ownership.Record{AwaitingCarryOut: true}).Owner
+			anomaly.Identity.Condition = "waiting-on-named-epics"
+			if refused.RunID == "" {
+				anomaly.Identity.Condition += ":" + refused.WorkItemID
+			}
+			anomaly.Says = fmt.Sprintf("the decision recorded about %s after its run stopped waits for the epics the operator named to let the item start", refused.WorkItemID)
+			if refused.RunID != "" {
+				anomaly.Says = fmt.Sprintf("the decision recorded about %s after run %s stopped waits for the epics the operator named to let the item start", refused.WorkItemID, refused.RunID)
+			}
+		}
 		r.add(anomaly)
 	}
 }
