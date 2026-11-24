@@ -94,6 +94,10 @@ revisions:
       by: architect
       at: 2026-11-23T14:46:42.196688Z
       reason: 'yoyodyne-ifd.432.56: adds the work queue page, a third page listing open work in the order the scheduler pulls it, with parked and held items marked with their reason, and names two acts beside it: starting a run on an item and releasing a hold the operator placed, each needing direct-work and recorded as the command line records it. Only this section changes; the page count in the dashboard section and the read model''s query list follow in their own revision. Written from main at 4c6ca534.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T20:08:47.058199Z
+      reason: 'Companion to the work queue page revision, for report 025d9724: the dashboard section says three further pages, places the page''s queue query in the read model''s list of queries and says it is not yet built, and says the page adds only the two acts named for it. Nothing else in the section changes. Written from main at 6e93792dea31.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -170,6 +174,11 @@ approvals:
       by: harness
       at: 2026-11-23T14:46:42.196688Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3677, for document-3677.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 22
+      by: harness
+      at: 2026-11-23T20:08:47.058199Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3735, for document-3735.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -274,9 +283,9 @@ The read model builds the summary from answers it already gives: the standing th
 
 A locally hosted page with eight visually distinct sections: the summary described above; a top status band (active agents, queued work, attention count, throughput, landed today and this week, and the one-line usage reading described under usage limits across providers and accounts below); a spend box directly under it, showing the last 24 hours rolling and the last seven local days by kind — runs, conversations, branch reviews, exchanges, side threads — with a 30-day daily listing behind it, every figure in its kind of cost and every floor marked, and a link opening what that spend accomplished, described below; the team at work, one row per role and developer slot, as described under the team at work below; a compact pipeline view showing where work accumulates or blocks; throughput over the same two windows, reporting endings only in the run history's own words, with cost left to the spend box; the factory problems from the model's problems query, grouped by kind with broken first, each entry its sentence, its age and count, its cost with every unknown marked, its mover as a word, its fixing item as a link or the words `none admitted yet`, and the factory-flow program manager's remedy where its report cites the entry, with that instance's lane-report summary as the section's own summary; provider capacity is folded in as entries of kind degraded and has no section of its own; and the program managers, each instance with its name in full, its lane, its status as blocked, stale, or working, and a link opening its lane report, from the model's `program_managers` query per [program-manager](program-manager.md). Attractiveness is an acceptance requirement — hierarchy, typography, spacing, accessible color, responsive layout, useful empty, loading, and error states, a small amount of purposeful motion — and polish must never imply precision the model did not claim. Simple polling; push infrastructure is deferred unless polling proves inadequate. A degraded source gets a prominent indicator while the page stays usable. Restarting the dashboard changes no workflow state and loses no history, because the history lives in the durable records, not in the page.
 
-Two further pages sit beside the main page: the backlog page and the delivery page, each reached from a link in the top status band and each linking back. They are pages of their own rather than sections, so the main page stays one screen of what is happening now.
+Three further pages sit beside the main page: the backlog page, the delivery page, and the work queue page described under acting from the dashboard below, each reached from a link in the top status band and each linking back. They are pages of their own rather than sections, so the main page stays one screen of what is happening now. The work queue page reads the read model's `queue` query, which belongs to the list of queries in the read model section above and is described with the page; it is not yet built.
 
-The dashboard is a projection, never an engine: it owns no workflow, conversation, provider, or configuration state, and keeps no work state of its own. The only writes it makes are the operator's own decisions, described under acting from the dashboard below, each taken through the same code the command line uses and recorded exactly as the same act from the command line is recorded. The page adds no decision of its own and offers no act the command line does not already offer. This is the boundary [the v1 non-goals](../product/goals/v1-non-goals.md) record since the operator's change of 11 October, and this design binds to it. The summary, the team section, the usage limits panel, the backlog page, the delivery page, and the reading of what the spend accomplished are reading only, and add no act.
+The dashboard is a projection, never an engine: it owns no workflow, conversation, provider, or configuration state, and keeps no work state of its own. The only writes it makes are the operator's own decisions, described under acting from the dashboard below, each taken through the same code the command line uses and recorded exactly as the same act from the command line is recorded. The page adds no decision of its own and offers no act the command line does not already offer. This is the boundary [the v1 non-goals](../product/goals/v1-non-goals.md) record since the operator's change of 11 October, and this design binds to it. The summary, the team section, the usage limits panel, the backlog page, the delivery page, and the reading of what the spend accomplished are reading only, and add no act. The work queue page adds only the two acts named for it under acting from the dashboard.
 
 ### What the spend accomplished
 
