@@ -91,14 +91,17 @@ func oneLine(text string) string {
 // Account is the entry's decision account, for the entries the decision list
 // carries: a document waiting for approval, a proposed change to a document,
 // and a concern waiting for an answer, each where the operator decides it or a
-// role's decision needs his hand. Every other entry carries none.
+// role's decision needs his hand. Every other entry carries none, and neither
+// does a finished document that waits only to be put in place.
 func (a Attention) Account() (DecisionAccount, bool) {
 	if !a.Mover.IsOperator() && !a.Ownership.NeedsHand() {
 		return DecisionAccount{}, false
 	}
 	switch a.Kind {
 	case AttentionDocumentApproval:
-		if a.DocumentApproval != nil {
+		// A document waiting to be put in place is already decided, so there is
+		// nothing to approve or decline and no account of doing so.
+		if a.DocumentApproval != nil && a.DocumentApproval.Placement == nil {
 			return documentAccount(*a.DocumentApproval, a.Mover.IsOperator(), a.Ownership.ReasonSays()), true
 		}
 	case AttentionAmendment:

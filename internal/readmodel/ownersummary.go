@@ -589,9 +589,14 @@ func summarizeWaiting(in SummaryInputs, now time.Time, names summaryNames) (Summ
 	}
 	// A decision of his — a document, a proposed change, a concern — is a line
 	// of its own with its account under it, never folded into a count: he
-	// decides each one from what it says.
+	// decides each one from what it says. A document he has to put in place is a
+	// line of its own too, because the line has to say where it goes.
 	var grouped []Attention
 	for _, waiting := range mine {
+		if document := waiting.DocumentApproval; document != nil && document.Placement != nil {
+			decisions.Entries = append(decisions.Entries, placementEntry(waiting, *document, now, names))
+			continue
+		}
 		account, ok := waiting.Account()
 		if !ok {
 			grouped = append(grouped, waiting)
@@ -773,6 +778,17 @@ func groupAttention(entries []Attention, now time.Time, names summaryNames) []Su
 		lines = append(lines, *entry)
 	}
 	return lines
+}
+
+// placementEntry is one finished document waiting for a person to put it in
+// place, as the summary lists it: which document, where it goes, and how long it
+// has waited, on the line itself, since the summary prints detail only when asked.
+func placementEntry(waiting Attention, document DocumentApproval, now time.Time, names summaryNames) SummaryEntry {
+	entry := groupAttention([]Attention{waiting}, now, names)[0]
+	entry.Says = fmt.Sprintf("%s: %s, to go to %s in %s, waiting %s", capitalized(waiting.Label()), waiting.decisionSubject(),
+		document.Placement.Path, document.Placement.Repository, spanSaid(document.Waited))
+	entry.WaitingOn = "you, to put " + waiting.Mover.Possessive() + " finished document in place"
+	return entry
 }
 
 // decisionEntry is one decision of the owner's as the summary lists it: what

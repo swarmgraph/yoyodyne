@@ -95,6 +95,31 @@ func TestAFinishedDesignWaitingForAPersonsCopyIsTheOperatorsStepNotTheArchitects
 		}
 	}
 
+	// The document is already confirmed, so nothing printed for the entry, by
+	// the four lines, the summary, or the summary with its detail, tells him to
+	// approve or decline it.
+	summary := Summarize(SummaryInputs{Standing: &standing, Now: moment})
+	if _, accounted := placement.Account(); accounted {
+		t.Fatal("the placement carries an account of approving and declining it")
+	}
+	for _, printed := range []string{standing.Render(), summary.Render(false), summary.Render(true)} {
+		for _, said := range []string{"If you approve", "If you decline", "Why it is yours", "approval setting"} {
+			if strings.Contains(printed, said) {
+				t.Fatalf("printed:\n%s\nsays %q of a document that is already confirmed", printed, said)
+			}
+		}
+	}
+	// The summary's own line says which document, where it goes, and how long
+	// it has waited, without its detail.
+	for _, said := range []string{"Document waiting to be put in place: Item design (document-12.1), to go to docs/designs/item-design.md in /work/intent, waiting 14 hours 15 minutes", "waiting on you, to put the architect's finished document in place"} {
+		if !strings.Contains(summary.Render(false), said) {
+			t.Fatalf("summary:\n%s\nwant %q", summary.Render(false), said)
+		}
+	}
+	if since, _, _, _, _ := problemFacts(*placement); !since.Equal(moment.Add(-14*time.Hour - 15*time.Minute)) {
+		t.Fatalf("the problem list reads it as waiting since %v, want since it waited to be put in place", since)
+	}
+
 	// The dashboard's JSON carries where it goes and reads back whole.
 	encoded, err := json.Marshal(*placement)
 	if err != nil {
