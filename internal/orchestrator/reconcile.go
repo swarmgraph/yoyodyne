@@ -180,7 +180,8 @@ type Reconciler struct {
 	// none.
 	StateRoot string
 	// MayStart is the decision on what may start under the named epics, asked
-	// before a repair round is put on a run. See StartDecision.
+	// before a repair round is put on a run and before a run is put back to bring
+	// its pull request up to date. See StartDecision.
 	MayStart      StartDecision
 	ConfigFiles   ConfigComparisonFiles
 	ConfigReaders ConfigReaders
