@@ -272,8 +272,12 @@ type Sources struct {
 	// CheaperFirst is execution.developer_cheaper_first, read for the trial of
 	// starting developers on the cheaper model (modeltrial.go). The zero value
 	// is the setting off with the default run count.
-	CheaperFirst  config.DeveloperCheaperFirst
-	Conversations Conversations
+	CheaperFirst config.DeveloperCheaperFirst
+	// CompareDocumentReviews is execution.reviewer_models.compare_documents,
+	// read for the listing of document reviews made on both models
+	// (reviewcomparison.go).
+	CompareDocumentReviews bool
+	Conversations          Conversations
 	// DocumentConfirmations says which waiting documents the harness confirms
 	// by itself, which are the harness's to send rather than the operator's to
 	// approve (documentapprovals.go). It is optional, and a reading without it

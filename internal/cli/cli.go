@@ -958,7 +958,7 @@ Commands:
   queue             move a queued change between the harness's merge queue and the forge's
   review            review what a branch accumulated over a base, as one change
   cost              price work items from the runs made for them, and record it
-  model-trial       show the trial of starting developers on the cheaper model, or record a defect after landing
+  model-trial       show the trials of the cheaper model for developers and document reviews, or record a defect after landing
   reconcile         settle interrupted runs, then converge local state on the forge
   merge-check       check landings through pull requests since a time against the candidates that were checked
   forge-check       read the pull requests waiting for a person, and act on what changed

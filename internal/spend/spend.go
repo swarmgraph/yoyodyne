@@ -93,8 +93,10 @@ type Attribution struct {
 	// Agent is the configured agent filling the role, which is the persona the
 	// spend is attributable to where a project configures more than one agent for
 	// a role.
-	Agent          string
-	Phase          runstate.SpendPhase
+	Agent string
+	Phase runstate.SpendPhase
+	// Comparison marks a review made only to compare models; see runstate.Spend.
+	Comparison     bool
 	AccountAlias   string
 	ConfigRevision string
 	// Backend is the provider being invoked, taken from configuration so that an
@@ -277,6 +279,7 @@ func (m Metered) line(request backend.RunRequest, result backend.RunResult, err 
 		Role:               request.Role,
 		Agent:              m.Attribution.Agent,
 		Phase:              m.Attribution.Phase,
+		Comparison:         m.Attribution.Comparison,
 		AccountAlias:       m.Attribution.AccountAlias,
 		ConfigRevision:     m.Attribution.ConfigRevision,
 		RunID:              m.Attribution.RunID,

@@ -132,6 +132,20 @@ func (e Event) DuplicateTerminal() bool {
 	return e.Type == execution.EventProcessOutput && e.Payload.Anomaly == execution.DuplicateTerminalAnomaly
 }
 
+// Carries reports an event a provider invocation's cost is recorded on: the
+// terminal that ended it, or the record of a second terminal to it. It is for a
+// caller that keeps an invocation's cost in a log and nothing else about it.
+func Carries(event execution.Event) bool {
+	read := Event{Type: event.Type}
+	if read.Terminal() {
+		return true
+	}
+	if event.Type != execution.EventProcessOutput || json.Unmarshal(event.Payload, &read.Payload) != nil {
+		return false
+	}
+	return read.DuplicateTerminal()
+}
+
 // Session is the session a duplicate terminal's figure is a running total of.
 // It names its own from the time the backend recorded one on it; before that
 // it is the session of the terminal it followed, since both ended the same

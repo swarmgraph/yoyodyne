@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -278,6 +279,38 @@ func TestAccomplishmentClassifiesEachReview(t *testing.T) {
 		if share.Outcome == string(ReviewPreventedDefect) && (share.Count != 1 || share.Share != 0.2) {
 			t.Fatalf("the prevented-defect share is %+v", share)
 		}
+	}
+}
+
+// A comparison review after a verdict is neither a review that recorded no
+// verdict nor part of the next round's review, and its cost is still the
+// reviewer's.
+func TestAccomplishmentLeavesComparisonReviewsOutOfTheReviews(t *testing.T) {
+	week := AccomplishmentRange{From: "2026-10-17", To: "2026-10-24"}
+	sources := accomplishmentFixture(t)
+	without := ReadAccomplishment(context.Background(), sources, week)
+	reviewer := func(reading Accomplishment) RoleAccomplishment {
+		for _, role := range reading.Roles {
+			if role.Role == domain.RoleReviewer {
+				return role
+			}
+		}
+		return RoleAccomplishment{}
+	}
+	lines := append(fakeAccomplishmentSpend(nil), sources.Spend.(fakeAccomplishmentSpend)...)
+	// After run-a1's first verdict, so before its second, and after run-doc's only one.
+	for _, at := range []struct{ when, run, item string }{{"2026-10-17 13:05", "run-a1", "yoyodyne-aaa"}, {"2026-10-21 15:04", "run-doc", "run-doc"}} {
+		line := inRun(spent(domain.RoleReviewer, runstate.SpendPhaseReview, atPacific(t, at.when), 0.25), at.run, at.item)
+		line.Comparison = true
+		lines = append(lines, line)
+	}
+	sources.Spend = lines
+	with := ReadAccomplishment(context.Background(), sources, week)
+	if with.Problem != "" || len(without.Reviews) == 0 || !reflect.DeepEqual(with.Reviews, without.Reviews) || !reflect.DeepEqual(with.ReviewOutcomes, without.ReviewOutcomes) {
+		t.Fatalf("reviews with comparisons = %+v, want %+v (%s)", with.Reviews, without.Reviews, with.Problem)
+	}
+	if got, want := reviewer(with).CostUSD, reviewer(without).CostUSD+0.5; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("the reviewer's spend is %v, want %v with the comparisons counted", got, want)
 	}
 }
 

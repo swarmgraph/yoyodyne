@@ -416,7 +416,10 @@ the developer repaired the change, and a later review approved it or it merged;
 it **approved unchanged** where it approved; its **findings were not fixed**
 where it asked for a repair and nothing later accepted the change; it
 **escalated** where it sent the item to the development manager; and it has **no
-verdict** where the reviewer was paid and recorded none.
+verdict** where the reviewer was paid and recorded none. A document's second
+review, made only to [compare a cheaper model's
+verdict](configuration.md#the-reviewers-model-by-kind-of-change), is not counted
+among these; what it cost stays in the reviewer's spend.
 
 A completed item is one whose change merged in the range, read as the delivery
 measures read a merge; a run that published a document served no item and is
