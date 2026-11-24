@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -55,9 +56,12 @@ type GitHubIdentityStops struct {
 	Docket ResumeDocket
 	// Redocket is accepted for wiring beside CheckStageContinuer; a run that
 	// cannot be taken up is left on the docket as it is, so nothing is put back.
-	Redocket  CheckStageRedocket
-	Runs      RepairRuns
-	Intake    IntakeHolds
+	Redocket CheckStageRedocket
+	Runs     RepairRuns
+	Intake   IntakeHolds
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart  StartDecision
 	Items     RepairItems
 	Worktrees RepairWorktrees
 	// Capacity is execution.max_concurrent_developers.
@@ -244,6 +248,11 @@ func (g GitHubIdentityStops) takeUpPublishing(ctx context.Context, entry triage.
 	}
 	if err := continuableItem(releaseTeamMergedFrom(g.Runs, item, prior.TargetBranch), entry.WorkItemID); err != nil {
 		return stays(singleLine(err.Error(), 300))
+	}
+	if refused := g.MayStart.refuseRun(maystart.AfterLogin, prior.WorkItemID); refused != nil {
+		// Unlike a hold or a full harness, this is about the one item, so the look
+		// carries on.
+		return stays(refused.Error())
 	}
 	_, held, err := g.Intake.Held()
 	if err != nil {

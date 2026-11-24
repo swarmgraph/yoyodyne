@@ -1815,16 +1815,36 @@ other check, and are refused for an item outside them: the scheduler's pull, the
 test run that checks whether a hold on new work can lift, a fresh run or a
 repair the development manager decided, a repair from feedback on a pull
 request, a run you name, the run that resolves a conflict in the team's branch
-(asked about the item the development manager named), and the run that brings in
-a pinned outside file (asked about the item its record is for). A refused item is
+(asked about the item the development manager named), the run that brings in
+a pinned outside file (asked about the item its record is for), and the three
+ways an ended run is put back to work, below. A refused item is
 free to start, subject to every other check, once it is added to an open epic or
 epic mode is turned off.
 
+A refusal of one of those three, or a decision that could not be made, leaves
+everything as it stands, and the next check asks again:
+
+- **Bringing a change queued to merge on GitHub up to date.** The merge is not
+  withdrawn, nothing is written on the item, and the run's record gains only the
+  reading of GitHub's checks every check makes. It is not handed to the
+  development manager as a stopped run, however long the merge has waited. A
+  merge still queued lands by itself if its checks come to pass. A change whose
+  merge GitHub dropped, or whose wait on its target's red check has ended, waits
+  the same way. `yoyo reconcile` says which and why. The list of unpublished pull
+  requests the development manager is shown still has one older than
+  `triage.stuck_merge_age`, as it has any other.
+- **Bringing a change that waits for a person's merge up to date.** The run goes
+  on waiting, nothing is withdrawn and nothing is noted on the item. A merge or a
+  closing by the person is still settled.
+- **Taking up the checks of a run that stopped because GitHub refused the
+  harness's login.** The run stays stopped with its branch and checkout, its
+  entry on the development manager's list stays open, the item is neither noted
+  nor claimed, and no attempt is spent. The next stopped run is still looked at.
+
 Other starts do not ask yet, so epic mode does not hold them out. Among them are
-carrying on a run already begun, bringing a change that is queued to merge, or
-waits for a person to merge it, up to date, taking up the checks of a run that
-stopped because GitHub refused the harness's login, publishing a document, a
-role's pass, the review of unmet goals and the reading of outside messages.
+carrying on a run already begun, resuming an approved change stopped at its
+landing, publishing a document, a role's pass, the review of unmet goals and the
+reading of outside messages.
 
 Each start that asks and is refused is recorded, and so is one refused because
 the named epics could not be read. There is one entry for each item and way of
@@ -4862,6 +4882,9 @@ configured) after it was queued is not left saying "queued". The wait is
 measured from when the merge was last queued (`queued_at` under `pull_request`
 in the run record): the run queuing it, a re-arm, or a sweep finding it queued;
 a record from before that field existed is measured from the run's end. The
+exception is a change kept from being brought up to date because its item is
+outside [the epics you named](#which-epics-the-factory-works-on), which stays as
+it is however long it waits. The
 sweep asks the forge for the request's merge state and the queue events on its
 timeline, withdraws a merge the forge still holds so nothing lands meanwhile,
 and settles the run as a dropped merge: recorded as not merged, its branch and

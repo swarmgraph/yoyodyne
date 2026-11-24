@@ -43,6 +43,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -387,6 +388,9 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 	}
 	if !r.HostsRuns {
 		return keep("this pass hosts no runs (`yoyo reconcile` does)")
+	}
+	if refused := r.MayStart.refuseRun(maystart.UpdateForPerson, recorded.WorkItemID); refused != nil {
+		return keep(refused.Error())
 	}
 	if r.Intake != nil {
 		hold, held, err := r.Intake.Held()
