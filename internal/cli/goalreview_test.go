@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
+	"github.com/mason-bryant/yoyodyne/internal/goalreview"
 )
 
 // The review reads the goals in force and each item with the goal its
@@ -30,5 +32,15 @@ func TestGoalReviewReadingResolvesEachItemsGoal(t *testing.T) {
 	}
 	if len(reading.Items[1].Labels) != 1 {
 		t.Errorf("labels = %v, want the item's label carried", reading.Items[1].Labels)
+	}
+}
+
+// The review's report is one part of the message that wakes the Lead Product
+// Manager, so it leaves most of that message's bound to the rest.
+func TestAGoalReviewsReportFitsThePassMessageThatCarriesIt(t *testing.T) {
+	t.Parallel()
+
+	if goalreview.MaxReportBytes > chat.MaxPassMessageBytes/4 {
+		t.Fatalf("a report may be %d bytes, over a quarter of the %d a pass message may be", goalreview.MaxReportBytes, chat.MaxPassMessageBytes)
 	}
 }

@@ -10659,8 +10659,11 @@ last seven days that serve it with their status and priority, and the
 architect's entry for it. A goal whose fingerprint matches the one recorded by
 the last review that went through it and finished is one line, "unchanged
 since" with that review's time, and costs no provider call. Where any goal
-changed, her task fires out of its cadence with those goals listed in full and
-the items carrying the `raised-by-operator` label listed apart, in place of
+changed, her task fires out of its cadence with those goals listed, each with
+up to eight unfinished items serving it in priority order and a count of the
+rest, fewer where the whole review would pass 24 KiB. The items carrying the
+`raised-by-operator` label are listed apart, up to twenty with a count of the
+rest. That pass takes the place of
 her next ordinary pass rather than beside it. Where none changed, nobody is
 woken and the review is still recorded, as the unchanged goals and the raised
 items. Each review is recorded under the state root, in

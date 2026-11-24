@@ -13,7 +13,7 @@ package orchestrator
 // the review that went through it, and no provider call is spent on it. Where
 // at least one goal changed, the review is delivered as a pass of the Lead
 // Product Manager's task, out of its cadence as a critical report is: the
-// goals to go through in full, the unchanged ones in a line each, and the
+// goals to go through, the unchanged ones in a line each, and the
 // items the operator raised on purpose apart from both. Her ordinary pass's
 // work comes with it, so the review takes the place of one of her passes rather
 // than adding one. Where every goal is unchanged, nobody is woken: the review
@@ -184,8 +184,8 @@ func goalReviewMessage(review runstate.GoalReview, goals int) string {
 	lines := []string{
 		"# Daily review of unmet goals",
 		"",
-		fmt.Sprintf("This pass is also today's review of the goals (docs/designs/unmet-goal-review.md). Of %d goal(s), %d changed since a review last went through them, or were never gone through, and are listed in full; the rest are unchanged since the review named and are not to be gone through again.", goals, len(review.GoneThrough)),
-		"For each goal listed in full, say in a sentence how far it is from met, counting work that is switched off, running in a dry run, or landed only on a branch other than the target as not met. Name the admitted work that would move it most, and whether it can start now. Leave the items the operator raised on purpose where he put them.",
+		fmt.Sprintf("This pass is also today's review of the goals (docs/designs/unmet-goal-review.md). Of %d goal(s), %d changed since a review last went through them, or were never gone through, and are listed first; the rest are unchanged since the review named and are not to be gone through again.", goals, len(review.GoneThrough)),
+		"For each goal to go through, say in a sentence how far it is from met, counting work that is switched off, running in a dry run, or landed only on a branch other than the target as not met. Name the admitted work that would move it most, and whether it can start now. Leave the items the operator raised on purpose where he put them.",
 		"",
 		strings.TrimSpace(review.Report),
 	}

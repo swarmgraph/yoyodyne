@@ -37,8 +37,9 @@ import (
 // GoalReviewsSchemaVersion is the shape of the stored record.
 const GoalReviewsSchemaVersion = 1
 
-// MaxGoalReviewsKept bounds how many reviews the record keeps, newest last.
-const MaxGoalReviewsKept = 60
+// MaxGoalReviewsKept bounds how many reviews the record keeps, newest last. The
+// record is read at every pull, and each review carries its report.
+const MaxGoalReviewsKept = 30
 
 const (
 	goalReviewsDirectory = "product-manager"

@@ -1,9 +1,11 @@
 package goalreview
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
@@ -130,5 +132,74 @@ func TestCompareMarksUnchangedGoalsWithTheirReview(t *testing.T) {
 	named := Outcome{Goal: Goal{Reference: "[g] Words.", Statement: "Words."}, Unchanged: true, Since: reviewed}
 	if line := UnchangedLine(named, pacific); line != "- [g] Words.: unchanged since the review at 09:00 PST on Nov 22, 2026" {
 		t.Errorf("UnchangedLine() = %q", line)
+	}
+}
+
+// A report over far more work than it can list stays within its limit, names
+// every goal, lists the most pressing unfinished items, and says what it left
+// out; the fingerprint still covers the items it did not list.
+func TestAReportOverALongBacklogStaysWithinItsLimit(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 23, 9, 0, 0, 0, pacific)
+	build := func(goals, items int) Reading {
+		var reading Reading
+		for g := range goals {
+			reference := fmt.Sprintf("goal-%02d", g)
+			reading.Goals = append(reading.Goals, Goal{Reference: reference, Statement: "[" + reference + "] " + strings.Repeat("wörds ", 150)})
+			for i := range items {
+				item := Item{ID: fmt.Sprintf("yoyodyne-%02d.%03d", g, i), Title: strings.Repeat("títle ", 60), Status: "open", Priority: 3, Serves: reference}
+				if i%2 == 1 {
+					item.Status, item.ClosedAt = "closed", now.Add(-time.Hour)
+				}
+				if i == items-2 {
+					item.Priority = 0
+				}
+				if i%4 == 0 {
+					item.Labels = []string{domain.RaisedByOperatorLabel}
+				}
+				reading.Items = append(reading.Items, item)
+			}
+		}
+		return reading
+	}
+
+	// Few goals: the limit on each goal's list is what holds.
+	reading := build(3, 200)
+	report := Report(Compare(reading, nil, now), Raised(reading.Items), pacific)
+	if len(report) > MaxReportBytes || !utf8.ValidString(report) {
+		t.Fatalf("report is %d bytes (valid text %v), limit %d", len(report), utf8.ValidString(report), MaxReportBytes)
+	}
+	for _, want := range []string{
+		"...\n  yoyodyne-00.198 (P0, open): títle",
+		"  not listed here: 92 more unfinished and 100 recently closed",
+		"Items the operator raised on purpose (150)",
+		"- 130 more not listed here; each carries the raised-by-operator label",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report lacks %q:\n%s", want, report)
+		}
+	}
+
+	// Many goals: fewer items are listed, and every goal is still named.
+	reading = build(60, 100)
+	report = Report(Compare(reading, nil, now), Raised(reading.Items), pacific)
+	if len(report) > MaxReportBytes {
+		t.Fatalf("report is %d bytes, limit %d", len(report), MaxReportBytes)
+	}
+	for _, goal := range reading.Goals {
+		if !strings.Contains(report, "- ["+goal.Reference+"]") {
+			t.Errorf("report does not name %s", goal.Reference)
+		}
+	}
+	if got := strings.Count(report, "  not listed here: 50 more unfinished and 50 recently closed"); got != 60 {
+		t.Errorf("%d goals say what was left out, want 60:\n%s", got, report)
+	}
+
+	// An item the report does not list still changes its goal's fingerprint.
+	before := Compare(reading, nil, now)[0].Fingerprint
+	reading.Items[50].Priority = 4
+	if Compare(reading, nil, now)[0].Fingerprint == before {
+		t.Error("an unlisted item's priority changed and the fingerprint did not")
 	}
 }

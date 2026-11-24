@@ -119,7 +119,7 @@ func (r *dailyReview) last(t *testing.T) runstate.GoalReview {
 
 // The review runs once a day from 09:00 on the operator's clock: nothing
 // before it, one pass of the Lead Product Manager's at the first pull after
-// it with every goal never gone through listed in full, and nothing more that
+// it with every goal never gone through listed, and nothing more that
 // day. The trigger is told nothing about idle developers, so it runs whether or
 // not any are.
 func TestTheDailyReviewRunsOnceADayFromNineLocalTime(t *testing.T) {

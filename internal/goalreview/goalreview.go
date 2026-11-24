@@ -45,6 +45,24 @@ const DailyHour = 9
 // goal's fingerprint.
 const RecentlyClosed = 7 * 24 * time.Hour
 
+// MaxReportBytes is what a report is kept to, by listing fewer items; see
+// Report. It is well under the bound on the pass message that carries it, so
+// the review's pass is not refused for its size, and small enough that the
+// record of every kept review is cheap to read at each pull.
+const MaxReportBytes = 24 << 10
+
+const (
+	// MaxItemsListed is how many unfinished items are listed under one goal.
+	MaxItemsListed = 8
+	// MaxRaisedListed is how many of the items the operator raised are listed.
+	MaxRaisedListed = 20
+	maxTitleBytes   = 100
+	// maxGoalBytes is the most of a goal's wording a report says, and
+	// minGoalBytes the most where the report would otherwise be too long.
+	maxGoalBytes = 500
+	minGoalBytes = 160
+)
+
 // Goal is one goal the review goes through: the name work items record it by
 // and its words.
 type Goal struct {
@@ -205,7 +223,11 @@ func Raised(items []Item) []Item {
 
 // UnchangedLine is the one line an unchanged goal gets.
 func UnchangedLine(outcome Outcome, location *time.Location) string {
-	return fmt.Sprintf("- %s: unchanged since the review at %s", label(outcome.Goal), Moment(outcome.Since, location))
+	return unchangedLine(outcome, location, maxGoalBytes)
+}
+
+func unchangedLine(outcome Outcome, location *time.Location, goalBytes int) string {
+	return fmt.Sprintf("- %s: unchanged since the review at %s", shorten(label(outcome.Goal), goalBytes), Moment(outcome.Since, location))
 }
 
 // Moment is a time on the operator's clock with the zone named.
@@ -216,28 +238,38 @@ func Moment(at time.Time, location *time.Location) string {
 	return at.In(location).Format("15:04 MST on Jan 2, 2006")
 }
 
-// Report is what a review says: the goals it goes through, each with the
-// items serving it, the goals unchanged since an earlier review in one line
-// each, and the items the operator raised on purpose, listed apart.
+// Report is what a review says: the goals it goes through, each with the most
+// pressing unfinished items serving it and how many more serve it, the goals
+// unchanged since an earlier review in one line each, and the items the
+// operator raised on purpose, listed apart.
+//
+// Every goal is always named, because a goal the review records as gone through
+// has to be one its pass was shown. So where the report would pass
+// MaxReportBytes it lists fewer items under each goal, down to the counts
+// alone, and then shortens the goals' wording.
 func Report(outcomes []Outcome, raised []Item, location *time.Location) string {
+	for listed := MaxItemsListed; listed >= 0; listed-- {
+		if text := report(outcomes, raised, location, listed, maxGoalBytes); len(text) <= MaxReportBytes {
+			return text
+		}
+	}
+	return report(outcomes, raised, location, 0, minGoalBytes)
+}
+
+func report(outcomes []Outcome, raised []Item, location *time.Location, listed, goalBytes int) string {
 	var lines []string
 	changed := Changed(outcomes)
 	if len(changed) > 0 {
 		lines = append(lines, fmt.Sprintf("Goals to go through (%d), each changed since a review last went through it or never gone through:", len(changed)))
 		for _, outcome := range changed {
-			lines = append(lines, "- "+label(outcome.Goal))
-			if len(outcome.Serving) == 0 {
-				lines = append(lines, "  no open or recently closed work item serves it")
-			}
-			for _, item := range outcome.Serving {
-				lines = append(lines, "  "+itemLine(item))
-			}
+			lines = append(lines, "- "+shorten(label(outcome.Goal), goalBytes))
+			lines = append(lines, servingLines(outcome.Serving, listed)...)
 		}
 	}
 	var unchanged []string
 	for _, outcome := range outcomes {
 		if outcome.Unchanged {
-			unchanged = append(unchanged, UnchangedLine(outcome, location))
+			unchanged = append(unchanged, unchangedLine(outcome, location, goalBytes))
 		}
 	}
 	if len(unchanged) > 0 {
@@ -254,11 +286,69 @@ func Report(outcomes []Outcome, raised []Item, location *time.Location) string {
 		lines = append(lines, "Items the operator raised on purpose: none carry the "+domain.RaisedByOperatorLabel+" label.")
 	} else {
 		lines = append(lines, fmt.Sprintf("Items the operator raised on purpose (%d), left where he put them:", len(raised)))
-		for _, item := range raised {
+		ordered := byPriority(raised)
+		shown := min(len(ordered), MaxRaisedListed)
+		for _, item := range ordered[:shown] {
 			lines = append(lines, "- "+itemLine(item))
+		}
+		if more := len(ordered) - shown; more > 0 {
+			lines = append(lines, fmt.Sprintf("- %d more not listed here; each carries the %s label", more, domain.RaisedByOperatorLabel))
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// servingLines is the items serving one goal: the unfinished ones first by
+// priority, up to the number listed, and how many it leaves out. Closed items
+// are counted and not listed, because they are work nobody can start.
+func servingLines(serving []Item, listed int) []string {
+	if len(serving) == 0 {
+		return []string{"  no open or recently closed work item serves it"}
+	}
+	var unfinished []Item
+	closed := 0
+	for _, item := range serving {
+		if item.Closed() {
+			closed++
+			continue
+		}
+		unfinished = append(unfinished, item)
+	}
+	unfinished = byPriority(unfinished)
+	shown := min(len(unfinished), listed)
+	var lines []string
+	for _, item := range unfinished[:shown] {
+		lines = append(lines, "  "+itemLine(item))
+	}
+	switch more := len(unfinished) - shown; {
+	case len(unfinished) == 0:
+		lines = append(lines, fmt.Sprintf("  no unfinished item serves it; %d recently closed not listed here", closed))
+	case more > 0 || closed > 0:
+		lines = append(lines, fmt.Sprintf("  not listed here: %d more unfinished and %d recently closed", more, closed))
+	}
+	return lines
+}
+
+// byPriority is the items most pressing first, and by id within a priority.
+func byPriority(items []Item) []Item {
+	ordered := append([]Item(nil), items...)
+	sort.SliceStable(ordered, func(a, b int) bool {
+		if ordered[a].Priority != ordered[b].Priority {
+			return ordered[a].Priority < ordered[b].Priority
+		}
+		return ordered[a].ID < ordered[b].ID
+	})
+	return ordered
+}
+
+// shorten cuts text to at most limit bytes, on a whole character, marking the
+// cut.
+func shorten(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	const mark = "..."
+	return strings.TrimSpace(strings.ToValidUTF8(text[:limit-len(mark)], "")) + mark
 }
 
 func label(goal Goal) string {
@@ -279,7 +369,7 @@ func label(goal Goal) string {
 func itemLine(item Item) string {
 	line := fmt.Sprintf("%s (P%d, %s)", item.ID, item.Priority, strings.TrimSpace(item.Status))
 	if title := strings.Join(strings.Fields(item.Title), " "); title != "" {
-		line += ": " + title
+		line += ": " + shorten(title, maxTitleBytes)
 	}
 	return line
 }
