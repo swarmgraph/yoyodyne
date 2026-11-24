@@ -2133,7 +2133,8 @@ whose merge GitHub will not make, is hers too, as a factory problem. A kept
 checkout asks nothing of anybody and waits on nothing: the harness would not delete it because it holds
 files or commits that exist nowhere else, and it stays until somebody saves or
 discards them by hand. The condition says which run, where the checkout is, and
-what it holds. A condition is known by the product, the run where it is a run's, and the
+what it holds. A re-run decided on a stopped run whose item is parked is one of
+the waits: the condition names the unparking as what releases it. A condition is known by the product, the run where it is a run's, and the
 condition, so a newer run of an item is never the same condition as an older
 stoppage of it. Each says when it was first seen, when last seen, and how many
 passes it has been put to, read from the pass records; its classification; whose

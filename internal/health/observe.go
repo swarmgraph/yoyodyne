@@ -413,6 +413,22 @@ func (o Observer) readHeld(r *reading, standing readmodel.Standing) {
 		}
 		anomaly.Says += heldElsewhere(refused)
 		anomaly.Needs = refused.Reason
+		// A decision waiting for its item to be unparked asks nothing of the
+		// development manager, who has decided, or of the harness, which starts
+		// nothing until the release. Its owner is whoever the read model names for
+		// parked work.
+		if refused.AwaitingUnparking != "" {
+			anomaly.Classification, anomaly.Owner = ClassWait, ownership.Resolve(ownership.KindHeldWork, ownership.Record{Parked: true}).Owner
+			anomaly.Identity.Condition = "waiting-on-unparking"
+			if refused.RunID == "" {
+				anomaly.Identity.Condition += ":" + refused.WorkItemID
+			}
+			anomaly.Says = fmt.Sprintf("the decision recorded about %s after its run stopped waits for the item to be unparked", refused.WorkItemID)
+			if refused.RunID != "" {
+				anomaly.Says = fmt.Sprintf("the decision recorded about %s after run %s stopped waits for the item to be unparked", refused.WorkItemID, refused.RunID)
+			}
+			anomaly.Needs = fmt.Sprintf("released by whoever parked the item unparking it (parked because: %s); the harness then carries the decision out by itself", refused.AwaitingUnparking)
+		}
 		r.add(anomaly)
 	}
 }

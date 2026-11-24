@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func TestExtractTrackerActionsSeparatesProseFromWhatWasAskedFor(t *testing.T) {
@@ -630,6 +631,10 @@ func TestWorkCanBeAdmittedAlreadyParked(t *testing.T) {
 	}
 	if tracker.created[0].Parking.Reason() != "deferred until somebody needs a fork" {
 		t.Fatalf("created parking = %q", tracker.created[0].Parking)
+	}
+	admitted := beads.WorkItem{Parking: tracker.created[0].Parking, Notes: tracker.created[0].Notes}
+	if by := runstate.ParkedBy(admitted); !strings.HasPrefix(by, "the "+RoleTitle(domain.RoleProductManager)+" in conversation ") {
+		t.Fatalf("parked by %q, want the admission's notes to say who parked it", by)
 	}
 	rendered := renderTrackerOutcomes(domain.RoleProductManager, reply.Actions)
 	if !strings.Contains(rendered, "parked so nothing selects it until it is released: deferred until somebody needs a fork") {

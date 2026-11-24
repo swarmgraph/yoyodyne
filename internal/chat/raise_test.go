@@ -212,3 +212,39 @@ func classesEqual(left, right []triage.Class) bool {
 	}
 	return true
 }
+
+// A re-run recorded on an item somebody else parked says, in what the
+// development manager is told she recorded, that the run waits until the item is
+// unparked and who parked it, so she is not left expecting a run that will not
+// start yet. A re-run of a raise over the raise's own parking says what it
+// always said, and nothing about waiting on somebody else.
+func TestARerunOnAnItemSomebodyElseParkedSaysItWaitsAndWhoParkedIt(t *testing.T) {
+	t.Parallel()
+
+	budgets := newTriageBudgetGate(t, runstate.TriageCaps{ReviewRounds: 4, RepairGrants: 1, Reruns: 1, MergeRearms: 1}, 2)
+	item := beads.WorkItem{
+		ID: raisedItemID, Title: "README rewrite", Status: "open",
+		Parking: "held until the Slack route is decided",
+		Notes:   "Parked by the Lead Product Manager in conversation chat-91253e0e, after turn 5747.\n\nReason: held until the Slack route is decided",
+	}
+	tracker := &fakeTracker{items: map[string]beads.WorkItem{raisedItemID: item}}
+	reply := triageReplyAbout(t, tracker, budgets, raisedRuns(), trackerReply("Run it again once it is released.",
+		`{"action":"triage","id":"`+raisedItemID+`","run":"`+otherStoppedRun+`","decision":"rerun","reason":"the ground moved; start it again"}`))
+
+	if len(reply.Actions) != 1 || !reply.Actions[0].Applied {
+		t.Fatalf("actions = %#v, want the re-run recorded", reply.Actions)
+	}
+	rendered := renderTrackerOutcomes(domain.RoleDevelopmentManager, reply.Actions)
+	for _, want := range []string{"parked by the Lead Product Manager in conversation chat-91253e0e", "will not start while it stays parked", "waits until the item is unparked"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the outcome does not say %q:\n%s", want, rendered)
+		}
+	}
+
+	raised := &fakeTracker{items: map[string]beads.WorkItem{raisedItemID: raiseParked("open")}}
+	reply = triageReplyAbout(t, raised, newTriageBudgetGate(t, runstate.TriageCaps{ReviewRounds: 4, RepairGrants: 1, Reruns: 1, MergeRearms: 1}, 2), raisedRuns(), trackerReply("Run it again from its change.",
+		`{"action":"triage","id":"`+raisedItemID+`","run":"`+stoppedRun+`","decision":"rerun","reason":"the change is sound; lift it"}`))
+	if rendered := renderTrackerOutcomes(domain.RoleDevelopmentManager, reply.Actions); strings.Contains(rendered, "will not start while it stays parked") {
+		t.Fatalf("a re-run of a raise over its own parking was told it waits on somebody else's:\n%s", rendered)
+	}
+}

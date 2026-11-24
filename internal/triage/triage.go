@@ -823,6 +823,12 @@ type Standing struct {
 	// closed item whose work is settled, and recorded that it does not apply
 	// (CarryOutNoLongerApplies). There is nothing left to carry out.
 	NoLongerApplies bool `json:"no_longer_applies,omitempty"`
+	// WaitsOnParking is the harness having found this decision's item parked by
+	// somebody other than the run it answers, and left the decision standing to
+	// be carried out once the item is unparked. Nothing is owed by the harness
+	// meanwhile, and nothing is the development manager's to decide: the next
+	// move is whoever parked the item.
+	WaitsOnParking bool `json:"waits_on_parking,omitempty"`
 	// CarriedOut is a repair decided about this run having been carried out on
 	// it, so the run stopped again since. The later stop is not decided by it:
 	// Decided, GrantOutstanding and Refused are all false beside it, and the
@@ -873,7 +879,25 @@ type Standing struct {
 // item (yoyodyne-ifd.434.10) were refused onto their records from 2026-09-29 while
 // every line read about either still said the harness was carrying them out, and
 // nobody was placed to record the re-run each needed (yoyodyne-8ff).
+//
+// A decision waiting for its item to be unparked is not one the harness owes
+// either: the parking is somebody's decision that the item is not to be started
+// yet, and the harness starts nothing until it is released. It still stands, and
+// is carried out by itself once the item is unparked (DecisionStands).
 func AwaitingCarryOut(standing Standing) bool {
+	if !DecisionStands(standing) || standing.WaitsOnParking {
+		return false
+	}
+	return true
+}
+
+// DecisionStands reports a decision about one stoppage that is still to be
+// carried out, whether the harness owes it now or it waits for its item to be
+// unparked. It is what a reader asks where the question is whether the
+// development manager has already answered the stoppage — to keep the item held
+// for the decision rather than pulled fresh beside it, or to keep her from
+// being asked about the run's publication again — rather than who moves next.
+func DecisionStands(standing Standing) bool {
 	if !standing.Decided || !standing.Spends || standing.Refused || standing.NoLongerApplies {
 		return false
 	}
@@ -883,9 +907,18 @@ func AwaitingCarryOut(standing Standing) bool {
 	return true
 }
 
+// WaitingOnParking reports a decision that stands and waits for its item to be
+// unparked, by the rules above.
+func WaitingOnParking(standing Standing) bool {
+	return standing.WaitsOnParking && DecisionStands(standing)
+}
+
 // AwaitingCarryOut reports a decision standing about this entry's own stoppage
 // that the harness has still to act on, by the shared rule above.
 func (c Counters) AwaitingCarryOut() bool { return AwaitingCarryOut(c.Standing) }
+
+// DecisionStands is the shared DecisionStands over this entry's own stoppage.
+func (c Counters) DecisionStands() bool { return DecisionStands(c.Standing) }
 
 // Rerun is the re-run the harness has already claimed against one docketed
 // stoppage: what a guard refuses a second of, named on the entry it is about.
@@ -1198,6 +1231,11 @@ func (c Closure) Describe() string {
 	return described
 }
 
+// ParkedGate is the reason a carry-out records where a decision waits for its
+// item to be unparked. It is spelled here, where the docket reads it, and the
+// harness's own record names it as runstate.TriageGateParked.
+const ParkedGate = "the work item being parked"
+
 // CarryOutCause names a refusal no later attempt of the same decision can clear.
 // Empty means the refusal may be retried at the ordinary paced interval.
 type CarryOutCause string
@@ -1297,6 +1335,10 @@ type CarryOut struct {
 	// up for hours reads as that rather than as a fresh wait.
 	DecidedAt time.Time `json:"decided_at,omitempty"`
 }
+
+// WaitsOnParking reports a decision that waits for its item to be unparked,
+// which asks nothing of the development manager.
+func (c CarryOut) WaitsOnParking() bool { return c.Gate == ParkedGate && c.Cause == "" }
 
 // waitedSays is when the decision was made and how long it had stood by the
 // finding, or nothing where the decision's time is not known.
@@ -2573,6 +2615,12 @@ func (e Entry) nextMover() string {
 	if e.Counters.Standing.Refused {
 		return "      Next mover: you — " + gone + "the harness tried to carry out the decision recorded about this stoppage and was refused, as the carry-out below says, so it is not the harness's to act on: what the refusal asks for, or a different decision in its place, is yours.\n"
 	}
+	// A decision waiting for its item to be unparked is nobody's to chase but
+	// whoever parked it: the carry-out below names them, and the harness starts
+	// the run by itself once the parking is released.
+	if WaitingOnParking(e.Counters.Standing) {
+		return "      Next mover: whoever parked the item — " + gone + "a decision about this stoppage is recorded and waits for the item to be unparked, as the carry-out below says; the harness carries it out by itself once it is, so nothing here needs a decision.\n"
+	}
 	if e.Counters.AwaitingCarryOut() {
 		return "      Next mover: the harness — " + gone + "a decision about this stoppage is already recorded and has not been carried out, so what is outstanding is the carry-out rather than a decision.\n"
 	}
@@ -2783,6 +2831,13 @@ func (e Entry) renderCarryOut() string {
 		} else {
 			rendered.WriteString("      Nothing was attempted or spent and nothing is anybody's to decide about it; only reopening the item and recording a new decision makes a recovery of the run apply again.\n")
 		}
+		return rendered.String()
+	}
+	if stopped.WaitsOnParking() {
+		fmt.Fprintf(&rendered, "      The %q you decided waits for the item to be unparked, as the harness found at %s: %s\n",
+			stopped.Decision, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
+		rendered.WriteString(indented("What it is waiting for", stopped.Clears))
+		rendered.WriteString("      Nothing was spent and the decision still stands; the first pass after the item is unparked carries it out.\n")
 		return rendered.String()
 	}
 	if stopped.Unattempted {
