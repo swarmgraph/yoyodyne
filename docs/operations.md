@@ -1768,6 +1768,31 @@ intake hold, which stops the harness choosing new work. It holds landing on one
 branch, and only on the machine it was placed on. Like `yoyo pause`, it is
 refused from a process the harness launched for a role.
 
+## Which epics the factory works on
+
+The operator can name epics, and the factory then works only on the items
+recorded for each: that is epic mode. This build records the epics and says where
+they stand, and no path that starts work asks about them yet, so nothing is held
+out by it. A product that has never named an epic is shown nothing about them.
+
+Otherwise `yoyo status` says the mode under its four lines, and `yoyo status
+--json` carries the same under `standing.epics`. With epic mode on it also says:
+
+- each open epic, with how many of its recorded items are done, running, ready
+  and waiting;
+- how many ready items are outside every open epic, with when the first of them
+  was refused a start where one was, and how many role passes were not started,
+  since when;
+- each problem: a run stopped before its next step because its item is outside,
+  an item that waits for one outside, and a start that was refused. The last two
+  give the `yoyo epic add` command that adds the item, where an epic is open to
+  add it to. Where several are and the item is below none of them, the command
+  for each is given. The first ten problems are printed, with how many more
+  there are, and the JSON carries all of them.
+
+A record of the named epics that cannot be read is said there with the reason. It
+is never taken for no record.
+
 ## Where a finding that needs your hand goes
 
 Some of what the roles find can be acted on only by a person: a hook that has to
