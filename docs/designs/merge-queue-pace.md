@@ -19,6 +19,10 @@ revisions:
       by: architect
       at: 2026-11-22T03:53:17.775361Z
       reason: 'Writes in three approved but unwritten changes: amendment-25324898 and amendment-097450b4 (the queue passes on its own every minute while it waits on GitHub, reads only, lease unchanged, stops when the watch session drains or ends, waits recorded for the weekly figures) and amendment-cec9c712 (checking ahead gives nothing on the GitHub path, so it is off there). Adds build piece 6 and two reviewer lines. Whole revision from main 3220fd777.'
+    - action: amended
+      by: architect
+      at: 2026-11-24T04:06:39.271504Z
+      reason: Resends the revision the review returned, whole from main 585539c6ef62. The reviewer checklist now separates a queue that runs its whole list on this machine from one using GitHub's required checks, the list of what was read is corrected, and decisions 1, 2 and 3 and the closing sentence say the same as the build section. Says piece by piece what is built, from the November 21 comparison and a read of the code at 9cde11a1e429. Part of the review of every design against the code.
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -35,41 +39,48 @@ approvals:
       by: harness
       at: 2026-11-22T03:53:17.775361Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3396, for document-3396.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-24T04:06:39.271504Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3810, for document-3810.1 under the automatic approval policy
 ---
 # How the harness's merge queue lands more than one change an hour
 
 ## What this is for
 
-The milestone goal for an internal week on Yoyodyne's own repository asks that no hour pass with ready work waiting and a developer slot idle ([milestone goals](../product/milestone-goals.md)). On November 8 the harness's own merge queue landed four changes, one at a time: about 70 minutes each for code, from candidate to merge, and 35 for a document. Two code changes waited behind each other. Three developer slots finish more than one change an hour on a busy day, so the queue now limits everything that lands.
+The milestone goal for an internal week on Yoyodyne's own repository asks that no hour pass with ready work waiting and a developer slot idle ([milestone goals](../product/milestone-goals.md)). On November 8 the harness's own merge queue landed four changes, one at a time: about 70 minutes each for code, from candidate to merge, and 35 for a document. Two code changes waited behind each other. Three developer slots finish more than one change an hour on a busy day, so the queue then limited everything that landed.
 
 The operator asked on November 8 why the queue lands only one change an hour, and proposed moving the race check out of it (yoyodyne-ifd.429.132). This design rules on that proposal and says what else raises the rate.
 
 It changes how [integration through a merge queue](integration-through-a-merge-queue.md) runs, not what it guarantees. Every commit that lands is still checked, on exactly that commit, and independently reviewed, as [the invariant that integration requires evidence bound to the exact candidate revision](../decisions/invariants/integration-requires-revision-bound-evidence.md) requires.
 
-## What a candidate costs today
+## What a candidate cost on November 8
 
-These figures are the operator's assistant's, from about 390 check runs across the latest 80 or so runs. They are not yet checked against the harness's records.
+These figures are the operator's assistant's, from about 390 check runs across the latest 80 or so runs at the time. They are not yet checked against the harness's records.
 
 - `make race`: about 30 minutes on average, longest 5 hours 25 minutes, 44 runs that did not pass.
 - `make test`: about 19 minutes on average, longest 42 minutes, 10 runs that did not pass.
 - Vet and the format check: under a minute each.
 
-Each code candidate runs all of these one after another, and then the independent review.
+Each code candidate then ran all of these one after another, and then the independent review.
 
-The race check is the largest single part. It is also the part that most often fails for reasons other than the change. The one diagnosis of the race check in this repository is about timing under load, and no commit since August describes fixing a data race.
+The race check was the largest single part. It was also the part that most often failed for reasons other than the change. The one diagnosis of the race check in this repository was about timing under load, and no commit between August and November 9 described fixing a data race.
 
 ## Decisions
 
+Decisions 1 and 2 describe a queue that runs its whole declared list on this machine. Where GitHub's required checks are used, as on this repository, the section on that path under the build pieces says how they apply.
+
 ### 1. The queue runs the checks the project declares for it, and this repository leaves the race check out
 
-A project may declare which of its configured checks the queue runs on a candidate. A project that declares none has its configured checks run whole, as today.
+A project may declare which of its configured checks the queue runs on a candidate. A project that declares none has its configured checks run whole.
 
-This repository declares format, vet and `make test`. The queue runs those whole, on exactly the candidate commit, and the independent review judges that same commit. The declared list and its digest are recorded with the candidate's evidence, as the queue already records the check set.
+This repository declares format, vet and `make test`. A queue that runs its list on this machine runs those whole, on exactly the candidate commit, and the independent review judges that same commit. The declared list and its digest are recorded with the candidate's evidence, as the queue already records the check set.
 
 The race check moves to two other places. Both are already ruled under guarantee 9 of [one owner for each guarantee](one-owner-for-each-guarantee.md).
 
 - **Before review, in the developer's run.** The race check runs whenever Go code changed, on the packages the change touches and the packages that depend on them (race point 1 of guarantee 9). Its passing result is recorded against the approved head.
-- **On main every four hours, whenever main has moved** (race point 4).
+- **On main every four hours, whenever main has moved** (race point 4, which also decides what that run covers).
   - When the run fails, the harness runs only the failing tests once more, on the same commit, under the race detector with the same settings. Both results are kept and shown.
   - If every one of those tests passes the second time, the harness files a warning report naming them, the commit, and both results. A run that passed only on the second try is not clean: the last clean commit named in later reports does not move, so a race that comes back is still traced to every commit it could have come from.
   - If a test fails again, the failing tests cannot be named from the output, or the second run cannot run, the harness files a critical report naming the failing tests, the commit, the last clean commit and the commits between them. The failure is admitted at priority 0 with the reliability label.
@@ -78,47 +89,45 @@ The race check moves to two other places. Both are already ruled under guarantee
 
   The operator proposed a nightly run. Four hours is kept because it was already ruled, and it shortens the time a race can sit on main.
 
-At admission the queue reads the approved head's record. If Go code changed and that head has no passing race result, the queue adds the narrowed race check to that candidate's run. So no change with Go code changed lands without a race check on its own code.
+At admission the queue reads the approved head's record. If Go code changed and that head has no passing race result, the queue adds the narrowed race check to that candidate's run, except where one of GitHub's required checks is the race check and so covers the candidate itself. So no change with Go code changed lands without a race check on its own code.
 
-**The risk accepted.** A race that appears only when two changes are combined is not checked before landing. It can reach main and sit there until the next run on main: at most four hours, plus that run's own length. This is accepted for three reasons:
+**The risk accepted.** Where the candidate itself gets no race check, a race that appears only when two changes are combined is not checked before landing. It can reach main and sit there until the next run on main: at most four hours, plus that run's own length. This is accepted for three reasons:
 
-- The 44 race failures look like timing under load rather than races found, and no fix of a data race has landed since August.
+- The 44 race failures look like timing under load rather than races found, and no fix of a data race landed between August and this ruling.
 - The race detector sees only memory shared inside one process. The harness's real trouble with sharing has come between processes, which file locks guard and the detector cannot see.
-- The race check costs more than half of each code candidate's time.
+- The race check cost more than half of each code candidate's time.
 
-A second risk follows from the run on main: a real race that shows only now and then is reported as a warning the first time it passes on the second try. The seven-day repeat rule and the unmoved last clean commit limit that risk.
+A second risk follows from the run on main: a real race that shows only now and then is reported as a warning the first time it passes on the second try. The seven-day repeat rule, once built, and the unmoved last clean commit limit that risk.
 
 A separate item is classifying the 44 failed race runs. If it finds a real race that only the check on the combined change caught, this decision is revisited, and the race check goes back on the queue's list.
 
 **How this fits the rule that the exact candidate is checked whole.**
 
-- The queue still runs every check on its declared list whole, never narrowed, on exactly the commit that lands.
+- The queue still runs every check on its declared list whole, never narrowed, on exactly the commit that lands, or has GitHub's required checks run on exactly that commit in place of the part of the list it does not run here.
 - The review still judges that same commit.
 - What changes is the list.
 
-The invariant needs the configured checks for integration to approve the exact candidate. The queue's declared list is that set, so the invariant is kept and needs no revision.
+The invariant needs the configured checks for integration to approve the exact candidate. The queue's declared list, or the quick checks with GitHub's required checks, is that set, so the invariant is kept and needs no revision.
 
-The race check produces evidence about two other things: the change's own code, recorded on the approved head, and main, recorded on main. Neither is presented as evidence about the candidate.
+The race check in the developer's run and on main produces evidence about two other things: the change's own code, recorded on the approved head, and main, recorded on main. Neither is presented as evidence about the candidate.
 
-**How this fits stopping the local full race check at landing (yoyodyne-ifd.428.126.6.5).** That item builds case 2 of [choosing checks by change](choosing-checks-by-change.md). Case 2 says that with the harness's queue on, the local full race on the merge candidate does not run when the queue ran the configured checks whole, the race check among them. That item lands as written.
-
-Once build piece 1 below lands, case 2 says instead that the local full race on the merge candidate does not run when all of these hold:
+**How this fits stopping the local full race check at landing (yoyodyne-ifd.428.126.6.5).** That item builds case 2 of [choosing checks by change](choosing-checks-by-change.md). For a queue that runs its declared list on this machine, the local full race on the merge candidate does not run when all of these hold:
 
 - the queue ran its declared list whole on exactly the commit that lands;
 - every check on that list passed;
 - the approved head carries a passing race result, or the queue ran the narrowed race check itself.
 
-While the queue is on, the local full race at landing is not brought back in any case.
+Case 2 of that design says what holds where GitHub's required checks are used. While the queue is on, the local full race at landing is not brought back in any case.
 
-This decision takes effect in this repository only once the run on main every four hours (migration item 21 of the guarantees design) is running. Until then, the queue keeps the race check on its list.
+This decision took effect in this repository only once the run on main every four hours (migration item 21 of the guarantees design) was running.
 
 ### 2. Checks and the review run side by side on the same candidate
 
-Today the review follows the checks. Both are bound to the same candidate commit, so neither needs the other's result first, and the queue starts both at once.
+Both are bound to the same candidate commit, so neither needs the other's result first. A queue that runs its whole list on this machine starts both at once. Where GitHub's required checks are used, the quick checks come first and the review runs beside GitHub's checks.
 
-- A failing check ends the candidate. The review in progress is stopped, and its spend is recorded against the candidate.
+- A failing check ends the candidate. A review in progress is stopped, and its spend is recorded against the candidate.
 - A review that refuses ends the candidate the same way.
-- A candidate lands only with every declared check passed and the review approving, as now.
+- A candidate lands only with every check it owes passed and the review approving.
 
 ### 3. The next candidate is checked while the current one is still being checked, where the queue lands on a local branch
 
@@ -151,13 +160,13 @@ Between one landing and the next candidate's first check, the queue often sits w
 
 ### Combining two or three changes into one candidate: rejected for now for code
 
-Document candidates are now combined into one candidate, up to eight, as [integration through a merge queue](integration-through-a-merge-queue.md) rules. For code, checking several waiting changes as one combined candidate, and splitting it only on a failure, would cut the checks for each change the most. It is rejected for now for three reasons:
+[Integration through a merge queue](integration-through-a-merge-queue.md) rules that document candidates are combined into one candidate, up to eight. For code, checking several waiting changes as one combined candidate, and splitting it only on a failure, would cut the checks for each change the most. It is rejected for now for three reasons:
 
 - On this repository's protected main, the queue lands each code change through its own pull request. A combined candidate is a commit none of those pull requests holds, so landing it needs a path of its own.
-- A failure in a combined candidate costs a split and a second round of checks. The race check's failures, the most common kind, leave the queue under decision 1.
-- With decisions 1 and 2, the time for each code candidate is expected to fall from about 70 minutes to about the longer of `make test` and the review, roughly 20 to 30 minutes.
+- A failure in a combined candidate costs a split and a second round of checks. Under decision 1 the local race check's failures, the most common kind, leave a queue that runs its list on this machine.
+- When this was ruled, decisions 1 and 2 were expected to bring the time for each code candidate from about 70 minutes to about the longer of `make test` and the review, roughly 20 to 30 minutes.
 
-It is reconsidered from the figures that build piece 5 records, if the queue is still the limit after pieces 1, 2 and 6 land.
+It is reconsidered from the figures that build piece 5 records, if the queue is still the limit.
 
 ## What does not change
 
@@ -170,29 +179,66 @@ It is reconsidered from the figures that build piece 5 records, if the queue is 
 
 ## Build pieces
 
-1. **The queue's declared check list.**
-   - Guarantee 9's plan reads it, and it is recorded with the candidate's evidence.
-   - This repository declares format, vet and `make test`.
-   - At admission, the queue reads the approved head's race result and adds the narrowed race check where Go code changed and none passed.
-   - Case 2 of choosing checks by change takes the new condition.
-   - It takes effect here only once the run on main every four hours is running.
-   - It depends on the work on stopping the local full race check at landing (yoyodyne-ifd.428.126.6.5) and on migration item 21 of the guarantees design.
-2. **Checks and the review side by side on one candidate.** A failing check stops the review, and the review's spend is recorded.
-3. **Checking the next candidate ahead, for queues that land on a local branch.** One candidate deep. Thrown away and rebuilt when the target is not the base it was built on. Off when the queue lands through GitHub, and that is stated on status rather than left silent.
-4. **Keeping a queue candidate's result across a moved main by the analyser's answer.** No new piece: this is migration item 19 of the guarantees design, and the queue calls it.
-5. **The queue's weekly figures,** from its own records: candidates started and landed, time from admission to landing, time for each candidate, the wait from each landing to the next candidate's first check, and candidates thrown away by checking ahead. They are shown with the weekly check time figures.
-6. **The queue's own pass every minute while it waits on GitHub.** Reads GitHub only; changes go through the promotion lease as before; stops when the watch session drains or ends; records each wait for piece 5. The piece reads the queue's code first and builds only what is not already there.
+What is built was compared with the code on November 21, at commit 848d86190. The code for checking ahead and for the quick checks was read again on November 23, at commit 9cde11a1e429.
 
-Pieces 1, 2, 3 and 6 are independent of each other and can be built in any order the Lead Product Manager sets. Turning them into work items is the development manager's.
+1. **The queue's declared check list. Built.**
+   - Guarantee 9's plan reads it, and it is recorded with the candidate's evidence.
+   - A project declares it with `merge_queue_checks`, and names the queue's race check with `merge_queue_race_check`. This repository declares format, vet and `make test`.
+   - At admission, the queue reads the approved head's race result and adds the narrowed race check where Go code changed and none passed, as decision 1 says.
+   - Case 2 of choosing checks by change takes the condition in decision 1.
+   - It took effect here only once the run on main every four hours was running.
+2. **Checks and the review side by side on one candidate. Built.** A failing check stops the review, and the review's spend is recorded.
+3. **Checking the next candidate ahead, for queues that land on a local branch. Built.** One candidate deep. Thrown away and rebuilt when the target is not the base it was built on. Where the project lands through pull requests, the queue builds nothing ahead and gives the reason with its result. Status is to show that reason; whether it does was not read.
+4. **Keeping a queue candidate's result across a moved main by the analyser's answer.** No new piece: this is migration item 19 of the guarantees design, and the queue calls it. Whether that item is built was not read.
+5. **The queue's weekly figures. Not found in the code.** From the queue's own records: candidates started and landed, time from admission to landing, time for each candidate, the wait from each landing to the next candidate's first check, and candidates thrown away by checking ahead. They are to be shown with the weekly check time figures. Those figures count starts of the heavy checks today, and nothing about the queue was found beside them.
+6. **The queue's own pass every minute while it waits on GitHub.** Reads GitHub only; changes go through the promotion lease as before; stops when the watch session drains or ends; records each wait for piece 5. Whether it is built was not read. The piece reads the queue's code first and builds only what is not already there.
+
+The pieces not yet built are independent of each other and can be built in any order the Lead Product Manager sets. Turning them into work items is the development manager's.
+
+### Where GitHub's required checks are used
+
+Ruled on November 23. Where a project has checks on CI switched on, names required checks, and lands through the forge, as this repository does, a code candidate is checked as follows.
+
+- The queue runs the quick local checks that `execution.ci_checks.local` names, on the candidate. GitHub's required checks, on exactly that commit, take the place of the rest of the declared list.
+- The queue's own narrowed race check is added where the change owes one and no required check is the race check. The code recognises a required check as the race check when its name is one of the words of the queue's race command, as `race` is in `make race`. In that case GitHub runs the race check on the candidate itself, and the queue adds none.
+- The quick checks run first. The candidate is pushed for GitHub's checks only once they pass, and the review then runs beside GitHub's checks. A required check that GitHub reports failed stops the review. This order is kept: the quick checks are short, and a candidate that fails one is never pushed.
+- Where GitHub cannot settle a candidate, the entry's next candidate runs the full local checks, and nothing is charged for it.
+
+The rest of how GitHub's checks are used is in [integration through a merge queue](integration-through-a-merge-queue.md), and is not restated here.
+
+### The run on main
+
+What the run on main covers is decided under race point 4 of [one owner for each guarantee](one-owner-for-each-guarantee.md). Decision 1 says how a failure there is reported.
+
+- The single second run of the failing tests, and the warning when they pass, are built.
+- The rule that the same test failing and then passing twice within seven days files the critical report is not built. It is the work on when main's scheduled check is critical (yoyodyne-ifd.429.240).
+- Pointing this repository's run on main at the narrower set of packages is the work on the race check for the packages only macOS covers (yoyodyne-ifd.429.279), which was open on November 23.
+
+### Documents
+
+Landing several documents as one candidate is ruled in integration through a merge queue, and its build (yoyodyne-ifd.429.267) was open on November 23. Until it lands, each document is a candidate of its own.
 
 ## How a reviewer checks an implementation
+
+Where the queue runs its whole declared list on this machine:
 
 - A candidate lands only when every check on its declared list passed whole on exactly the commit that lands, and the review approved that commit.
 - A project with no declared list has its configured checks run whole in the queue.
 - A change whose Go code changed, and whose approved head has no passing race result, gets the narrowed race check in its candidate's run.
+- A failing check stops the review on the same candidate, and the review's spend is recorded.
+
+Where GitHub's required checks are used:
+
+- A code candidate lands only when the quick local checks passed, every required check passed on exactly the commit that lands, and the review approved that commit.
+- A candidate that fails a quick check is not pushed.
+- A change that owes a race check gets it on its candidate, either from a required check that is the race check or, where there is none, from the queue's own narrowed race check.
+- A required check that GitHub reports failed stops the review on the same candidate, and the review's spend is recorded.
+- A candidate GitHub cannot settle is followed by one that runs the full local checks, and nothing is charged for it.
+
+In either case:
+
 - In this repository, the race check is left off the queue's list only while the run on main every four hours is running.
 - A candidate checked ahead lands only when the target equals its recorded base. Otherwise its results are thrown away, it is rebuilt, and no repair is charged. With the queue landing through GitHub, no candidate is built ahead.
-- A failing check stops the review on the same candidate, and the review's spend is recorded.
 - While the queue waits on GitHub it passes again every minute without the watch session's round, those passes change nothing outside the promotion lease, and they stop when the watch session drains or ends.
 - The wait from each landing to the next candidate's first check is recorded and appears in the weekly figures.
 
@@ -205,15 +251,16 @@ Pieces 1, 2, 3 and 6 are independent of each other and can be built in any order
   - its entry for choosing checks under the designs it changes is brought into line.
 - **[Integration through a merge queue](integration-through-a-merge-queue.md):** the queue runs the project's declared list, runs checks and the review side by side, checks one candidate ahead only where it lands on a local branch, and passes every minute while it waits on GitHub.
 
-Until each is revised, this design decides where they differ.
+Until the first two are revised, this design decides where they differ from it, except that race point 4 of one owner for each guarantee decides what the run on main covers. Integration through a merge queue was revised after this design was first written: where the two differ about the queue's order, combining documents, or GitHub's path, that design decides.
 
 ## Alternatives rejected
 
-- **Keeping the full race check in the queue.** It is more than half of each code candidate's time, and it is the most common failure not caused by the change.
+- **Keeping the full race check in the queue's list on this machine.** It was more than half of each code candidate's time, and the most common failure not caused by the change.
 - **Running the race check on main only nightly, as proposed.** Four hours was already ruled, and it shortens the time a race found only on the combined change can sit on main.
 - **No race check before landing for a change whose developer run did not record one.** Every change with Go code changed carries a race check on its own code.
 - **Checking more than one candidate ahead.** Each further candidate multiplies the work thrown away when one fails.
 - **Checking ahead on the GitHub path anyway.** Every candidate built ahead would be thrown away, because GitHub's merge commit is never the base it was built on.
+- **Starting the review beside the quick checks on the GitHub path.** The quick checks are short, so little time is saved, and a candidate that fails one would already have spent on a review.
 - **Waiting for the watch session's next round while the queue waits on GitHub.** It adds the time to that round to every wait between candidates.
 - **Combining waiting code changes into one candidate.** See above.
 - **Keeping results when only main moved, without the analyser.** That is what the queue exists to check.
@@ -228,12 +275,15 @@ Read at main 06f384c0 for the first version:
 - one owner for each guarantee;
 - the invariants that integration requires evidence bound to the exact candidate revision, and that developers verify before submitting.
 
-This revision was written from a read of the whole design at main 3220fd777, and records three changes approved on November 10, 11 and 12: the queue's own pass while it waits on GitHub, that pass running every minute until the watch session drains or ends, and checking ahead giving nothing on the GitHub path.
+The revision of November 21 was written from a read of the whole design at main 3220fd777. It recorded three changes approved on November 10, 11 and 12: the queue's own pass while it waits on GitHub, that pass running every minute until the watch session drains or ends, and checking ahead giving nothing on the GitHub path.
 
-Not read:
+The revision of November 23 was written from a read of the whole design at main 585539c6ef62. What it says is built rests on the comparison of the code with this design made on November 21 at commit 848d86190, and on a read of the code for checking ahead and for the quick checks at commit 9cde11a1e429. The settings it names are as that comparison found them.
 
-- the queue's code;
-- the forge landing code;
+Not read for that revision:
+
+- the code behind build pieces 4 and 6;
+- whether status shows why nothing is checked ahead;
+- the rest of the queue's code, beyond what the comparison reports;
 - the race diagnosis;
 - the classification of the 44 failed race runs.
 
