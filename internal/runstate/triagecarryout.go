@@ -64,6 +64,12 @@ const (
 	// TriageGateWorkItem is the item itself not being in a state a run may start
 	// or resume on.
 	TriageGateWorkItem = "the work item's own state"
+	// TriageGateParked is the item being parked by somebody other than the run
+	// the decision answers (RerunWaitsOnParking). It is a wait rather than a
+	// refusal: nothing was claimed, the decision stands, and the harness carries
+	// it out by itself once the item is unparked. Who moves next is whoever
+	// parked it, never the harness and never the development manager.
+	TriageGateParked = triage.ParkedGate
 	// TriageGateHarness is everything else: a record that would not be read, a
 	// stoppage that is not over, a store that refused a write. The refusal's own
 	// words are what a reader acts on here.
@@ -92,8 +98,15 @@ func TriageGateVocabulary() []string {
 	return []string{
 		TriageGateSpendingPause, TriageGateIntakeHold, TriageGateDirective,
 		TriageGateCapacity, TriageGateBudget, TriageGatePreservedWork,
-		TriageGateWorkItem, TriageGateHarness,
+		TriageGateWorkItem, TriageGateParked, TriageGateHarness,
 	}
+}
+
+// WaitsOnParking reports a finding that says the decision is waiting for its
+// item to be unparked. It is neither a refusal nor a decision no pass reached:
+// the pass looked, found the item parked, and left the decision standing.
+func (t TriageCarryOut) WaitsOnParking() bool {
+	return t.Gate == TriageGateParked && t.Cause == ""
 }
 
 // The bounds one carry-out record is held to. The refusal is a gate's own words
@@ -275,6 +288,11 @@ func (t TriageCarryOut) Describe() string {
 			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339),
 			strings.TrimSpace(t.Refusal), strings.TrimSpace(t.Clears))
 	}
+	if t.WaitsOnParking() {
+		return fmt.Sprintf("the %q decided about the stoppage of run %s waits for the item to be unparked, as found at %s: %s. What clears it: %s",
+			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339),
+			strings.TrimSpace(t.Refusal), strings.TrimSpace(t.Clears))
+	}
 	if t.Unattempted {
 		return fmt.Sprintf("the %q decided about the stoppage of run %s has not been attempted by any pass, as of %s, held back by %s: %s. What clears it: %s",
 			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339), t.Gate,
@@ -356,7 +374,9 @@ func (c TriageCounters) NoLongerApplies(runID string) (TriageCarryOut, bool) {
 // decision and says so.
 func (c TriageCounters) CarryOutFindings() (refused, unattempted int) {
 	for _, finding := range c.CarryOuts {
-		if finding.Cause == triage.CarryOutNoLongerApplies {
+		// A decision waiting for its item to be unparked is neither refused nor
+		// passed over: the pass looked and the parking holds it.
+		if finding.Cause == triage.CarryOutNoLongerApplies || finding.WaitsOnParking() {
 			continue
 		}
 		decision, found := c.DecisionOf(finding.RunID)

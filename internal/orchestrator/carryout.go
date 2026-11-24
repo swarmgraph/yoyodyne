@@ -572,6 +572,24 @@ func (c CarryOut) read() (carryOutReading, error) {
 				return
 			}
 		}
+		// A re-run of an item somebody else parked is not offered: it would take a
+		// developer slot only to find the parking, on every pass for as long as the
+		// item stays parked. It is held back with the parking named, and the first
+		// sweep after the item is unparked offers it.
+		if task.Decision == runstate.TriageDecisionRerun {
+			if item, read := itemOf(context.Background(), entry.WorkItemID); read {
+				if parkedBy, waits := runstate.RerunWaitsOnParking(item, entry.RunID); waits {
+					parked := ItemParked{By: parkedBy, Reason: item.Parking.Reason()}
+					reading.held = append(reading.held, heldDecision{
+						task:   task,
+						gate:   runstate.TriageGateParked,
+						why:    parked.Says(entry.WorkItemID),
+						clears: unparkingClears(parked),
+					})
+					return
+				}
+			}
+		}
 		if task.Recover {
 			held, err := c.Runs.Held(task.RunID)
 			if err != nil {
@@ -791,7 +809,7 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	}
 	for _, held := range candidates {
 		task := held.task
-		if task.Decision == "repair" || task.Decision == "rerun" {
+		if (task.Decision == "repair" || task.Decision == "rerun") && held.gate != runstate.TriageGateParked {
 			if err := recordSchedulingWait(ctx, c.Notes, task.WorkItemID, runstate.PassedOverAwaitingCarryOut, carryOutWaitReason(ctx, c.Notes, held.why), now); err != nil {
 				problems = append(problems, err)
 			}
@@ -817,7 +835,10 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 			}
 			continue
 		}
-		if harnessOwnTask(task.Decision) || task.DecidedAt.IsZero() || now.Sub(task.DecidedAt) < poll {
+		// A decision held for its item's parking is written down at once rather
+		// than after the grace interval: until it is, every surface reads the
+		// decision as the harness's to carry out, which it is not.
+		if harnessOwnTask(task.Decision) || task.DecidedAt.IsZero() || (now.Sub(task.DecidedAt) < poll && held.gate != runstate.TriageGateParked) {
 			continue
 		}
 		record, seen := counters[task.WorkItemID]
@@ -830,7 +851,12 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 			counters[task.WorkItemID], record = read, read
 		}
 		if standing, found := record.CarryOutOf(task.RunID); found && !standing.RefusedAt.Before(task.DecidedAt) {
-			if !standing.Unattempted || (standing.Gate == held.gate && standing.Refusal == strings.TrimSpace(held.why)) {
+			// An attempt already made is left to stand, except across a parking: a
+			// parked item is never attempted, so no later attempt replaces what an
+			// earlier one was told, and a released one held back for something else
+			// must stop naming whoever had parked it. A permanent refusal stands.
+			parking := standing.Cause == "" && (standing.WaitsOnParking() || held.gate == runstate.TriageGateParked)
+			if (!standing.Unattempted && !parking) || (standing.Gate == held.gate && standing.Refusal == strings.TrimSpace(held.why)) {
 				continue
 			}
 		}
@@ -1283,6 +1309,9 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
 			capacityWaitSays(*result.CapacityFull),
 			"a developer slot freeing, which needs nobody; nothing was claimed, so the stoppage keeps its re-run"), Outcome{}, nil
+	case result.ItemParked != nil:
+		return c.stopped(ctx, task, carried, runstate.TriageGateParked, true,
+			result.ItemParked.Says(task.WorkItemID), unparkingClears(*result.ItemParked)), Outcome{}, nil
 	case result.PausedBeforeStarting != nil:
 		gate, clears, waiting := pausedGate(*result.PausedBeforeStarting)
 		return c.stopped(ctx, task, carried, gate, waiting,
@@ -1476,6 +1505,12 @@ func (c CarryOut) continueStall(ctx context.Context, task CarryOutTask, carried 
 	carried.Carried = true
 	carried.Reason = result.Reason
 	return carried, result.Outcome, runErr
+}
+
+// unparkingClears is what clears a re-run waiting for its item to be unparked.
+func unparkingClears(parked ItemParked) string {
+	return fmt.Sprintf("%s releasing the item from parking, or anybody whose role may unpark it; nothing was claimed, so the stoppage keeps its re-run, and the first pass after the release carries it out with nobody deciding it again",
+		parked.By)
 }
 
 // pausedGate names the pause a fresh run met, what lifts it, and whether it is
@@ -1718,8 +1753,12 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 		carried.Problem = fmt.Sprintf("the harness's own re-arm of the merge of run %s, withdrawn for its target's red check, %s %s: %s. What clears it: %s",
 			task.RunID, held, gate, strings.TrimSpace(refusal), strings.TrimSpace(clears))
 	}
-	if err := recordSchedulingWait(ctx, c.Notes, task.WorkItemID, runstate.PassedOverAwaitingCarryOut, carryOutWaitReason(ctx, c.Notes, carried.Problem), c.now()); err != nil {
-		carried.RecordProblem = fmt.Sprintf("record the scheduling wait: %v", err)
+	// A parked item is passed over for its parking, which the item already says,
+	// rather than for a carry-out the harness owes.
+	if gate != runstate.TriageGateParked {
+		if err := recordSchedulingWait(ctx, c.Notes, task.WorkItemID, runstate.PassedOverAwaitingCarryOut, carryOutWaitReason(ctx, c.Notes, carried.Problem), c.now()); err != nil {
+			carried.RecordProblem = fmt.Sprintf("record the scheduling wait: %v", err)
+		}
 	}
 	write, stopWriting := recordContext(ctx)
 	defer stopWriting()
