@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-23T21:42:54.578566Z
       reason: 'Part of the review of every design against the code: brings the command line constructors into line with internal/cli/run.go at main 4e6572cd. Corrects the counts of stores and forge clients, names withTrackerRecords in place of the function that is gone, adds the intent repository''s worktree manager, the merge queue driver, the routed reviewer and team spending, says the state marker and first binding are what a first start asks for, and lists what was not read.'
+    - action: amended
+      by: architect
+      at: 2026-11-24T01:36:44.111179Z
+      reason: 'Part of the review of every design against the code: adds the repair decided from feedback on a pull request whose run has ended to the things that look like continuations and are not, with what it uses, how its slot is taken, and the early read of free slots it still has to lose. Nothing else in the section changes. Written from main 59deff3d.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -70,6 +74,11 @@ approvals:
       by: harness
       at: 2026-11-23T21:42:54.578566Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3700, for document-3700.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-24T01:36:44.111179Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3799, for document-3799.1 under the automatic approval policy
 ---
 # How internal/orchestrator is split, one admitted change at a time
 
@@ -169,10 +178,11 @@ What stays separate on each path, as its own function and never as a flag:
 
 Each path composes the operations in a function of its own. There is no single continue function that takes a mode, because a mode hides which path a fix changes, which is how fixes came to be copied by hand.
 
-Two things that look like continuations stay off these operations:
+Three things that look like continuations stay off these operations, except for what each names:
 
 - **A run paused on unfinished work** (`schedulecontinue.go`). It is paused, not stopped, has no entry on the development manager's list, and keeps its own slot rules. It takes its slot through the same reservation as operation 4 and uses the check for a request to stop the run, and stays with the watch loop.
 - **A run adopted again after a new build** (`redeploydrain.go`, through `Pipeline.Run`). It uses only the function that chooses where a run resumes.
+- **A repair decided from feedback on a pull request whose run has ended** (`teamfeedbackrepair.go`, read at 59deff3d). It starts a new run, and the earlier run stays ended. The development manager's decision is kept on the earlier run's record, under the pull request and the feedback it answers. The new run starts from the target branch, or, where the harness opened the request for a person to merge, from the change the earlier run kept on the request's branch. Of the operations it uses only operation 2. The new run's own reservation takes the slot, and where the run is refused before it starts the decision is given back and stands. The scheduler finds these repairs through `Owed`, which leaves the slot to the scheduler, and starts one through `CarryTask`. `CarryOut` still reads `slotIsFree` before it starts the run; that read goes in the first change that touches it. The file stays in `internal/orchestrator`.
 
 ## The first move
 
