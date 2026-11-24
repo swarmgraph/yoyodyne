@@ -562,6 +562,7 @@ type ChangeSummary struct {
 }
 
 // Default bounds for the unified change representation handed to a reviewer.
+// A project may set the first three inside ReviewLimitBounds (reviewlimits.go).
 const (
 	DefaultMaxDiffBytes     = 256 << 10
 	DefaultMaxDiffFileBytes = 64 << 10

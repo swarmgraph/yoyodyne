@@ -155,8 +155,11 @@ has the details.
 **The review bound is measured before the checks.** Straight after that gate,
 a run the harness will integrate itself renders its committed change the way
 the reviewer's copy is rendered and measures it against the review bound
-the patch is held to further down this page — 256 KiB for the whole patch, 64 KiB for one uncommitted new file, 200 new files. The developer is
-told these limits when its run starts, beside what it must verify before
+the patch is held to further down this page — the project's `review_limits`,
+by default 256 KiB for the whole patch, 64 KiB for one uncommitted new file, 200
+new files. The check and the reviewer's copy read the same values, so what the
+check lets through is what the reviewer is shown. The developer is told these
+limits when its run starts, beside what it must verify before
 handing the change over. A change whose source or test files that bound would
 keep out of the reviewer's copy could never be approved, since a source or test
 file the patch does not show refuses an approval. So it is not checked and not
@@ -370,6 +373,11 @@ file that is not a readable regular file is named with neither size, because
 there is nothing to measure. A reviewer that cannot tell a file the change delivers from
 one it never wrote judges the delivery blind, and an absence it is told about is
 one it can hold the change to.
+
+The three limits are the project's to set, inside bounds held in code, and
+[configuration](configuration.md#how-large-a-change-the-reviewer-is-shown) says
+how. They are never one run's: a change to them applies to runs that start
+after it lands.
 
 **A removal is described rather than rendered, and is not held to the bound.**
 A file the change deletes whole is never shown as the diff removing it, which is

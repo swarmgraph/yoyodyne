@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -269,10 +270,10 @@ func TestADeveloperInvocationRetainsTheLatestAccountUntilItsReplacement(t *testi
 
 func TestTheDeveloperIsToldEachAttemptsSummaryStandsOnItsOwn(t *testing.T) {
 	t.Parallel()
-	if !strings.Contains(developerContract(scratchForTest, nil), "Each attempt's summary stands on its own.") {
+	if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), "Each attempt's summary stands on its own.") {
 		t.Fatal("the developer contract does not say each attempt's summary stands on its own")
 	}
-	repair, err := repairPrompt("", "", scratchForTest, nil, []runstate.Finding{{Severity: "major", Message: "fix"}}, 1, 3)
+	repair, err := repairPrompt("", "", scratchForTest, nil, gitworktree.DiffLimits{}, []runstate.Finding{{Severity: "major", Message: "fix"}}, 1, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +397,7 @@ func TestReviewIsToldTheHarnessCutASummaryPastTheBound(t *testing.T) {
 // record keeps it to.
 func TestTheDeveloperIsToldTheSizeItsSummaryIsKeptTo(t *testing.T) {
 	t.Parallel()
-	contract := developerContract(scratchForTest, nil)
+	contract := developerContract(scratchForTest, nil, gitworktree.DiffLimits{})
 	if want := fmt.Sprintf("keeps at most %d KiB of your final summary", runstate.MaxDeveloperSummaryBytes>>10); !strings.Contains(contract, want) {
 		t.Fatalf("the developer contract does not say %q", want)
 	}

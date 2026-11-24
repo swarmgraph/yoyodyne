@@ -1174,7 +1174,7 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 	if err != nil {
 		return generation, false, fmt.Errorf("read work item %s for the candidate's review: %w", entry.WorkItemID, err)
 	}
-	change, err := w.Candidates.CandidateChanges(ctx, generation.TargetBase, generation.Candidate, gitworktree.DiffLimits{})
+	change, err := w.Candidates.CandidateChanges(ctx, generation.TargetBase, generation.Candidate, p.reviewDiffLimits())
 	if err != nil {
 		return generation, false, fmt.Errorf("describe generation %d's candidate: %w", generation.Number, err)
 	}

@@ -239,7 +239,7 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 		_, failure := run.fail(err, failureStatus(ctx, err))
 		return result, failure
 	}
-	prompt := withInstallSection(teamConflictPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), run.context, run.scratch, p.Config.Checks, request, worktree.BaseCommit, paths), p.Config.Install)
+	prompt := withInstallSection(teamConflictPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), run.context, run.scratch, p.Config.Checks, p.reviewDiffLimits(), request, worktree.BaseCommit, paths), p.Config.Install)
 	if err := run.develop(ctx, prompt, ""); err != nil {
 		_, failure := run.stop(ctx, err)
 		return result, failure
@@ -263,9 +263,9 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 
 // teamConflictPrompt is what the developer is told: the open merge, the files
 // it conflicts in, and what to leave.
-func teamConflictPrompt(persona, invariants, bundle, scratchDirectory string, checks []string, request TeamBranchConflictRequest, base string, paths []string) string {
+func teamConflictPrompt(persona, invariants, bundle, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, request TeamBranchConflictRequest, base string, paths []string) string {
 	var prompt strings.Builder
-	prompt.WriteString(developerContract(scratchDirectory, checks))
+	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(personaSection(persona))
 	prompt.WriteString(deliveredInvariantSection(invariants))

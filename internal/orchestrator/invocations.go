@@ -48,7 +48,7 @@ func (a *activeRun) developerPromptParts(prompt string) []backend.SentPart {
 		personaSource += ", persona version " + developer.Persona.Version
 	}
 	known := []backend.SentPart{
-		{Name: "developer contract", Origin: backend.OriginHarnessBuild(), Text: developerContract(a.scratch, checks)},
+		{Name: "developer contract", Origin: backend.OriginHarnessBuild(), Text: developerContract(a.scratch, checks, p.reviewDiffLimits())},
 		{Name: "persona", Origin: personaSource, Text: personaSection(developer.Persona.Text)},
 		{Name: "architectural invariants", Origin: backend.OriginRepositoryFile("docs/decisions/invariants", a.worktreeCommit()), Text: invariants},
 		{Name: "work item and its notes", Origin: backend.OriginTrackerItem(a.item.ID, a.state.StartedAt), Text: liftSection(a.state) + a.context},

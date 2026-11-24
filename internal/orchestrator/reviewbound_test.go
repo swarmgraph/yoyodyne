@@ -9,6 +9,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -147,7 +148,7 @@ func TestAResumedRunIsHandedTheReviewBoundRefusalAgain(t *testing.T) {
 	state := runstate.State{RepairAttempts: 1, ReviewBoundRefusal: &runstate.ReviewBoundRefusal{
 		Files: []string{"internal/big/big.go, source, 307200 bytes, diff 307300 bytes, over the whole 262144-byte patch bound"}, Omitted: 3,
 	}}
-	prompt, err := resumedDeveloperPrompt(state, "", "", "", t.TempDir(), nil, protectedpath.Set{}, 2)
+	prompt, err := resumedDeveloperPrompt(state, "", "", "", t.TempDir(), nil, gitworktree.DiffLimits{}, protectedpath.Set{}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,5 +184,79 @@ func TestAChangeWhoseOnlyOverBoundFilesAreTestDataIsCheckedAndReviewed(t *testin
 	}
 	if reviewers := len(provider.RequestsForRole(domain.RoleReviewer)); reviewers != 1 {
 		t.Fatalf("reviewer invocations = %d, want one", reviewers)
+	}
+}
+
+// The project's review_limits are what the size check measures against: a
+// change inside the default limit is stopped once the project lowers it, and the
+// refusal names the project's limit rather than the default.
+func TestTheSizeCheckMeasuresAgainstTheProjectsReviewLimits(t *testing.T) {
+	t.Parallel()
+
+	tracker := newOutcomeTracker()
+	provider := orchestratortest.RoleBackend(writeNewFile("internal/big/big.go", 100<<10), approveVerdict)
+	marker := filepath.Join(t.TempDir(), "checked")
+	pipeline, store := newAutomaticPipeline(t, pipelineRepository(t), tracker, provider, []string{"touch '" + marker + "'"})
+	pipeline.Config.ReviewLimits.DiffKiB = 64
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err == nil || !strings.Contains(err.Error(), "over the whole 65536-byte patch bound") {
+		t.Fatalf("Run() error = %v, want the 100 KiB file stopped against the project's 64 KiB limit", err)
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("a check ran on a change over the project's limit (stat error = %v)", statErr)
+	}
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopReviewBound)
+}
+
+// The reviewer's copy is rendered under the same limits the size check used: a
+// fixture the project's lowered limit keeps out is kept out of what the reviewer
+// is shown too, though the default limit would have shown it whole.
+func TestTheReviewersCopyIsRenderedUnderTheProjectsReviewLimits(t *testing.T) {
+	t.Parallel()
+
+	tracker := newOutcomeTracker()
+	const fixture = "internal/big/testdata/render.golden"
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if err := writeFeature(request); err != nil {
+			return err
+		}
+		return writeNewFile(fixture, 100<<10)(request)
+	}, `{"decision":"approve","approves":"implementation","summary":"sound","fixtures":["`+fixture+`"]}`)
+	pipeline, _ := newAutomaticPipeline(t, pipelineRepository(t), tracker, provider, []string{"true"})
+	pipeline.Config.ReviewLimits.DiffKiB = 64
+
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err != nil {
+		t.Fatalf("Run() error = %v, want omitted test data reviewed as before", err)
+	}
+	reviews := provider.RequestsForRole(domain.RoleReviewer)
+	if len(reviews) != 1 {
+		t.Fatalf("reviewer invocations = %d, want one", len(reviews))
+	}
+	if prompt := reviews[0].Prompt; len(prompt) >= 100<<10 || !strings.Contains(prompt, fixture) {
+		t.Fatalf("the reviewer was shown %d bytes; want the %s fixture named but kept out under the project's 64 KiB limit", len(prompt), fixture)
+	}
+}
+
+// The developer is told the limits the project sets, which are the ones the size
+// check compares, rather than the defaults.
+func TestTheDeveloperIsToldTheProjectsReviewLimits(t *testing.T) {
+	t.Parallel()
+
+	tracker := newOutcomeTracker()
+	provider := orchestratortest.RoleBackend(writeFeature, approveVerdict)
+	pipeline, _ := newAutomaticPipeline(t, pipelineRepository(t), tracker, provider, []string{"true"})
+	pipeline.Config.ReviewLimits = gitworktree.ReviewLimits{DiffKiB: 128, FileKiB: 96, Files: 300}
+
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	developers := provider.RequestsForRole(domain.RoleDeveloper)
+	if len(developers) == 0 {
+		t.Fatal("no developer was invoked")
+	}
+	want := "The limits are: 128 KiB of diff for the whole change; 96 KiB for one new file; and 300 new files."
+	if !strings.Contains(developers[0].Prompt, want) {
+		t.Fatalf("the developer's contract does not state the project's limits; want it to say %q", want)
 	}
 }

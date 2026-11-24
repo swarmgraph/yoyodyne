@@ -9,6 +9,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
@@ -37,10 +38,10 @@ func TestTheDeveloperContractNamesEveryPathBeyondAGrant(t *testing.T) {
 	t.Parallel()
 
 	for _, entry := range protectedpath.ProviderPaths {
-		if !strings.Contains(developerContract(scratchForTest, nil), entry.Path) {
+		if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), entry.Path) {
 			t.Fatalf("the developer contract never names %q, which no grant reaches", entry.Path)
 		}
-		if !strings.Contains(developerContract(scratchForTest, nil), entry.Provider) {
+		if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), entry.Provider) {
 			t.Fatalf("the developer contract never names %q, which is what refuses %q", entry.Provider, entry.Path)
 		}
 	}
@@ -52,7 +53,7 @@ func TestTheDeveloperContractNamesEveryPathBeyondAGrant(t *testing.T) {
 func TestTheDeveloperContractNamesTheRoleDefinitionsAsBeyondAGrant(t *testing.T) {
 	t.Parallel()
 
-	if !strings.Contains(developerContract(scratchForTest, nil), protectedpath.RoleDefinitions+"/") {
+	if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), protectedpath.RoleDefinitions+"/") {
 		t.Fatalf("the developer contract never names %q, which no grant reaches", protectedpath.RoleDefinitions)
 	}
 }
@@ -109,15 +110,15 @@ func TestAGrantInTheItemsNotesDoesNotAdmitAPath(t *testing.T) {
 func TestTheDeveloperContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
 	t.Parallel()
 
-	if !strings.Contains(developerContract(scratchForTest, nil), terms.DecideAndReport) {
+	if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), terms.DecideAndReport) {
 		t.Fatal("the developer contract does not carry the rule against routing approvals to the operator")
 	}
 	// What only a person can act on is named by a reason on the operator's
 	// closed list, and the developer is told every reason the resolver takes.
-	if !strings.Contains(developerContract(scratchForTest, nil), ownership.OperatorReasonsInContract) {
+	if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), ownership.OperatorReasonsInContract) {
 		t.Fatal("the developer contract does not name the operator's closed list of reasons")
 	}
-	for _, short := range ownership.ShortReasonLists(developerContract(scratchForTest, nil)) {
+	for _, short := range ownership.ShortReasonLists(developerContract(scratchForTest, nil, gitworktree.DiffLimits{})) {
 		t.Errorf("the developer contract gives a shorter list of the operator's reasons than the resolver accepts:\n%s", short)
 	}
 }
@@ -125,10 +126,10 @@ func TestTheDeveloperContractDecidesAndReportsRatherThanRoutingApprovals(t *test
 func TestTheDeveloperContractAppliesStandingGoals(t *testing.T) {
 	t.Parallel()
 
-	if !strings.Contains(developerContract(scratchForTest, nil), terms.StandingGoals) {
+	if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), terms.StandingGoals) {
 		t.Fatal("the developer run contract does not apply standing goals to its own output and decisions")
 	}
-	if !strings.Contains(developerContract(scratchForTest, nil), terms.PersonWriting) {
+	if !strings.Contains(developerContract(scratchForTest, nil, gitworktree.DiffLimits{}), terms.PersonWriting) {
 		t.Fatal("the developer run contract does not hold what it writes for a person to ordinary words and local time")
 	}
 }

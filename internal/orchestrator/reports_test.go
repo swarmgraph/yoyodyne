@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -226,8 +227,8 @@ func TestTheDeveloperContractSaysWhatMeritsAReport(t *testing.T) {
 	// cannot weaken it, and it is repeated on a repair attempt for the same
 	// reason the rest of the contract is.
 	for name, prompt := range map[string]string{
-		"first attempt": developerPrompt("", "", "# Assigned work item\n", "/scratch", nil),
-		"check repair":  checkRepairPrompt("", "/scratch", nil, runstate.CheckFailure{Command: "go test ./...", ExitCode: 1}, 1, 2),
+		"first attempt": developerPrompt("", "", "# Assigned work item\n", "/scratch", nil, gitworktree.DiffLimits{}),
+		"check repair":  checkRepairPrompt("", "/scratch", nil, gitworktree.DiffLimits{}, runstate.CheckFailure{Command: "go test ./...", ExitCode: 1}, 1, 2),
 	} {
 		for _, required := range []string{report.Fence, "A report is not a blocker", "Most replies carry no report at all."} {
 			if !strings.Contains(prompt, required) {
