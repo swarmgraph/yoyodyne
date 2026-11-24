@@ -5654,7 +5654,9 @@ and the pull request are told that a developer resolved the conflicts, by which
 run and in which files, and are asked to judge those resolutions closely. The
 run records the development manager as the one who chose it, with her reason, the
 conversation and the round, and it starts nothing while the operator's hold on
-the work the harness chooses stands; the round is not spent in that case.
+the work the harness chooses stands, or while the item is outside
+[the epics you named](operations.md#which-epics-the-factory-works-on); the round
+is not spent in either case, and the decision stands.
 
 **Three rounds, kept beside the update.** The runs decided on for one update are
 limited to three (the update's own record counts the rounds, and `yoyo status`
@@ -8423,7 +8425,12 @@ rather than only the packages the file sits in, so what passes is what the
 merge step needs. Where the record's `license_file` has a record of its own and
 the target branch does not hold it yet, the same run fetches and lands the
 license too, so the file's checks see the license beside it, and the license's
-record does not start a run of its own meanwhile. While the license's record is
+record does not start a run of its own meanwhile. While the factory works only
+on [the epics you named](operations.md#which-epics-the-factory-works-on), a
+record whose `for` is outside them is passed over, with nothing fetched, counted
+or reported, and a later record is brought in instead; a license brought in with
+a file is judged by that file's record, and by its own where that file is passed
+over. A run already in flight carries on. While the license's record is
 stopped or waiting, the file waits with it, and the other way round. It merges
 through its pull request, and through the merge queue when
 `execution.merge_queue` is on, like any approved change. Where the queue's combined change fails its checks or its
