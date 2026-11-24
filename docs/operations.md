@@ -6355,7 +6355,14 @@ has the rule.
   `.yoyodyne/config.yaml` (`operational-configuration`, until
   yoyodyne-ifd.434.8's build lands), a document a role wrote from a
   conversation whose kind's approval setting asks for a person
-  (`document-confirmation`, until yoyodyne-ifd.433.21). A raise of an item's
+  (`document-confirmation`, until yoyodyne-ifd.433.21), and a document a role
+  finished and the harness confirmed that waits only for a person to put it in
+  a repository the harness cannot reach, such as a companion intent repository
+  missing from its configured path (`document-placement`; no item is admitted
+  to close it). That last entry names the document, the item it answers, the
+  repository and file it goes to, and how long it has waited; the item it
+  answers is not listed as waiting on the architect's design meanwhile, and the
+  entry clears by itself once the document's conversation finds it there. A raise of an item's
   cap once the development manager has used her own five is not among them:
   the Lead Product Manager grants it, and it waits under her name. An entry whose
   hand names no item is also told to the Lead Product
@@ -6441,12 +6448,18 @@ has the rule.
   it.
 
 A `document-approval` entry is a document a role wrote in a conversation that
-has not been confirmed yet: which document, whether it is new or a revision,
+either has not been confirmed yet or is confirmed and waits only for a person to
+put it in place: which document, whether it is new or a revision,
 which role wrote it in which conversation, and since when. One the harness
 confirms by itself — under its kind's approval setting, or as the Lead Product
 Manager's change consistent with intent — is listed under **Waiting on the
 harness** as `document waiting to be published`. It needs nobody's approval,
-names no command, and leaves the line once it is sent to be published. Every
+names no command, and leaves the line once it is sent to be published. One
+already confirmed that a person has to put in a repository the harness cannot
+reach is labelled `document waiting to be put in place` and listed under **A
+role's decision that needs your hand**. There is nothing to approve or decline:
+the entry says the repository and file it goes to and how long it has waited,
+and it leaves the line once its conversation finds it there. Every
 other entry waits for your approval. One of those stating
 the product's intent — the brief, the goals and non-goals, the operating
 rules — is under **Waiting on the operator**, for a change of fundamental
@@ -6521,7 +6534,7 @@ they are not the labels a person reads:
 | `check-could-not-run` | check not running |
 | `heavy-check-kept` | check place kept |
 | `blocked-on-a-human` | blocked on a human |
-| `document-approval` | document waiting for approval, or document waiting to be published where the harness confirms it by itself |
+| `document-approval` | document waiting for approval, document waiting to be published where the harness confirms it by itself, or document waiting to be put in place where it is confirmed and a person has to put it in a repository the harness cannot reach |
 | `unreadable-run` | unreadable run |
 | `merge-queue-overdue` | merge queue not moving |
 | `concern` | question waiting for your answer |
@@ -6532,7 +6545,9 @@ Every decision put to you — a `document-approval`, an `amendment` that is
 yours or needs your hand, and a `concern` — is printed with what you need to
 decide it from the line alone, under the entry, one part to a line, on
 `yoyo status` (the summary and the four lines), in the channel's answer, and on
-the dashboard:
+the dashboard. A document waiting to be put in place is not a decision, so none
+of these lines is printed for it; the summary's line for it names the document,
+the repository and file it goes to, and how long it has waited:
 
 ```text
 document document-4803.1, a revision of milestone-goals ("Milestone goals") written by the Lead Product Manager in conversation chat-…, waits for the operator's approval, since … — the operator's — …
@@ -6603,7 +6618,7 @@ your hand**, never under **Yours to decide**.
 | `untraced-pass` | the role whose pass it was |
 | `capacity-degraded` | nobody's |
 | `blocked-on-a-human` | yours for the closed-list reason the program manager gave; otherwise the Lead Product Manager's to correct |
-| `document-approval` | the harness for a document it confirms by itself under its kind's approval setting, or as the Lead Product Manager's change consistent with intent, until it sends it to be published, labelled `document waiting to be published`; yours for any other document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
+| `document-approval` | the harness for a document it confirms by itself under its kind's approval setting, or as the Lead Product Manager's change consistent with intent, until it sends it to be published, labelled `document waiting to be published`; the owning role's, with your hand, for one already confirmed that a person has to put in place, whatever its kind; yours for any other document stating the product's intent (`fundamental-intent`); otherwise the owning role's, with your hand |
 | `concern` | yours (`fundamental-intent`), whichever role raised it |
 
 A role records a decision that needs your hand with `hand` in place of a
@@ -8782,7 +8797,8 @@ mover is you, opened into the records they carry. Today there are three kinds:
   kind's approval setting asks for a person stays on the line as its owning
   role's, and is not on the page's list; a document confirmed for publication
   or held for sending is not waiting on anybody's approval, so it is on
-  neither. Nor is a revision the harness holds back while another copy of the
+  neither, except that one confirmed and waiting for a person to put it in place
+  is on the line. Nor is a revision the harness holds back while another copy of the
   same document is still being published: it is confirmed, or put to you,
   once that copy lands or is handed back, and a revision the Lead Product
   Manager marked consistent with intent is then approved as hers. Where one of

@@ -2617,7 +2617,13 @@ var standingWarningAgeSeconds = 5 * 60;
         add("Written by agent", waiting.agent, "card-field-id");
         add("Conversation", waiting.conversation_id, "card-field-id");
         add("Why", waiting.reason, "card-field-prose");
-        add("Waiting since", named(waiting.written_at) ? dayAndClock(waiting.written_at) : "not recorded");
+        if (waiting.placement) {
+          // Already confirmed: what is left is a person putting it there.
+          add("Goes to repository", waiting.placement.repository, "card-field-id");
+          add("Goes to file", waiting.placement.path, "card-field-id");
+        }
+        var waitingSince = waiting.placement ? waiting.placement.since : waiting.written_at;
+        add("Waiting since", named(waitingSince) ? dayAndClock(waitingSince) : "not recorded");
         add("Id", waiting.write_id, "card-field-id");
         break;
       case "blocked-on-a-human":

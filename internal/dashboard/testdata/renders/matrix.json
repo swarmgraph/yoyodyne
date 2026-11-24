@@ -1409,6 +1409,25 @@
       "decide": "closed"
     }
   },
+  "attention-placement": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "factory": "ready",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "ready",
+      "card": "ready",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "attention-carried-item-card": {
     "page": "ready",
     "sections": {

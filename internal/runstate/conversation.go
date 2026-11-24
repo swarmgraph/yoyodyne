@@ -575,6 +575,12 @@ type PendingWrite struct {
 	// MaxHandedBackReasonBytes.
 	ReturnsHold      *DocumentReturnsHold `json:"returns_hold,omitempty"`
 	ReturnedFindings string               `json:"returned_findings,omitempty"`
+	// AwaitsPlacement says a confirmed document is finished and waits only for a
+	// person to put it in the repository it is kept in, because the harness
+	// cannot reach that repository to land it (DocumentPlacementError). It is
+	// cleared once a run can carry the document, and the write leaves this record
+	// once the document is found in place.
+	AwaitsPlacement *DocumentPlacement `json:"awaits_placement,omitempty"`
 }
 
 // AwaitsDecision reports a document that waits for somebody's approval: not
@@ -584,6 +590,31 @@ type PendingWrite struct {
 func (w PendingWrite) AwaitsDecision() bool {
 	return w.Publication == nil && w.ReturnsHold == nil && !w.Held() && strings.TrimSpace(w.WaitsBehind) == ""
 }
+
+// DocumentPlacement is where a finished document has to be put by a person, and
+// since when it has waited for that.
+type DocumentPlacement struct {
+	// Repository is the repository the document goes in, as its configured path.
+	Repository string `json:"repository"`
+	// Path is the file the document goes to, relative to that repository.
+	Path string `json:"path"`
+	// Since is when the harness first found it could not land the document.
+	Since time.Time `json:"since"`
+}
+
+// DocumentPlacementError is a publication that cannot start because the
+// harness cannot reach the repository the document is kept in: the document is
+// finished and confirmed, and what is left is a person putting it at Path in
+// Repository. Err says why the harness cannot reach it.
+type DocumentPlacementError struct {
+	Repository string
+	Path       string
+	Err        error
+}
+
+func (e *DocumentPlacementError) Error() string { return e.Err.Error() }
+
+func (e *DocumentPlacementError) Unwrap() error { return e.Err }
 
 // HandedBackDocument is one revision a reviewed run handed back to its author
 // without landing it — refused by the independent review, failing a check, or
