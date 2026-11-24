@@ -78,6 +78,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return runDirective(args[1:], stdout, stderr)
 	case "intervention":
 		return runIntervention(args[1:], stdout, stderr)
+	case "epic":
+		return runEpic(ctx, args[1:], stdout, stderr)
 	case "exchange":
 		return runExchange(ctx, args[1:], stdout, stderr)
 	case "reports":
@@ -940,6 +942,7 @@ Commands:
   invariant         record, amend, retire, and read architectural invariants
   directive         record, resolve, and read durable user directives
   intervention      read the operator's hand steps, and record one taken outside the harness
+  epic              name the epics the factory works only on, and read or end them
   exchange          read what the roles have asked each other, and what it cost
   reports           read what agents reported without it stopping their work
   sweeps            read what the recurring tasks found on their own schedule

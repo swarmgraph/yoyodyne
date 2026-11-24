@@ -17,7 +17,7 @@ const packagePath = "github.com/mason-bryant/yoyodyne/internal/epicscope"
 // operatorCommands is every file outside this package that may open the record
 // for writing. Each is a command the operator runs; a role's block, a
 // conversation and the scheduler are never among them.
-var operatorCommands = map[string]bool{}
+var operatorCommands = map[string]bool{"internal/cli/epic.go": true}
 
 // TestOnlyAnOperatorsCommandWritesTheRecord reads every Go file of the module
 // outside this package, tests aside, and fails on one that names the file, or
