@@ -71,6 +71,9 @@ type Epics struct {
 	// Refused is each start that was refused and not made since, one for each
 	// item and way of starting it.
 	Refused []maystart.RefusedItem `json:"refused,omitempty"`
+	// RefusedDocuments is each document whose run was refused and has not started
+	// since.
+	RefusedDocuments []maystart.RefusedDocument `json:"refused_documents,omitempty"`
 	// Problems is each problem in full, one line each: the runs that stopped,
 	// then the members that wait, then the starts that were refused.
 	Problems []string `json:"problems,omitempty"`
@@ -207,10 +210,21 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	return epics
 }
 
-// refuse says each refused start, one line for each item. The run that stopped
+// refuse says each refused start, one line for each document and item. The run that stopped
 // is already said, and an item that is running, is finished or has joined since
 // was not left unstarted.
 func (e *Epics) refuse(facts epicFacts, refusals maystart.Refusals, stopped map[string]bool) {
+	says := map[maystart.Path]string{}
+	for _, path := range maystart.Paths() {
+		says[path.Path] = path.Says
+	}
+	for _, refused := range refusals.Documents {
+		if slices.ContainsFunc(refused.Answers, func(id string) bool { return facts.inside(id) || facts.isOpenEpic(id) }) {
+			continue
+		}
+		e.RefusedDocuments = append(e.RefusedDocuments, refused)
+		e.Problems = append(e.Problems, facts.refusedDocument(refused, says))
+	}
 	var order []string
 	byItem := map[string][]maystart.RefusedItem{}
 	for _, refused := range refusals.Items {
@@ -224,10 +238,6 @@ func (e *Epics) refuse(facts epicFacts, refusals maystart.Refusals, stopped map[
 		byItem[id] = append(byItem[id], refused)
 		e.Refused = append(e.Refused, refused)
 	}
-	says := map[maystart.Path]string{}
-	for _, path := range maystart.Paths() {
-		says[path.Path] = path.Says
-	}
 	for _, id := range order {
 		var ways []string
 		for _, refused := range byItem[id] {
@@ -240,6 +250,37 @@ func (e *Epics) refuse(facts epicFacts, refusals maystart.Refusals, stopped map[
 		}
 		e.Problems = append(e.Problems, fmt.Sprintf("Not started: %s, by %s.%s", facts.name(id, ""), strings.Join(ways, "; "), facts.toAdd(id)))
 	}
+}
+
+// refusedDocument is the line for a refused document: which, why, since when,
+// and what it answers with the commands that would let it start.
+func (f epicFacts) refusedDocument(refused maystart.RefusedDocument, says map[maystart.Path]string) string {
+	way := says[refused.Path]
+	if way == "" {
+		way = string(refused.Path)
+	}
+	title := singleLine(refused.Title, maxCitedTitleBytes)
+	if title == "" {
+		title = "a document with no title recorded"
+	}
+	line := fmt.Sprintf("Not started: %s (%s, %s), by %s (refused since %s, last at %s: %s).", title, refused.DocumentID, refused.WriteID, way,
+		localMoment(refused.Since), localMoment(refused.Last), singleLine(refused.Why, maxEpicReasonBytes))
+	var names, commands []string
+	for _, id := range refused.Answers {
+		names = append(names, f.name(id, ""))
+		for _, command := range f.addCommands(id) {
+			if !slices.Contains(commands, command) {
+				commands = append(commands, command)
+			}
+		}
+	}
+	if len(names) > 0 {
+		line += " It answers " + strings.Join(names, ", ") + "."
+	}
+	if len(commands) > 0 {
+		line += " To let it start: " + strings.Join(commands, ", or ")
+	}
+	return line
 }
 
 // epicFacts is what the epic lines are worked out from.
@@ -316,15 +357,24 @@ func (f epicFacts) waitsOutside() []string {
 	return says
 }
 
-// toAdd is the command that adds an item: to the open epic it is below in the
-// tracker, and otherwise to any of the open ones. With none open there is no
-// command that would.
+// toAdd is the commands that add an item, in words, and nothing where none would.
 func (f epicFacts) toAdd(id string) string {
+	commands := f.addCommands(id)
+	if len(commands) == 0 {
+		return ""
+	}
+	return " To add it: " + strings.Join(commands, ", or ")
+}
+
+// addCommands is the command that adds an item: to the open epic it is below in
+// the tracker, and otherwise to any of the open ones. With none open there is no
+// command that would.
+func (f epicFacts) addCommands(id string) []string {
 	seen := map[string]bool{}
 	for above := id; above != "" && !seen[above]; above = f.items[above].DecomposedFrom() {
 		seen[above] = true
 		if f.isOpenEpic(above) {
-			return fmt.Sprintf(" To add it: yoyo epic add %s %s", above, id)
+			return []string{fmt.Sprintf("yoyo epic add %s %s", above, id)}
 		}
 	}
 	var commands []string
@@ -333,10 +383,7 @@ func (f epicFacts) toAdd(id string) string {
 			commands = append(commands, fmt.Sprintf("yoyo epic add %s %s", epic.WorkItemID, id))
 		}
 	}
-	if len(commands) == 0 {
-		return ""
-	}
-	return " To add it: " + strings.Join(commands, ", or ")
+	return commands
 }
 
 // title is the item's title, or that it has none here: an item is never shown
