@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-11-22T18:16:23.513665Z
       reason: 'Point 7 said three runs without a verdict, unlike the artifact contract. It now states the stop after three returned runs and the fresh count for a newer copy on the target branch, and adds a second way to lift the stop: the development manager releases it for one document, after the writer''s next revision is held for her. Needed because a document only the stopped writer changes, such as the artifact contract stopped today, can never be sent again otherwise. The release is marked not built.'
+    - action: amended
+      by: architect
+      at: 2026-11-23T22:38:09.152473Z
+      reason: 'amendment-132b496a4dd80ace74a577b0a50a2cc5: point 7 said the development manager''s release of a document stopped after three returned runs, and the hold before it, were not built. Both are in internal/chat/documentreturns.go at e5a1c6223139. The point now says how they work, and that a release allows one run rather than a fresh count. Points 1 to 6 are unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-11-22T18:16:23.513665Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3501, for document-3501.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-23T22:38:09.152473Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3751, for document-3751.1 under the automatic approval policy
 ---
 # A route of its own for landing confirmed documents
 
@@ -46,17 +55,21 @@ The ruling was made on October 11 and recorded on yoyodyne-eek; this document is
    - A typed withdraw action, with which a role takes back its own unstarted waiting document.
    - Every write is answered by the end of the writing role's next pass: confirmed, refused with the reason, or waiting with the reason. A write left unanswered past that is reported as a harness defect.
 6. **Its own deadline.** A landing's time limit is set by its document check set, and is never inherited from the message that confirmed the document (built under yoyodyne-trt).
-7. **The stop after three returned runs, and how it is lifted.** A run is returned to its writer when its checks fail, when its reviewer refuses it, or when it conflicts with the target branch while it is being landed, as point 5 of the [artifact contract](artifact-contract.md) says. A run stopped by something outside the work is not a return. After three returned runs for one document in one conversation, automatic publication of that document stops and the writer revises its plan. Two things start a fresh count:
-   - a revision written against a newer copy of the document on the target branch than the last returned run used, as built under yoyodyne-fp3.6;
-   - the development manager's release of the stop for that one document, recorded on the document's write with her reason.
+7. **The stop after three returned runs, and how it is lifted.** A run is returned to its writer when its checks fail, when its reviewer refuses it, or when it conflicts with the target branch while it is being landed, as point 5 of the [artifact contract](artifact-contract.md) says. A run stopped by something outside the work is not a return. After three returned runs for one document in one conversation, automatic publication of that document stops and the writer revises its plan. Two things let it be sent again:
+   - a revision written against a newer copy of the document on the target branch than the last returned run used, which starts a fresh count, as built under yoyodyne-fp3.6;
+   - the development manager's release of the stop for that one document, which allows one run, recorded on the document's write with her reason.
 
    The release exists because the first way cannot happen for a document that only the stopped writer changes: its copy on the target branch never moves, so without a release that document could never be published again. The artifact contract itself was stopped this way on November 22, 2026.
 
-   After a stop, the writer's next revision of that document is held for the development manager, never sent and never refused outright. She either releases it, naming what in it answers the findings of the returned runs, or declines it with a reason the writer reads in its next turn. A release starts one run of that revision. If that run is returned, the stop applies again at once. The stop is never lifted on its own, never after a waiting time, and never by the operator: whether a document is ready to try again is a judgment about the work, and the development manager is the role that judges stopped work.
+   After a stop, the writer's next revision of that document is held for the development manager, never sent and never refused outright. She either releases it, naming what in it answers the findings of the returned runs, or declines it with a reason the writer reads in its next turn. A release starts one run of that revision. If that run is returned, the writer's next revision is held for her again. The stop is never lifted on its own, never after a waiting time, and never by the operator: whether a document is ready to try again is a judgment about the work, and the development manager is the role that judges stopped work.
+
+   The hold and the release are built in `internal/chat/documentreturns.go`, read at commit e5a1c6223139, and work like this:
+   - The held revision keeps its waiting place. The findings of the last returned run are kept with it, and its writer is told once that it is held. A new revision of the document takes its place.
+   - The development manager decides it with the typed action `held_document`, naming the conversation and the write as her list names them, `release` or `decline`, and her reason.
+   - A released revision starts its run at its writer's next message, as it was written.
+   - A declined revision is not sent, and its waiting place is given back. A further revision by its writer is held for her in its turn.
 
    Rejected: a fresh count whenever the revision's text differs from the returned runs' text, because a trivial edit would then loop without limit, which is what the stop prevents; a fresh count after a waiting time, because it retries with nobody looking at why the runs failed; handing the document to a developer, because no developer rewrites a document; asking the operator, because it is not his decision and would break the autonomy goal.
-
-   Not built: the release, and holding the writer's next revision for it. Until they are built, a document stopped this way whose copy on the target branch has not moved stays unpublished, and its writer says so in its pass account rather than writing it again.
 
 ## Code this makes wrong
 
