@@ -112,6 +112,11 @@ type Attribution struct {
 	SideStreamID   string
 	ExchangeID     string
 	BranchReviewID string
+	// Conflict and ConflictHandback say whether a run's invocation is made for a
+	// hand-back for a merge conflict, and which, read from the run's record
+	// (runstate.State.SpendsForConflict).
+	Conflict         runstate.SpendConflict
+	ConflictHandback string
 	// Within is where an exchange round or a side thread's turn sits, in words a
 	// person reads -- the round and who asked, or the turn and the conversation
 	// the thread is held beside -- so a report about the invocation keeps them.
@@ -280,6 +285,8 @@ func (m Metered) line(request backend.RunRequest, result backend.RunResult, err 
 		SideStreamID:       m.Attribution.SideStreamID,
 		ExchangeID:         m.Attribution.ExchangeID,
 		BranchReviewID:     m.Attribution.BranchReviewID,
+		Conflict:           m.Attribution.Conflict,
+		ConflictHandback:   m.Attribution.ConflictHandback,
 		Backend:            m.Attribution.Backend,
 		Model:              request.Model,
 		ResolvedModel:      result.ResolvedModel,

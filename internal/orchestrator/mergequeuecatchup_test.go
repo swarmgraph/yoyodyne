@@ -13,6 +13,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -165,6 +167,97 @@ func TestAChangeHandedBackOnlyBecauseTheTargetMovedCatchesUpAndRejoinsTheQueue(t
 	}
 }
 
+// The attempt a conflict's hand-back caused, the review of it, and the queue's
+// review of the candidate built from it each name that hand-back in the cost
+// log, and nothing before it does.
+func TestACatchUpAndEveryReviewAfterItNameTheHandbackThatCausedThem(t *testing.T) {
+	t.Parallel()
+
+	r, provider := newCatchUpRun(t, resolveBothSides)
+	log := &recordingSpendLog{}
+	r.pipeline.Spend = log
+	r.pipeline.Reviewer = review.Reviewer{Backend: provider, Model: testReviewerModel, Spend: log}
+	admitted := r.run(t)
+	key := admitted.MergeQueue.Key()
+	before := len(log.lines)
+	if before != 2 {
+		t.Fatalf("recorded %d lines before the conflict, want the development and its review", before)
+	}
+	conflictOnTarget(t, r.repository, "something else\n")
+	if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassHandedBack {
+		t.Fatalf("Pass() = %#v, want the conflict handed back", pass)
+	}
+	landing, _, err := r.queue.Landing(key, admitted.MergeQueue.EntryID)
+	if err != nil || landing.Handback == nil || landing.Handback.Conflict == nil {
+		t.Fatalf("landing = %#v, %v", landing, err)
+	}
+	if lines := landing.Handback.Conflict.Lines; lines == nil || *lines != 2 {
+		t.Fatalf("conflict = %#v, want its two conflicting lines counted", landing.Handback.Conflict)
+	}
+	put, err := r.runs.Load(admitted.RunID)
+	if err != nil || len(put.ConflictHandbacks) != 1 {
+		t.Fatalf("run hand-backs = %#v, %v; want one", put.ConflictHandbacks, err)
+	}
+	handback := put.ConflictHandbacks[0]
+	if handback.ID != admitted.MergeQueue.EntryID || handback.Lines == nil || *handback.Lines != 2 || len(handback.Paths) != 1 || handback.Paths[0] != "feature.txt" {
+		t.Fatalf("hand-back = %#v, want the entry, its file, and its lines", handback)
+	}
+	if put.Reconciliation.Handback != handback.ID || put.ReplayConflict.Handback != handback.ID {
+		t.Fatalf("reconciliation %#v, conflict %#v; want the attempt to name its hand-back", put.Reconciliation, put.ReplayConflict)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if _, err := r.pipeline.Continue(ctx, "yoyodyne-task", admitted.RunID); err != nil {
+		t.Fatalf("Continue() error = %v", err)
+	}
+	if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassLanded {
+		t.Fatalf("Pass() = %#v, want the change landed", pass)
+	}
+	if len(log.lines) != before+3 {
+		t.Fatalf("recorded %d lines after the conflict, want the attempt, its review, and the candidate's", len(log.lines)-before)
+	}
+	for index, line := range log.lines {
+		want, named := runstate.SpendConflictNone, ""
+		if index >= before {
+			want, named = runstate.SpendConflictHandback, handback.ID
+		}
+		if line.Conflict != want || line.ConflictHandback != named {
+			t.Errorf("line %d (%s) says %q, %q; want %q, %q", index, line.Role, line.Conflict, line.ConflictHandback, want, named)
+		}
+	}
+}
+
+// Once the resolution fails its checks, what the repair after it costs cannot
+// be told apart from the work's own repairs, and is said so.
+func TestARepairAfterACatchUpIsRecordedAsUnclear(t *testing.T) {
+	t.Parallel()
+
+	r, provider := newCatchUpRun(t, func(string) error { return nil })
+	log := &recordingSpendLog{}
+	r.pipeline.Spend = log
+	r.pipeline.Reviewer = review.Reviewer{Backend: provider, Model: testReviewerModel, Spend: log}
+	r.pipeline.Config.Execution.RepairAttemptsBeforeReplan = 1
+	admitted := r.run(t)
+	conflictOnTarget(t, r.repository, "something else\n")
+	if pass := r.catchUpPass(t, admitted.MergeQueue.Key()); pass.Outcome != runstate.MergeQueuePassHandedBack {
+		t.Fatalf("Pass() = %#v, want the conflict handed back", pass)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	_, _ = r.pipeline.Continue(ctx, "yoyodyne-task", admitted.RunID)
+	var said []runstate.SpendConflict
+	for _, line := range log.lines {
+		said = append(said, line.Conflict)
+	}
+	want := []runstate.SpendConflict{runstate.SpendConflictNone, runstate.SpendConflictNone, runstate.SpendConflictHandback, runstate.SpendConflictUnclear}
+	if !slices.Equal(said, want) {
+		t.Fatalf("lines say %v, want %v", said, want)
+	}
+	if last := log.lines[len(log.lines)-1]; last.ConflictHandback != admitted.MergeQueue.EntryID {
+		t.Fatalf("the repair names %q, want the hand-back it came after", last.ConflictHandback)
+	}
+}
+
 func TestASecondConflictInTheQueueStopsTheRunSayingItsCatchUpWasUsed(t *testing.T) {
 	t.Parallel()
 
@@ -193,6 +286,9 @@ func TestASecondConflictInTheQueueStopsTheRunSayingItsCatchUpWasUsed(t *testing.
 	}
 	if stopped.Status != runstate.StatusFailed || strings.TrimSpace(stopped.Blocker) == "" || stopped.ReplayConflict == nil {
 		t.Fatalf("run = status %q, blocker %q; want it stopped for the development manager with the conflict kept", stopped.Status, stopped.Blocker)
+	}
+	if len(stopped.ConflictHandbacks) != 2 || stopped.ConflictHandbacks[1].ID != rejoined.MergeQueue.EntryID || stopped.ConflictSpending.Handback != rejoined.MergeQueue.EntryID {
+		t.Fatalf("hand-backs = %#v, spending %#v; want the second recorded and charged from here", stopped.ConflictHandbacks, stopped.ConflictSpending)
 	}
 	if !strings.Contains(stopped.Blocker, "already used its one attempt to bring its change up to date") {
 		t.Fatalf("blocker = %q, want it to say the catch-up was already used", stopped.Blocker)

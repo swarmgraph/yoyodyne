@@ -110,6 +110,9 @@ func TestARerunWhoseKeptChangeConflictsStartsWithTheConflictsForItsDeveloper(t *
 	if fresh.LiftedCommit != preservedCommit || len(fresh.LiftConflicts) != 1 || fresh.LiftConflicts[0] != "lifted.txt" {
 		t.Fatalf("lifted commit = %q, conflicts = %v; want %s with lifted.txt in conflict", fresh.LiftedCommit, fresh.LiftConflicts, preservedCommit)
 	}
+	if conflict, _ := fresh.SpendsForConflict(); conflict != runstate.SpendConflictUnclear {
+		t.Fatalf("the re-run's spend says %q, want it not told apart from the conflict's", conflict)
+	}
 	for _, want := range []string{"# The change this run starts from", "- lifted.txt", prior.Branch, "Do not commit"} {
 		if !strings.Contains(seen.prompt, want) {
 			t.Fatalf("the developer's prompt does not say %q:\n%s", want, seen.prompt)
@@ -141,9 +144,13 @@ func (l conflictingLifter) LiftChange(context.Context, gitworktree.Worktree, str
 func TestALiftThatConflictsIsRecordedWithItsFiles(t *testing.T) {
 	t.Parallel()
 
+	store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, fallBack := range []bool{true, false} {
 		run := &activeRun{
-			pipeline: Pipeline{Worktrees: conflictingLifter{conflicts: []string{"README.txt", "docs/a b.md"}}},
+			pipeline: Pipeline{Store: store, Worktrees: conflictingLifter{conflicts: []string{"README.txt", "docs/a b.md"}}},
 			state: runstate.State{Selection: &runstate.Selection{
 				Lift: &runstate.Lift{RunID: docketedRunID, Branch: "yoyodyne/xdj/01234567", FallBackToTarget: fallBack},
 			}},

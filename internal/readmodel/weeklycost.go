@@ -127,6 +127,9 @@ type CostWeek struct {
 	// Roles are the week's spend by role: developer runs, reviewers, then the
 	// management roles in the order the hierarchy names them.
 	Roles []RoleWeekCost `json:"roles"`
+	// Conflicts is what merge conflicts cost in the week, per landed code change
+	// too, and the files they were in (conflictcost.go).
+	Conflicts ConflictCost `json:"conflicts"`
 	// Says is the week in one sentence, and RolesSays its split by role.
 	Says      string `json:"says"`
 	RolesSays string `json:"roles_says"`
@@ -212,6 +215,10 @@ func weeklyCost(lines []runstate.Spend, runs []runstate.State, runsProblem strin
 	if trackerProblem != "" {
 		reading.NotRead = append(reading.NotRead, trackerProblem+", so no item is known to have closed")
 	}
+	titles := make(map[string]string, len(items))
+	for _, item := range items {
+		titles[item.ID] = item.Title
+	}
 	for start := first; start.Before(end); start = start.AddDate(0, 0, 7) {
 		next := start.AddDate(0, 0, 7)
 		within := func(at time.Time) bool { return !at.Before(start) && at.Before(next) }
@@ -232,6 +239,7 @@ func weeklyCost(lines []runstate.Spend, runs []runstate.State, runsProblem strin
 				roles[line.Role] = role
 			}
 			week.Calls++
+			week.Conflicts.add(line)
 			role.Calls++
 			if strings.TrimSpace(line.WorkItemID) == "" {
 				week.NoItemCalls++
@@ -268,6 +276,8 @@ func weeklyCost(lines []runstate.Spend, runs []runstate.State, runsProblem strin
 			}
 			week.Landed, week.Published = &landed, &published
 			week.CostPerLandedChange = per(week.CostUSD, week.Landed)
+			files := conflictFiles(runs, titles, within)
+			week.Conflicts.Files = &files
 		}
 		if trackerProblem == "" {
 			closed := 0
@@ -294,6 +304,7 @@ func weeklyCost(lines []runstate.Spend, runs []runstate.State, runsProblem strin
 			}
 			return week.Roles[a].Role < week.Roles[b].Role
 		})
+		week.Conflicts.settle(week.Landed)
 		week.Says = week.says()
 		week.RolesSays = week.rolesSays()
 		reading.Weeks = append(reading.Weeks, week)
@@ -427,6 +438,9 @@ func (c WeeklyCost) Render() string {
 		}
 		fmt.Fprintf(&rendered, "  %s: %s\n", capitalized(label), week.Says)
 		fmt.Fprintf(&rendered, "    by role: %s\n", week.RolesSays)
+		for _, said := range week.Conflicts.Lines() {
+			fmt.Fprintf(&rendered, "    %s\n", said)
+		}
 	}
 	for _, problem := range c.NotRead {
 		fmt.Fprintf(&rendered, "  not read: %s\n", problem)

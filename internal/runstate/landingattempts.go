@@ -122,6 +122,9 @@ type Reconciliation struct {
 	Paths        []string  `json:"paths,omitempty"`
 	Omitted      int       `json:"omitted,omitempty"`
 	UsedAt       time.Time `json:"used_at"`
+	// Handback is the hand-back for a conflict that caused this attempt
+	// (ConflictHandback).
+	Handback string `json:"handback,omitempty"`
 }
 
 // Validate reports every contract violation in the record at once.

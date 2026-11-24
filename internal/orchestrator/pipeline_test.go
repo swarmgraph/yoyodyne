@@ -1767,6 +1767,10 @@ func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
 		t.Fatalf("state = attempts %d, retries %d, conflict %#v, reconciliation %#v; want the reconciliation attempt used, no repair attempt spent, and the conflict settled",
 			state.RepairAttempts, state.IntegrationRetries, state.ReplayConflict, state.Reconciliation)
 	}
+	if len(state.ConflictHandbacks) != 1 || state.ConflictHandbacks[0].From != runstate.ConflictFromLanding || state.ConflictHandbacks[0].Lines == nil || *state.ConflictHandbacks[0].Lines != 2 ||
+		state.Reconciliation.Handback != state.ConflictHandbacks[0].ID {
+		t.Fatalf("hand-backs = %#v, reconciliation %#v; want the landing's conflict recorded with its lines and named by its attempt", state.ConflictHandbacks, state.Reconciliation)
+	}
 	// Neither verdict asked for repair, so the item's round budget is untouched.
 	counters, err := store.Triage().Counters(tracker.Item.ID)
 	if err != nil {

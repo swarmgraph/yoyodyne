@@ -3458,6 +3458,9 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	// change is judged by checks that ran against it rather than by a result from
 	// before it was replayed.
 	a.clearReviewEvidence()
+	// What is checked and reviewed next is owed to the target moving again, not
+	// only to a conflict handed back before it.
+	a.state.ConflictSpendingUnclear()
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return false, fmt.Errorf("save replayed run state: %w", err)
@@ -3703,11 +3706,11 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 // afterwards hands the same developer the same disagreement.
 func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (bool, error) {
 	if a.state.HarnessAuthored() {
-		a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
+		a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()), cause)
 		return false, cause
 	}
 	limit := a.repairBudget()
-	a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
+	a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()), cause)
 	if !a.state.ReconciliationUsed() {
 		a.observe(ctx, deliveryIntegrate, "reconciling")
 		if err := a.moveOntoTargetForRepair(ctx); err != nil {
@@ -3754,6 +3757,7 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 		Paths:        conflict.Paths,
 		Omitted:      conflict.Omitted,
 		UsedAt:       a.pipeline.clock().Now().UTC(),
+		Handback:     conflict.Handback,
 	}
 	a.syncLandingAttempts()
 	a.state.Phase = runstate.PhaseDeveloping
@@ -3823,13 +3827,25 @@ func (a *activeRun) reconcilingPublishedBranch() bool {
 
 // recordReplayConflict makes the refused replay the run's outstanding repair
 // input. It clears the others for the reason each of them clears the rest: at
-// most one input describes the change now in the worktree.
-func (a *activeRun) recordReplayConflict(conflict runstate.ReplayConflict) {
+// most one input describes the change now in the worktree. It also records the
+// hand-back, with the conflict's files and the lines counted in it, which the
+// attempt and the reviews after it are charged to.
+func (a *activeRun) recordReplayConflict(conflict runstate.ReplayConflict, cause error) {
 	a.state.CheckFailure = nil
 	a.state.PathRefusal = nil
 	a.state.ReviewBoundRefusal = nil
 	a.state.ChecksPassed = nil
 	recorded := conflict
+	handback := runstate.ConflictHandback{
+		From: runstate.ConflictFromLanding, At: conflict.RecordedAt,
+		TargetBranch: conflict.TargetBranch, TargetCommit: conflict.TargetCommit,
+		Paths: conflict.Paths, Omitted: conflict.Omitted,
+	}
+	var refused *gitworktree.RebaseConflict
+	if errors.As(cause, &refused) {
+		handback.Lines, handback.LinesUnknown = refused.Lines.Lines, refused.Lines.Unknown
+	}
+	recorded.Handback = a.state.RecordConflictHandback(handback)
 	a.state.ReplayConflict = &recorded
 }
 
@@ -4889,6 +4905,12 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	}
 	if a.state.OutsideFile != nil {
 		return errors.New("a run that brings a file in has no developer")
+	}
+	// An attempt with no conflict outstanding answers something else, so what it
+	// and the reviews after it cost is not told apart from an earlier conflict's
+	// consequences. Every developer invocation passes through here.
+	if a.state.ReplayConflict == nil {
+		a.state.ConflictSpendingUnclear()
 	}
 	// The project's dependencies are put back in the worktree where they are not
 	// what its inputs now ask for, for the same reason the refusals below are
@@ -9603,6 +9625,16 @@ func (a *activeRun) liftPreserved(ctx context.Context) error {
 	}
 	a.state.LiftedCommit = lifted.Commit
 	a.state.LiftConflicts = lifted.Conflicts
+	// Work carried forward from a run a conflict was handed back to does the
+	// work and settles the conflict in one attempt, so neither is told apart. A
+	// source whose record will not read cannot say it was not one.
+	if source, err := a.pipeline.Store.Load(lift.RunID); err != nil {
+		a.state.ConflictSpending = &runstate.ConflictSpending{Unclear: true}
+	} else if source.ConflictSpending != nil {
+		a.state.ConflictSpending = &runstate.ConflictSpending{Handback: source.ConflictSpending.Handback, Unclear: true}
+	} else if len(lifted.Conflicts) > 0 {
+		a.state.ConflictSpending = &runstate.ConflictSpending{Unclear: true}
+	}
 	return nil
 }
 

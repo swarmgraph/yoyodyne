@@ -157,6 +157,9 @@ func printAccomplishment(writer io.Writer, reading readmodel.Accomplishment) {
 		for _, week := range weekly.Weeks {
 			fmt.Fprintf(writer, "  %s to %s: %s\n", week.From, week.To, week.Says)
 			fmt.Fprintf(writer, "    by role: %s\n", week.RolesSays)
+			for _, said := range week.Conflicts.Lines() {
+				fmt.Fprintf(writer, "    %s\n", said)
+			}
 		}
 		for _, problem := range weekly.NotRead {
 			fmt.Fprintf(writer, "  not read: %s\n", problem)

@@ -83,7 +83,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    run's one reconciliation attempt, charging no repair attempt), `noteReplay`
    and `judgeReplay` (what each lost landing's replay made of the change; a
    clean one is not counted, `runstate`'s `landingattempts.go`),
-   `blockOnRebaseConflict`, `blockOnDivergedTarget`,
+   `recordReplayConflict` (also records the hand-back,
+   `runstate`'s `conflicthandback.go`, which `spendAttribution` charges the
+   attempt and its reviews to), `blockOnRebaseConflict`, `blockOnDivergedTarget`,
    `blockOnPromotedDivergence`. Budget: `repairBudget`, `repair`,
    `chargeReplayStop`, `blockOnChargedReplay`.
 8. **Repair inputs and budget-spent stops.** `recordCheckFailure`,

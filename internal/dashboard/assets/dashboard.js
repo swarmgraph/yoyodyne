@@ -2011,6 +2011,9 @@ var standingWarningAgeSeconds = 5 * 60;
       var label = (week.current ? "this week, from " + week.from : week.from + " to " + week.to);
       row(label, week.says);
       row("by role", week.roles_says);
+      var conflicts = week.conflicts || {};
+      row("conflicts", conflicts.says || "not recorded");
+      row("files in conflict", (conflicts.files && conflicts.files.says) || "not known");
     });
     (weekly.not_read || []).forEach(function (problem) {
       row("not read", problem, "grouping-day-unreached");

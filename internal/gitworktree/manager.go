@@ -438,6 +438,8 @@ type RebaseConflict struct {
 	// none, so an empty list is a conflict with nothing to name rather than an
 	// absent one.
 	Paths []string
+	// Lines is how many lines conflict, read with the paths.
+	Lines ConflictLines
 	// Err is Git's own account of the failure, kept whole.
 	Err error
 }
@@ -2985,6 +2987,7 @@ func (m *Manager) replay(ctx context.Context, path string, worktree Worktree, ta
 	// established, and a conflict named without its paths is still one somebody
 	// can settle.
 	conflicted, _ := m.conflictedPaths(ctx, path)
+	lines := m.conflictLines(ctx, path)
 	aborted, err := m.run(ctx, "-C", path, "rebase", "--abort")
 	if err != nil {
 		return errors.Join(failed, err)
@@ -2998,6 +3001,7 @@ func (m *Manager) replay(ctx context.Context, path string, worktree Worktree, ta
 		TargetBranch: worktree.TargetBranch,
 		TargetCommit: targetCommit,
 		Paths:        conflicted,
+		Lines:        lines,
 		Err:          failed,
 	}
 }
