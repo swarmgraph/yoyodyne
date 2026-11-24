@@ -52,6 +52,7 @@ func gitHubIdentityStopsFrom(parts components) *orchestrator.GitHubIdentityStops
 		Redocket:  continuer.Redocket,
 		Runs:      continuer.Runs,
 		Intake:    continuer.Intake,
+		MayStart:  parts.mayStart(),
 		Items:     continuer.Items,
 		Worktrees: continuer.Worktrees,
 		Capacity:  continuer.Capacity,
