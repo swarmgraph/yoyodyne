@@ -41,8 +41,8 @@ func must(t *testing.T, _ epicscope.Record, err error) {
 
 func name(t *testing.T, root, epic, item string) {
 	t.Helper()
-	record, err := operatorAt(t, root).Start(epicscope.Naming{Epic: epic, From: "terminal", Members: []string{item}}, at)
-	must(t, record, err)
+	started, err := operatorAt(t, root).Start(epicscope.Naming{Epic: epic, From: "terminal", Members: []string{item}}, at)
+	must(t, started.Record, err)
 }
 
 func end(t *testing.T, root, epic string) {

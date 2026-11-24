@@ -31,6 +31,7 @@ func commandHelp() string {
 		printInvariantUsage,
 		printDirectiveUsage,
 		printInterventionUsage,
+		printEpicUsage,
 		printExchangeUsage,
 		printReportsUsage,
 		printSweepsUsage,

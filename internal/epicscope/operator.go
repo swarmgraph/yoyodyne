@@ -49,16 +49,35 @@ type Naming struct {
 	Members     []string
 }
 
+// Started is what Start did.
+type Started struct {
+	Record Record
+	// Epic is the epic's open entry, the new one or the one it already had.
+	Epic Epic
+	// Named says the epic was given a new entry, and TurnedOn that epic mode was
+	// off before. At least one holds.
+	Named    bool
+	TurnedOn bool
+}
+
 // Start turns epic mode on where it is off and names the epic, with exactly the
-// members given. An epic that was named before, open or ended, is refused: it
-// has its one entry, and naming it again would rewrite what that entry says.
-func (o *Operator) Start(naming Naming, at time.Time) (Record, error) {
-	return o.change(func(record *Record) error {
-		if epic, named := record.Named(naming.Epic); named {
-			if !epic.Open() {
-				return fmt.Errorf("epic %s was named before and has ended", naming.Epic)
+// members given. An epic that ended gets a new entry and its ended one is left
+// as it is. An epic still open keeps its entry unchanged, whatever the naming
+// says, so starting it only turns epic mode on and is refused where it is on.
+func (o *Operator) Start(naming Naming, at time.Time) (Started, error) {
+	var started Started
+	record, err := o.change(func(record *Record) error {
+		started.TurnedOn = !record.On()
+		record.Mode = ModeEpic
+		if index := record.index(naming.Epic); index >= 0 && record.Epics[index].Open() {
+			if !started.TurnedOn {
+				return fmt.Errorf("epic %s is already open; `yoyo epic add %s <item>` adds an item to it", naming.Epic, naming.Epic)
 			}
-			return fmt.Errorf("epic %s is already named", naming.Epic)
+			started.Epic = record.Epics[index]
+			return nil
+		}
+		if err := record.free(naming.Epic); err != nil {
+			return err
 		}
 		epic := Epic{
 			WorkItemID:  naming.Epic,
@@ -74,10 +93,15 @@ func (o *Operator) Start(naming Naming, at time.Time) (Record, error) {
 			}
 			epic.Members = append(epic.Members, Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActStart})
 		}
-		record.Mode = ModeEpic
 		record.Epics = append(record.Epics, epic)
+		started.Epic, started.Named = epic, true
 		return nil
 	})
+	if err != nil {
+		return Started{}, err
+	}
+	started.Record = record
+	return started, nil
 }
 
 // Add adds an item to an open epic's members. An item the epic already has is
@@ -86,7 +110,7 @@ func (o *Operator) Add(epic, item string, at time.Time) (Record, error) {
 	return o.change(func(record *Record) error {
 		index, err := record.open(epic)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w; `yoyo epic start %s` names it", err, epic)
 		}
 		if record.Epics[index].Has(item) {
 			return errUnchanged
@@ -128,10 +152,10 @@ func (o *Operator) TurnOff() (Record, error) {
 func (r Record) open(epic string) (int, error) {
 	index := r.index(epic)
 	if index < 0 {
-		return 0, fmt.Errorf("epic %s has not been named", epic)
+		return 0, fmt.Errorf("epic %s was never named", epic)
 	}
 	if !r.Epics[index].Open() {
-		return 0, fmt.Errorf("epic %s has ended", epic)
+		return 0, fmt.Errorf("epic %s has already ended", epic)
 	}
 	return index, nil
 }

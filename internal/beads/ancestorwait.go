@@ -106,3 +106,25 @@ func DescribeOpenChildren(children []WorkItem) string {
 	}
 	return described
 }
+
+// UnfinishedBelow is every item of a listing that is below parent, however far
+// down, and is not closed, in the order listed. The listing has to carry closed
+// work too, because an item may be below a closed one.
+func UnfinishedBelow(parent string, items []WorkItem) []WorkItem {
+	below := map[string]bool{parent: true}
+	for grew := true; grew; {
+		grew = false
+		for _, item := range items {
+			if !below[item.ID] && below[item.DecomposedFrom()] {
+				below[item.ID], grew = true, true
+			}
+		}
+	}
+	var unfinished []WorkItem
+	for _, item := range items {
+		if below[item.ID] && item.ID != parent && strings.TrimSpace(item.Status) != statusClosed {
+			unfinished = append(unfinished, item)
+		}
+	}
+	return unfinished
+}

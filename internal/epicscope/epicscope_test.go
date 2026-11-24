@@ -47,11 +47,16 @@ func namingA() Naming {
 
 func startA(t *testing.T, root string) Record {
 	t.Helper()
-	record, err := operatorAt(t, root).Start(namingA(), namedAt)
+	record, err := start(operatorAt(t, root), namingA())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return record
+}
+
+func start(operator *Operator, naming Naming) (Record, error) {
+	started, err := operator.Start(naming, namedAt)
+	return started.Record, err
 }
 
 func filePath(root string) string {
@@ -180,24 +185,27 @@ func TestRefusedActsWriteNothing(t *testing.T) {
 		act  func() (Record, error)
 		want string
 	}{
-		"an open epic named again":  {func() (Record, error) { return operator.Start(namingA(), namedAt) }, "already named"},
-		"an ended epic named again": {func() (Record, error) { return operator.Start(with(func(n *Naming) { n.Epic = epicB }), namedAt) }, "has ended"},
+		"an open epic named again": {func() (Record, error) { return start(operator, namingA()) }, "`yoyo epic add " + epicA},
+		"an epic another open one has": {func() (Record, error) {
+			return start(operator, with(func(n *Naming) { n.Epic = "yoyodyne-9k1y.2" }))
+		}, "already in epic " + epicA},
 		"another open epic's item": {func() (Record, error) {
-			return operator.Start(with(func(n *Naming) { n.Members = []string{"yoyodyne-9k1y.2"} }), namedAt)
+			return start(operator, with(func(n *Naming) { n.Members = []string{"yoyodyne-9k1y.2"} }))
 		}, "already in epic " + epicA},
 		"the epic as its own member": {func() (Record, error) { return operator.Add(epicA, epicA, namedAt) }, "not one of its own members"},
 		"a member given twice": {func() (Record, error) {
-			return operator.Start(with(func(n *Naming) { n.Members = []string{"yoyodyne-x", "yoyodyne-x"} }), namedAt)
+			return start(operator, with(func(n *Naming) { n.Members = []string{"yoyodyne-x", "yoyodyne-x"} }))
 		}, "listed twice"},
-		"no place it was named from": {func() (Record, error) { return operator.Start(with(func(n *Naming) { n.From = " " }), namedAt) }, "named from is required"},
+		"no place it was named from": {func() (Record, error) { return start(operator, with(func(n *Naming) { n.From = " " })) }, "named from is required"},
 		"words past their limit":     {func() (Record, error) { return operator.End(epicA, strings.Repeat("x", MaxWordsBytes+1), namedAt) }, "limit is"},
 		"a description past the file": {func() (Record, error) {
-			return operator.Start(with(func(n *Naming) { n.Description = strings.Repeat("x", maxFileBytes) }), namedAt)
+			return start(operator, with(func(n *Naming) { n.Description = strings.Repeat("x", maxFileBytes) }))
 		}, "larger than"},
-		"adding to an ended epic":   {func() (Record, error) { return operator.Add(epicB, "yoyodyne-x", namedAt) }, "has ended"},
-		"adding to an unnamed epic": {func() (Record, error) { return operator.Add("yoyodyne-new", "yoyodyne-x", namedAt) }, "has not been named"},
+		"adding to an ended epic":   {func() (Record, error) { return operator.Add(epicB, "yoyodyne-x", namedAt) }, "has already ended; `yoyo epic start " + epicB},
+		"adding to an unnamed epic": {func() (Record, error) { return operator.Add("yoyodyne-new", "yoyodyne-x", namedAt) }, "was never named; `yoyo epic start yoyodyne-new"},
+		"ending an unnamed epic":    {func() (Record, error) { return operator.End("yoyodyne-new", "", namedAt) }, "was never named"},
 		"adding no identifier":      {func() (Record, error) { return operator.Add(epicA, "../x", namedAt) }, "not a work item identifier"},
-		"ending twice":              {func() (Record, error) { return operator.End(epicB, "", namedAt) }, "has ended"},
+		"ending twice":              {func() (Record, error) { return operator.End(epicB, "", namedAt) }, "has already ended"},
 	} {
 		if _, err := test.act(); err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Errorf("%s: error = %v, want one saying %q", name, err, test.want)
@@ -213,6 +221,66 @@ func TestRefusedActsWriteNothing(t *testing.T) {
 	}
 	if !bytes.Equal(before, after) {
 		t.Fatalf("the file changed:\n%s\nwas\n%s", after, before)
+	}
+}
+
+func TestAnEndedEpicNamedAgainHasTwoEntries(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	operator := operatorAt(t, root)
+	startA(t, root)
+	if _, err := operator.End(epicA, "done", namedAt); err != nil {
+		t.Fatal(err)
+	}
+	ended := read(t, root).Epics[0]
+	again := namingA()
+	again.Description, again.Members = "as it reads now", []string{"yoyodyne-9k1y.7"}
+	started, err := operator.Start(again, namedAt.Add(time.Hour))
+	if err != nil || !started.Named || started.TurnedOn {
+		t.Fatalf("Start() = %+v, %v, want a new entry with epic mode already on", started, err)
+	}
+	record := read(t, root)
+	if len(record.Epics) != 2 || !reflect.DeepEqual(record.Epics[0], ended) {
+		t.Fatalf("epics = %+v, want the ended entry unchanged and a second", record.Epics)
+	}
+	want := Epic{WorkItemID: epicA, NamedAt: namedAt.Add(time.Hour), NamedFrom: "terminal", Words: again.Words,
+		Description: "as it reads now", Members: []Member{{"yoyodyne-9k1y.7", namedAt.Add(time.Hour), ActStart}}}
+	if latest, _ := record.Named(epicA); !reflect.DeepEqual(latest, want) {
+		t.Fatalf("the second entry = %+v, want %+v", latest, want)
+	}
+	if _, held := record.Holding("yoyodyne-9k1y.2"); held {
+		t.Fatal("a member of only the ended entry is still held")
+	}
+	// The acts reach the open entry and leave the ended one alone.
+	if _, err := operator.Add(epicA, "yoyodyne-9k1y.8", namedAt); err != nil {
+		t.Fatal(err)
+	}
+	if record, err = operator.End(epicA, "again", namedAt); err != nil || record.Epics[0].Ended.Words != "done" || record.Epics[1].Ended.Words != "again" {
+		t.Fatalf("after ending it again: %+v, %v", record.Epics, err)
+	}
+	// Two entries for one epic are a record only while the earlier has ended.
+	record.Epics[0].Ended = nil
+	if err := record.Validate(); err == nil || !strings.Contains(err.Error(), "has not ended") {
+		t.Fatalf("Validate() = %v, want an entry after an open one refused", err)
+	}
+}
+
+func TestStartingAnOpenEpicOnlyTurnsEpicModeBackOn(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	operator := operatorAt(t, root)
+	before := startA(t, root)
+	if _, err := operator.TurnOff(); err != nil {
+		t.Fatal(err)
+	}
+	again := namingA()
+	again.Description, again.Members = "changed", []string{"yoyodyne-9k1y.7"}
+	started, err := operator.Start(again, namedAt.Add(time.Hour))
+	if err != nil || started.Named || !started.TurnedOn || !reflect.DeepEqual(started.Epic, before.Epics[0]) {
+		t.Fatalf("Start() = %+v, %v, want only epic mode turned on", started, err)
+	}
+	if got := read(t, root); !reflect.DeepEqual(got, before) {
+		t.Fatalf("Read() = %+v, want the record as it was before off, %+v", got, before)
 	}
 }
 
@@ -292,7 +360,7 @@ func TestAFileThatCannotBeReadIsAnErrorAndIsNotWrittenOver(t *testing.T) {
 			}
 			operator := operatorAt(t, root)
 			acts := map[string]func() (Record, error){
-				"Start":   func() (Record, error) { return operator.Start(namingA(), namedAt) },
+				"Start":   func() (Record, error) { return start(operator, namingA()) },
 				"Add":     func() (Record, error) { return operator.Add(epicA, "yoyodyne-x", namedAt) },
 				"End":     func() (Record, error) { return operator.End(epicA, "", namedAt) },
 				"TurnOff": operator.TurnOff,
