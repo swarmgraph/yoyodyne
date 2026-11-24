@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -19,6 +20,26 @@ func state(t *testing.T, root string) dolttool.Inspection {
 		t.Fatalf("Inspect() error = %v", err)
 	}
 	return found
+}
+
+func TestEveryReleasedPlatformHasAChecksum(t *testing.T) {
+	t.Parallel()
+	wellFormed := regexp.MustCompile(`^[0-9a-f]{64}$`)
+	seen := map[string]string{}
+	for _, platform := range [][2]string{{"darwin", "amd64"}, {"darwin", "arm64"}, {"linux", "amd64"}, {"linux", "arm64"}} {
+		name := platform[0] + "/" + platform[1]
+		sum := dolttool.For(platform[0], platform[1]).Checksum
+		if !wellFormed.MatchString(sum) {
+			t.Errorf("%s has checksum %q, want 64 lowercase hexadecimal characters", name, sum)
+		}
+		if other, repeated := seen[sum]; repeated {
+			t.Errorf("%s and %s have one checksum", name, other)
+		}
+		seen[sum] = name
+	}
+	if sum := dolttool.For("windows", "amd64").Checksum; sum != "" {
+		t.Errorf("windows/amd64 has checksum %q, want none", sum)
+	}
 }
 
 func TestAMatchingReleaseIsInstalledInTheToolsFolder(t *testing.T) {

@@ -51,9 +51,14 @@ const (
 // A platform with none is one nothing is downloaded for: a checksum read from
 // the place the archive comes from would change whenever the archive did.
 //
-// It is empty because no run that could read the published checksums has filled
-// it in. ChecksumsCommand prints them.
-var checksums = map[string]string{}
+// They are the digests in GitHub's release record for dolthub/dolt, tag
+// v2.7.6, which ChecksumsCommand prints.
+var checksums = map[string]string{
+	"darwin/amd64": "2074df3091030d50c6bc910c180d0fe7f20fedf48a9479b59b71e520ecf05ad3",
+	"darwin/arm64": "229a99be0c0413a0fbed8c9bf65d7624578fbaafe8a653614a6ba8d0535a3726",
+	"linux/amd64":  "02479bf57f3c46c46c4f6977e948d56e88f5ee5f2a73da8226e7ebc31039639e",
+	"linux/arm64":  "143ed0be2948be091fe61cbebb3de4501dc1e924dd0829ecbc447db2a3c8e42d",
+}
 
 // ChecksumsCommand prints the checksums published for Version's archives, for
 // whoever fills in the table above.

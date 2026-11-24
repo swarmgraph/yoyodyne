@@ -1229,10 +1229,10 @@ The tracker's server mode needs a `dolt` program, and the harness uses only a
 copy its own setup installed: `yoyo setup` offers to download dolt 2.7.6 and put
 it at `tools/dolt` in the state directory, beside a record of what it installed.
 It refuses, and writes nothing, where the download does not have the checksum
-this build holds for the platform, and downloads nothing where the build holds
-none. No build holds one yet, so until the published checksums are added to
-`internal/dolttool` both `yoyo setup` and `yoyo doctor` say dolt cannot be
-installed and print the command that lists them.
+this build holds for the platform. Builds hold checksums for darwin and linux, on
+amd64 and arm64. On any other platform nothing is downloaded, and `yoyo setup`
+and `yoyo doctor` say dolt cannot be installed and print the command that lists
+the published checksums.
 
 `yoyo doctor` reports under `dolt`, as a warning, a copy that is missing, at
 another version, or not the file setup installed, naming the version wanted. It

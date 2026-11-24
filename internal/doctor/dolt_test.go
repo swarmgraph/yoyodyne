@@ -43,6 +43,9 @@ func TestDoctorReportsDoltMissingOrAtAnotherVersion(t *testing.T) {
 		if !found || finding.Status != StatusWarning || finding.Remedy == "" {
 			t.Errorf("%s: finding = %#v, want a warning with a remedy", name, finding)
 		}
+		if !strings.HasPrefix(finding.Remedy, "yoyo setup --directory ") {
+			t.Errorf("%s: remedy = %q, want setup to install it", name, finding.Remedy)
+		}
 		for _, want := range test.want {
 			if !strings.Contains(finding.Summary, want) {
 				t.Errorf("%s: summary = %q, want %q in it", name, finding.Summary, want)
@@ -51,5 +54,18 @@ func TestDoctorReportsDoltMissingOrAtAnotherVersion(t *testing.T) {
 		if !report.Healthy() {
 			t.Errorf("%s stopped work running: %s", name, render(report))
 		}
+	}
+}
+
+func TestDoctorSaysWhenThisBuildCannotInstallDoltHere(t *testing.T) {
+	t.Parallel()
+	world := newWorld(t)
+	world.goos = "freebsd"
+	if err := os.RemoveAll(filepath.Join(world.stateRoot, dolttool.ToolsDirectoryName)); err != nil {
+		t.Fatal(err)
+	}
+	finding, _ := findingFor(world.diagnose(), doltCheck)
+	if finding.Status != StatusWarning || finding.Remedy != dolttool.ChecksumsCommand || !strings.Contains(finding.Detail, "cannot install it") {
+		t.Errorf("finding = %#v, want it to say setup cannot install dolt and print the checksums command", finding)
 	}
 }
