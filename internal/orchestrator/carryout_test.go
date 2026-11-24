@@ -177,9 +177,9 @@ func TestACarryOutRefusedPreFlightSpendsNothingAndSaysWhatWouldClearIt(t *testin
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	// The item is still blocked by the run that stopped, which is what a fresh run
-	// of it would start from.
-	harness.item.Status = "closed"
+	// The item is put off, which is not a state a fresh run may start from and is
+	// one somebody can put it back from.
+	harness.item.Status = "deferred"
 	carrying := harness.carryOut()
 	carried, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying))
 	if err != nil {
@@ -222,7 +222,7 @@ func TestARefusedDecisionIsLeftAloneUntilItsPacingHasPassed(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "closed"
+	harness.item.Status = "deferred"
 	carrying := harness.carryOut()
 	if _, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil {
 		t.Fatalf("Carry() error = %v", err)
@@ -751,7 +751,7 @@ func TestTheDocketCarriesTheGateThatStoppedTheCarryOut(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "closed"
+	harness.item.Status = "deferred"
 	carrying := harness.carryOut()
 	if _, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil {
 		t.Fatalf("Carry() error = %v", err)
@@ -1617,7 +1617,7 @@ func TestASettledEntryWhoseCarryOutAGateStoppedIsAQuestionAgain(t *testing.T) {
 
 	// The harness tries to carry the decision out after it was made, and the
 	// item's own state refuses it.
-	harness.item.Status = "closed"
+	harness.item.Status = "deferred"
 	refusing := harness.carryOutAt(time.Minute)
 	if _, _, err := refusing.Carry(context.Background(), theOneOutstanding(t, refusing)); err != nil {
 		t.Fatalf("Carry() error = %v", err)
