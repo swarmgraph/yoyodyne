@@ -70,11 +70,13 @@ type Record struct {
 	SchemaVersion int              `json:"schema_version"`
 	ProductID     domain.ProductID `json:"product_id"`
 	Mode          Mode             `json:"mode"`
-	// Epics is one entry for each epic ever named, in the order they were named.
+	// Epics is one entry for each naming, in the order they were made. An epic
+	// that ended may be named again, so it may have several, and at most one of
+	// them, the last, is open.
 	Epics []Epic `json:"epics"`
 }
 
-// Epic is one epic the operator named.
+// Epic is one naming of an epic by the operator.
 type Epic struct {
 	WorkItemID string    `json:"work_item_id"`
 	NamedAt    time.Time `json:"named_at"`
@@ -106,7 +108,8 @@ type Ending struct {
 // On reports whether epic mode is on.
 func (r Record) On() bool { return r.Mode == ModeEpic }
 
-// Named finds the entry for an epic, open or ended.
+// Named finds the latest entry for an epic, which is the open one where there is
+// one.
 func (r Record) Named(epic string) (Epic, bool) {
 	if at := r.index(epic); at >= 0 {
 		return r.Epics[at], true
@@ -125,12 +128,24 @@ func (r Record) Holding(item string) (Epic, bool) {
 }
 
 func (r Record) index(epic string) int {
-	for at := range r.Epics {
+	for at := len(r.Epics) - 1; at >= 0; at-- {
 		if r.Epics[at].WorkItemID == epic {
 			return at
 		}
 	}
 	return -1
+}
+
+// OpenEpics is every entry the operator has not ended, in the order they were
+// named. They are kept open while epic mode is off.
+func (r Record) OpenEpics() []Epic {
+	var open []Epic
+	for _, epic := range r.Epics {
+		if epic.Open() {
+			open = append(open, epic)
+		}
+	}
+	return open
 }
 
 // Open reports an epic the operator has not ended.
@@ -161,12 +176,12 @@ func (r Record) Validate() error {
 	if len(r.Epics) == 0 {
 		problems = append(problems, errors.New("the file names no epic, and it is written only once one has been named"))
 	}
-	seen := map[string]bool{}
+	open := map[string]bool{}
 	for _, epic := range r.Epics {
-		if seen[epic.WorkItemID] {
-			problems = append(problems, fmt.Errorf("epic %s has two entries", epic.WorkItemID))
+		if open[epic.WorkItemID] {
+			problems = append(problems, fmt.Errorf("epic %s has another entry after one that has not ended", epic.WorkItemID))
 		}
-		seen[epic.WorkItemID] = true
+		open[epic.WorkItemID] = open[epic.WorkItemID] || epic.Open()
 		if err := epic.validate(); err != nil {
 			problems = append(problems, fmt.Errorf("epic %q: %w", epic.WorkItemID, err))
 		}

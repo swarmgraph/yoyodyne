@@ -1743,6 +1743,42 @@ lifted, when, and by whom: this command, the conversation and its turn, or the
 harness and what moved it — because the channel owes you who ended a hold it
 announced: [the release is said once, by whom](reporting.md#a-finding-that-needs-your-hand).
 
+## Working only on the epics you name
+
+Epic mode is for when you want the factory to work on one or more epics and
+nothing else. Naming an epic is your act alone:
+
+```bash
+./bin/yoyo epic start yoyodyne-ab1 --words "finish this first"   # names it and turns epic mode on
+./bin/yoyo epic add yoyodyne-ab1 yoyodyne-ab1.9                  # adds an item to it
+./bin/yoyo epic list                                             # shows the record
+./bin/yoyo epic end yoyodyne-ab1                                 # ends it; its record is kept
+./bin/yoyo epic off                                              # back to goal mode
+```
+
+**Epic mode is still being built, and `start` is refused until it is.** The
+refusal names each way the harness starts work that does not yet ask whether it
+may start under the epics you named. Until all of them ask, epic mode could not
+keep its promise that nothing else starts, so it does not turn on.
+
+`start` records every open item below the epic as its members, and prints that
+list. The members are that list and what you add: an item moved or created below
+the epic afterwards is not one until you add it, and the epic itself is not one.
+A member waits on a prerequisite outside the members, which is not started.
+`start` and `add` refuse an item that another open epic has, and name that epic.
+
+`end` leaves epic mode on, the last epic included, and `off` ends no epic. While
+epic mode is off you can still add to an epic or end it. `start` on an epic you
+ended names it again, with the items below it now. `start` on an epic still open
+while epic mode is off turns epic mode back on and changes no members; it prints
+each open item below the epic that is not a member, with the command that adds
+it. Whenever `start` turns epic mode on, it prints every other open epic that is
+worked on again, with the command that ends each.
+
+The record is `epic-scope.json` in the product's state directory. All but `list`
+are [refused from a process the harness launched](#where-a-finding-that-needs-your-hand-goes),
+for a role or on its own schedule.
+
 ## Holding landing on one branch
 
 Your own script may need the harness to land nothing on a branch for a while: a
@@ -1983,8 +2019,9 @@ launched for in its environment, as
 every invocation is built from; the variable is under the harness's own
 prefix, so a shell the agent opens and every `yoyo` that shell runs carry it
 too. `yoyo pause`, `yoyo resume` in both its forms, `yoyo release`,
-`yoyo artifact approve`, `yoyo role activate`, and `yoyo gate record` read it
-before they read anything else, and a process that carries it is told, in a
+`yoyo artifact approve`, `yoyo role activate`, `yoyo gate record`, and
+[`yoyo epic start`, `add`, `end` and `off`](#working-only-on-the-epics-you-name)
+read it before they read anything else, and a process that carries it is told, in a
 sentence rather than a permission error, whose act this is:
 
 ```text
