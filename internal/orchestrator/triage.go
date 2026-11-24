@@ -710,6 +710,9 @@ func (s standingDocket) dockets(key string, stoppedAt time.Time) bool {
 func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]bool, published map[string]publicationRearms, runs map[string]runstate.State) []error {
 	var problems []error
 	read := make(map[string]itemDecisions, len(entries))
+	// A refusal that will not clear is one question to her, so where it is about
+	// a run the docket does not hold it is shown on one entry of the item.
+	attached := make(map[string]bool)
 	for index := range entries {
 		entry := &entries[index]
 		decisions, seen := read[entry.WorkItemID]
@@ -771,8 +774,9 @@ func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]
 		// an undocketed run was refused thirty-nine times onto the item's record
 		// while every entry she was shown said nothing (yoyodyne-ifd.428.52).
 		if latest := undocketedCarryOut(*entry, decisions.counters, docketedRuns); latest != nil &&
-			(entry.CarryOut == nil || entry.CarryOut.RefusedAt.Before(latest.RefusedAt)) {
+			!attached[entry.WorkItemID] && (entry.CarryOut == nil || entry.CarryOut.RefusedAt.Before(latest.RefusedAt)) {
 			entry.CarryOut = latest
+			attached[entry.WorkItemID] = latest.Cause != ""
 		}
 	}
 	return problems

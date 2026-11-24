@@ -1,8 +1,11 @@
 package orchestrator
 
 import (
+	"context"
 	"errors"
+	"fmt"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -40,4 +43,36 @@ func carryOutCause(err error) triage.CarryOutCause {
 	default:
 		return ""
 	}
+}
+
+// itemClosed is the refusal of a re-run or a repair whose item is closed,
+// finished or retired. Reopening it is a decision of its own, and only a
+// recovery recorded after that is tried.
+func itemClosed(workItemID string) error {
+	return permanentCarryOut(triage.CarryOutItemClosed, fmt.Errorf(
+		"%w: work item %s is closed, so there is no open work for a run of it to do; nothing was claimed and nothing was spent",
+		ErrItemNotStartable, workItemID))
+}
+
+// runGone is the refusal of a decision naming a run whose record no longer
+// exists.
+func runGone(runID string, err error) error {
+	return permanentCarryOut(triage.CarryOutRunGone, fmt.Errorf(
+		"run %s, which the decision is about, no longer has a record, so there is nothing to start from: %w", runID, err))
+}
+
+// refusedOnClosedItem is a refusal nothing classed as permanent, read again as
+// one where the item is closed. A repair asks much about its run before it reads
+// the item, so a decision on a closed item can be refused for one of those first
+// and would be tried again for as long as it stood. An item that cannot be read
+// leaves the refusal as it was.
+func (c CarryOut) refusedOnClosedItem(ctx context.Context, task CarryOutTask, err error) error {
+	if err == nil || carryOutCause(err) != "" || beads.Unanswered(err) {
+		return err
+	}
+	item, read := c.itemReader()(ctx, task.WorkItemID)
+	if !read || item.ID != task.WorkItemID || item.Status != closedStatus {
+		return err
+	}
+	return permanentCarryOut(triage.CarryOutItemClosed, fmt.Errorf("work item %s is closed, and the attempt was refused: %w", task.WorkItemID, err))
 }

@@ -1350,7 +1350,7 @@ func TestEveryRefusalIsAskedBeforeTheGrantIsSpent(t *testing.T) {
 			// on, whatever its budget still says.
 			name:    "the item was closed",
 			arrange: func(_ *testing.T, h *continueHarness) { h.tracker.Item.Status = "closed" },
-			want:    `status is "closed"`,
+			want:    "is closed, so there is no open work",
 		},
 		{
 			// An item waiting on other work is refused for the reason a fresh run
