@@ -260,3 +260,44 @@ func TestADecisionRefusedInTheWalkLeavesItsSlotToTheNextReadyItem(t *testing.T) 
 		t.Fatalf("started = %v, want the refused decision's slot given to the last item in the same walk", order)
 	}
 }
+
+// A decision fired in the walk that has not been heard from may yet begin its
+// run, so it counts against the session's limit and no further start is made in
+// the slot it gave back.
+func TestADecisionUnheardInTheWalkStillCountsAgainstTheLimit(t *testing.T) {
+	t.Parallel()
+
+	items := readyItems("yoyodyne-first", "yoyodyne-decided", "yoyodyne-last")
+	for index := range items {
+		items[index].Priority = index
+	}
+	harness := newScheduleHarness(items...)
+	harness.capacity = 2
+	harness.outstanding = outstandingUntilAttempted(decidedTaskOf("yoyodyne-decided", "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	carryOut := unheardCarryOut{scheduleHarness: harness, release: make(chan struct{})}
+	open := func(ctx context.Context) (Pull, error) {
+		pull, err := harness.open(ctx)
+		pull.CarryOut = carryOut
+		return pull, err
+	}
+	// The decision answers well past the bound, so the walk gives its slot back
+	// first. Were it heard sooner it would be refused, and count all the same.
+	unheard := time.Millisecond
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		if id == "yoyodyne-first" {
+			time.AfterFunc(200*unheard, func() { close(carryOut.release) })
+		}
+		return h.complete(id), nil
+	}
+	schedule, err := (Scheduler{Open: open, CarryOutStartWait: unheard, Limit: 2}).Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	var order []string
+	for _, started := range schedule.Started {
+		order = append(order, started.WorkItemID)
+	}
+	if strings.Join(order, " ") != "yoyodyne-first yoyodyne-decided" {
+		t.Fatalf("started = %v, want no third start past a limit of 2", order)
+	}
+}

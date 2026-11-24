@@ -4215,6 +4215,12 @@ pulling:
 					leftBehind = append(leftBehind, past...)
 					return walkStarted, nil
 				}
+				// A decision fired here that gave its slot back still counts as a start
+				// against the session's limit, as one fired before the walk does, so
+				// the limit is asked again before the slot goes to fresh work.
+				if s.Limit > 0 && schedule.Chosen() >= s.Limit {
+					return walkNothing, nil
+				}
 				answer, err := eligible(entry)
 				if err != nil {
 					return walkUnreadable, err
