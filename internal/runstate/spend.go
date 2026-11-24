@@ -134,6 +134,11 @@ type Spend struct {
 	Role  domain.AgentRole `json:"role"`
 	Agent string           `json:"agent,omitempty"`
 	Phase SpendPhase       `json:"phase"`
+	// Comparison marks a review made only to compare a cheaper model's verdict
+	// with the deciding one (reviewcomparison.go). It is money spent on reviewing
+	// and is added up as such; what reads a review line as a review that judged
+	// the change leaves it out.
+	Comparison bool `json:"comparison,omitempty"`
 	// Classification says whether AmountUSD is a number. AmountUSD is always
 	// encoded, including on an unknown line: a key left out reads to whatever
 	// consumes the log as an amount of nothing, which is the one thing an unknown
@@ -294,6 +299,10 @@ type Spend struct {
 	Earlier []pricing.Figure `json:"-"`
 }
 
+// JudgingReview reports a reviewer invocation made to judge the change, as a
+// comparison review never is.
+func (s Spend) JudgingReview() bool { return s.Phase == SpendPhaseReview && !s.Comparison }
+
 // Known reports a line carrying an amount somebody can add up.
 func (s Spend) Known() bool { return s.Classification == SpendKnown }
 
@@ -377,6 +386,9 @@ func (s Spend) Validate() error {
 		if err := domain.ValidateIdentifier("agent name", s.Agent); err != nil {
 			problems = append(problems, err)
 		}
+	}
+	if s.Comparison && s.Phase != SpendPhaseReview {
+		problems = append(problems, fmt.Errorf("a comparison is a review, not phase %q", s.Phase))
 	}
 	if !s.Phase.Valid() {
 		problems = append(problems, fmt.Errorf("phase %q must be one of %s", s.Phase, joinSpendPhases()))

@@ -32,6 +32,11 @@ type ReviewerModels struct {
 	// Code is the kind for a review of every other change, and may only be
 	// stronger.
 	Code ModelKind `yaml:"code,omitempty" json:"code,omitempty"`
+	// CompareDocuments has each document publication's review made a second
+	// time on the cheaper model, over the same change and the same evidence,
+	// for the trial section 5 of the design asks for. The second verdict is
+	// recorded beside the deciding one and decides nothing. Off by default.
+	CompareDocuments bool `yaml:"compare_documents,omitempty" json:"compare_documents,omitempty"`
 }
 
 // reviewerModelKinds is which kinds each kind of change may be reviewed on.
@@ -85,12 +90,49 @@ func (c Config) ReviewerModelFor(reviewer AgentConfig, document bool) ReviewerMo
 		Reason: fmt.Sprintf("execution.reviewer_models names the %s model for a review of %s, which is %s for provider %s", kind, change, model, reviewer.Backend)}
 }
 
+// DocumentComparisonModel is the model a document publication's second review
+// is made on for the comparison (CompareDocuments): the cheaper model the
+// reviewer agent's provider names. False where the comparison is off, where
+// the provider names no cheaper model, or where the cheaper model is the one
+// the deciding review is already made on, because a review compared with
+// itself says nothing about the cheaper model.
+func (c Config) DocumentComparisonModel(reviewer AgentConfig) (string, bool) {
+	if !c.Execution.ReviewerModels.CompareDocuments {
+		return "", false
+	}
+	model, named := c.Execution.ModelOfKind(reviewer.Backend, ModelKindCheaper)
+	if !named || strings.TrimSpace(model) == "" {
+		return "", false
+	}
+	if model == strings.TrimSpace(c.ReviewerModelFor(reviewer, true).Model) {
+		return "", false
+	}
+	return model, true
+}
+
 // reviewerModelProblems refuses a kind that is not one of the three, a code
 // review below the stronger model, a document review on the lightest, and a
-// kind the reviewer agent's provider does not name.
+// kind the reviewer agent's provider does not name. With compare_documents on
+// it also refuses document reviews already made on the cheaper model, which
+// leaves nothing stronger to compare the second review with, and a reviewer
+// agent whose provider names no cheaper model to make the second review on.
 func reviewerModelProblems(c Config) []string {
 	var problems []string
 	setting := c.Execution.ReviewerModels
+	if setting.CompareDocuments {
+		if setting.KindFor(true) != ModelKindStronger {
+			problems = append(problems, "execution.reviewer_models.compare_documents is on while documents names the cheaper model; the comparison needs the deciding review of a document publication on the stronger model")
+		}
+		for _, name := range sortedConfigAgentNames(c.Agents) {
+			agent := c.Agents[name]
+			if agent.Role != domain.RoleReviewer {
+				continue
+			}
+			if _, named := c.Execution.ModelOfKind(agent.Backend, ModelKindCheaper); !named {
+				problems = append(problems, fmt.Sprintf("execution.reviewer_models.compare_documents is on, but provider %s, which reviewer agent %q runs on, names no cheaper model in execution.model_kinds", agent.Backend, name))
+			}
+		}
+	}
 	for _, entry := range []struct {
 		key  string
 		kind ModelKind

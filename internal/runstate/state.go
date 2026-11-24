@@ -2448,6 +2448,10 @@ func (s *State) recordedTexts() []recordedText {
 			unstated("cheaper_first.defect_after_landing.note", "cheaper_first.defect_after_landing.note", &s.CheaperFirst.DefectAfterLanding.Note, MaxLandedDefectNoteBytes)
 		}
 	}
+	for index := range s.ReviewComparisons {
+		unstated("review_comparisons[].cheaper_summary", at("review_comparisons", index, "cheaper_summary"), &s.ReviewComparisons[index].CheaperSummary, MaxReviewSummaryBytes)
+		unstated("review_comparisons[].problem", at("review_comparisons", index, "problem"), &s.ReviewComparisons[index].Problem, MaxRecordedTextBytes)
+	}
 	own("provider_effort_description", &s.ProviderEffortDescription, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("review_effort_description", &s.ReviewEffortDescription, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("review_summary", &s.ReviewSummary, MaxReviewSummaryBytes, reviewSummaryCutNote)
@@ -3948,12 +3952,17 @@ type State struct {
 	// model, its one move to the stronger, and the trial comparing the two
 	// (cheaperfirst.go). Absent on every run that was not eligible.
 	CheaperFirst *CheaperFirst `json:"cheaper_first,omitempty"`
-	Status       Status        `json:"status"`
-	Phase        Phase         `json:"phase,omitempty"`
-	LastSequence uint64        `json:"last_sequence"`
-	StartedAt    time.Time     `json:"started_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
-	CompletedAt  *time.Time    `json:"completed_at,omitempty"`
+	// ReviewComparisons is each review of a document publication made a second
+	// time on the cheaper model, beside the review that decided
+	// (reviewcomparison.go). It never decides anything. Absent unless
+	// execution.reviewer_models.compare_documents was on.
+	ReviewComparisons []ReviewComparison `json:"review_comparisons,omitempty"`
+	Status            Status             `json:"status"`
+	Phase             Phase              `json:"phase,omitempty"`
+	LastSequence      uint64             `json:"last_sequence"`
+	StartedAt         time.Time          `json:"started_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	CompletedAt       *time.Time         `json:"completed_at,omitempty"`
 	// SettledQuietSince is set only where the harness ended a run whose own
 	// process was already gone: `yoyo reconcile` settling a run nothing was
 	// carrying, or the claim audit cancelling a dead claim. It is the moment the
