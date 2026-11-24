@@ -347,6 +347,26 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 			},
 		})
 	}
+	// The daily unmet-goal review is a pass of the Lead Product Manager's task,
+	// so it holds her conversation as her task does. It is a candidate only
+	// while today's is owed, and not while the provider is answering nobody: a
+	// review whose pass would be refused waits for the provider rather than
+	// spending the day's review on a refusal.
+	if name, task, wired := t.goalReviewWired(); wired && !away {
+		due, owed, err := t.goalReviewOwed(now)
+		if err != nil {
+			problems = append(problems, err)
+		}
+		if owed {
+			candidates = append(candidates, candidate{
+				name: name, role: task.Role, conversation: roleConversationKey(task.Role), kind: firingTask,
+				due: due, known: true,
+				claim: func(ctx context.Context) (claimedFiring, bool, error) {
+					return t.goalReview(ctx, name, task, due)
+				},
+			})
+		}
+	}
 	for _, agent := range t.instanceNames() {
 		agent, instance := agent, t.Instances[agent]
 		due := dues[agent]
