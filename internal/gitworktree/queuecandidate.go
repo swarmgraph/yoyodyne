@@ -68,8 +68,7 @@ type QueueCandidateConflict struct {
 	BaseCommit   string
 	Head         string
 	Paths        []string
-	// Lines is how many lines conflict, counted where a candidate was being
-	// built; a conflict found in memory alone is not counted.
+	// Lines is how many lines conflict.
 	Lines ConflictLines
 	Err   error
 }
@@ -230,26 +229,23 @@ func (m *Manager) MergeTree(ctx context.Context, base, head string) (string, err
 			return "", fmt.Errorf("%q is not a full commit id", commit)
 		}
 	}
-	merged, err := m.run(ctx, "-C", m.repositoryRoot, "merge-tree", "--write-tree", "--name-only", base, head)
+	merged, err := m.run(ctx, "-C", m.repositoryRoot, "merge-tree", "--write-tree", "--no-messages", "-z", base, head)
 	if err != nil {
 		return "", err
 	}
 	switch {
 	case merged.ExitCode == 1:
-		lines := strings.Fields(merged.Stdout)
-		var paths []string
-		if len(lines) > 1 {
-			paths = lines[1:]
-		}
-		return "", &QueueCandidateConflict{BaseCommit: base, Head: head, Paths: paths, Err: fmt.Errorf("merge %s onto %s conflicts", head, base)}
+		// The tree, then each unmerged file's stages, every one ended by a NUL.
+		paths, stages := unmergedFiles(merged.Stdout)
+		return "", &QueueCandidateConflict{BaseCommit: base, Head: head, Paths: paths, Lines: m.countConflictLines(ctx, m.repositoryRoot, paths, stages), Err: fmt.Errorf("merge %s onto %s conflicts", head, base)}
 	case merged.Status != execution.ProcessSucceeded:
 		return "", fmt.Errorf("merge %s onto %s in memory failed with exit code %d: %s", head, base, merged.ExitCode, strings.TrimSpace(merged.Stderr))
 	}
-	lines := strings.Fields(merged.Stdout)
-	if len(lines) == 0 || !commitPattern.MatchString(lines[0]) {
+	tree := strings.TrimRight(merged.Stdout, "\x00\n")
+	if !commitPattern.MatchString(tree) {
 		return "", fmt.Errorf("merge %s onto %s in memory answered %q", head, base, strings.TrimSpace(merged.Stdout))
 	}
-	return lines[0], nil
+	return tree, nil
 }
 
 // CommitTree answers the tree of a commit: its whole content.

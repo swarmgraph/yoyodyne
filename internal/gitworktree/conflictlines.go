@@ -1,7 +1,8 @@
 package gitworktree
 
 // How large a conflict is: the number of lines the two sides disagree about,
-// counted while the conflict still stands in a checkout's index.
+// counted while the conflict still stands in a checkout's index, or from what a
+// merge in memory left unmerged.
 //
 // The count is made from the versions Git left unmerged rather than from the
 // markers it wrote in the files, because a file can hold lines that look like
@@ -51,9 +52,16 @@ func (m *Manager) conflictLines(ctx context.Context, path string) ConflictLines 
 	if listed.Status != execution.ProcessSucceeded || listed.OutputTruncation != "" {
 		return unknownConflictLines("the conflicting files could not be listed")
 	}
+	order, stages := unmergedFiles(listed.Stdout)
+	return m.countConflictLines(ctx, path, order, stages)
+}
+
+// unmergedFiles reads Git's NUL-ended listing of unmerged files: each file once,
+// in the order listed, and the blob of each of its stages.
+func unmergedFiles(listing string) ([]string, map[string]*[4]string) {
 	stages := map[string]*[4]string{}
 	var order []string
-	for _, entry := range strings.Split(listed.Stdout, "\x00") {
+	for _, entry := range strings.Split(listing, "\x00") {
 		described, name, found := strings.Cut(entry, "\t")
 		fields := strings.Fields(described)
 		if !found || len(fields) != 3 || len(fields[2]) != 1 || fields[2] < "1" || fields[2] > "3" {
@@ -65,6 +73,12 @@ func (m *Manager) conflictLines(ctx context.Context, path string) ConflictLines 
 		}
 		stages[name][fields[2][0]-'0'] = fields[1]
 	}
+	return order, stages
+}
+
+// countConflictLines counts the lines in conflict across the unmerged files,
+// asking Git in the repository or checkout at path.
+func (m *Manager) countConflictLines(ctx context.Context, path string, order []string, stages map[string]*[4]string) ConflictLines {
 	switch {
 	case len(order) == 0:
 		return unknownConflictLines("Git listed no conflicting file")

@@ -65,6 +65,9 @@ import (
 type MergeQueueLander interface {
 	TargetCommit(ctx context.Context, branch string) (string, error)
 	TargetHolds(ctx context.Context, branch, commit string) (bool, error)
+	// MergeTree merges head onto base in memory; a conflict is a
+	// *gitworktree.QueueCandidateConflict (mergequeueconflicts.go).
+	MergeTree(ctx context.Context, base, head string) (string, error)
 	ValidateReady(ctx context.Context) error
 	PromoteQueueCandidate(ctx context.Context, branch, base, candidate string) error
 	QueueCandidateBranchCommit(ctx context.Context, branch string) (string, bool, error)

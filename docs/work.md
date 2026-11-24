@@ -2945,10 +2945,14 @@ What can happen to a queued change instead:
   target's: the item a red landing files for that check is found or filed, the
   change is charged nothing, and it waits for the target to move while the
   changes behind it — the fix among them — go ahead.
-- **The change will not merge onto the target.** The target moved while it
-  waited, so the first time this happens the change is handed back to its own
-  run for the run's one attempt to catch up: the run is put back to work by
-  itself, its developer reconciles the conflict on top of the target, and the
+- **The change will not merge onto the target.** Each time the target moves, the
+  queue tries merging every waiting change onto it, without running any check,
+  so this is found as soon as the queue sees the target move rather than when
+  the change's turn comes; while a candidate is being checked it looks once a
+  minute. A change that still merges keeps its place, untouched. For one that
+  does not, the hand-back names the conflicting files. The first time
+  this happens the change is handed back to its own run for the run's one
+  attempt to catch up: the run is put back to work by itself, its developer reconciles the conflict on top of the target, and the
   change is checked and reviewed again and rejoins the queue. The item is told,
   not blocked, and no repair attempt or fresh run is spent. If the run already
   used that attempt, it is handed back as a replay conflict is, with the item

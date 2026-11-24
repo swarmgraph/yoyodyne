@@ -9,10 +9,11 @@ package orchestrator
 // One pass of one queue, in order: a failed candidate is read for what it says
 // and handed back where it is the change's (Recover); an entry whose change
 // already reached the target, or whose pull request was closed, outside the
-// queue leaves it (SettleOutside); the first unfinished entry is landed, or
+// queue leaves it (SettleOutside); a waiting entry that no longer merges onto
+// the target is handed back (mergequeueconflicts.go); the first unfinished entry is landed, or
 // taken up where an earlier pass stopped (Promote); and where nothing is under
 // way the next waiting entry's candidate is built, checked and reviewed
-// (Work). Each of the four takes the queue's worker lease
+// (Work). Each of the five takes the queue's worker lease
 // for itself, so one process works a queue at a time however many sessions are
 // watching, and a pass that finds the lease taken does nothing. A pass ends on
 // its own: when the queue has nothing waiting, when what is left waits on
@@ -67,6 +68,10 @@ type MergeQueueDriver struct {
 	// not reach GitHub as itself, once GitHub answers that identity again
 	// (githubidentity.go). Nil takes none up.
 	Identity *GitHubIdentityStops
+	// MergeTests remembers which waiting entries merged cleanly onto the target
+	// as it stands, so a pass merges again only what could answer differently.
+	// Nil remembers within one pass.
+	MergeTests *MergeQueueMergeTests
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 }
@@ -287,6 +292,26 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			undelivered.Entry.Order, undelivered.Err))
 		return true
 	}
+	tests := d.MergeTests
+	if tests == nil {
+		tests = &MergeQueueMergeTests{}
+	}
+	// conflicts takes what a look for conflicts did into the pass's account.
+	conflicts := func(found mergeQueueConflictsFound) {
+		handedBack += found.handedBack
+		landed += found.landed
+		for _, problem := range found.problems {
+			if says := problem.Error(); !passOver(problem) && !slices.Contains(untidied, says) {
+				untidied = append(untidied, says)
+			}
+		}
+	}
+	// watched is what was found while the worker verified a candidate. The
+	// worker waits for its last look before it returns, so it is read unlocked.
+	var watched mergeQueueConflictsFound
+	d.Worker.TargetMoved = func(ctx context.Context, lease *runstate.Lease, working string) {
+		watched.add(d.Promoter.handBackConflictsUnder(ctx, lease, key, working, tests))
+	}
 	repeated := ""
 	// looked is the entries this pass has looked at for a change that reached
 	// the target outside the queue, each asked about once a pass.
@@ -334,6 +359,11 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			}
 			continue
 		}
+		found, err := d.Promoter.handBackConflicts(ctx, key, tests)
+		if err != nil {
+			return stopped(runstate.MergeQueueEntry{}, err)
+		}
+		conflicts(found)
 		promoted, err := d.Promoter.Promote(ctx, key)
 		unrecorded = promoted.Unrecorded
 		if passOver(err) {
@@ -426,6 +456,8 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 			return done(runstate.MergeQueuePassStopped, promoted.Entry, promoted.Refusal)
 		}
 		verified, err := d.Worker.Work(ctx, key)
+		conflicts(watched)
+		watched = mergeQueueConflictsFound{}
 		retried = append(retried, verified.CheckoutRetries...)
 		if verified.Ahead != nil {
 			retried = append(retried, verified.Ahead.CheckoutRetries...)
