@@ -2131,6 +2131,9 @@ the walk. It paces nothing: the first pass that reaches the decision attempts
 it, and what that attempt comes to replaces the record. `yoyo status` counts
 these beside the refused ones on its held-work line — *decisions not carried
 out: 1 refused, 1 unattempted* — because the two are fixed in different places.
+A re-run held back because the item is parked is neither: it is written down at
+the next pass as waiting on the unparking, in place of any earlier wait, it is
+not put ahead of the walk, and `yoyo status` counts the item as parked work.
 The re-runs recorded for yoyodyne-ifd.192 and .187 on 2026-09-19 sat in that
 third ending for a week with nothing anywhere saying so;
 [the diagnosis](diagnoses/yoyodyne-ifd-428-39-unattempted-carry-outs.md) is how.

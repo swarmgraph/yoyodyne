@@ -273,7 +273,7 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 	}
 	// The docket asks the same shared rule of the same run and ledger.
 	standing := counters.StandingOf(run)
-	reading := decidedStanding{carryOut: triage.AwaitingCarryOut(standing), decided: standing.Decided, carriedOut: standing.CarriedOut, problem: problem}
+	reading := decidedStanding{carryOut: triage.AwaitingCarryOut(standing), parked: triage.WaitingOnParking(standing), decided: standing.Decided, carriedOut: standing.CarriedOut, problem: problem}
 	// A refusal of a repair since carried out is about a decision that no
 	// longer stands over the run, so it does not hold the later stop.
 	if refused, found := counters.RefusedCarryOut(run.RunID); found && !standing.CarriedOut {
@@ -296,6 +296,11 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 // problem is what stopped the reading.
 type decidedStanding struct {
 	carryOut bool
+	// parked is a decision that stands and waits for its item to be unparked
+	// (triage.WaitingOnParking). It holds the item as carryOut does, so the item
+	// is not pulled fresh beside the decision once it is unparked, and says that
+	// the next move is whoever parked it.
+	parked bool
 	// decided is a decision standing about the run's current stoppage, and
 	// carriedOut a repair decided about it carried out since, which leaves the
 	// current stoppage undecided (runstate's StandingOf).
@@ -325,11 +330,12 @@ type decidedStanding struct {
 // starts nor refuses it (yoyodyne-0t9). The item is the development manager's
 // to decide about instead, and the hold names the run that carried it out.
 func (reading decidedStanding) carriedOutBy(run, latest runstate.State) decidedStanding {
-	if !reading.rerun || !reading.carryOut || reading.problem != "" || latest.RunID == "" ||
+	if !reading.rerun || !(reading.carryOut || reading.parked) || reading.problem != "" || latest.RunID == "" ||
 		latest.RunID == run.RunID || latest.StartedAt.Before(reading.decidedAt) {
 		return reading
 	}
 	reading.carryOut = false
+	reading.parked = false
 	reading.rerunBy = &latest
 	return reading
 }
@@ -382,6 +388,10 @@ func standingDecisions(decisions Decisions) standing {
 const (
 	awaitingDecisionClause = "the development manager decides what happens to it, and nothing pulls it until she has"
 	awaitingCarryOutClause = "the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision"
+	// awaitingUnparkingClause closes the hold of a decision that waits for its
+	// item to be unparked: the next move is whoever parked it, and the harness
+	// carries the decision out by itself once they have.
+	awaitingUnparkingClause = "the development manager has already decided what happens to it, and that decision waits for the item to be unparked; once whoever parked it releases it, the harness carries the decision out by itself"
 	// awaitingWorkClause closes the hold of a stoppage the development manager
 	// decided to wait on named work for; %s is that work item. It is the words
 	// endWaits replaces once that work is closed, or where nothing could say
@@ -415,6 +425,8 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 		return backlog.Hold{Reason: account + "; " + refusedCarryOut(*reading.refused), Since: since, RunID: runID}
 	case reading.rerunBy != nil:
 		return backlog.Hold{Reason: account + "; " + rerunCarriedOut(*reading.rerunBy, reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
+	case reading.parked:
+		return backlog.Hold{Reason: account + "; " + awaitingUnparkingClause, Decided: true, WaitsOnParking: true, Since: since, RunID: runID}
 	case reading.carryOut:
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	case reading.waitsOn != "":
@@ -718,7 +730,7 @@ func heldReasons(runs []runstate.State, escalated []runstate.Escalation, decided
 		if reading.releasesRerun(found) {
 			return false
 		}
-		return reading.carryOut || reading.refused != nil
+		return reading.carryOut || reading.parked || reading.refused != nil
 	}) {
 		found := looked[run.RunID]
 		reasons[workItemID] = stoppageHold(run, latest[workItemID], decided, found)
@@ -737,7 +749,7 @@ func heldReasons(runs []runstate.State, escalated []runstate.Escalation, decided
 		if _, held := reasons[workItemID]; held || !run.Status.Terminal() || !run.Escalated() {
 			continue
 		}
-		if reading := decided.of(workItemID, run); (reading.carryOut || reading.refused != nil) && !reading.releasesRerun(look(run)) {
+		if reading := decided.of(workItemID, run); (reading.carryOut || reading.parked || reading.refused != nil) && !reading.releasesRerun(look(run)) {
 			reasons[workItemID] = heldFor(run.RunID, raiseRerun(run), reading, stoppedAt(run))
 		}
 	}
@@ -816,10 +828,10 @@ func stoppageHold(run, latest runstate.State, decided standing, found triage.Fou
 	if preserved && !reading.decided && reading.refused == nil && reading.problem == "" && run.HarnessContinuesCheckStage() {
 		return backlog.Hold{Reason: preservedChange(run, found) + "; " + opens + run.CheckStageStopSays(), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
-	if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
+	if preserved && !reading.carryOut && !reading.parked && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
 		return backlog.Hold{Reason: preservedChange(run, found) + "; " + opens + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
-	if !preserved && reading.rerun && reading.carryOut && reading.problem == "" {
+	if !preserved && reading.rerun && reading.carryOut && !reading.parked && reading.problem == "" {
 		return backlog.Hold{Reason: freshRerun(run), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
 	if !preserved {
@@ -907,7 +919,7 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 	default:
 		// A re-run is carried out by starting a newer run; a repair continues
 		// its named run, and a re-arm settles that run's publication instead.
-		if !run.Status.Terminal() || (!counters.AwaitingCarryOutOf(run) && !refused) ||
+		if !run.Status.Terminal() || (!triage.DecisionStands(counters.StandingOf(run)) && !refused) ||
 			(decision.Decision == runstate.TriageDecisionRerun && latest.RunID != run.RunID && !latest.StartedAt.Before(decision.DecidedAt)) ||
 			(decision.Decision == runstate.TriageDecisionRearm && mergeConfirmed(run)) {
 			return backlog.Hold{}, ""
