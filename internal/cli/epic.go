@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 )
 
 // epicCommand is one `yoyo epic` command. The list of paths and the tracker are
@@ -34,6 +35,7 @@ type epicCommand struct {
 	configPath     string
 	jsonOutput     bool
 	words          string
+	product        domain.ProductID
 }
 
 type epicOutput struct {
@@ -110,11 +112,11 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	if err != nil {
 		return c.fail(err)
 	}
-	product := resolved.Config.Product.ID
+	c.product = resolved.Config.Product.ID
 	if verb == "list" {
-		return c.list(stateRoot, product)
+		return c.list(ctx, stateRoot)
 	}
-	operator, err := epicscope.ForOperator(stateRoot, product)
+	operator, err := epicscope.ForOperator(stateRoot, c.product)
 	if err != nil {
 		return c.fail(err)
 	}
@@ -124,9 +126,9 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	case "add":
 		return c.add(ctx, operator, named[0], named[1])
 	case "end":
-		return c.end(operator, named[0])
+		return c.end(ctx, operator, named[0])
 	default:
-		return c.off(operator)
+		return c.off(ctx, operator)
 	}
 }
 
@@ -163,10 +165,11 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 	if err != nil {
 		return c.fail(err)
 	}
-	epic, found := items.find(id)
+	epic, found := findItem(items, id)
 	if !found {
 		return c.fail(fmt.Errorf("the tracker has no work item %s", id))
 	}
+	titles := c.titlesOf(items)
 	below := beads.UnfinishedBelow(id, items)
 	naming := epicscope.Naming{Epic: id, From: viaCommandLine, Words: c.words, Description: epic.Description}
 	for _, item := range below {
@@ -174,7 +177,7 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 	}
 	started, err := operator.Start(naming, time.Now())
 	if err != nil {
-		return c.fail(err)
+		return c.refused(titles, err, append(itemIDs(below), id)...)
 	}
 	output := epicOutput{Record: &started.Record, Named: started.Named, TurnedOn: started.TurnedOn}
 	if !started.Named {
@@ -195,9 +198,9 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 		return writeJSON(c.stdout, c.stderr, output)
 	}
 	if started.Named {
-		fmt.Fprintf(c.stdout, "named epic %s; epic mode is on\n", items.said(id))
+		fmt.Fprintf(c.stdout, "named epic %s; epic mode is on\n", titles.Name(id))
 	} else {
-		fmt.Fprintf(c.stdout, "epic mode is on again, and epic %s is still open; its members are unchanged\n", items.said(id))
+		fmt.Fprintf(c.stdout, "epic mode is on again, and epic %s is still open; its members are unchanged\n", titles.Name(id))
 		if strings.TrimSpace(c.words) != "" {
 			fmt.Fprintln(c.stdout, "the words you gave were not kept, because the epic's entry is unchanged")
 		}
@@ -205,22 +208,22 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 	// The members are printed from what was recorded, so the two cannot differ.
 	fmt.Fprintf(c.stdout, "%d member(s), the only items that may start in it:\n", len(started.Epic.Members))
 	for _, member := range started.Epic.Members {
-		fmt.Fprintf(c.stdout, "  %s\n", items.said(member.WorkItemID))
+		fmt.Fprintf(c.stdout, "  %s\n", titles.Name(member.WorkItemID))
 	}
 	if len(output.NotMembers) > 0 {
 		fmt.Fprintln(c.stdout, "open items below it that are not members, and the command that adds each:")
 		for _, item := range output.NotMembers {
 			if holder, held := started.Record.Holding(item); held {
-				fmt.Fprintf(c.stdout, "  %s: in epic %s, and can be added once that has ended: yoyo epic add %s %s\n", items.said(item), holder.WorkItemID, id, item)
+				fmt.Fprintf(c.stdout, "  %s: in epic %s, and can be added once that has ended: yoyo epic add %s %s\n", titles.Name(item), titles.Name(holder.WorkItemID), id, item)
 				continue
 			}
-			fmt.Fprintf(c.stdout, "  %s: yoyo epic add %s %s\n", items.said(item), id, item)
+			fmt.Fprintf(c.stdout, "  %s: yoyo epic add %s %s\n", titles.Name(item), id, item)
 		}
 	}
 	if len(output.WorkedOnAgain) > 0 {
 		fmt.Fprintln(c.stdout, "also worked on again, and the command that ends each:")
 		for _, other := range output.WorkedOnAgain {
-			fmt.Fprintf(c.stdout, "  %s: yoyo epic end %s\n", items.said(other), other)
+			fmt.Fprintf(c.stdout, "  %s: yoyo epic end %s\n", titles.Name(other), other)
 		}
 	}
 	return 0
@@ -234,39 +237,40 @@ func (c epicCommand) add(ctx context.Context, operator *epicscope.Operator, epic
 	if err != nil {
 		return c.fail(err)
 	}
-	if _, found := items.find(item); !found {
+	if _, found := findItem(items, item); !found {
 		return c.fail(fmt.Errorf("the tracker has no work item %s", item))
 	}
+	titles := c.titlesOf(items)
 	record, err := operator.Add(epic, item, time.Now())
 	if err != nil {
-		return c.fail(err)
+		return c.refused(titles, err, epic, item)
 	}
 	if c.jsonOutput {
 		return writeJSON(c.stdout, c.stderr, epicOutput{Record: &record})
 	}
-	fmt.Fprintf(c.stdout, "%s is a member of epic %s\n", items.said(item), items.said(epic))
+	fmt.Fprintf(c.stdout, "%s is a member of epic %s\n", titles.Name(item), titles.Name(epic))
 	if !record.On() {
 		fmt.Fprintln(c.stdout, "epic mode is off, so this changes nothing that starts until `yoyo epic start` turns it on")
 	}
 	return 0
 }
 
-func (c epicCommand) end(operator *epicscope.Operator, epic string) int {
+func (c epicCommand) end(ctx context.Context, operator *epicscope.Operator, epic string) int {
 	record, err := operator.End(epic, c.words, time.Now())
 	if err != nil {
-		return c.fail(err)
+		return c.refused(c.titles(ctx), err, epic)
 	}
 	if c.jsonOutput {
 		return writeJSON(c.stdout, c.stderr, epicOutput{Record: &record})
 	}
-	fmt.Fprintf(c.stdout, "ended epic %s; its record is kept\n", epic)
+	fmt.Fprintf(c.stdout, "ended epic %s; its record is kept\n", c.titles(ctx).Name(epic))
 	if record.On() {
 		fmt.Fprintf(c.stdout, "epic mode is still on, with %d epic(s) open; `yoyo epic off` returns the factory to goal mode\n", len(record.OpenEpics()))
 	}
 	return 0
 }
 
-func (c epicCommand) off(operator *epicscope.Operator) int {
+func (c epicCommand) off(ctx context.Context, operator *epicscope.Operator) int {
 	record, err := operator.TurnOff()
 	if err != nil {
 		return c.fail(err)
@@ -277,15 +281,16 @@ func (c epicCommand) off(operator *epicscope.Operator) int {
 	fmt.Fprintln(c.stdout, "epic mode is off; the factory works in goal mode")
 	if open := record.OpenEpics(); len(open) > 0 {
 		fmt.Fprintln(c.stdout, "epics still open, and the command that ends each:")
+		titles := c.titles(ctx)
 		for _, epic := range open {
-			fmt.Fprintf(c.stdout, "  %s: yoyo epic end %s\n", epic.WorkItemID, epic.WorkItemID)
+			fmt.Fprintf(c.stdout, "  %s: yoyo epic end %s\n", titles.Name(epic.WorkItemID), epic.WorkItemID)
 		}
 	}
 	return 0
 }
 
-func (c epicCommand) list(stateRoot string, product domain.ProductID) int {
-	record, err := epicscope.Read(stateRoot, product)
+func (c epicCommand) list(ctx context.Context, stateRoot string) int {
+	record, err := epicscope.Read(stateRoot, c.product)
 	if err != nil {
 		return c.fail(err)
 	}
@@ -299,18 +304,20 @@ func (c epicCommand) list(stateRoot string, product domain.ProductID) int {
 	}
 	if len(record.Epics) == 0 {
 		fmt.Fprintln(c.stdout, "no epic has been named")
+		return 0
 	}
+	titles := c.titles(ctx)
 	for _, epic := range record.Epics {
 		state := "open"
 		if !epic.Open() {
 			state = "ended at " + localTime(epic.Ended.At)
 		}
-		fmt.Fprintf(c.stdout, "\n%s: %s; named at %s from %s\n", epic.WorkItemID, state, localTime(epic.NamedAt), epic.NamedFrom)
+		fmt.Fprintf(c.stdout, "\n%s: %s; named at %s from %s\n", titles.Name(epic.WorkItemID), state, localTime(epic.NamedAt), epic.NamedFrom)
 		if epic.Words != "" {
-			printIndented(c.stdout, "said when naming it:", epic.Words)
+			printIndented(c.stdout, "said when naming it:", titles.Cite(epic.Words))
 		}
 		if !epic.Open() && epic.Ended.Words != "" {
-			printIndented(c.stdout, "said when ending it:", epic.Ended.Words)
+			printIndented(c.stdout, "said when ending it:", titles.Cite(epic.Ended.Words))
 		}
 		fmt.Fprintf(c.stdout, "  %d member(s):\n", len(epic.Members))
 		for _, member := range epic.Members {
@@ -318,10 +325,10 @@ func (c epicCommand) list(stateRoot string, product domain.ProductID) int {
 			if member.Act == epicscope.ActAdd {
 				how = "added at " + localTime(member.AddedAt)
 			}
-			fmt.Fprintf(c.stdout, "    %s, %s\n", member.WorkItemID, how)
+			fmt.Fprintf(c.stdout, "    %s, %s\n", titles.Name(member.WorkItemID), how)
 		}
 		if strings.TrimSpace(epic.Description) != "" {
-			printIndented(c.stdout, "its description when it was named:", epic.Description)
+			printIndented(c.stdout, "its description when it was named:", titles.Cite(epic.Description))
 		}
 	}
 	return 0
@@ -331,10 +338,8 @@ func printIndented(writer io.Writer, heading, text string) {
 	fmt.Fprintf(writer, "  %s\n    %s\n", heading, strings.ReplaceAll(strings.TrimSpace(text), "\n", "\n    "))
 }
 
-// epicItems is every work item of the tracker, closed ones included.
-type epicItems []beads.WorkItem
-
-func (c epicCommand) items(ctx context.Context) (epicItems, error) {
+// items is every work item of the tracker, closed ones included.
+func (c epicCommand) items(ctx context.Context) ([]beads.WorkItem, error) {
 	tracker, err := c.tracker(c.configPath)
 	if err != nil {
 		return nil, err
@@ -346,8 +351,8 @@ func (c epicCommand) items(ctx context.Context) (epicItems, error) {
 	return listed, nil
 }
 
-func (i epicItems) find(id string) (beads.WorkItem, bool) {
-	for _, item := range i {
+func findItem(items []beads.WorkItem, id string) (beads.WorkItem, bool) {
+	for _, item := range items {
 		if item.ID == id {
 			return item, true
 		}
@@ -355,14 +360,34 @@ func (i epicItems) find(id string) (beads.WorkItem, bool) {
 	return beads.WorkItem{}, false
 }
 
-// said is a work item as it is named to a person: what it is, with its
-// identifier after it.
-func (i epicItems) said(id string) string {
-	item, _ := i.find(id)
-	if title := strings.TrimSpace(item.Title); title != "" {
-		return fmt.Sprintf("%s (%s)", title, id)
+func itemIDs(items []beads.WorkItem) []string {
+	var ids []string
+	for _, item := range items {
+		ids = append(ids, item.ID)
 	}
-	return id
+	return ids
+}
+
+func (c epicCommand) titlesOf(items []beads.WorkItem) *readmodel.WorkItemTitles {
+	return readmodel.NewWorkItemTitles(items, string(c.product))
+}
+
+// titles is for a command that needs the tracker only to name work items. One
+// that cannot be read stops nothing: each item is then said with that beside it.
+func (c epicCommand) titles(ctx context.Context) *readmodel.WorkItemTitles {
+	ctx, cancel := context.WithTimeout(ctx, trackerCommandTimeout)
+	defer cancel()
+	items, err := c.items(ctx)
+	if err != nil {
+		return readmodel.UnreadableWorkItemTitles(time.Now(), string(c.product))
+	}
+	return c.titlesOf(items)
+}
+
+// refused is an act the record refused, with each work item the refusal names
+// said as the tracker has it.
+func (c epicCommand) refused(titles *readmodel.WorkItemTitles, err error, ids ...string) int {
+	return c.fail(errors.New(titles.CiteKnowing(err.Error(), ids...)))
 }
 
 func (c epicCommand) fail(err error) int {

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ type epicBench struct {
 	stateRoot string
 	config    string
 	items     *listedItems
+	trackerIs error // why the tracker cannot be read, where it cannot
 	paths     []maystart.PathEntry
 }
 
@@ -36,7 +38,7 @@ func newEpicBench(t *testing.T) *epicBench {
 	}
 	bench.items = &listedItems{
 		// Listed below its parent's place, and closed with open work below it.
-		{ID: "yoyodyne-a.1.1", Title: "Deep", Status: "in_progress", Parent: "yoyodyne-a.1"},
+		{ID: "yoyodyne-a.1.1", Title: "Deep", Status: "in_progress", Priority: 1, Labels: []string{"reliability"}, Parent: "yoyodyne-a.1"},
 		{ID: "yoyodyne-a", Title: "Epic A", Status: "open", Description: "What A is.\nAll of it."},
 		{ID: "yoyodyne-a.1", Title: "Done", Status: "closed", Parent: "yoyodyne-a"},
 		{ID: "yoyodyne-a.2", Title: "Linked", Status: "blocked", Dependencies: []beads.Dependency{{ID: "yoyodyne-a", Type: "parent-child"}}},
@@ -51,7 +53,7 @@ func (b *epicBench) run(args ...string) (string, string, int) {
 	b.t.Helper()
 	var stdout, stderr bytes.Buffer
 	command := epicCommand{paths: b.paths, stdout: &stdout, stderr: &stderr,
-		tracker: func(string) (itemLister, error) { return b.items, nil }}
+		tracker: func(string) (itemLister, error) { return b.items, b.trackerIs }}
 	code := command.run(context.Background(), append(args, "--config", b.config))
 	return stdout.String(), stderr.String(), code
 }
@@ -120,10 +122,10 @@ func TestEpicStartRecordsTheListItPrints(t *testing.T) {
 	if epic.Description != "What A is.\nAll of it." || epic.Words != "only this" || epic.NamedFrom != viaCommandLine {
 		t.Fatalf("epic = %+v", epic)
 	}
-	if !strings.HasSuffix(stdout, "2 member(s), the only items that may start in it:\n  Deep (yoyodyne-a.1.1)\n  Linked (yoyodyne-a.2)\n") {
+	if !strings.HasSuffix(stdout, "2 member(s), the only items that may start in it:\n  (P1, reliability) Deep (yoyodyne-a.1.1)\n  (P0) Linked (yoyodyne-a.2)\n") {
 		t.Fatalf("stdout = %q, want exactly the members recorded", stdout)
 	}
-	says(t, bench.does("list"), "epic mode is on, with 1 epic(s) open", "yoyodyne-a: open", "only this", "yoyodyne-a.1.1, on the list", "    All of it.")
+	says(t, bench.does("list"), "epic mode is on, with 1 epic(s) open", "(P0) Epic A (yoyodyne-a): open", "only this", "(P1, reliability) Deep (yoyodyne-a.1.1), on the list", "    All of it.")
 	bench.refuses([]string{"start", "yoyodyne-gone"}, "no work item yoyodyne-gone")
 }
 
@@ -156,7 +158,7 @@ func TestAnItemInAnotherOpenEpicIsRefusedNamingIt(t *testing.T) {
 	bench := newEpicBench(t)
 	bench.does("start", "yoyodyne-a")
 	bench.does("add", "yoyodyne-a", "yoyodyne-b.1")
-	held := []string{"yoyodyne-b.1", "already in epic yoyodyne-a"}
+	held := []string{"yoyodyne-b.1 (P0: Other)", "already in epic yoyodyne-a (P0: Epic A)"}
 	bench.refuses([]string{"start", "yoyodyne-b"}, held...)
 	bench.does("add", "yoyodyne-a", "yoyodyne-loose")
 	bench.refuses([]string{"start", "yoyodyne-loose"}, "already in epic yoyodyne-a")
@@ -164,14 +166,14 @@ func TestAnItemInAnotherOpenEpicIsRefusedNamingIt(t *testing.T) {
 	bench.does("end", "yoyodyne-a")
 	bench.does("start", "yoyodyne-b")
 	bench.does("start", "yoyodyne-a")
-	bench.refuses([]string{"add", "yoyodyne-a", "yoyodyne-b.1"}, "yoyodyne-b.1", "already in epic yoyodyne-b")
+	bench.refuses([]string{"add", "yoyodyne-a", "yoyodyne-b.1"}, "yoyodyne-b.1", "already in epic yoyodyne-b (P0: Epic B)")
 }
 
 func TestAnEndedEpicNamedAgainGetsANewEntryWithTheListPrintedNow(t *testing.T) {
 	bench := newEpicBench(t)
 	bench.does("start", "yoyodyne-a")
 	bench.does("add", "yoyodyne-a", "yoyodyne-loose")
-	says(t, bench.does("end", "yoyodyne-a", "--words", "enough"), "epic mode is still on")
+	says(t, bench.does("end", "yoyodyne-a", "--words", "enough"), "ended epic (P0) Epic A (yoyodyne-a)", "epic mode is still on")
 	ended := bench.record().Epics[0]
 	(*bench.items)[0].Status = "closed"
 	says(t, bench.does("start", "yoyodyne-a"), "1 member(s)", "Linked (yoyodyne-a.2)")
@@ -187,14 +189,14 @@ func TestAnEndedEpicNamedAgainGetsANewEntryWithTheListPrintedNow(t *testing.T) {
 func TestOffThenStartOnAnEpicStillOpen(t *testing.T) {
 	bench := newEpicBench(t)
 	bench.does("start", "yoyodyne-a")
-	bench.refuses([]string{"start", "yoyodyne-a"}, "already open", "yoyo epic add yoyodyne-a")
+	bench.refuses([]string{"start", "yoyodyne-a"}, "yoyodyne-a (P0: Epic A) is already open", "`yoyo epic add yoyodyne-a")
 	before := bench.record()
-	says(t, bench.does("off"), "goal mode", "yoyo epic end yoyodyne-a")
+	says(t, bench.does("off"), "goal mode", "(P0) Epic A (yoyodyne-a): yoyo epic end yoyodyne-a")
 	if record := bench.record(); record.On() || !reflect.DeepEqual(record.Epics, before.Epics) {
 		t.Fatalf("after off: %+v, want only the mode changed", record)
 	}
 	*bench.items = append(*bench.items, beads.WorkItem{ID: "yoyodyne-a.3", Title: "New", Status: "open", Parent: "yoyodyne-a"})
-	says(t, bench.does("start", "yoyodyne-a"), "its members are unchanged", "  Linked (yoyodyne-a.2)\n", "New (yoyodyne-a.3): yoyo epic add yoyodyne-a yoyodyne-a.3")
+	says(t, bench.does("start", "yoyodyne-a"), "its members are unchanged", "  (P0) Linked (yoyodyne-a.2)\n", "(P0) New (yoyodyne-a.3): yoyo epic add yoyodyne-a yoyodyne-a.3")
 	if after := bench.record(); !reflect.DeepEqual(before, after) {
 		t.Fatalf("record = %+v, want %+v", after, before)
 	}
@@ -204,7 +206,7 @@ func TestTurningEpicModeOnSaysWhatElseIsWorkedOnAgain(t *testing.T) {
 	bench := newEpicBench(t)
 	bench.does("start", "yoyodyne-a")
 	bench.does("off")
-	says(t, bench.does("start", "yoyodyne-b"), "named epic Epic B (yoyodyne-b)", "Epic A (yoyodyne-a): yoyo epic end yoyodyne-a")
+	says(t, bench.does("start", "yoyodyne-b"), "named epic (P0) Epic B (yoyodyne-b)", "Epic A (yoyodyne-a): yoyo epic end yoyodyne-a")
 	bench.does("end", "yoyodyne-b")
 	if stdout := bench.does("start", "yoyodyne-b"); strings.Contains(stdout, "worked on again") {
 		t.Fatalf("epic mode was already on, and start said %q", stdout)
@@ -223,7 +225,7 @@ func TestAddAndEndNeedAnOpenEntryAndWorkWhileEpicModeIsOff(t *testing.T) {
 	says(t, bench.does("add", "yoyodyne-a", "yoyodyne-loose"), "Loose (yoyodyne-loose) is a member", "epic mode is off")
 	bench.does("end", "yoyodyne-a")
 	bench.refuses([]string{"add", "yoyodyne-a", "yoyodyne-loose"}, "already ended", "yoyo epic start yoyodyne-a")
-	bench.refuses([]string{"end", "yoyodyne-a"}, "already ended")
+	bench.refuses([]string{"end", "yoyodyne-a"}, "yoyodyne-a (P0: Epic A) has already ended")
 	if record := bench.record(); record.On() || !record.Epics[0].Has("yoyodyne-loose") {
 		t.Fatalf("record = %+v", record)
 	}
@@ -280,4 +282,16 @@ func TestEpicSaysWhatItDidAsJSON(t *testing.T) {
 		t.Fatalf("code = %d", code)
 	}
 	says(t, stdout, `"error"`, "never named")
+}
+
+func TestATrackerThatCannotBeReadStopsNoActThatDoesNotNeedIt(t *testing.T) {
+	bench := newEpicBench(t)
+	bench.does("start", "yoyodyne-a", "--words", "before yoyodyne-b.1")
+	says(t, bench.does("list"), "before yoyodyne-b.1 (P0: Other)")
+	bench.trackerIs = errors.New("the store is locked")
+	says(t, bench.does("list"), "yoyodyne-a (tracker unreadable at ", "yoyodyne-a.1.1 (tracker unreadable at ")
+	says(t, bench.does("off"), "yoyodyne-a (tracker unreadable at ", ": yoyo epic end yoyodyne-a")
+	says(t, bench.does("end", "yoyodyne-a"), "ended epic yoyodyne-a (tracker unreadable at ")
+	bench.refuses([]string{"end", "yoyodyne-a"}, "yoyodyne-a (tracker unreadable at ", "has already ended")
+	bench.refuses([]string{"start", "yoyodyne-a"}, "the store is locked")
 }
