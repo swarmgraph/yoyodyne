@@ -38,6 +38,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -86,6 +87,13 @@ func (p Pipeline) outsideFileFetcher() OutsideFileFetcher {
 // that does not read, an address the rules refuse, a work item the tracker does
 // not hold — is stopped and reported here, before any request is sent.
 //
+// A record whose work item is outside the epics the operator named is passed
+// over with nothing written down, so it never keeps a later one from starting.
+// A license brought in with a file is judged with that file. While a run that
+// brings a file in is in flight nothing is passed over, because what is chosen
+// then is what continues that run, and BringInOutsideFile asks before it starts
+// another.
+//
 // A project that lists no host has nothing due, whatever records it carries.
 func (p Pipeline) NextOutsideFile(ctx context.Context) (runstate.OutsideFileLanding, bool, error) {
 	policy := p.Config.OutsideFiles.Policy()
@@ -122,13 +130,17 @@ func (p Pipeline) NextOutsideFile(ctx context.Context) (runstate.OutsideFileLand
 	var problems []error
 	var due []runstate.OutsideFileLanding
 	licenses := map[string]bool{}
+	inFlight, err := p.outsideFileInFlight()
+	if err != nil {
+		return runstate.OutsideFileLanding{}, false, err
+	}
 	for _, recordPath := range outsidefile.Records(listing.Files) {
 		landing, isDue, err := p.dueOutsideFile(ctx, store, tree, policy, branch, commit, recordPath, now, false)
 		if err != nil {
 			problems = append(problems, err)
 			continue
 		}
-		if isDue {
+		if isDue && (inFlight || p.MayStart.refuseRun(maystart.BringInFile, landing.For) == nil) {
 			due = append(due, landing)
 			if landing.License != nil {
 				licenses[landing.License.Record] = true
@@ -141,6 +153,16 @@ func (p Pipeline) NextOutsideFile(ctx context.Context) (runstate.OutsideFileLand
 		}
 	}
 	return runstate.OutsideFileLanding{}, false, errors.Join(problems...)
+}
+
+// outsideFileInFlight reports whether a run that brings a file in is in flight.
+// Only a pipeline that asks about the named epics has a use for the answer.
+func (p Pipeline) outsideFileInFlight() (bool, error) {
+	if p.MayStart == nil {
+		return false, nil
+	}
+	runs, err := p.Store.Incomplete()
+	return slices.ContainsFunc(runs, runstate.State.HoldsOutsideFileLanding), err
 }
 
 // dueOutsideFile decides one record on the target branch. asLicense is a record
@@ -469,6 +491,11 @@ func (p Pipeline) BringInOutsideFile(ctx context.Context, landing runstate.Outsi
 	}
 	if outcome, held, err := p.holdIntake(item.ID); err != nil || held {
 		return outcome, err
+	}
+	// Asked of the item the record is for, since the item this run is recorded
+	// under is never in an epic. Nothing is fetched, counted or reported.
+	if refused := p.MayStart.refuseRun(maystart.BringInFile, landing.For); refused != nil {
+		return Outcome{WorkItemID: item.ID, Summary: refused.Error()}, nil
 	}
 	if err := p.Worktrees.ValidateReady(ctx); err != nil {
 		return Outcome{}, err

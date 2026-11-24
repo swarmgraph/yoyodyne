@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -291,6 +293,63 @@ func TestTheRunRecordsWhoChoseItAndStartsNothingWhileIntakeIsHeld(t *testing.T) 
 	if run.Selection == nil || run.Selection.By != runstate.SelectedByDevelopmentManager ||
 		!strings.Contains(run.Selection.Reason, "chat-test, turn 1") || !strings.Contains(run.Selection.Reason, "round 1 of 3") || !strings.Contains(run.Selection.Reason, "knows both wordings") {
 		t.Fatalf("selection = %#v, want the development manager, her conversation and turn, the round and her reason", run.Selection)
+	}
+}
+
+// The run asks about the item the development manager named, and no other. A
+// refusal leaves the conflict and the decision standing and the round unspent,
+// and the same decision starts once the item is added.
+func TestARunOutsideTheNamedEpicsIsNotStartedOnAConflict(t *testing.T) {
+	t.Parallel()
+
+	f, _, _ := conflictFixture(t)
+	f.developer = writeIn("", "app.txt", "one\nstaging and team two\nthree\n")
+	decide, add := epicMode(t, blockedMember)
+	var asked []maystart.Start
+	unreadable := false
+	f.pipeline.MayStart = func(start maystart.Start) maystart.Decision {
+		asked = append(asked, start)
+		if unreadable {
+			return maystart.Decision{Answer: maystart.CouldNotTell, Why: "the record could not be read"}
+		}
+		return decide(start)
+	}
+	if _, err := f.decide(); err != nil {
+		t.Fatal(err)
+	}
+	told, landed := len(f.toldTheDevelopmentManager()), f.local("staging")
+	for _, want := range []string{"`yoyo epic add " + namedEpic + " yoyodyne-task`", "the record could not be read"} {
+		if outcome := f.update(); outcome.Landed != "" || !strings.Contains(outcome.Waiting, want) || !strings.Contains(outcome.Waiting, "tried again at the next check") {
+			t.Fatalf("Update() = %#v, want it waiting and saying %q", outcome, want)
+		}
+		unreadable = true
+		record := f.record()
+		if record.Decision == nil || record.Decision.Started() || record.Decision.Item.ID != "yoyodyne-task" || record.ConflictRounds != 1 || record.Pending == nil || record.Pending.Conflict == nil {
+			t.Fatalf("record = %#v, want the conflict and the decision as they were with no run started", record)
+		}
+	}
+	if runs, err := f.waiting.StateStore.(*runstate.Store).Runs("yoyodyne-task"); err != nil || len(runs) != 0 {
+		t.Fatalf("runs = %d, %v, want none reserved", len(runs), err)
+	}
+	if f.local("staging") != landed || len(f.toldTheDevelopmentManager()) != told {
+		t.Fatal("the refusal moved the target or told the development manager")
+	}
+
+	unreadable = false
+	add("yoyodyne-task")
+	if outcome := f.update(); outcome.Landed == "" {
+		t.Fatalf("Update() of a member = %#v, want the merge landed", outcome)
+	}
+	if record := f.record(); record.Landed[0].ResolvedBy == "" {
+		t.Fatalf("record = %#v, want a run's resolution landed", record)
+	}
+	for _, start := range asked {
+		if !reflect.DeepEqual(start, maystart.Run(maystart.ResolveConflict, "yoyodyne-task")) {
+			t.Fatalf("asked about %+v, want the item the development manager named", start)
+		}
+	}
+	if len(asked) != 3 {
+		t.Fatalf("asked %d times, want once for each start", len(asked))
 	}
 }
 

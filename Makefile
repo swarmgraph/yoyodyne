@@ -405,6 +405,7 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/governeddoc='^(TestNoTestOfThisRepositorysOwnDocumentsFailsOnTheirReferences|TestTheMakefilePrintsWhatEveryEscalatingGateEscalates)$$' \
 	./internal/home='^(TestOnlyThisPackageNamesTheEarlierProductsDirectory)$$' \
 	./internal/landing='^(TestEveryRouteThatClosesAWorkItemIsAudited)$$' \
+	./internal/maystart='^(TestEveryLaunchOfADeveloperRunIsOnTheClosedList)$$' \
 	./internal/mcpcall='^(TestNoOtherPackageSpeaksMCP)$$' \
 	./internal/oneline='^(TestEveryCutAgainstAValidatedByteBoundFallsOnARuneBoundary|TestNoPackageTheConversationReadsThroughCutsASingleLineOfItsOwn)$$' \
 	./internal/orchestrator='^(TestReadmeNamesOnlyFilesThatExist|TestReadmeNamesOnlySymbolsThatExist|TestTwoChangesThatEachAddAFileMergeWithoutTouchingTheReadme|TestAPassRecordsItsLanguageFindingsAndTellsTheNextPass|TestBaselineDocumentDisclosesEveryFieldNoTraceHolds|TestMeasureHeavyCheckPermits|TestPermanentCarryOutCausesAreNamedInTheRunStopInventory|TestRunEndingSitesAreInventoried|TestRunStopBoundValuesMatchInventory|TestTheModelARunStartsOnIsChosenByTheItemsLabels|TestThisRepositorysDeliveryDefinitionMatchesTheBuiltIn|TestThisRepositorysDeliveryDefinitionSaysWhereTheBuiltInIs|TestThisRepositorysOwnDeliveryDefinitionIsWhatItsRunsExecute)$$' \

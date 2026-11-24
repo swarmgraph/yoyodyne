@@ -54,8 +54,14 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		}
 	}
 
-	// What was refused is kept for yoyo status, until it may start.
+	// What was refused is kept for yoyo status, until it may start, except on the
+	// two paths whose refusals are not kept.
 	decide := pipelineFrom(parts).MayStart
+	for _, path := range []maystart.Path{maystart.ResolveConflict, maystart.BringInFile} {
+		if decide(maystart.Run(path, "yoyodyne-unkept")).MayStart() {
+			t.Errorf("%s starts an item outside the named epics", path)
+		}
+	}
 	start := maystart.Run(maystart.NamedRun, "yoyodyne-other")
 	decide(start)
 	refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)

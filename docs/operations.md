@@ -1814,17 +1814,24 @@ While epic mode is on, these starts ask about the named epics, beside every
 other check, and are refused for an item outside them: the scheduler's pull, the
 test run that checks whether a hold on new work can lift, a fresh run or a
 repair the development manager decided, a repair from feedback on a pull
-request, and a run you name. A refused item is free to start, subject to every
-other check, once it is added to an open epic or epic mode is turned off.
+request, a run you name, the run that resolves a conflict in the team's branch
+(asked about the item the development manager named), and the run that brings in
+a pinned outside file (asked about the item its record is for). A refused item is
+free to start, subject to every other check, once it is added to an open epic or
+epic mode is turned off.
 
 Other starts do not ask yet, so epic mode does not hold them out. Among them are
-carrying on a run already begun, the run that resolves a conflict in the team's
-branch, the run that brings in a pinned outside file, publishing a document, a
+carrying on a run already begun, bringing a change that is queued to merge, or
+waits for a person to merge it, up to date, taking up the checks of a run that
+stopped because GitHub refused the harness's login, publishing a document, a
 role's pass, the review of unmet goals and the reading of outside messages.
 
-A start refused because its item is outside is recorded for `yoyo status` where
-that record can be written; one that could not be recorded says so in its reason.
-A start refused because the named epics could not be read is not recorded there.
+A refused start of the run that resolves a conflict in the team's branch, or of
+the run that brings in a pinned outside file, is not recorded for `yoyo status`
+yet. On the other starts that ask, one refused because its item is outside is
+recorded there where that record can be written; one that could not be recorded
+says so in its reason. A start refused because the named epics could not be read
+is not recorded there.
 
 Otherwise `yoyo status` says the mode under its four lines, and `yoyo status
 --json` carries the same under `standing.epics`. With epic mode on it also says:
