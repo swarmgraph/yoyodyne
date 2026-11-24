@@ -237,6 +237,12 @@ func TestEpicStartIsRefusedWhileAnyPathIsNotWired(t *testing.T) {
 	bench.does("end", "yoyodyne-b")
 	bench.does("start", "yoyodyne-a")
 	bench.does("off")
+	// One is enough, whichever it is.
+	for at := range bench.paths {
+		bench.paths[at].Wired = false
+		bench.refuses([]string{"start", "yoyodyne-a"}, bench.paths[at].Says)
+		bench.paths[at].Wired = true
+	}
 	for _, at := range []int{0, len(bench.paths) - 1} {
 		bench.paths[at].Wired = false
 	}

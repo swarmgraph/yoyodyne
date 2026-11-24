@@ -16,6 +16,11 @@ const (
 	FeedbackRepair  Path = "feedback-repair"
 	PublishDocument Path = "publish-document"
 	BringUpToDate   Path = "bring-up-to-date"
+	ResolveConflict Path = "resolve-conflict"
+	BringInFile     Path = "bring-in-file"
+	UpdateQueued    Path = "update-queued"
+	UpdateForPerson Path = "update-for-person"
+	AfterLogin      Path = "after-login"
 	RecurringPass   Path = "recurring-pass"
 	PromptedPass    Path = "prompted-pass"
 	UnmetGoalReview Path = "unmet-goal-review"
@@ -58,6 +63,11 @@ func Paths() []PathEntry {
 		{Path: FeedbackRepair, Says: "a repair from feedback on a pull request", Wired: true, starts: startsRun},
 		{Path: PublishDocument, Says: "publishing a document", starts: startsDocument},
 		{Path: BringUpToDate, Says: "the attempt to bring a handed back change up to date", starts: startsRun},
+		{Path: ResolveConflict, Says: "the run that resolves a conflict with the team's branch", Wired: true, starts: startsRun},
+		{Path: BringInFile, Says: "the run that brings in a pinned outside file", Wired: true, starts: startsRun},
+		{Path: UpdateQueued, Says: "bringing a change queued to merge on GitHub up to date with its target branch", starts: startsRun},
+		{Path: UpdateForPerson, Says: "bringing a change that waits for a person to merge it up to date with its target branch", starts: startsRun},
+		{Path: AfterLogin, Says: "taking up the checks of a run that stopped because GitHub refused the harness's login", starts: startsRun},
 		{Path: RecurringPass, Says: "a role's recurring pass", starts: startsPass},
 		{Path: PromptedPass, Says: "a pass started by an event, a label or a request", starts: startsPass},
 		{Path: UnmetGoalReview, Says: "the review of unmet goals", starts: startsGoalReview},

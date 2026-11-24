@@ -229,10 +229,12 @@ func TestTheClosedListOfPaths(t *testing.T) {
 	t.Parallel()
 	want := []Path{
 		ReadyWork, NamedRun, HoldTest, DecidedRerun, DecidedRepair, FinishMerge, ContinueRun, PickUpRun,
-		FeedbackRepair, PublishDocument, BringUpToDate, RecurringPass, PromptedPass, UnmetGoalReview, MessagesForWork,
+		FeedbackRepair, PublishDocument, BringUpToDate, ResolveConflict, BringInFile,
+		UpdateQueued, UpdateForPerson, AfterLogin, RecurringPass, PromptedPass, UnmetGoalReview, MessagesForWork,
 	}
 	wired := map[Path]bool{
 		ReadyWork: true, NamedRun: true, HoldTest: true, DecidedRerun: true, DecidedRepair: true, FeedbackRepair: true,
+		ResolveConflict: true, BringInFile: true,
 	}
 
 	got := Paths()

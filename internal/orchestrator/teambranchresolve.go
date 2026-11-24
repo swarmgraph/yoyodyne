@@ -34,6 +34,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -65,7 +66,8 @@ type TeamBranchConflictResult struct {
 
 // teamConflictPassing is a refusal to start the run that will clear by itself:
 // the operator's pause or hold, no free developer slot, a run of the item already
-// in flight, or the repository not being ready yet. The update waits and asks
+// in flight, an item outside the epics the operator named, or the repository not
+// being ready yet. The update waits and asks
 // again at the next check. Any other refusal to start is lasting, and the
 // decision is dropped and told (teamBranchRun.resolve).
 type teamConflictPassing struct{ error }
@@ -115,6 +117,10 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 		return TeamBranchConflictResult{}, teamConflictPassing{err}
 	} else if held {
 		return TeamBranchConflictResult{}, teamConflictPassing{errors.New("the operator is holding the work the harness chooses, so no run is started until it is released")}
+	}
+	// Asked of the item she named, and waited out as the hold is.
+	if refused := p.MayStart.refuseRun(maystart.ResolveConflict, itemID); refused != nil {
+		return TeamBranchConflictResult{}, teamConflictPassing{refused}
 	}
 	publishing, skipped, err := p.resolvePublishing(ctx)
 	if err != nil {

@@ -235,10 +235,14 @@ type roots struct {
 // mayStart asks the one decision on what may start under the epics the operator
 // named, of this product's record, and keeps the answer where `yoyo status`
 // reads what was not started. A refusal that could not be kept is still a
-// refusal, and says so.
+// refusal, and says so. What the run that resolves a conflict and the run that
+// brings a file in were answered is not kept.
 func (c components) mayStart() orchestrator.StartDecision {
 	return func(start maystart.Start) maystart.Decision {
 		decision := maystart.Decide(c.stateRoot, c.config.Product.ID, start)
+		if start.Path() == maystart.ResolveConflict || start.Path() == maystart.BringInFile {
+			return decision
+		}
 		err := maystart.Note(c.stateRoot, c.config.Product.ID, start, decision, time.Now())
 		if err != nil && decision.Answer == maystart.MayNot {
 			decision.Why += fmt.Sprintf(" (and this refusal could not be recorded for yoyo status: %v)", err)

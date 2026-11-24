@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/outsidefile"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -878,5 +880,211 @@ func TestARunRefusedAtTheMergeStepForAPassingCauseIsTriedAgainAfterTheWait(t *te
 	again, due, err := pipeline.NextOutsideFile(ctx)
 	if err != nil || !due || again.Attempt != 1 {
 		t.Fatalf("NextOutsideFile() after the wait = %+v, %v, %v; want the next attempt due", again, due, err)
+	}
+}
+
+// countedFetch keeps the records whose files were asked for.
+type countedFetch struct {
+	OutsideFileFetcher
+	records []string
+}
+
+func (f *countedFetch) Fetch(ctx context.Context, recordPath string, record outsidefile.Record, policy outsidefile.Policy) (outsidefile.Fetched, error) {
+	f.records = append(f.records, recordPath)
+	return f.OutsideFileFetcher.Fetch(ctx, recordPath, record, policy)
+}
+
+// askingOfEpics has the pipeline ask about the named epics, and returns the
+// starts it asked about, what it fetched, and the operator's way of adding an item.
+func askingOfEpics(t *testing.T, pipeline *Pipeline, members ...string) (*[]maystart.Start, *countedFetch, func(string)) {
+	t.Helper()
+	decide, add := epicMode(t, members...)
+	asked := &[]maystart.Start{}
+	pipeline.MayStart = func(start maystart.Start) maystart.Decision {
+		*asked = append(*asked, start)
+		return decide(start)
+	}
+	fetch := &countedFetch{OutsideFileFetcher: pipeline.OutsideFiles}
+	pipeline.OutsideFiles = fetch
+	return asked, fetch, add
+}
+
+// nothingSpentOn fails where a refused record left anything behind.
+func nothingSpentOn(t *testing.T, landing runstate.OutsideFileLanding, store *runstate.Store, fetch *countedFetch, reports *collectedReports, notes string) {
+	t.Helper()
+	attempt, found, err := store.OutsideFileAttempt(landing.Record)
+	incomplete, incompleteErr := store.Incomplete()
+	if err != nil || found || incompleteErr != nil || len(incomplete) != 0 || len(fetch.records) != 0 || len(reports.reported) != 0 || notes != "" {
+		t.Fatalf("attempt %+v (%t, %v), in flight %d (%v), fetched %v, reports %d, notes %q; want nothing spent or said", attempt, found, err, len(incomplete), incompleteErr, fetch.records, len(reports.reported), notes)
+	}
+	if _, err := store.Load(landing.RunID()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a run was recorded: %v", err)
+	}
+}
+
+// A record for an item outside the named epics is not chosen, and one chosen
+// before epic mode was turned on is refused before anything is fetched. Nothing
+// is spent, and the record is brought in once its item is added. Both ask about
+// the item the record is for, never the item the run is recorded under.
+func TestARecordOutsideTheNamedEpicsIsNotBroughtInUntilItsItemIsAdded(t *testing.T) {
+	t.Parallel()
+
+	_, tracker, _, pipeline, store, reports, _ := outsideFileFixture(t, nil)
+	ctx := context.Background()
+	landing, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %v, %v; want the record due", due, err)
+	}
+	asked, fetch, add := askingOfEpics(t, &pipeline, blockedMember)
+	for range 2 {
+		if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
+			t.Fatalf("NextOutsideFile() = %v, %v; want the record passed over", due, err)
+		}
+		outcome, err := pipeline.BringInOutsideFile(ctx, landing)
+		if err != nil || outcome.RunID != "" || !strings.Contains(outcome.Summary, "`yoyo epic add "+namedEpic+" "+pinnedFor+"`") {
+			t.Fatalf("BringInOutsideFile() = %+v, %v; want it refused with the command that adds the item", outcome, err)
+		}
+	}
+	nothingSpentOn(t, landing, store, fetch, reports, tracker.Notes)
+
+	add(pinnedFor)
+	landing, due, err = pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() of a member = %v, %v; want the record due", due, err)
+	}
+	if outcome, err := pipeline.BringInOutsideFile(ctx, landing); err != nil || outcome.Status != runstate.StatusSucceeded {
+		t.Fatalf("BringInOutsideFile() of a member = %+v, %v", outcome, err)
+	}
+	if len(*asked) != 6 {
+		t.Fatalf("asked %d times, want once for each choice and each start", len(*asked))
+	}
+	for _, start := range *asked {
+		if !reflect.DeepEqual(start, maystart.Run(maystart.BringInFile, pinnedFor)) {
+			t.Fatalf("asked about %+v, want the item the record is for", start)
+		}
+	}
+}
+
+// A refused record does not keep a later one for a member from being brought in
+// at the same pull, and is brought in itself once its item is added.
+func TestARefusedRecordDoesNotKeepALaterMembersFromBeingBroughtIn(t *testing.T) {
+	t.Parallel()
+
+	repository, tracker, _, pipeline, store, _, _ := outsideFileFixture(t, nil)
+	const member, later = "yoyodyne-ifd.432.34", "assets/later.js" + outsidefile.RecordSuffix
+	tracker.Holds(member)
+	text := publicationGit(t, repository, "show", "main:"+pinnedRecord)
+	text = strings.Replace(strings.Replace(text, "file: chart.umd.js", "file: later.js", 1), "for: "+pinnedFor, "for: "+member, 1)
+	writePinnedFixtureFile(t, repository, later, text+"\n")
+	runPipelineGit(t, repository, "add", ".")
+	runPipelineGit(t, repository, "commit", "-m", "a later record")
+	_, fetch, add := askingOfEpics(t, &pipeline, member)
+	ctx := context.Background()
+	for _, want := range []string{later, pinnedRecord} {
+		landing, due, err := pipeline.NextOutsideFile(ctx)
+		if err != nil || !due || landing.Record != want {
+			t.Fatalf("NextOutsideFile() = %s, %v, %v; want %s", landing.Record, due, err, want)
+		}
+		if outcome, err := pipeline.BringInOutsideFile(ctx, landing); err != nil || outcome.Status != runstate.StatusSucceeded {
+			t.Fatalf("BringInOutsideFile() of %s = %+v, %v", want, outcome, err)
+		}
+		if _, due, err := pipeline.NextOutsideFile(ctx); want == later && (err != nil || due) {
+			t.Fatalf("NextOutsideFile() = %v, %v; want the record outside still passed over", due, err)
+		}
+		if attempt, found, err := store.OutsideFileAttempt(pinnedRecord); want == later && (found || err != nil) {
+			t.Fatalf("attempt = %+v, %v; want nothing counted against the record outside", attempt, err)
+		}
+		add(pinnedFor)
+	}
+	if !reflect.DeepEqual(fetch.records, []string{later, pinnedRecord}) {
+		t.Fatalf("fetched %v", fetch.records)
+	}
+}
+
+// A license brought in with a file is judged with that file, and one whose file
+// is passed over is judged by its own record. A decision that could not be made
+// passes a record over.
+func TestALicenseIsJudgedWithTheFileItIsBroughtInWith(t *testing.T) {
+	t.Parallel()
+
+	repository, tracker, _, pipeline, store, reports, _ := pinnedLicenseFixture(t, "chart.js-LICENSE.md", "/npm/chart.js@4.4.1/LICENSE.md")
+	const licensedFor, licenseRecord = "yoyodyne-ifd.432.35", "assets/chart.js-LICENSE.md" + outsidefile.RecordSuffix
+	tracker.Holds(licensedFor)
+	writePinnedFixtureFile(t, repository, licenseRecord, strings.Replace(publicationGit(t, repository, "show", "main:"+licenseRecord), "for: "+pinnedFor, "for: "+licensedFor, 1)+"\n")
+	runPipelineGit(t, repository, "commit", "-am", "the license is for another item")
+	ctx := context.Background()
+	for name, test := range map[string]struct{ member, record, license string }{
+		"the file's item is a member":    {pinnedFor, pinnedRecord, licenseRecord},
+		"the license's item is a member": {licensedFor, licenseRecord, ""},
+		"neither is":                     {blockedMember, "", ""},
+	} {
+		asking := pipeline
+		askingOfEpics(t, &asking, test.member)
+		landing, due, err := asking.NextOutsideFile(ctx)
+		license := ""
+		if landing.License != nil {
+			license = landing.License.Record
+		}
+		if err != nil || due != (test.record != "") || landing.Record != test.record || license != test.license {
+			t.Errorf("%s: NextOutsideFile() = %q with license %q, %v, %v", name, landing.Record, license, due, err)
+		}
+	}
+	asking := pipeline
+	_, fetch, _ := askingOfEpics(t, &asking, pinnedFor)
+	asking.MayStart = func(maystart.Start) maystart.Decision {
+		return maystart.Decision{Answer: maystart.CouldNotTell, Why: "the record could not be read"}
+	}
+	if _, due, err := asking.NextOutsideFile(ctx); err != nil || due {
+		t.Fatalf("NextOutsideFile() = %v, %v; want it passed over while the named epics cannot be read", due, err)
+	}
+	nothingSpentOn(t, runstate.OutsideFileLanding{Record: pinnedRecord, RecordDigest: strings.Repeat("a", 64)}, store, fetch, reports, tracker.Notes)
+}
+
+// A run that brings a file in and is in flight with nobody behind it is still
+// reached once its item is outside the named epics: carrying it on is no start.
+func TestARunInFlightIsStillReachedOutsideTheNamedEpics(t *testing.T) {
+	t.Parallel()
+
+	_, _, _, pipeline, store, _, clock := outsideFileFixture(t, nil)
+	ctx := context.Background()
+	landing, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %v, %v; want the record due", due, err)
+	}
+	// What a process that dies just after reserving the run leaves.
+	dying := pipeline
+	inFlight := landing
+	inFlight.Fetched = &runstate.OutsideFileFetch{FinalURL: landing.URL, SHA256: strings.Repeat("a", 64), Size: 1, At: pipeline.clock().Now()}
+	item := outsideFileItem(landing)
+	dying.Selection = runstate.Selection{By: runstate.SelectedByScheduler, Reason: "the record is due"}
+	_, lease, err := dying.reserveRun(ctx, runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: landing.RunID(), ProductID: pipeline.Config.Product.ID,
+		RepositoryID: string(pipeline.Config.Product.RepositoryID), WorkItemID: item.ID, WorkItemTitle: item.Title, Backend: pipeline.reviewer().Backend,
+		ConfigRevision: pipeline.Config.Revision(), Status: runstate.StatusPending, OutsideFile: &inFlight, TargetBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatal(err)
+	}
+	asked, fetch, _ := askingOfEpics(t, &pipeline, blockedMember)
+	next, due, err := pipeline.NextOutsideFile(ctx)
+	if err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %v, %v; want the run in flight reached", due, err)
+	}
+	if outcome, err := pipeline.BringInOutsideFile(ctx, next); err != nil || outcome.RunID != landing.RunID() || len(fetch.records) != 0 || len(*asked) != 0 {
+		t.Fatalf("BringInOutsideFile() = %+v, %v, fetched %v, asked %d times; want the recorded run taken up", outcome, err, fetch.records, len(*asked))
+	}
+	// It ended with nothing committed, so once its wait is over what is left is a
+	// fresh start.
+	clock.advance(time.Hour)
+	if saved, err := store.Load(landing.RunID()); err != nil || !saved.Status.Terminal() {
+		t.Fatalf("run = %+v, %v; want it settled", saved.Status, err)
+	}
+	if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || due {
+		t.Fatalf("NextOutsideFile() = %v, %v; want a fresh run for the file refused", due, err)
+	}
+	pipeline.MayStart = nil
+	if _, due, err := pipeline.NextOutsideFile(ctx); err != nil || !due {
+		t.Fatalf("NextOutsideFile() = %v, %v; want the record due but for its epic", due, err)
 	}
 }
