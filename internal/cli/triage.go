@@ -710,9 +710,10 @@ func buildRepairContinuer(configPath string) (orchestrator.RepairContinuer, erro
 // configuration this pull never read.
 func repairContinuerFrom(parts components) orchestrator.RepairContinuer {
 	return orchestrator.RepairContinuer{
-		Docket: parts.docket,
-		Runs:   parts.store,
-		Intake: parts.intake,
+		Docket:   parts.docket,
+		Runs:     parts.store,
+		Intake:   parts.intake,
+		MayStart: parts.mayStart(),
 		// The same per-item counters the development manager's decision spends and
 		// `yoyo status` reports, which is what says a grant was made and how much
 		// of it the round cap left. What proves the decision and what an operator
@@ -776,10 +777,10 @@ func reportRepair(stdout, stderr io.Writer, jsonOutput bool, result orchestrator
 		return 0
 	}
 	if !result.Continued {
-		// A hold and a full harness are states the carry-out is waiting on rather
-		// than failures: nothing was spent, and the decision stands to be carried
-		// out by asking again.
-		if result.IntakeHeld != nil || result.CapacityFull != nil {
+		// A hold, an item outside the named epics and a full harness are states
+		// the carry-out is waiting on rather than failures: nothing was spent, and
+		// the decision stands to be carried out by asking again.
+		if result.IntakeHeld != nil || result.OutsideNamedEpics != nil || result.CapacityFull != nil {
 			fmt.Fprint(stdout, result.Render())
 			return 0
 		}
@@ -817,11 +818,12 @@ func buildRerunner(configPath string) (orchestrator.Rerunner, error) {
 // repairContinuerFrom for why the scheduling pass needs it that way round.
 func rerunnerFrom(parts components) orchestrator.Rerunner {
 	return orchestrator.Rerunner{
-		Factory: factoryIdentities(parts),
-		Docket:  parts.docket,
-		Runs:    parts.store,
-		Intake:  parts.intake,
-		Reruns:  parts.store.Reruns(),
+		Factory:  factoryIdentities(parts),
+		Docket:   parts.docket,
+		Runs:     parts.store,
+		Intake:   parts.intake,
+		MayStart: parts.mayStart(),
+		Reruns:   parts.store.Reruns(),
 		// Where each developer run's scratch directory is, so a stopped run's
 		// is removed with its worktree when a fresh run retires them.
 		StateRoot: parts.stateRoot,
@@ -879,7 +881,8 @@ func rerunnerFrom(parts components) orchestrator.Rerunner {
 // itself is the same switch every provider invocation reads.
 func carryOutFrom(parts components) *orchestrator.CarryOut {
 	return &orchestrator.CarryOut{
-		Docket: parts.docket,
+		MayStart: parts.mayStart(),
+		Docket:   parts.docket,
 		// The same per-item record her conversation writes the decision to, so what
 		// authorizes the firing and what is read to fire it are one record.
 		Decisions: parts.store.Triage(),
@@ -960,7 +963,7 @@ func reportRerun(stdout, stderr io.Writer, jsonOutput bool, result orchestrator.
 		// carried out by asking again. A record that could not be written while
 		// waiting is a failure, because the stoppage has then paid for a wait that
 		// was meant to cost it nothing.
-		if result.IntakeHeld != nil || result.CapacityFull != nil || result.ItemParked != nil {
+		if result.IntakeHeld != nil || result.OutsideNamedEpics != nil || result.CapacityFull != nil || result.ItemParked != nil {
 			fmt.Fprint(stdout, result.Render())
 			if result.RecordProblem != "" {
 				return 1

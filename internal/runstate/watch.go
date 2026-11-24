@@ -162,10 +162,14 @@ const (
 	// two above because its next mover is neither the development manager nor the
 	// harness: nothing machinery does passes it, an item's closure included, and
 	// the act that does is the operator's own.
-	PassedOverWaitingOnAPerson    PassedOverClass = "waiting on a person"
-	PassedOverWaitingOnOtherWork  PassedOverClass = "waiting on other work"
-	PassedOverAlreadyTried        PassedOverClass = "already tried this session"
-	PassedOverAlreadyInFlight     PassedOverClass = "already in flight"
+	PassedOverWaitingOnAPerson   PassedOverClass = "waiting on a person"
+	PassedOverWaitingOnOtherWork PassedOverClass = "waiting on other work"
+	PassedOverAlreadyTried       PassedOverClass = "already tried this session"
+	PassedOverAlreadyInFlight    PassedOverClass = "already in flight"
+	// PassedOverOutsideNamedEpics is an item in none of the epics the operator
+	// named while the factory works only on those, or one nothing could be said
+	// about because the record of them could not be read.
+	PassedOverOutsideNamedEpics   PassedOverClass = "outside the epics the operator named"
 	PassedOverCoveredByChildren   PassedOverClass = "covered by its children"
 	PassedOverPausedByDirective   PassedOverClass = "paused by a directive"
 	PassedOverSequencedBehindWork PassedOverClass = "sequenced behind work in flight"
@@ -208,6 +212,7 @@ func PassedOverClasses() []PassedOverClass {
 		PassedOverWaitingOnOtherWork,
 		PassedOverAlreadyTried,
 		PassedOverAlreadyInFlight,
+		PassedOverOutsideNamedEpics,
 		PassedOverCoveredByChildren,
 		PassedOverPausedByDirective,
 		PassedOverSequencedBehindWork,

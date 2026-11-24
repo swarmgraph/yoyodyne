@@ -319,7 +319,15 @@ func (s *TriageStore) RecordFeedbackRepair(ctx context.Context, workItemID, runI
 // RepairMarker is the text a repair's new run carries in its selection reason,
 // by which an interrupted pass finds the run its decision started.
 func (r TeamFeedbackRepair) RepairMarker() string {
-	return fmt.Sprintf("[repair from %s on pull request #%d]", r.FeedbackID, r.PullRequest)
+	return fmt.Sprintf(repairMarkerOpens+"%s on pull request #%d]", r.FeedbackID, r.PullRequest)
+}
+
+const repairMarkerOpens = "[repair from "
+
+// ChosenForFeedbackRepair reports a selection reason that opens with a
+// RepairMarker, which is a run carrying out a repair decided from feedback.
+func ChosenForFeedbackRepair(reason string) bool {
+	return strings.HasPrefix(strings.TrimSpace(reason), repairMarkerOpens)
 }
 
 // TeamFeedbackRepairTaken records that a pass took the decision to carry it out.

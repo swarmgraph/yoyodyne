@@ -53,6 +53,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/humangate"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -80,6 +81,9 @@ type TeamFeedbackRepairer struct {
 	Feedback ReconcileFeedback
 	Budget   TeamFeedbackRepairBudget
 	Intake   IntakeHolds
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart StartDecision
 	Gates    RerunGates
 	Capacity int
 	Start    Starter
@@ -381,6 +385,9 @@ func (r TeamFeedbackRepairer) preflight(ctx context.Context, repair runstate.Tea
 	}
 	if domain.NeedsDesign(item.Labels) {
 		return wait("%s is %s", item.ID, backlog.NeedsDesignHold)
+	}
+	if refused := r.MayStart.refuseRun(maystart.FeedbackRepair, repair.WorkItemID); refused != nil {
+		return wait("%v; the decision stands", refused)
 	}
 	if err := noRunInFlight(r.Runs, repair.WorkItemID); err != nil {
 		return wait("%v", err)

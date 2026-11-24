@@ -70,6 +70,10 @@ const (
 	// it out by itself once the item is unparked. Who moves next is whoever
 	// parked it, never the harness and never the development manager.
 	TriageGateParked = triage.ParkedGate
+	// TriageGateNamedEpics is the factory working only on the epics the operator
+	// named, with the item in none of them. It is a wait: nothing was spent, the
+	// decision stands, and the harness carries it out once the item is added.
+	TriageGateNamedEpics = "the epics the operator named"
 	// TriageGateHarness is everything else: a record that would not be read, a
 	// stoppage that is not over, a store that refused a write. The refusal's own
 	// words are what a reader acts on here.
@@ -98,7 +102,7 @@ func TriageGateVocabulary() []string {
 	return []string{
 		TriageGateSpendingPause, TriageGateIntakeHold, TriageGateDirective,
 		TriageGateCapacity, TriageGateBudget, TriageGatePreservedWork,
-		TriageGateWorkItem, TriageGateParked, TriageGateHarness,
+		TriageGateWorkItem, TriageGateParked, TriageGateNamedEpics, TriageGateHarness,
 	}
 }
 

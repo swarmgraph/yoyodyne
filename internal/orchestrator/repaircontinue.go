@@ -119,6 +119,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -209,6 +210,9 @@ type RepairContinuer struct {
 	Docket RerunDocket
 	Runs   RepairRuns
 	Intake IntakeHolds
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart StartDecision
 	// Decisions is the item's durable triage record, which is what says the
 	// development manager granted this repair and how much it is worth. Required:
 	// a continuation carried out on nobody's grant would be a repair budget of
@@ -344,6 +348,9 @@ type RepairContinueResult struct {
 	// IntakeHeld is the operator's hold, when one is what stopped this. Nothing
 	// was carried out and nothing was superseded.
 	IntakeHeld *runstate.IntakeHold `json:"intake_held,omitempty"`
+	// OutsideNamedEpics is the item being in none of the epics the operator named,
+	// when that is what stopped this. Nothing was spent and the decision stands.
+	OutsideNamedEpics *OutsideNamedEpicsError `json:"outside_named_epics,omitempty"`
 	// CapacityFull is every developer slot being occupied, when that is what this
 	// is waiting on. It is not a refusal and not a failure: nothing was spent, the
 	// decision stands, and asking again once a slot frees carries out the same one.
@@ -613,6 +620,12 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 	if held && !hold.RecoveryProbing(entry.WorkItemID, prior.RunID) {
 		result.IntakeHeld = &hold
+		return result, nil
+	}
+	// Whether the item is in an epic the operator named is asked beside the hold,
+	// before anything is written, so a refusal spends nothing.
+	if refused := c.MayStart.refuseRun(maystart.DecidedRepair, entry.WorkItemID); refused != nil {
+		result.OutsideNamedEpics = refused
 		return result, nil
 	}
 	// Capacity is read last of everything asked, because it is the condition most
@@ -1631,6 +1644,11 @@ func (result RepairContinueResult) Render() string {
 			result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339), result.IntakeHeld.Says())
 		fmt.Fprintf(&rendered, "nothing was continued for %s, and it keeps its repair grant; `yoyo release` lifts the hold, and asking again carries out the same decision\n",
 			result.WorkItemID)
+		return rendered.String()
+	}
+	if result.OutsideNamedEpics != nil {
+		fmt.Fprintf(&rendered, "WAITING FOR THE ITEM TO BE IN A NAMED EPIC: %v\n", result.OutsideNamedEpics)
+		fmt.Fprintf(&rendered, "nothing was continued, and %s keeps its repair grant\n", result.WorkItemID)
 		return rendered.String()
 	}
 	if result.CapacityFull != nil {
