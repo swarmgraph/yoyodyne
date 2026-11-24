@@ -1768,6 +1768,39 @@ intake hold, which stops the harness choosing new work. It holds landing on one
 branch, and only on the machine it was placed on. Like `yoyo pause`, it is
 refused from a process the harness launched for a role.
 
+## Which epics the factory works on
+
+The operator can name epics, and the factory then works only on the items
+recorded for each: that is epic mode. A product that has never named an epic is
+shown nothing about them.
+
+While epic mode is on, every way of beginning a run for a work item asks about
+them first, and begins none for an item outside: the scheduler's pull, the test
+run that checks whether a hold on new work can lift, a fresh run or a repair the
+development manager decided, a repair from feedback on a pull request, and a run
+you name. Each refusal is recorded, and the item starts once it is added. Carrying
+on a run already begun, publishing a document, a role's pass, the review of unmet
+goals and the reading of outside messages do not ask yet, so none of those is held
+out.
+
+Otherwise `yoyo status` says the mode under its four lines, and `yoyo status
+--json` carries the same under `standing.epics`. With epic mode on it also says:
+
+- each open epic, with how many of its recorded items are done, running, ready
+  and waiting;
+- how many ready items are outside every open epic, with when the first of them
+  was refused a start where one was, and how many role passes were not started,
+  since when;
+- each problem: a run stopped before its next step because its item is outside,
+  an item that waits for one outside, and a start that was refused. The last two
+  give the `yoyo epic add` command that adds the item, where an epic is open to
+  add it to. Where several are and the item is below none of them, the command
+  for each is given. The first ten problems are printed, with how many more
+  there are, and the JSON carries all of them.
+
+A record of the named epics that cannot be read is said there with the reason. It
+is never taken for no record.
+
 ## Where a finding that needs your hand goes
 
 Some of what the roles find can be acted on only by a person: a hook that has to

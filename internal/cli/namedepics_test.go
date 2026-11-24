@@ -2,10 +2,14 @@ package cli
 
 import (
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 )
@@ -48,5 +52,28 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		if decide(maystart.Run(maystart.ReadyWork, "yoyodyne-outside")).MayStart() || !decide(maystart.Run(maystart.ReadyWork, "yoyodyne-9k1y.1")).MayStart() {
 			t.Errorf("the %s does not read this product's named epics", name)
 		}
+	}
+
+	// What was refused is kept for yoyo status, until it may start.
+	decide := pipelineFrom(parts).MayStart
+	start := maystart.Run(maystart.NamedRun, "yoyodyne-other")
+	decide(start)
+	refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
+	if err != nil || len(refusals.Items) != 2 || refusals.Items[1].WorkItemID != "yoyodyne-other" || refusals.Items[1].Path != maystart.NamedRun {
+		t.Fatalf("refusals = %+v, %v; want each item refused above kept once", refusals.Items, err)
+	}
+	if _, err := operator.Add("yoyodyne-9k1y", "yoyodyne-other", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	decide(start)
+	if refusals, err = maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID); err != nil || len(refusals.Items) != 1 {
+		t.Fatalf("refusals = %+v, %v; want the added item's taken away", refusals.Items, err)
+	}
+	blocking := filepath.Join(home.ProductDirectory(parts.stateRoot, string(parts.config.Product.ID)), "not-started.json")
+	if err := os.WriteFile(blocking, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if refused := decide(maystart.Run(maystart.NamedRun, "yoyodyne-outside")); refused.MayStart() || !strings.Contains(refused.Why, "could not be recorded") {
+		t.Fatalf("refused = %+v, want a refusal saying it could not be recorded", refused)
 	}
 }
