@@ -311,6 +311,10 @@ func TestTheRulesFollowTheDesignsTable(t *testing.T) {
 		{"a follow-up recorded as the operator's for no reason is the Lead Product Manager's to classify", KindFollowUp, Record{RecordedOwner: MoverOperator, Reason: "approval"}, MoverProductManager, ""},
 		{"a follow-up the operator recorded is never his", KindFollowUp, Record{RecordedOwner: MoverOperator, Reason: OperatorOwnHold, RecordedByOperator: true}, MoverProductManager, ""},
 		{"a follow-up recording nobody the registry names is the Lead Product Manager's to classify", KindFollowUp, Record{RecordedOwner: "somebody"}, MoverProductManager, ""},
+		{"a merge queue entry not moving is the development manager's", KindMergeQueueOverdue, Record{}, MoverDevelopmentManager, ""},
+		{"a merge queue stop naming no act only a person can take is the development manager's", KindMergeQueueOverdue, Record{Reason: OperatorHumanGate}, MoverDevelopmentManager, ""},
+		{"a merge queue stop on a credential the forge refused is the operator's", KindMergeQueueOverdue, Record{Reason: OperatorCredential}, MoverOperator, OperatorCredential},
+		{"a merge queue stop on a repository setting is the operator's", KindMergeQueueOverdue, Record{Reason: OperatorRepositorySetting}, MoverOperator, OperatorRepositorySetting},
 	}
 	for _, c := range cases {
 		got := Resolve(c.kind, c.record)

@@ -137,6 +137,11 @@ type fixtureQueues struct {
 	refusal     *runstate.MergeQueueRefusal
 	pass        *runstate.MergeQueuePass
 	readings    map[string]runstate.MergeQueueForgeReading
+	history     []runstate.MergeQueuePass
+}
+
+func (f fixtureQueues) PassHistory(runstate.MergeQueueKey) ([]runstate.MergeQueuePass, error) {
+	return f.history, nil
 }
 
 func (f fixtureQueues) Keys() ([]runstate.MergeQueueKey, error) { return f.keys, f.keysErr }
