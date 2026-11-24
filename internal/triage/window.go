@@ -109,7 +109,8 @@ type LiveDocket struct {
 	Stoppages []Stoppage
 	// Dead counts entries on a work item the tracker holds as closed. Nothing a
 	// development manager decides about one changes anything, because the work it
-	// stopped is finished or withdrawn.
+	// stopped is finished or withdrawn. One whose decision was refused because its
+	// item is closed is the exception (refusedForClosedItem) and is live.
 	Dead int
 	// Settled counts entries a decision still standing has settled. The docket's
 	// own build already leaves these out; they are counted here as well so a
@@ -153,7 +154,7 @@ func Live(entries []Entry, closed func(workItemID string) bool, now time.Time) L
 			docket.Settled++
 			continue
 		}
-		if closed != nil && closed(strings.TrimSpace(entry.WorkItemID)) {
+		if closed != nil && closed(strings.TrimSpace(entry.WorkItemID)) && !entry.refusedForClosedItem(now) {
 			docket.Dead++
 			continue
 		}
@@ -244,6 +245,14 @@ func (e Entry) WaitStands(at time.Time) bool {
 // the same stoppage is one this decision has since superseded.
 func (e Entry) CarryOutStopped() bool {
 	return e.Closed != nil && e.CarryOut != nil && !e.CarryOut.NoLongerApplies() && e.CarryOut.RefusedAt.After(e.Closed.ClosedAt)
+}
+
+// refusedForClosedItem reports an entry whose decision was refused for good
+// because its item is closed, and which no later decision has answered. She made
+// that decision past the close, so the refusal is listed for her to decide
+// differently, where every other entry of a closed item is left out.
+func (e Entry) refusedForClosedItem(at time.Time) bool {
+	return e.CarryOut != nil && e.CarryOut.Cause == CarryOutItemClosed && (!e.decisionStands(at) || e.CarryOutStopped())
 }
 
 // Critical reports an entry that must not wait its turn in the walk: a role

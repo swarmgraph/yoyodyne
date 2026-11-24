@@ -272,10 +272,14 @@ A re-run asks nothing of the stopped run except that it has ended. A run that
 ended with no durable blocker and no branch or worktree left is started again
 from the target branch like any other re-run, and until the next pull with a
 free developer slot does that, the item's hold says it waits on the harness. If
-such a re-run is refused by one of the causes above, the decision stops holding
+such a re-run is refused by one of the causes above other than `item-closed`, the decision stops holding
 the item: nothing remains for a fresh run to start beside, so the next pull may
 take it like any other ready item. The note written onto the item carries the
-refusal and says the hold was released.
+refusal and says the hold was released. A re-run refused because its item is
+closed says nothing of the kind, since no pull starts a closed item: the note
+says the item has to be reopened first, or another decision recorded. If the
+item is reopened, the refused re-run does not hold it where the run left no
+branch or worktree, and the item is started like any other ready item.
 
 A refusal before the action starts spends no repair round, repair grant, or
 re-run claim. The stopped run and whatever remains of its change stay as found.

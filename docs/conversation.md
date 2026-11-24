@@ -2732,7 +2732,9 @@ is a log that only grows, and a conversation has a budget. So each picture she
 is given, and each pass's message, lists at most 25 entries, within a fixed
 size, chosen like this. Only live entries are in it: entries whose work item is
 still open, and that nobody has decided about, whose decision has lapsed, or
-whose decision the harness was stopped carrying out. Whether an item is closed
+whose decision the harness was stopped carrying out. One entry of a closed item
+is live too: one whose decision was refused because the item is closed, until
+she decides something else about it. Whether an item is closed
 is read from the tracker as the window is built. If the tracker cannot be read,
 nothing is left out, and the window says so. A stopped run is listed once, with
 its other docketings beneath it, and says how long it has waited since it was
