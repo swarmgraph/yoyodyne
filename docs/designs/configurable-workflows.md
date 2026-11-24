@@ -74,6 +74,10 @@ revisions:
       by: architect
       at: 2026-11-23T11:11:55.95629Z
       reason: 'yoyodyne-y06u: the workflow visualizer design (workflow-diagrams) is on main; this design now points to it and states that a fixed description of Go code is not a workflow, is refused by the runnable loader and drives nothing, and that drawing a definition is not the visual authoring left for later. No decision changes. Written from main e22b582a.'
+    - action: amended
+      by: architect
+      at: 2026-11-24T01:24:05.281487Z
+      reason: 'yoyodyne-ifd.428.204: rules what the workflow record says when a run''s checks reach a time limit. The record stays at its checks step, a continued run carries on from there, only the run record says whether a run is going, and one build piece is named with its tests. Nothing else in the section changes. Written from main b7991bace3a0.'
 approvals:
     - policy: approvals.designs
       revision: 12
@@ -100,6 +104,11 @@ approvals:
       by: harness
       at: 2026-11-23T11:11:55.95629Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3663, for document-3663.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 17
+      by: harness
+      at: 2026-11-24T01:24:05.281487Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3788, for document-3788.1 under the automatic approval policy
 ---
 # Configurable workflows: a declarative runtime over trusted actions
 
@@ -183,6 +192,17 @@ Decided on 25 October 2026 for the item asking whether the declarative workflow 
 - A change to the run lifecycle keeps the graph in step through one check in `make test`: the comparison of the built-in delivery definition with the paths the pipeline records. The change either updates the built-in definition so the comparison passes, or adds the difference, with its reason, to the list of known differences the comparison reads. Nothing else about the graph is asked of a lifecycle change.
 - The path for an interrupted review, and the difference recorded for an integration whose process was killed, stay as the runtime section above describes them.
 
+**When checks reach a time limit.** Decided on November 23, 2026 for the item asking what the workflow record says when a run's checks hit their time limit and the harness then continues the run (yoyodyne-ifd.428.204). It is not built: at main b7991bace3a0 such a stop is recorded as the outcome `unrunnable`, which moves the workflow instance to `abandoned`, and a finished instance refuses every later step, so a run the harness continued keeps a record saying it was abandoned.
+
+- A check that reached its own limit, or a check stage that reached its limit, is unfinished: it neither passed nor failed. It produces no outcome in the workflow. The instance stays in the state `check`, with nothing added to it, whether or not the run is later continued.
+- A run continued after such a stop, by the harness or by a decision, carries on from `check` in the same instance. A finished instance is never reopened, and after this change none has to be for this stop.
+- Whether a run is going or has ended is read only from the run record. An instance standing in a state says where in the sequence the run last stood and claims neither. Only an instance in a terminal claims the run is over, so the two records disagree only where the instance is in a terminal and the run goes on, and this stop no longer produces that.
+- A run the harness will continue by itself at its checks records no difference between itself and its instance when it stops, because nothing has gone wrong between them. Where the harness will not continue it, the run record takes the same note any run takes when it ends partway through the sequence, naming the state `check`. That note is written at the stop where the answer is already known, and otherwise with the record that the harness refused the continuation. A settlement that ends such a run after its process died follows the same rule. If the run is later continued all the same, the note stays as history and the instance carries on from `check`.
+- Every other check that could not run, one cancelled or one whose infrastructure failed, still produces `unrunnable`. A run stopped to move onto a new build is covered by its own item (yoyodyne-ifd.428.147).
+- Workflow records already written are left as they are. The run record's note is what tells a reader of one of them that the two parted.
+
+Two other answers were rejected. Moving the instance to `abandoned` only once the run can no longer be continued needs the code that retires a stopped run to compile and step a definition, which that code deliberately does not do. Reopening a finished instance would make a terminal mean nothing.
+
 **When the graph takes over.** All four of these must be true, and each can be checked from records:
 
 1. The runtime above exists as built: every action has a step-attempt record, each attempt has a key that makes repeating the step after a death safe, and a step whose process died is settled by adopting its result, running it again under the same key, or recording it for the development manager.
@@ -206,9 +226,16 @@ Then the graph becomes the default for new runs. A run started on the old path f
 8. The function that changes a run's state writing the instance position and the run record's state, worked out from that position, together.
 9. Removing the old path once no run started on it remains open.
 
+One more piece stands apart from that order, waits on none of them, and is built on the code as it stands once the item about a run stopped to move onto a new build (yoyodyne-ifd.428.147) has landed. It makes a check stopped by a time limit leave the instance in `check`, as ruled above. It corrects the sentence in the comment beside `unrunnable` that counts a check that timed out, in the built-in delivery definition and, where they carry it, the human approval definition and this repository's own copy; a comment is not part of the digest, so running instances stay pinned as they are. Where the comparison with the frozen baseline holds such a path, the piece either updates it or lists the difference with its reason. Its tests show:
+
+- a check that reached its own limit, and a stage that reached its limit, each leave the instance in `check`, with no note where the harness will continue the run;
+- a run continued after either stop goes on to review in the same instance with no note;
+- a run whose reruns are spent, and a run whose continuation was refused, each carry the note naming `check`;
+- a cancelled check still moves the instance to `abandoned`.
+
 **Alternatives rejected.** Retiring the graph, which drops the operating rule and leaves every project's sequence in Go. Keeping the graph and the pipeline in full step forever without a switch, which keeps the second edit on every lifecycle change for nothing. Switching now, before step attempts and settling exist, which lets a process that dies partway through a step repeat what it already did, such as opening a second pull request.
 
-**What a reviewer can check.** Before the switch, no code chooses a run's next step from an instance's position, and `make test` fails on a lifecycle change that neither updates the built-in definition nor records the difference with a reason. The switch is made only where the four conditions are met in the records. After it, the instance position and the state in the run record are written by one function, and a run started on the old path never moves to the new one.
+**What a reviewer can check.** Before the switch, no code chooses a run's next step from an instance's position, and `make test` fails on a lifecycle change that neither updates the built-in definition nor records the difference with a reason. Once the piece above is built, no check stopped by a time limit moves an instance to a terminal. The switch is made only where the four conditions are met in the records. After it, the instance position and the state in the run record are written by one function, and a run started on the old path never moves to the new one.
 
 ## The twenty questions, settled
 
