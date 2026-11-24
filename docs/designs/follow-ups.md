@@ -26,6 +26,10 @@ revisions:
       by: architect
       at: 2026-11-23T17:40:41.963945Z
       reason: The last copy claimed to list everything built and left out parts that exist, as the independent review found. This says the list is not complete, adds the closed list of checks, the registry kind, recording a result only when it changes, telling whoever waits, and release of a hold when its follow-up is closed, and marks which points come from the review. Read at main e78f63e889a3.
+    - action: amended
+      by: architect
+      at: 2026-11-24T04:08:37.681031Z
+      reason: 'Answers report-459d4ad5: the priority of the bug filed on a late wait follows the operator''s rule of November 15 that a stall is priority 0 only when it is frequent or likely to become so, and otherwise priority 1. The harness files at 0 only where an earlier such lapse fell within seven days; a lapse added to an open bug at a lower priority is put to the Lead Product Manager, who sets it. Read whole at main 585539c6ef62; nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -52,6 +56,11 @@ approvals:
       by: harness
       at: 2026-11-23T17:40:41.963945Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3719, for document-3719.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-24T04:08:37.681031Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3811, for document-3811.1 under the automatic approval policy
 ---
 # Follow-ups: every wait has an owner, a check the harness runs, and two deadlines
 
@@ -148,7 +157,7 @@ The harness runs every open follow-up's check every `follow_ups.check_interval` 
 
 ## Deadlines, and what happens when one passes
 
-The deadlines are set when the follow-up is written, from `follow_ups.deadlines` in `.yoyodyne/config.yaml`. They are chosen by the priority of the highest-priority item the follow-up blocks. A follow-up that holds intake or leaves every developer slot empty counts as priority 0, whatever it is about. The defaults:
+The deadlines are set when the follow-up is written, from `follow_ups.deadlines` in `.yoyodyne/config.yaml`. They are chosen by the priority of the highest-priority item the follow-up blocks. A follow-up that holds intake or leaves every developer slot empty counts as priority 0 for its deadlines, whatever it is about. The defaults:
 
 | Priority of what it blocks | Back to its owner after | To the owner's manager after |
 | --- | --- | --- |
@@ -174,7 +183,16 @@ It stays there on every pass until it ends. A stop whose wait took it off the li
 
 A follow-up the operator owns is never escalated above him. Past its first deadline it is sent again as the next section says, and past its second the Lead Product Manager is shown it, to check whether a role could take the step after all.
 
-**Every lapse past the second deadline is recorded as a bug, and none is pruned.** The harness files it through the same intake as any filing, with its origin recorded as the harness and the autonomy goal named. It is filed against the role or the part of the harness that owned the follow-up. It names the follow-up, its owner, its deadlines, what it blocked and for how long. Its priority is 0 where the follow-up held intake or emptied every developer slot, and 1 otherwise, as the operating rule on reliability defects says. While a bug for the same owner and the same kind of check is open, a further lapse is added to it as a note rather than filed as a new item, so each lapse is recorded and no run is spent on a duplicate. The follow-up and its lapse are kept for good.
+**Every lapse past the second deadline is recorded as a bug, and none is pruned.** The harness files it through the same intake as any filing, with its origin recorded as the harness and the autonomy goal named. It is filed against the role or the part of the harness that owned the follow-up. It names the follow-up, its owner, its deadlines, what it blocked and for how long. While a bug for the same owner and the same kind of check is open, a further lapse is added to it as a note rather than filed as a new item, so each lapse is recorded and no run is spent on a duplicate. The follow-up and its lapse are kept for good.
+
+The bug's priority follows the [operating rules](../product/operating-rules.md), under which a stall is priority 0 only when it is frequent or likely to become so:
+
+- It is filed at priority 1.
+- It is filed at priority 0 only where the follow-up held intake or emptied every developer slot, and another follow-up with the same owner and the same kind of check did so and lapsed within the seven days before. That is what the harness takes as frequent.
+- Where such a second lapse is instead added as a note to a bug open at a lower priority, the harness says so in a warning report addressed to the Lead Product Manager, who decides whether to raise it. The harness does not change the priority of an item already admitted.
+- Whether a stall seen once is likely to become frequent is a judgment the harness does not make. The Lead Product Manager makes it and sets the priority, as she does for any item.
+
+What a follow-up blocks still sets its deadlines as the table says: a wait that holds intake is brought back within an hour whether or not its lapse would be filed at priority 0.
 
 ## A step only a person can take, when it stops the factory
 
