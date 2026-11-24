@@ -494,8 +494,9 @@ names no entry and is not in the figure.
 
 Spend that cannot be told apart is stated on its own and added to no conflict.
 Once the developer has been asked for something else since the conflict, such as
-a failing check or a reviewer's findings, the target has moved again, or a new
-run was started on the kept change, its calls are recorded as `conflict:
+a failing check or a reviewer's findings, the target has moved again so that the
+change or its merge queue candidate is reviewed again, or a new run was started
+on the kept change, its calls are recorded as `conflict:
 unclear`. A run's call recorded before any of this says nothing about conflicts.
 Either of them, or a conflict's call the provider never priced, makes the figure
 "at least" what is known, and "not known" where none of it is. A run's call made

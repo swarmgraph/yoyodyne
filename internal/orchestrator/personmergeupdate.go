@@ -45,6 +45,12 @@ func (a *activeRun) bringPersonMergeUpToDate(ctx context.Context) (Outcome, erro
 	// verdict, as a replayed promotion does. The replay's record carries this.
 	a.clearReviewEvidence()
 	rebase, err := a.replayOntoTarget(ctx)
+	if err == nil {
+		// A change replayed cleanly is reviewed again because the target moved,
+		// not only for a conflict handed back before it. The replay's record
+		// carries this too.
+		a.state.ConflictSpendingUnclear()
+	}
 	if recordErr := a.recordRebase(rebase); recordErr != nil {
 		if err == nil {
 			err = recordErr

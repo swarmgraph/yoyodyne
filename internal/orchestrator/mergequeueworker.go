@@ -1138,6 +1138,46 @@ func (w MergeQueueWorker) reviewOnce(ctx context.Context, lease *runstate.Lease,
 	return generation, moved, again, err
 }
 
+// candidateSpendsForConflict is what the cost line of a candidate's review says
+// of conflicts. The first candidate of a change brought up to date after a
+// conflict is reviewed because of that conflict, which its run's record says.
+// Where an earlier candidate of the same approved head was already put to
+// review, this one is reviewed again for something else — the target moved, the
+// checks changed, or the change was admitted again — so it is not told apart.
+func (w MergeQueueWorker) candidateSpendsForConflict(key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, generation runstate.MergeQueueGeneration) (runstate.SpendConflict, string, error) {
+	conflict, handback := run.SpendsForConflict()
+	if conflict != runstate.SpendConflictHandback {
+		return conflict, handback, nil
+	}
+	entries, err := w.Queue.Entries(key)
+	if err != nil {
+		return "", "", fmt.Errorf("read the merge queue for the earlier reviews of entry %d's change: %w", entry.Order, err)
+	}
+	for _, other := range entries {
+		if other.RunID != entry.RunID || other.ApprovedHead != entry.ApprovedHead || other.Order > entry.Order {
+			continue
+		}
+		generations, err := w.Queue.Generations(key, other.EntryID)
+		if err != nil {
+			return "", "", fmt.Errorf("read the earlier candidates of merge queue entry %d: %w", other.Order, err)
+		}
+		for _, earlier := range generations {
+			if (other.EntryID != entry.EntryID || earlier.Number < generation.Number) && reviewStarted(earlier) {
+				return runstate.SpendConflictUnclear, handback, nil
+			}
+		}
+	}
+	return conflict, handback, nil
+}
+
+// reviewStarted reports a candidate put to review at least once, whatever came
+// of it.
+func reviewStarted(generation runstate.MergeQueueGeneration) bool {
+	return generation.Review != nil || slices.ContainsFunc(generation.Interruptions, func(set runstate.MergeQueueInterruption) bool {
+		return set.Stage == runstate.MergeQueueStageReview
+	})
+}
+
 // ask makes one asking of the candidate's review, told what was wrong with the
 // reply before it where reask is set.
 func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, generation runstate.MergeQueueGeneration, reask *review.Reask) (runstate.MergeQueueGeneration, bool, error) {
@@ -1194,6 +1234,10 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 		return generation, false, fmt.Errorf("assemble product intent for the candidate's review: %w", err)
 	}
 
+	conflict, conflictHandback, err := w.candidateSpendsForConflict(key, entry, run, generation)
+	if err != nil {
+		return generation, false, err
+	}
 	hold, err := w.holdStage(lease, key, generation, runstate.MergeQueueStageReview)
 	if err != nil {
 		return generation, false, err
@@ -1224,9 +1268,6 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 	if reask != nil && reask.Backend == "" && !routed {
 		reask.Backend, reask.AccountAlias = reviewBackend, account.Alias
 	}
-	// A candidate of a change brought up to date after a conflict is reviewed
-	// because of that conflict, which its run's record says.
-	conflict, conflictHandback := run.SpendsForConflict()
 	var result review.Result
 	var reviewErr error
 	for {
