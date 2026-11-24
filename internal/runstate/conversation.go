@@ -540,6 +540,11 @@ type PendingWrite struct {
 	// Hold is what its owning role put on sending it; see artifact.Write.
 	Answers []string              `json:"answers,omitempty"`
 	Hold    *artifact.SendingHold `json:"hold,omitempty"`
+	// WaitsForRoom says the harness kept this document, written while the
+	// conversation already had MaxPendingWrites documents waiting, rather than
+	// refusing it, and sends it once one of them is settled. Until then it is
+	// counted with the held documents, apart from the waiting ones.
+	WaitsForRoom bool `json:"waits_for_room,omitempty"`
 	// Names are the work items the document names, by what it answers, its hold,
 	// or an identifier in its reason or body, and Revises the document a revision
 	// replaces, by identifier and file. Both are filled for a record written
@@ -723,10 +728,11 @@ func WaitingDocuments(writes []PendingWrite) int {
 }
 
 // Held reports a document kept ready to send under a hold its owner put on
-// sending it, and not yet confirmed for publication: once the hold lifts and the
+// sending it, or kept until there is room among the waiting documents, and not
+// yet confirmed for publication: once the hold lifts or room is found and the
 // document is confirmed, it waits as any other document does.
 func (w PendingWrite) Held() bool {
-	return w.Hold != nil && w.Publication == nil
+	return (w.Hold != nil || w.WaitsForRoom) && w.Publication == nil
 }
 
 // MaxPendingWrites bounds the documents a role's conversation keeps waiting —
@@ -743,21 +749,22 @@ func (w PendingWrite) Held() bool {
 // file. So the documents a conversation keeps are also bounded together, by
 // the bytes the record stores for them (MaxPendingWriteStoredBytes, counted by
 // PendingWriteStoredBytes); a document that would take the total past it is
-// refused with the reason, as a ninth document is. The total is checked where a
+// refused with the reason rather than kept until there is room. The total is checked where a
 // document is added and not when a record is validated, so a record written
 // before it existed, which the file limit already allowed, still loads and saves.
 //
 // The byte bound matches what the write contract accepts, so a document the
 // harness took from a reply is never one it then cannot write down.
 //
-// MaxHeldWrites bounds the documents held for sending beside them. They are
+// MaxHeldWrites bounds the documents held for sending, or kept until there is
+// room (PendingWrite.WaitsForRoom), beside them. They are
 // counted apart because a hold is put on sending, not on the work: a role
 // waiting for a fix to publication goes on finishing designs, and two
 // documents held for that fix must not stop it writing a third. Held documents
 // carry no publication candidate, so each costs the record its body alone.
 const (
 	MaxPendingWrites     = artifact.MaxWaitingDocuments
-	MaxHeldWrites        = 4
+	MaxHeldWrites        = artifact.MaxHeldDocuments
 	MaxPendingWriteBytes = 128 << 10
 	// MaxPendingWriteStoredBytes is the room the record gives every document it
 	// keeps together, a little over half of the megabyte the record may take, so

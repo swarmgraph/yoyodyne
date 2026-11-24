@@ -6849,6 +6849,20 @@ under `standing.conversation_passes`, each with its `task`, `role`, `at`,
 first item's note was repeated (its `noted_at`, `times` and `latest`); a pass log that could not be read to the end is said
 under the line and in `conversation_passes_problem`.
 
+The architect's pass is not handed an item whose ruling stands: its newest note
+is the note her document left on it, and nothing about it has changed since the
+pass that dealt with it — no new note, edit, priority, label or status change, no
+change to a document it cites by file (under `docs` or the directories the
+project files its documents in, in its companion intent repository too where it
+has one), every one of those documents can be read, and no report naming it. Her own notes
+from earlier passes do not count as new. A changed item is handed to every pass
+until one deals with it: a pass that only leaves it, and a change that arrives
+while a pass runs, never make the ruling stand again. The pass's message tells her which
+items were left out and what puts one back, and `yoyo sweeps` says it under the
+pass: `left out 1 item waiting in the architect's conversation because the
+architect's ruling on each stands and nothing about it had changed since it
+was dealt with: yoyodyne-ab2`.
+
 **The item first in a pass's order that the pass did not take says so on
 itself.** The harness appends a note to the item naming the pass, its time, the
 item's place in what the pass was handed, and the role's reason or `no reason

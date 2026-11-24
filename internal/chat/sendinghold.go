@@ -32,6 +32,20 @@ func (r *writeRecord) heldForSending() bool {
 	return r.pending.Write.Hold != nil && r.pending.Publication == nil && !r.holdLifted
 }
 
+// keptForRoom reports a document the harness kept, rather than refused, because
+// the conversation already had runstate.MaxPendingWrites documents waiting, and
+// that is not yet let in among them (PublishDocuments).
+func (r *writeRecord) keptForRoom() bool {
+	return r.pending.WaitsForRoom && r.pending.Publication == nil
+}
+
+// heldApart reports a document counted with the held documents rather than the
+// waiting ones: held for sending, or kept until there is room. It counts as the
+// record does (runstate.PendingWrite.Held).
+func (r *writeRecord) heldApart() bool {
+	return (r.pending.Write.Hold != nil || r.pending.WaitsForRoom) && r.pending.Publication == nil
+}
+
 // HeldDocument is one document a conversation keeps ready to send under a hold
 // its owner put on sending it: which document, the items it answers, and what
 // lifts the hold.
@@ -136,9 +150,11 @@ func (s *Session) rulingNote(pending PendingWrite) string {
 		title = strings.TrimSpace(write.ID)
 	}
 	var note strings.Builder
-	fmt.Fprintf(&note, "%s\n\n", s.trackerProvenance(fmt.Sprintf("Design or ruling for this item written as %s (%s, document %s)", strings.TrimSpace(write.ID), title, pending.ID), write.Reason))
+	fmt.Fprintf(&note, "%s\n\n", s.trackerProvenance(fmt.Sprintf("%s%s (%s, document %s)", runstate.RulingNoteOpening, strings.TrimSpace(write.ID), title, pending.ID), write.Reason))
 	if hold := write.Hold; hold != nil {
 		fmt.Fprintf(&note, "It is finished and kept ready to send. Sending it for publication waits until %s closes: %s\n\n", strings.TrimSpace(hold.UntilClosed), strings.TrimSpace(hold.Reason))
+	} else if pending.WaitsForRoom {
+		note.WriteString("It is finished and kept until there is room among the documents waiting for publication, and is sent then. Until it is published, the text below is what it says.\n\n")
 	} else {
 		note.WriteString("It is finished and sent for publication. Until it is published, the text below is what it says.\n\n")
 	}
@@ -200,7 +216,8 @@ func (s *Session) tellHeldForRoom(record *writeRecord) error {
 }
 
 // waitingAndHeld counts this conversation's undecided documents apart from the
-// ones held for sending, which runstate.MaxHeldWrites bounds separately. It
+// ones held for sending or kept until there is room, which
+// runstate.MaxHeldWrites bounds separately. It
 // counts as the record does (runstate.PendingWrite.Held), so a hold seen lifted
 // in this process still counts as held until its document is confirmed.
 //
@@ -218,7 +235,7 @@ func (s *Session) waitingAndHeldWithout(frees func(*writeRecord) bool) (waiting,
 	for _, record := range s.writes {
 		switch {
 		case record.decided || (frees != nil && frees(record)):
-		case record.pending.Write.Hold != nil && record.pending.Publication == nil:
+		case record.heldApart():
 			held++
 		default:
 			documents[strings.TrimSpace(record.pending.Write.ID)] = true
@@ -229,7 +246,13 @@ func (s *Session) waitingAndHeldWithout(frees func(*writeRecord) bool) (waiting,
 
 // refuseWriteCount refuses documents beyond what the conversation may keep:
 // runstate.MaxPendingWrites waiting for a decision or publication, and
-// runstate.MaxHeldWrites held for sending.
+// runstate.MaxHeldWrites held for sending or kept until there is room.
+//
+// A document written while the waiting places are full is not refused: it is
+// kept until one of them is settled (recordWritesWithoutToolAudit marks it, and
+// PublishDocuments lets it in), and counted with the held documents meanwhile,
+// so the role never has to write a finished document again because the limit
+// was full. It is refused only where that allowance is full too.
 //
 // A new revision of a document already waiting takes no new place, and what it
 // frees — a revision whose run has not started or has ended — is counted as
@@ -246,20 +269,27 @@ func (s *Session) refuseWriteCount(writes []artifact.Write, places []revisionPla
 	}
 	_, held := s.waitingAndHeldWithout(frees)
 	for _, record := range s.writes {
-		if !record.decided && !frees(record) && !(record.pending.Write.Hold != nil && record.pending.Publication == nil) {
+		if !record.decided && !frees(record) && !record.heldApart() {
 			waitingDocuments[strings.TrimSpace(record.pending.Write.ID)] = true
 		}
 	}
+	keptForRoom := 0
 	for _, write := range writes {
-		if write.Hold != nil {
+		id := strings.TrimSpace(write.ID)
+		switch {
+		case write.Hold != nil:
 			held++
-		} else {
-			waitingDocuments[strings.TrimSpace(write.ID)] = true
+		case waitingDocuments[id]:
+		case len(waitingDocuments) < runstate.MaxPendingWrites:
+			waitingDocuments[id] = true
+		default:
+			held++
+			keptForRoom++
 		}
 	}
-	if waiting := len(waitingDocuments); waiting > runstate.MaxPendingWrites {
-		return fmt.Errorf("%d documents would be waiting for confirmation or publication and the limit is %d per role. Wait for one to land or be handed back, write a new revision of one already waiting (it replaces the waiting revision if its run has not started), or withdraw one whose run has not started with \"withdraw\"; \"list\" shows each and where it stands",
-			waiting, runstate.MaxPendingWrites)
+	if keptForRoom > 0 && held > runstate.MaxHeldWrites {
+		return fmt.Errorf("%d documents are already waiting for confirmation or publication, which is the limit of %d per role, and the %d places for documents kept until there is room or held for sending are full too. Wait for one to land or be handed back, write a new revision of one already waiting (it replaces the waiting revision if its run has not started), or withdraw one whose run has not started with \"withdraw\"; \"list\" shows each and where it stands",
+			len(waitingDocuments), runstate.MaxPendingWrites, runstate.MaxHeldWrites)
 	}
 	// A document confirmed for publication is stored twice, so a new one is
 	// counted at twice its length; held documents are stored once.
@@ -281,10 +311,42 @@ func (s *Session) refuseWriteCount(writes []artifact.Write, places []revisionPla
 			stored, runstate.MaxPendingWriteStoredBytes)
 	}
 	if held > runstate.MaxHeldWrites {
-		return fmt.Errorf("%d document(s) would be held for sending and the limit is %d; a document that answers several items names them all in one, and the held ones are sent as their holds lift",
+		return fmt.Errorf("%d document(s) would be held for sending or kept until there is room, and the limit is %d; a document that answers several items names them all in one, and the held ones are sent as their holds lift",
 			held, runstate.MaxHeldWrites)
 	}
 	return nil
+}
+
+// tellKeptForRoom tells the owning role once that a document kept because the
+// waiting places were full is still kept, and is sent once one of them is
+// settled.
+func (s *Session) tellKeptForRoom(record *writeRecord) error {
+	waiting := fmt.Sprintf("Document %s (%s) is finished and kept. This conversation already has %d documents waiting for publication, so it is sent at the first message after one of them is settled; it does not need writing again.\n", record.pending.ID, writeTitle(record), runstate.MaxPendingWrites)
+	if waiting == record.failure {
+		return nil
+	}
+	record.failure = waiting
+	return s.carryResults(waiting)
+}
+
+// letInForRoom lets a document kept for room in among the waiting documents
+// once there is room, records that, and tells the owning role. From here it is
+// confirmed and published as any other document is.
+func (s *Session) letInForRoom(record *writeRecord) error {
+	record.pending.WaitsForRoom = false
+	record.failure = ""
+	if err := s.record(); err != nil {
+		return err
+	}
+	return s.carryResults(fmt.Sprintf("Document %s (%s) was kept because the documents waiting for publication were at their limit. One of them is settled, so it now takes that place and goes on from the text the harness kept; it does not need writing again.\n", record.pending.ID, writeTitle(record)))
+}
+
+// writeTitle is a document's title, or its identifier where it has none.
+func writeTitle(record *writeRecord) string {
+	if title := strings.TrimSpace(record.pending.Write.Title); title != "" {
+		return title
+	}
+	return strings.TrimSpace(record.pending.Write.ID)
 }
 
 func trimmedItems(items []string) []string {
