@@ -4691,6 +4691,10 @@ type State struct {
 	// SpendWait records, while it lasts, that the shared remote will not take
 	// this run's review round (SpendWait). It is cleared when the remote does.
 	SpendWait *SpendWait `json:"spend_wait,omitempty"`
+	// EpicWait records that this run stopped before its next step because its
+	// item is in no open epic the operator named (epicwait.go). It is cleared
+	// when the run is picked up again.
+	EpicWait *EpicWait `json:"epic_wait,omitempty"`
 	// RedeployStop records that the watch session hosting this run stopped it
 	// in order to restart into a build deployed over it, once the drain the
 	// session was given ran out with this run still going. Like a recorded
@@ -5500,6 +5504,14 @@ func (s State) Validate() error {
 	if s.SpendWait != nil {
 		if err := s.SpendWait.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("spend_wait: %w", err))
+		}
+	}
+	if s.EpicWait != nil {
+		if err := s.EpicWait.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("epic_wait: %w", err))
+		}
+		if s.Status.Terminal() {
+			problems = append(problems, errors.New("epic_wait requires a run that is still in flight"))
 		}
 	}
 	if s.TrackerPause != nil {

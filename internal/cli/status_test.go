@@ -13,6 +13,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -2084,5 +2085,29 @@ func TestStatusSaysWhenTheTargetBranchWasLastBroughtUpToDateWithTheTeamsBranch(t
 	}
 	if want := "staging was last brought up to date with main"; !strings.Contains(stdout, want) || !strings.Contains(stdout, "merge bbbbbbbbbbbb") {
 		t.Fatalf("status does not say the update (%q):\n%s", want, stdout)
+	}
+}
+
+// Which mode the factory is in is said by `yoyo status` once an epic has been
+// named, and nothing is said about epics before that.
+func TestStatusSaysTheModeOnceAnEpicIsNamed(t *testing.T) {
+	// Not parallel: the state root the command addresses is set here.
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+	stdout, stderr, code := runCLI(t, "status", "--config", configPath)
+	if code != 0 || strings.Contains(strings.ToLower(stdout), "epic") || strings.Contains(stdout, "Mode:") {
+		t.Fatalf("with no epic named, status exited %d (%s) and said\n%s", code, stderr, stdout)
+	}
+	operator, err := epicscope.ForOperator(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operator.Start(epicscope.Naming{Epic: "yoyodyne-ep", From: "terminal"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code = runCLI(t, "status", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "\nMode: epic mode; only work in the epics you named starts\n  Open epic: ") || !strings.Contains(stdout, "(yoyodyne-ep)") {
+		t.Fatalf("with an epic named, status exited %d (%s) and said\n%s", code, stderr, stdout)
 	}
 }

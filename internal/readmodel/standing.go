@@ -425,6 +425,9 @@ type Sources struct {
 	// LandingHolds is the holds a person's script has placed on landing; nil
 	// reads none. It is satisfied by *runstate.LandingHoldStore.
 	LandingHolds LandingHolds
+	// Epics is the epics the operator named, and what was not started because
+	// it is outside them (epics.go); nil reads none.
+	Epics EpicRecords
 	// NeedsDesignLabelled is since when each item has carried the needs-design
 	// label, for the factory problems and the queue's refusal. Optional: a
 	// reading without it shows each waiting item without the time.
@@ -701,6 +704,9 @@ type RunningRun struct {
 	WaitingForRemote string        `json:"waiting_for_remote,omitempty"`
 	RemoteWaited     time.Duration `json:"remote_waited,omitempty"`
 	RemoteTries      int           `json:"remote_tries,omitempty"`
+	// waitingForEpic is a run whose record says it stopped before its next step
+	// because its item is in no open epic the operator named (epics.go).
+	waitingForEpic bool
 }
 
 // DeveloperSlotStanding is one configured developer slot as the standing status
@@ -1194,6 +1200,9 @@ type Standing struct {
 	// this reading.
 	LandingHolds        []runstate.LandingHold `json:"landing_holds,omitempty"`
 	LandingHoldsProblem string                 `json:"landing_holds_problem,omitempty"`
+	// Epics is which mode the factory is in and, in epic mode, where the epics
+	// the operator named stand; nil where none was ever named. See epics.go.
+	Epics *Epics `json:"epics,omitempty"`
 	// MCPCalls is the MCP calls of the last day, by tool and outcome, with no
 	// content; nil where the product has made none. See mcpcalls.go.
 	MCPCalls        *MCPCalls `json:"mcp_calls,omitempty"`
@@ -1523,6 +1532,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueuesAt(sources.MergeQueues, now, sources.MergeQueueStepOverdueAfter)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
+	standing.Epics = readEpics(sources, standing, listed, listedErr)
 	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
 	standing.IntakeQueries, standing.IntakeQueriesProblem = ReadIntakeQueries(sources.IntakeQueries)
 	standing.MainChecks, standing.MainChecksProblem = ReadMainChecks(sources.MainChecks)
@@ -1905,6 +1915,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, []
 			}
 		}
 		run.Evidence, run.EvidenceAt = evidenceOf(state)
+		run.waitingForEpic = state.EpicWait != nil
 		run.Subagents = subagentCallsOf(sources.Runs, state, run.NoProcess == "", run.Subagents)
 		// A confirmed document's landing holds no developer slot either, but it is
 		// running rather than paused: it is listed with the running and kept out
