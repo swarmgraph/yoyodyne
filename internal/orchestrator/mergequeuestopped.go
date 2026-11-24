@@ -184,6 +184,7 @@ func (p MergeQueuePromoter) handBackStopped(ctx context.Context, q *queuePromoti
 			nonEmpty(q.outcome.Unresolved, q.outcome.Refusal, q.outcome.Waiting, "no answer was recorded"))
 	}
 	q.outcome.Refusal, q.outcome.Unresolved, q.outcome.Waiting = "", "", ""
+	q.outcome.UnresolvedBy = nil
 	if refusal := q.landing.HeadRewriteRefusal(); refusal != "" {
 		return refuse("%s", refusal)
 	}
@@ -332,6 +333,7 @@ func (p MergeQueuePromoter) releaseLandedOutside(ctx context.Context, q *queuePr
 			nonEmpty(q.outcome.Unresolved, q.outcome.Refusal, q.outcome.Waiting, "no answer was recorded"))
 	}
 	q.outcome.Refusal, q.outcome.Unresolved, q.outcome.Waiting = "", "", ""
+	q.outcome.UnresolvedBy = nil
 	carrying, err := p.Lander.TargetCommit(ctx, target)
 	if err != nil {
 		return q.result(), fmt.Errorf("read where %s stands to record merge queue entry %d as landed outside the queue: %w", target, q.entry.Order, err)

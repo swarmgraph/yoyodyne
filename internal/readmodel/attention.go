@@ -1000,6 +1000,12 @@ func (a Attention) Whose() string {
 	case AttentionUnrunCheck:
 		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
 	case AttentionMergeQueueOverdue:
+		if a.QueueOverdue != nil && a.QueueOverdue.StoppedPasses > 0 {
+			if a.Mover.IsOperator() {
+				return a.Mover.Possessive() + " — only a person can act on this, for " + a.Ownership.ReasonSays() + "; the queue lands its entries in order, so nothing behind this one lands until it moves, and once the step is taken the next pass goes on by itself"
+			}
+			return a.Mover.Possessive() + " — the queue lands its entries in order, so nothing behind this one lands until it moves, and its worker meets the same stop on every pass, so waiting will not move it; find and clear what stops it, and the next pass goes on, or `yoyo queue hand-back " + a.ID + " --reason <why>` sends it back to its run so the entries behind it go on, which can be done from her conversation as well"
+		}
 		return a.Mover.Possessive() + " — the queue lands its entries in order, so nothing behind this one lands until it moves; find what holds it, then `yoyo queue retry " + a.ID + " --reason <why>` takes it up again on the same checked and reviewed candidate, or `yoyo queue hand-back " + a.ID + " --reason <why>` sends it back to its run so the entries behind it go on, and either can be done from her conversation as well"
 	case AttentionKeptHeavyCheck:
 		return a.Mover.Possessive() + " — the place is given back by itself once the last of those processes goes; if it is a hang, `yoyo heavy-checks release " + a.ID + " --by <name> --reason <why>` gives it back now and records who and why"
@@ -1509,6 +1515,10 @@ func (a Attention) ownershipRecord() ownership.Record {
 	case AttentionCapacityBlocked:
 		if a.CapacityBlocked != nil {
 			record.Capacity = a.CapacityBlocked.Stand()
+		}
+	case AttentionMergeQueueOverdue:
+		if a.QueueOverdue != nil {
+			record.Reason = ownership.OperatorReason(a.QueueOverdue.PersonOnly)
 		}
 	}
 	return record

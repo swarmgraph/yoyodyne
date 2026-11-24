@@ -227,6 +227,15 @@ func TestARemoteRefusingTheCredentialIsItsOwnClass(t *testing.T) {
 	if !errors.Is(refused, ErrRemoteAuthRefused) || !strings.Contains(refused.Error(), "git push exited 128") || !strings.Contains(refused.Error(), "Permission denied (publickey)") {
 		t.Fatalf("authRefusal(publickey) = %v, want the refused key named with the command", refused)
 	}
+	if errors.Is(refused, ErrRemoteCredentialNotPresented) {
+		t.Fatalf("authRefusal(publickey) = %v, want a key that was presented and refused", refused)
+	}
+	for _, stderr := range []string{"No user exists for uid 501", "Host key verification failed."} {
+		unasked := authRefusal(args, execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 128, Stderr: stderr})
+		if !errors.Is(unasked, ErrRemoteAuthRefused) || !errors.Is(unasked, ErrRemoteCredentialNotPresented) {
+			t.Fatalf("authRefusal(%q) = %v, want it marked as ending before a credential was presented", stderr, unasked)
+		}
+	}
 	if rejected := authRefusal(args, execution.ProcessResult{
 		Status:   execution.ProcessFailed,
 		ExitCode: 1,

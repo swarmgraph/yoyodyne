@@ -9,10 +9,16 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -190,5 +196,119 @@ func TestAForgeWhoseCertificateCannotBeVerifiedIsNotReadAsAnUnmergedPullRequest(
 	}
 	if f.local("main") != base {
 		t.Fatal("the target moved while the forge could not be read")
+	}
+	if pass.PersonOnly != "" {
+		t.Fatalf("the pass records %q as only a person's to act on, want nothing: a certificate is not a credential the forge refused", pass.PersonOnly)
+	}
+}
+
+// An error a pass stops on that is the forge refusing the harness's token,
+// however it is wrapped, records a credential only a person can give, so a stop
+// that repeats is put to the operator for that reason rather than to a role;
+// any other error, a certificate the machine cannot verify among them, records
+// nothing.
+func TestAStopOnARefusedForgeTokenRecordsACredential(t *testing.T) {
+	t.Parallel()
+
+	refused := fmt.Errorf("push the candidate: gh failed with exit code 1: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)
+	if got := stopPersonOnly(fmt.Errorf("land merge queue entry 45: %w", refused)); got != ownership.PersonCredential {
+		t.Fatalf("stopPersonOnly(a refused token) = %q, want a credential", got)
+	}
+	for _, err := range []error{
+		nil,
+		fmt.Errorf("%w (%w)", gitworktree.ErrRemoteAuthRefused, gitworktree.ErrRemoteCredentialNotPresented),
+		fmt.Errorf("%w: protected branch hook declined", gitworktree.ErrRemotePushRejected),
+		errors.New("Permission denied (publickey)"),
+		errors.New("tls: failed to verify certificate: x509: OSStatus -26276"),
+		errors.New("the forge refused the harness's token access"),
+	} {
+		if got := stopPersonOnly(err); got != "" {
+			t.Fatalf("stopPersonOnly(%v) = %q, want nothing: only the error's type says a person has to act", err, got)
+		}
+	}
+}
+
+// assertStopsRepeat runs three passes and checks each stopped on the entry with
+// the same words and recorded want, which is what status reads a repeated stop
+// and its owner from.
+func (f *promotionFixture) assertStopsRepeat(want ownership.PersonOnlyReason) {
+	f.t.Helper()
+	var first runstate.MergeQueuePass
+	for pass := range 3 {
+		stopped := f.pass(queueKey)
+		if stopped.Outcome != runstate.MergeQueuePassStopped || stopped.EntryID != f.entry.EntryID || stopped.PersonOnly != want {
+			f.t.Fatalf("Pass() = %#v, want it stopped on the entry recording %q", stopped, want)
+		}
+		if pass == 0 {
+			first = stopped
+		} else if stopped.Says != first.Says {
+			f.t.Fatalf("pass %d says %q, want the same stop as before: %q", pass+1, stopped.Says, first.Says)
+		}
+	}
+}
+
+// The Git remote refusing the harness's SSH key or login keeps its type to the
+// end of the pass, and a refusal in which no key was presented is not one.
+func TestAStopOnAGitRemoteRefusingTheKeyRecordsACredential(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want ownership.PersonOnlyReason
+	}{
+		{"the SSH key", fmt.Errorf("%w: git push exited 128: git@github.com: Permission denied (publickey).", gitworktree.ErrRemoteAuthRefused), ownership.PersonCredential},
+		{"the login", fmt.Errorf("%w: git push exited 128: fatal: Authentication failed for 'https://github.com/x/y.git/'", gitworktree.ErrRemoteAuthRefused), ownership.PersonCredential},
+		{"no key presented", fmt.Errorf("%w: git push exited 255: No user exists for uid 501 (%w)", gitworktree.ErrRemoteAuthRefused, gitworktree.ErrRemoteCredentialNotPresented), ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f, lander := pushingFixture(t)
+			f.verify()
+			lander.set(func(context.Context, string, string, string) error { return test.err })
+			f.assertStopsRepeat(test.want)
+			lander.set(nil)
+			if cleared := f.pass(queueKey); cleared.Outcome != runstate.MergeQueuePassLanded || cleared.PersonOnly != "" {
+				t.Fatalf("Pass() once the remote takes the push = %#v, want the change landed", cleared)
+			}
+		})
+	}
+}
+
+// GitHub refusing the harness's access while a merge is withdrawn, or while the
+// pull request is read to confirm it, keeps its type to the end of the pass,
+// though the withdrawal is reported as unresolved rather than as an error. Any
+// other answer is the development manager's, and an outage does not stop the
+// pass at all.
+func TestAStopOnARefusedWithdrawalRecordsACredential(t *testing.T) {
+	t.Parallel()
+
+	refused := fmt.Errorf("withdraw the queued merge of pull request 1: exit code 1: HTTP 403: Resource not accessible by integration: %w", publish.ErrForgeAccessRefused)
+	for _, test := range []struct {
+		name            string
+		withdraw, state error
+		want            ownership.PersonOnlyReason
+	}{
+		{"the withdrawal is refused", refused, nil, ownership.PersonCredential},
+		{"the read confirming it is refused", nil, refused, ownership.PersonCredential},
+		{"the forge answers without saying", errors.New("HTTP 422: the request cannot be changed"), nil, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f, withdrawer, _ := queuedMergeFixture(t)
+			f.worker.Pipeline.Config.Triage.StuckMergeAge = config.Duration(time.Nanosecond)
+			withdrawer.answer = func(int) error {
+				f.forge.StateErr = test.state
+				return test.withdraw
+			}
+			f.assertStopsRepeat(test.want)
+		})
+	}
+
+	f, withdrawer, _ := queuedMergeFixture(t)
+	f.worker.Pipeline.Config.Triage.StuckMergeAge = config.Duration(time.Nanosecond)
+	withdrawer.answer = func(int) error { return orchestratortest.ConnectionReset("disable auto-merge") }
+	if pass := f.pass(queueKey); pass.Outcome != runstate.MergeQueuePassWaiting || pass.PersonOnly != "" {
+		t.Fatalf("Pass() during an outage = %#v, want it waiting for GitHub", pass)
 	}
 }

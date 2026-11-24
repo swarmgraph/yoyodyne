@@ -250,6 +250,15 @@ func AuthenticationRefusedDetail(detail string) bool {
 	return false
 }
 
+// CredentialNotPresentedDetail reports text AuthenticationRefusedDetail reads
+// as a refusal in which no credential was ever presented: the machine could not
+// name the harness's user, or did not recognize the remote's host key.
+func CredentialNotPresentedDetail(detail string) bool {
+	normalized := strings.ToLower(detail)
+	return strings.Contains(normalized, "no user exists for uid") ||
+		strings.Contains(normalized, "host key verification failed")
+}
+
 var authenticationPhrases = []string{
 	// The SSH refusal three approved changes stopped on: yoyodyne-ifd.428.16,
 	// 429.3, and 384.
