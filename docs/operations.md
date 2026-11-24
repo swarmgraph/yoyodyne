@@ -1233,7 +1233,24 @@ on the mismatch, and a bare `go install` of the old one takes a build its own
 documentation calls unsupported — which is what turned every pull request here
 red on 2026-09-05. [The diagnosis](diagnoses/yoyodyne-ifd-125-6-beads-home.md)
 has the evidence. `yoyo setup` hands you the same command, since setup does not
-install tools.
+install `bd`.
+
+### The harness's own dolt
+
+The tracker's server mode needs a `dolt` program, and the harness uses only a
+copy its own setup installed: `yoyo setup` offers to download dolt 2.7.6 and put
+it at `tools/dolt` in the state directory, beside a record of what it installed.
+It refuses, and writes nothing, where the download does not have the checksum
+this build holds for the platform. Builds hold checksums for darwin and linux, on
+amd64 and arm64. On any other platform nothing is downloaded, and `yoyo setup`
+and `yoyo doctor` say dolt cannot be installed and print the command that lists
+the published checksums.
+
+`yoyo doctor` reports under `dolt`, as a warning, a copy that is missing, at
+another version, or not the file setup installed, naming the version wanted. It
+does not start `dolt` and does not look at one on your `PATH`. Until the copy is
+installed the tracker's store is opened directly, as it always was, and no run
+stops.
 
 A healthy installation says so in as many words, because an empty list of
 complaints and a check that never ran read the same. It exits 1 when something

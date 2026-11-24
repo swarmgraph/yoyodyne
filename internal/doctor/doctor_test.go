@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
+	"github.com/mason-bryant/yoyodyne/internal/dolttool/dolttooltest"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
@@ -476,7 +477,7 @@ func TestAHealthyInstallationSaysSo(t *testing.T) {
 	if _, warnings, problems := report.Counts(); warnings != 0 || problems != 0 {
 		t.Fatalf("Diagnose() = %d warnings, %d problems: %s", warnings, problems, render(report))
 	}
-	for _, want := range []string{"path", "binary", "git", "repository", "tracker", "state", "checks", "artifact-readmes", "provider:claude-code", "failover", "forge", "slack", "service:slack", "service:dashboard", "service:scheduler", "service:maintenance"} {
+	for _, want := range []string{"path", "binary", "git", "repository", "tracker", "state", "dolt", "checks", "artifact-readmes", "provider:claude-code", "failover", "forge", "slack", "service:slack", "service:dashboard", "service:scheduler", "service:maintenance"} {
 		if finding, found := findingFor(report, want); !found {
 			t.Fatalf("Diagnose() never checked %q: %s", want, render(report))
 		} else if finding.Status != StatusOK {
@@ -1334,6 +1335,7 @@ func newWorld(t *testing.T) *world {
 	// A project `yoyo init` configured has an index at the door of every artifact
 	// home, so a machine where everything answers has them too.
 	w.documentArtifactHomes()
+	dolttooltest.Install(t, w.stateRoot)
 	t.Cleanup(func() {
 		for _, held := range w.leases {
 			held.release()

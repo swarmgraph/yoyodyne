@@ -47,6 +47,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
+	"github.com/mason-bryant/yoyodyne/internal/dolttool"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
@@ -70,6 +71,7 @@ const (
 	stepArtifactReadmes = "artifact-readmes"
 	stepSlack           = "slack"
 	stepSlackSecrets    = "slack-secrets"
+	stepDolt            = "dolt"
 	stepLaunchAgent     = "launch-agent"
 )
 
@@ -170,6 +172,8 @@ func runSetup(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 		stdin:        stdin,
 		ask:          &questioner{reader: bufio.NewReader(stdin), out: stdout, defaults: *assumeYes},
 	}
+	dolt := dolttool.For(runtime.GOOS, runtime.GOARCH)
+	walk.dolt = &dolt
 	if *jsonOutput {
 		// A machine-readable report with a prompt in the middle of it is not
 		// machine-readable, so under --json the questions are not asked. They are
@@ -229,6 +233,10 @@ type setup struct {
 	executable func() (string, error)
 	environ    []string
 	getuid     func() int
+
+	// dolt installs the dolt the tracker's server mode needs. A walk assembled
+	// without one offers none.
+	dolt *dolttool.Installer
 
 	// stdin is the operator's own input, handed to a child process that prompts
 	// for a credential itself. It is deliberately the same stream the questions
@@ -291,6 +299,9 @@ func (s *setup) converge(ctx context.Context) setupReport {
 		// the file is authoritative about.
 		if reloaded, err := s.load(); err == nil && reloaded.Config.Slack.Enabled {
 			s.record(s.ensureSlackSecrets(ctx, reloaded.Config.Product.ID))
+		}
+		if reloaded, err := s.load(); err == nil {
+			s.record(s.ensureDolt(ctx, reloaded))
 		}
 		// Last, because it starts the product: the agent it installs runs the
 		// supervisor, which starts every part the section above enables from
@@ -382,7 +393,7 @@ func (s *setup) ensureTracker(ctx context.Context) setupStep {
 		return setupStep{
 			Step:    stepTracker,
 			Status:  setupHandedOff,
-			Summary: "bd is not installed, and setup does not install tools",
+			Summary: "bd is not installed, and setup does not install it",
 			Detail:  err.Error(),
 			Remedy:  beads.InstallCommand,
 		}
@@ -1253,6 +1264,63 @@ func (s *setup) ensureLaunchAgent(ctx context.Context, resolved config.Resolved)
 	}
 }
 
+// ensureDolt puts the dolt the tracker's server mode needs in the harness's
+// tools folder. The operator's own tools are theirs to install; this one is the
+// harness's, so setup installs it. Until it is there the tracker's store is
+// opened directly, so a step left undone stops no work.
+func (s *setup) ensureDolt(ctx context.Context, resolved config.Resolved) (step setupStep) {
+	if s.dolt == nil {
+		return setupStep{}
+	}
+	handedOff := func(summary string, err error, remedy string) setupStep {
+		return setupStep{Step: stepDolt, Status: setupHandedOff, Summary: summary + "; the tracker's store is opened directly until it is installed", Detail: err.Error(), Remedy: remedy}
+	}
+	root, err := readProductStateRoot(resolved, s.getenv, s.homeDir, s.goos)
+	if err != nil {
+		return handedOff("where the harness keeps its state could not be resolved, so dolt was not installed", err, "yoyo doctor")
+	}
+	found, err := dolttool.Inspect(root)
+	if err != nil {
+		return handedOff("the harness's dolt could not be read", err, "ls -l "+shellQuote(dolttool.Path(root)))
+	}
+	if found.State == dolttool.Installed {
+		return setupStep{Step: stepDolt, Status: setupAlready, Summary: fmt.Sprintf("dolt %s is already installed for the harness", dolttool.Version), Detail: found.Detail}
+	}
+	if s.dolt.Checksum == "" {
+		return handedOff(fmt.Sprintf("dolt %s was not installed", dolttool.Version),
+			fmt.Errorf("this build holds no checksum for it on %s/%s, so nothing is downloaded; the command below prints the published ones for a later build", s.dolt.GOOS, s.dolt.GOARCH),
+			dolttool.ChecksumsCommand)
+	}
+	if !s.ask.confirm(fmt.Sprintf("Install dolt %s in %s, for the harness's own use? The tracker's server mode needs it", dolttool.Version, filepath.Dir(dolttool.Path(root))), true) {
+		return setupStep{
+			Step:    stepDolt,
+			Status:  setupSkipped,
+			Summary: fmt.Sprintf("dolt %s was not installed; the tracker's store is opened directly until it is", dolttool.Version),
+			Remedy:  s.setupCommand(),
+		}
+	}
+	// Agreed only now that something is written there.
+	path, agreement, err := agreeProductStateRoot(resolved, s.getenv, s.homeDir, s.goos)
+	if err != nil {
+		return handedOff("where the harness keeps its state could not be resolved, so dolt was not installed", err, "yoyo doctor")
+	}
+	if agreement.Bound {
+		// Said in the walk's own report, as ensureLaunchAgent says it.
+		defer func() {
+			step.Detail = agreement.Says(string(resolved.Config.Product.ID)) + "; " + step.Detail
+		}()
+	}
+	if err := s.dolt.Install(ctx, path); err != nil {
+		return handedOff(fmt.Sprintf("dolt %s was not installed", dolttool.Version), err, s.setupCommand())
+	}
+	return setupStep{
+		Step:    stepDolt,
+		Status:  setupDone,
+		Summary: fmt.Sprintf("installed dolt %s for the harness", dolttool.Version),
+		Detail:  dolttool.Path(path),
+	}
+}
+
 // setupCommand is how this walk is resumed. It names the directory only when
 // setup was pointed somewhere other than here, so the ordinary case gets the
 // command an operator would actually type.
@@ -1591,7 +1659,9 @@ already declares, points the tracker at this project's Git remote so the backlog
 is not one per machine, writes the index every artifact home gets -- what is
 filed there, who owns it, and whether you may edit one by hand -- and then offers
 reporting into Slack, which is optional, because an installation without it runs
-work exactly as one with it does.
+work exactly as one with it does. It offers to install the dolt the tracker's
+server mode needs, in the harness's own tools folder, at one version and only
+where the download has the checksum this build holds for it.
 
 Nothing here is remembered between runs, which is what makes it safe to run
 again: every step looks at the installation first, a step that is already true
