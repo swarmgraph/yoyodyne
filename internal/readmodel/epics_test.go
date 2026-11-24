@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
@@ -92,7 +93,7 @@ func operatorOf(t *testing.T, root string) *epicscope.Operator {
 func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
 	t.Parallel()
 	_, sources := epicFixture(t)
-	want := fmt.Sprintf(`Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and 12 ways of starting work do not ask yet
+	want := fmt.Sprintf(`Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and 11 ways of starting work do not ask yet
   Open epic: Epic mode (yoyodyne-ep) — 4 members: 1 done, 1 running, 1 ready, 1 waiting
   Ready items held out: 2, since %[1]s
   Role passes not started: 2, since %[1]s
@@ -100,8 +101,8 @@ func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
   Say the mode (yoyodyne-ep.4) waits for Read the file (yoyodyne-dep), which is not in an epic you named. To add it: yoyo epic add yoyodyne-ep yoyodyne-dep
   Not started: Tidy the log (yoyodyne-out), by the scheduler pulling ready work (refused since %[1]s, last at %[1]s: it is not in an open epic the operator named). To add it: yoyo epic add yoyodyne-ep yoyodyne-out
 `, localMoment(moment))
-	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 12 {
-		t.Fatalf("%d paths do not ask, and the words below say 12", len(unwired))
+	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 11 {
+		t.Fatalf("%d paths do not ask, and the words below say 11", len(unwired))
 	}
 	if got := ReadStanding(context.Background(), sources).RenderEpics(); got != want {
 		t.Fatalf("RenderEpics() =\n%s\nwant\n%s", got, want)
@@ -215,6 +216,46 @@ func TestStatusListsEachWayAnItemWasRefused(t *testing.T) {
 	}
 	if since := standing.Epics.ItemsHeldOutSince; since == nil || !since.Equal(moment) {
 		t.Fatalf("held out since %v, want the first refusal", since)
+	}
+}
+
+// A refused document is said once on status, whatever it answers, and not again
+// among the documents waiting for a landing. An item it answers being finished
+// does not take it away.
+func TestStatusSaysEachRefusedDocumentOnce(t *testing.T) {
+	t.Parallel()
+	root, sources := epicFixture(t)
+	runs := documentWaitRuns{fakeRuns: sources.Runs.(fakeRuns)}
+	refuse := func(id, title, write string, answers ...string) {
+		maystart.Ask(root, "yoyodyne", maystart.DocumentRun(maystart.PublishDocument, answers...).Of(maystart.Document{ID: id, Title: title, WriteID: write}), moment)
+		runs.waits = append(runs.waits, runstate.DocumentWait{Since: moment, Document: runstate.DocumentPublication{WriteID: write, Candidate: artifact.ConfirmedDocument{Artifact: artifact.Artifact{ID: id, Title: title}}}})
+	}
+	refuse("d-none", "Answers nothing", "document-1.1")
+	refuse("d-one", "Answers one", "document-1.2", "yoyodyne-fin")
+	refuse("d-two", "Answers two", "document-1.3", "yoyodyne-out", "yoyodyne-out2")
+	refuse("d-member", "Answers a member", "document-1.4", "yoyodyne-ep.3")
+	sources.Runs = runs
+	standing := ReadStanding(context.Background(), sources)
+	says := standing.Render() + standing.RenderEpics()
+	refused := fmt.Sprintf("by publishing a document (refused since %[1]s, last at %[1]s: ", localMoment(moment))
+	outside := "the document answers no open epic the operator named and no work item in one)."
+	for _, want := range []string{
+		"Not started: Answers nothing (d-none, document-1.1), " + refused + "the document answers no work item, so it waits until epic mode is turned off or it is written again naming a member of an open epic).\n",
+		"Not started: Answers one (d-one, document-1.2), " + refused + outside + " It answers Finish this (yoyodyne-fin). To let it start: yoyo epic add yoyodyne-ep yoyodyne-fin\n",
+		"Not started: Answers two (d-two, document-1.3), " + refused + outside + " It answers Tidy the log (yoyodyne-out), Sort the list (yoyodyne-out2). To let it start: yoyo epic add yoyodyne-ep yoyodyne-out, or yoyo epic add yoyodyne-ep yoyodyne-out2\n",
+	} {
+		if !strings.Contains(says, want) {
+			t.Errorf("status does not say %q:\n%s", want, says)
+		}
+	}
+	for _, write := range []string{"document-1.1", "document-1.2", "document-1.3", "document-1.4"} {
+		if strings.Count(says, write) != 1 {
+			t.Errorf("%s is said %d times, want once:\n%s", write, strings.Count(says, write), says)
+		}
+	}
+	// The dashboard reads the waiting documents, and says why there.
+	if line := standing.DocumentsWaitingForSlot[0].Line; !strings.Contains(line, "the document answers no work item") {
+		t.Errorf("the waiting document says %q", line)
 	}
 }
 

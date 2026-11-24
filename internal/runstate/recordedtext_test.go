@@ -56,6 +56,7 @@ var structuredStrings = map[string]string{
 	"document_retry.next":                            "the run identifier the harness minted for the next attempt",
 	"document_decision.decision":                     "one of the two document decisions",
 	"document_decision.retried_as":                   "the run identifier the harness minted for the retry",
+	"document.answers[]":                             "validated as work item identifiers",
 	"document.released.decision":                     "validated as a release",
 	"document.retried.from_run":                      "matched against the run id pattern",
 	"document.count_restarted.previous_commit":       "matched against the commit pattern",

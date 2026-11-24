@@ -88,6 +88,12 @@ func (s Scheduler) nextDocuments(pull Pull, landing map[string]runstate.State, m
 			passOver(runID, fmt.Sprintf("%s waits: %s", documentNamed(wait), ahead.Says()))
 			continue
 		}
+		// One outside the named epics starts nothing and stays waiting, and the
+		// next waiting document is still looked at.
+		if outside := pull.MayStart.refuseDocument(wait.Document); outside != nil {
+			passOver(runID, outside.Error())
+			continue
+		}
 		if last, tried := refused[runID]; tried {
 			again := last.at.Add(continuationRetry)
 			if s.now().Before(again) {

@@ -9,6 +9,7 @@ package maystart
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -47,6 +48,19 @@ type Start struct {
 	what  what
 	items []string
 	role  domain.AgentRole
+
+	document Document
+}
+
+// Document is which document a run publishes. A refusal of it is kept under its
+// identifier, so the same document is one entry whichever write is refused.
+type Document struct {
+	ID    string
+	Title string
+	// WriteID is the write being published, and ConfirmedAt when it was
+	// confirmed, which says which of two writes is the newer.
+	WriteID     string
+	ConfirmedAt time.Time
 }
 
 // Path is the way it is about to start, and empty for what is on no path.
@@ -72,9 +86,16 @@ func Run(path Path, item string) Start {
 
 // DocumentRun is a run that publishes a document, with the work items the
 // document answers. A path that repairs or picks up runs may start one too, and
-// it is still judged by what it answers.
+// it is still judged by what it answers. What asks also says which document it
+// is (Of), without which a refusal cannot be kept.
 func DocumentRun(path Path, answers ...string) Start {
 	return Start{path: path, what: documentRun, items: append([]string(nil), answers...)}
+}
+
+// Of is the start with the document it publishes named.
+func (s Start) Of(document Document) Start {
+	s.document = document
+	return s
 }
 
 // Pass is a role's pass that nobody is talking to the role in.
@@ -185,6 +206,9 @@ func decideDocument(record epicscope.Record, answers []string) Decision {
 		if _, held := record.Holding(item); held || openEpic(record, func(epic string) bool { return epic == item }) {
 			return Decision{Answer: May}
 		}
+	}
+	if len(answers) == 0 {
+		return mayNot("the document answers no work item, so it waits until epic mode is turned off or it is written again naming a member of an open epic")
 	}
 	return mayNot("the document answers no open epic the operator named and no work item in one")
 }

@@ -435,6 +435,7 @@ func (s *Session) withdrawWrite(id, reason string) (string, error) {
 		return "", fmt.Errorf("record withdrawn document %s: %w", record.pending.ID, err)
 	}
 	record.decided = true
+	s.documentEnded(record)
 	s.state.HandedBack = s.forgetHandedBack(strings.TrimSpace(record.pending.Write.ID))
 	if standing.HandedBack() {
 		return fmt.Sprintf("withdrawn. Its run %s had ended without landing it; it is not sent again and its place is given back.", standing.RunID), nil
