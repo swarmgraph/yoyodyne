@@ -346,6 +346,41 @@ func TestAServerThatWillNotEndIsNeverRecordedStoppedOrStartedOver(t *testing.T) 
 	}
 }
 
+// A rebuild where no server runs leaves how the store is said to be reached as
+// it was, whether there has never been a server or one was stopped.
+func TestARebuildWithNoServerRunningLeavesTheRecordAlone(t *testing.T) {
+	for name, earlier := range map[string]*beads.ServerRecord{
+		"no record":       nil,
+		"already stopped": {State: beads.ServerStopped, StoppedAt: time.Now().Add(-time.Hour).UTC().Round(time.Second), Reason: "dolt is not installed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server, process, store := newTrackerServer(t)
+			server.Hold = "not yet"
+			if earlier != nil {
+				if err := beads.WriteServerRecord(store, *earlier); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, hadBefore, _ := beads.ReadServerRecord(store)
+			reachBefore, _ := server.Tracker.Reach(t.Context())
+			if stopped, err := server.StopHeld(t.Context(), "the store is being rebuilt"); stopped || err != nil {
+				t.Fatalf("StopHeld() = %v, %v, want nothing stopped", stopped, err)
+			}
+			server.Look(t.Context(), time.Now())
+			after, hadAfter, err := beads.ReadServerRecord(store)
+			if err != nil || hadAfter != hadBefore || after != before {
+				t.Errorf("the record became %#v (%v, %v), want %#v", after, hadAfter, err, before)
+			}
+			if reach, _ := server.Tracker.Reach(t.Context()); reach != reachBefore {
+				t.Errorf("Reach() = %#v, want %#v", reach, reachBefore)
+			}
+			if len(process.launched) != 0 {
+				t.Error("a held server was started")
+			}
+		})
+	}
+}
+
 // The record a stop leaves names the process it stopped, so a call asks whether
 // that process is gone before it opens the store directly.
 func TestTheRecordAStopLeavesIsCheckedAgainstItsProcess(t *testing.T) {

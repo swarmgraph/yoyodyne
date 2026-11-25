@@ -175,7 +175,7 @@ func (t *TrackerServer) Stop(ctx context.Context, why string) (string, error) {
 		return "", err
 	}
 	defer unlock()
-	running, err := t.StopHeld(ctx, why)
+	running, err := t.stopHeld(ctx, why, true)
 	if err != nil || !running {
 		return "", err
 	}
@@ -201,8 +201,16 @@ func (t *TrackerServer) StopIfRunning(ctx context.Context, why string) (string, 
 // recorded as stopped once no process of it is left and not before, so a
 // process that cannot be ended, or cannot be told, leaves the record as it was.
 // What could not be cleared away afterwards is returned as the error and said
-// in the record.
+// in the record. Where no server is recorded as running the record is left
+// alone, absent or with the reason and time it has: the rebuild that stops the
+// server does not become why there is none.
 func (t *TrackerServer) StopHeld(ctx context.Context, why string) (bool, error) {
+	return t.stopHeld(ctx, why, false)
+}
+
+// stopHeld is StopHeld, recording why even where no server was running when
+// always is set: why there is to be none, or why one could not be started.
+func (t *TrackerServer) stopHeld(ctx context.Context, why string, always bool) (bool, error) {
 	store, database := t.Tracker.LiveStore()
 	if store == "" {
 		return false, nil
@@ -226,6 +234,9 @@ func (t *TrackerServer) StopHeld(ctx context.Context, why string) (bool, error) 
 		if err := t.noOtherServer(ctx, database); err != nil {
 			return false, err
 		}
+	}
+	if !running && !always {
+		return false, nil
 	}
 	cleared := errors.Join(beads.RemoveLocalSetting(store), unlinkLocal(database))
 	if cleared != nil {
@@ -358,7 +369,7 @@ func (t *TrackerServer) StartHeld(ctx context.Context) (err error) {
 					return
 				}
 			}
-			_, stopErr := t.StopHeld(context.WithoutCancel(ctx), "the server could not be started: "+err.Error())
+			_, stopErr := t.stopHeld(context.WithoutCancel(ctx), "the server could not be started: "+err.Error(), true)
 			err = errors.Join(err, stopErr)
 		}
 	}()
