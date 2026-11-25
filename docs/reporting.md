@@ -1072,7 +1072,9 @@ do. The closed list has seven reasons, and the harness accepts no other:
 - `protected-file`: a file beyond every grant, such as Claude Code's settings
   files or a role definition under `.yoyodyne/roles`;
 - `human-gate`: a step the work item reserves for a person;
-- `own-hold`: lifting a hold or pause you placed yourself;
+- `own-hold`: lifting a hold or pause you placed yourself, or, while epic mode
+  is on, an act only your epic command makes, such as adding work to an epic you
+  named;
 - `diverged-history`: saying which history is right when a target branch has
   diverged from the forge.
 

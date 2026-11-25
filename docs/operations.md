@@ -2041,9 +2041,11 @@ records nothing, where:
   repository does not have, or names one a developer run may change (only
   Claude Code's two settings files and the role definitions under
   `.yoyodyne/roles` count as beyond every grant);
-- it is given as `own-hold` and no hold or pause you placed yourself stands — a
-  hold the harness's own brake placed is not yours, and a hold that cannot be
-  read counts as standing;
+- it is given as `own-hold` and no hold or pause you placed yourself stands — your
+  pause, your hold on new work, and epic mode while it is on, which is what a
+  request to add work to an epic you named is recorded under; a hold the
+  harness's own brake placed is not yours, and a hold, or epic mode, that cannot
+  be read counts as standing, with the request saying it could not be read;
 - it asks you, under any reason, to restart part of the product, which the
   product does itself under the rule that Slack, the dashboard, the scheduler,
   and maintenance are started, stopped, restarted, and moved onto a new build by

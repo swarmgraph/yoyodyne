@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -217,5 +219,123 @@ func TestAHandlingAskingTheOperatorForARestartIsRefused(t *testing.T) {
 	if len(reply.Actions) != 1 || reply.Actions[0].Applied || len(reports.handled) != 0 ||
 		!strings.Contains(reply.Actions[0].Failure, "the product does itself under operating rule 6de828a8") {
 		t.Fatalf("actions = %#v, handlings = %#v, want the restart refused", reply.Actions, reports.handled)
+	}
+}
+
+// fakeNamedEpics is the record of the epics the operator named.
+type fakeNamedEpics struct {
+	mode epicscope.Mode
+	fail error
+}
+
+func (f fakeNamedEpics) Named() (epicscope.Record, error) {
+	return epicscope.Record{Mode: f.mode}, f.fail
+}
+
+// epicModeReadings is epic mode read each way, with whether an own-hold request
+// is let stand by it and what is said of it.
+var epicModeReadings = []struct {
+	name   string
+	epics  fakeNamedEpics
+	stands bool
+	says   string
+}{
+	{"on", fakeNamedEpics{mode: epicscope.ModeEpic}, true, ""},
+	{"off", fakeNamedEpics{mode: epicscope.ModeGoal}, false, "none stands now"},
+	{"unreadable", fakeNamedEpics{fail: errors.New("epic-scope.json is cut short")}, true, "whether epic mode is on could not be read: epic-scope.json is cut short"},
+}
+
+// Epic mode is a hold of the operator's while it is on: a handling asking him
+// to add work to a named epic is recorded then, refused once it is off and
+// nothing else of his stands, the brake's hold included, and recorded saying so
+// where epic mode cannot be read.
+func TestAHandlingNamingEpicModeIsCheckedAgainstIt(t *testing.T) {
+	t.Parallel()
+	for _, tc := range epicModeReadings {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			reports := &fakeReports{}
+			seedReports(t, reports, collectedReport("report-00000000000000000000000000000002", report.SeverityWarning, "piece 7 needs its second part added", 2))
+			provider := &fakeBackend{results: []backendapi.RunResult{
+				{SessionID: "session-1", FinalText: trackerReply("Recording it.",
+					`{"action":"handle","report":"report-00000000000000000000000000000002","needs":"operator","operator_reason":"own-hold","reason":"add yoyodyne-9k1y.17 with yoyo epic add"}`)},
+				{SessionID: "session-1", FinalText: "Recorded."},
+				{SessionID: "session-1", FinalText: "Nothing more."},
+			}}
+			options := testOptions(t, provider)
+			options.Reports, options.Tracker, options.Epics = reports, &fakeTracker{}, tc.epics
+			options.Intake = &fakeIntake{held: true, heldBy: runstate.IntakeHolderBrake}
+			reply, err := openTestSession(t, options).Send(context.Background(), "deal with the report")
+			if err != nil {
+				t.Fatalf("Send() error = %v", err)
+			}
+			if len(reply.Actions) != 1 || reply.Actions[0].Applied != tc.stands || (len(reports.handled) == 1) != tc.stands {
+				t.Fatalf("actions = %#v, handlings = %#v, want recorded %t", reply.Actions, reports.handled, tc.stands)
+			}
+			said := reply.Actions[0].Summary + reply.Actions[0].Failure
+			if !strings.Contains(said, tc.says) || (tc.says == "" && strings.Contains(said, "could not be read")) {
+				t.Fatalf("outcome = %q, want it to say %q", said, tc.says)
+			}
+		})
+	}
+}
+
+// A handling already waiting on epic mode is listed as standing with the
+// operator while it is on or cannot be read, saying the second, and comes back
+// to the role once it is off.
+func TestAHandlingWaitingOnEpicModeComesBackOnceItIsOff(t *testing.T) {
+	t.Parallel()
+	for _, tc := range epicModeReadings {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			reports := &fakeReports{}
+			seedReports(t, reports, collectedReport("report-00000000000000000000000000000002", report.SeverityWarning, "piece 7 needs its second part added", 2))
+			reports.handled = []report.Handling{{
+				SchemaVersion: report.HandlingSchemaVersion, ReportID: "report-00000000000000000000000000000002",
+				Role: domain.RoleProductManager, RunID: "chat-old", Reason: "add yoyodyne-9k1y.17 with yoyo epic add",
+				RecordedAt: fixedClock{}.Now().Add(-time.Hour), NeedsOperator: true, OperatorReason: ownership.OperatorOwnHold,
+			}}
+			provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: "Noted."}}}
+			options := testOptions(t, provider)
+			options.Reports, options.Tracker, options.Epics = reports, &fakeTracker{}, tc.epics
+			if _, err := openTestSession(t, options).Send(context.Background(), "anything waiting?"); err != nil {
+				t.Fatalf("Send() error = %v", err)
+			}
+			prompt := provider.requests[len(provider.requests)-1].Prompt
+			if strings.Contains(prompt, "# Reports you handled as needing the operator's hand") != tc.stands ||
+				strings.Contains(prompt, "# Reports you handled as the operator's that are yours to finish") == tc.stands ||
+				!strings.Contains(prompt, tc.says) {
+				t.Fatalf("want standing with the operator %t, saying %q:\n%s", tc.stands, tc.says, prompt)
+			}
+		})
+	}
+}
+
+// An escalation of a stopped run naming epic mode is checked against it as a
+// handling is.
+func TestAnEscalationNamingEpicModeIsCheckedAgainstIt(t *testing.T) {
+	t.Parallel()
+	for _, tc := range epicModeReadings {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			answer := reportReply(
+				trackerReply("Escalating.",
+					`{"action":"triage","id":"yoyodyne-ifd.1.9","run":"`+stoppedRun+`","decision":"escalate","to":"operator","operator_reason":"own-hold","reason":"the run waits on the operator adding the item to his named epic"}`),
+				`{"severity":"warning","message":"yoyodyne-ifd.1.9 needs the operator."}`)
+			tracker := &fakeTracker{items: map[string]beads.WorkItem{
+				"yoyodyne-ifd.1.9": {ID: "yoyodyne-ifd.1.9", Title: "the item", Status: "open"},
+			}}
+			budgets := newTriageBudgetGate(t, runstate.TriageCaps{ReviewRounds: 6, RepairGrants: 1, Reruns: 1, MergeRearms: 1}, 2)
+			options := triageOptions(t, tracker, budgets, answer)
+			options.Reports, options.Epics = &fakeReports{}, tc.epics
+			reply := triageSend(t, options)
+			if len(reply.Actions) != 1 || reply.Actions[0].Applied != tc.stands || (len(tracker.blocked) == 1) != tc.stands {
+				t.Fatalf("actions = %#v, blocked = %#v, want recorded %t", reply.Actions, tracker.blocked, tc.stands)
+			}
+			said := reply.Actions[0].Summary + reply.Actions[0].Failure
+			if !strings.Contains(said, tc.says) || (tc.says == "" && strings.Contains(said, "could not be read")) {
+				t.Fatalf("outcome = %q, want it to say %q", said, tc.says)
+			}
+		})
 	}
 }
