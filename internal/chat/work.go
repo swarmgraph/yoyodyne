@@ -327,6 +327,8 @@ type RunReport struct {
 	// appear without a run behind it, on work a dependency stopped before it was
 	// ever claimed.
 	DependencyPause string `json:"dependency_pause,omitempty"`
+	// EpicWait is the run's wait for its epic, in words with what ends it.
+	EpicWait string `json:"epic_wait,omitempty"`
 	// TrackerPause is set instead of any of the others when what parked the run
 	// was the tracker not answering the read a gate boundary makes, for the whole
 	// of that boundary's recovery window. It names the read and what the window
@@ -914,6 +916,8 @@ func (r RunReport) Headline() string {
 		// is in flight: a directive can stop work before anything was claimed.
 		return fmt.Sprintf("%s is paused for an unresolved directive and nothing is working on it: %s; /resolve releases it and /work %s carries on",
 			item, r.DirectivePause, item)
+	case r.Paused && r.EpicWait != "":
+		return r.EpicWait + "; it keeps its claim, branch and checkout"
 	case r.Paused && r.DependencyPause != "":
 		// A dependency pause is lifted by other work finishing rather than by time,
 		// so this says what to close rather than what to wait for. It never claims a

@@ -286,6 +286,9 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 		return err
 	}
 	if carried {
+		if err := r.setAsideWaitingRun(ctx); err != nil {
+			return err
+		}
 		return r.current(tip)
 	}
 	if r.publishing {
@@ -307,6 +310,9 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 		// merge nobody would land now. Its checkout is replaced by the next one.
 		if pending.TeamCommit == tip && pending.ReportedAt != nil {
 			r.prior = pending
+		}
+		if err := r.setAsideWaitingRun(ctx); err != nil {
+			return err
 		}
 		r.dropPending()
 	}

@@ -147,6 +147,7 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 		}
 		_ = h.Refusals.ClearRefusal(context.WithoutCancel(ctx), key)
 		resumed, stopped := 0, ""
+		var outside []string
 		for _, change := range held {
 			if ctx.Err() != nil {
 				stopped = "the session working the queue stopped"
@@ -158,6 +159,10 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 				resumed++
 			case result.IntakeHeld != nil:
 				stopped = "intake is held, so nothing is taken up until it is released"
+			case result.OutsideNamedEpics != nil:
+				// About the one item, so the rest are still asked.
+				outside = append(outside, result.OutsideNamedEpics.Error())
+				continue
 			case result.CapacityFull != nil:
 				stopped = fmt.Sprintf("every developer slot is occupied (%d of %d), so the rest wait for one", result.CapacityFull.Active, result.CapacityFull.Limit)
 			case err != nil:
@@ -171,6 +176,9 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 		}
 		pass.Resumed += resumed
 		account := fmt.Sprintf("%s: %s; took up %d of the %d change(s) held for it, in the order they were approved", key.TargetBranch, why, resumed, len(held))
+		for _, why := range outside {
+			account += "; " + why
+		}
 		if stopped != "" {
 			account += "; " + stopped
 		}

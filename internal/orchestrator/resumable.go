@@ -13,15 +13,16 @@ import "github.com/mason-bryant/yoyodyne/internal/runstate"
 // elsewhere, and TestResumableTakesUpEveryShape fails while a shape listed here
 // has no run of its own that the test resumes.
 var resumeShapes = []func(runstate.State) bool{
-	// The first five are resumable whatever the approval policy, because none
+	// The first six are resumable whatever the approval policy, because none
 	// of them depends on the repair loop: a usage-limit pause has not had its
 	// attempt served yet, and the rest are owed the rest of the step they
-	// stopped short of. Nothing reaches the adoption while the hold or the
-	// dependency is still in force, so a run carrying one is a run whose reason
+	// stopped short of. Nothing reaches the adoption while the hold, the
+	// dependency or the refusal is still in force, so a run carrying one is a run whose reason
 	// to wait has gone.
 	pausedForUsageLimit,
 	pausedForDirective,
 	pausedForDependency,
+	pausedForEpic,
 	// A run that pushed its candidate and waits for the forge's checks is
 	// continued once the forge has decided (cichecks.go).
 	pausedForCIWait,
