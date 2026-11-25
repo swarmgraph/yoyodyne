@@ -3822,11 +3822,14 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
-	if !a.state.ResolvingInNewSession() {
-		return a.develop(ctx, a.handBackForRepair(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.ReplayConflict)), a.state.ProviderSessionID)
+	prompt, session := "", ""
+	if a.state.ResolvingInNewSession() {
+		prompt = withInstallSection(a.conflictResolutionPrompt(ctx), a.pipeline.Config.Install)
+	} else {
+		prompt = replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.ReplayConflict)
+		session = a.state.ProviderSessionID
 	}
-	prompt := withInstallSection(a.conflictResolutionPrompt(ctx), a.pipeline.Config.Install)
-	return a.develop(ctx, a.handBackForRepair(ctx, prompt), "")
+	return a.develop(ctx, a.handBackForRepair(ctx, prompt), session)
 }
 
 // moveOntoTargetForRepair puts the run's change onto the target with the
