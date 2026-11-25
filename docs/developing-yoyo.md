@@ -167,6 +167,9 @@ to clone it over the network. A `TMPDIR` pointing into a repository — an agent
 run's scratch directory under `.git/worktrees` is the case this came from — is
 refused up front, naming the enclosing repository, rather than dying at the
 tracker step with nothing in the log.
+The walk clears every `BEADS_` and `BD_` variable it was started with, so its
+`bd` commands reach only its own scratch projects, and a `bd` command that fails
+prints `bd`'s own message and a `FAIL:` line and ends the walk.
 [`scripts/walk-getting-started-output.md`](../scripts/walk-getting-started-output.md) is the
 last recorded walk, kept from the README split as a readable record of what the
 walkthrough actually prints; CI is what re-runs it now, so the file is a

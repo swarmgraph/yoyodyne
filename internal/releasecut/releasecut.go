@@ -866,9 +866,13 @@ func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (resu
 	environ = append(environ,
 		"YOYODYNE_RELEASE_CUT=automatic",
 		"YOYODYNE_RELEASE_NOTES="+filepath.Join(resolved, notesName),
-		// The release-readiness gate reads the work items through bd, whose
-		// store is the primary checkout's.
-		"BEADS_DIR="+filepath.Join(c.Repository, ".beads"),
+		// Never BEADS_DIR: the script's other steps would inherit it, and the
+		// walkthrough's bd init and bd create would reach the live tracker.
+		// The script turns this into BEADS_DIR for the readiness check alone.
+		// A commit whose script does not read it needs nothing: bd run in a
+		// linked worktree finds the primary checkout's store by itself. The
+		// allowlist above keeps every inherited BEADS_ and BD_ name out.
+		"YOYODYNE_RELEASE_BEADS_DIR="+filepath.Join(c.Repository, ".beads"),
 	)
 	result, err = c.Runner.Run(ctx, execution.Command{
 		Name:    "bash",
