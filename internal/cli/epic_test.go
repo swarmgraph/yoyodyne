@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // epicBench runs `yoyo epic` as it will run once every path is wired, against a
@@ -471,24 +472,39 @@ func TestEpicRemoveTakesOneItemOut(t *testing.T) {
 	bench.refuses([]string{"remove", "yoyodyne-a", "yoyodyne-a.1.1", "--words", "no"}, "already ended")
 }
 
-type keptReports struct{ kept []report.Report }
-
-func (k *keptReports) Append(reported report.Report) error {
-	k.kept = append(k.kept, reported)
-	return nil
-}
-
 func TestAReportAboutAMemberNamesItsEpic(t *testing.T) {
 	bench := newEpicBench(t)
-	kept := &keptReports{}
-	reports := epicReports{kept, bench.stateRoot, "yoyodyne"}
+	store, err := runstate.NewReportStore(bench.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := components{reports: store}
+	parts.stateRoot, parts.config.Product.ID = bench.stateRoot, "yoyodyne"
+	reports := parts.epicReports()
+	// Filing a report of a design conflict asks what was already filed.
+	lister, lists := reports.(interface {
+		List() ([]report.Report, error)
+	})
+	if !lists {
+		t.Fatal("the reports wired to a run cannot be listed")
+	}
 	file := func(item, want string) {
 		t.Helper()
-		if err := reports.Append(report.Report{WorkItemID: item}); err != nil {
+		collected, err := report.Collect([]report.Entry{{Severity: report.SeverityNote, Message: "noticed"}}, report.Attribution{
+			Role: domain.RoleDeveloper, RunID: "run-0123456789abcdef0123456789abcdef", WorkItemID: item, ProductID: "yoyodyne", RepositoryID: "yoyodyne"}, time.Now())
+		if err != nil {
 			t.Fatal(err)
 		}
-		if got := kept.kept[len(kept.kept)-1].DuringEpic; got != want {
-			t.Errorf("a report about %q names epic %q, want %q", item, got, want)
+		if err := reports.Append(collected[0]); err != nil {
+			t.Fatal(err)
+		}
+		listed, err := lister.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := slices.IndexFunc(listed, func(r report.Report) bool { return r.ID == collected[0].ID })
+		if at < 0 || listed[at].DuringEpic != want {
+			t.Errorf("the reports are %+v, want the one about %q to name epic %q", listed, item, want)
 		}
 	}
 	file("yoyodyne-a.2", "")

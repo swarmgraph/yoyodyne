@@ -278,8 +278,10 @@ func (c components) epicReports() orchestrator.ReportCollector {
 	return epicReports{c.reports, c.stateRoot, c.config.Product.ID}
 }
 
+// epicReports embeds the store whole, because what is wired to it is also asked
+// to list the reports already filed (orchestrator's design conflicts).
 type epicReports struct {
-	orchestrator.ReportCollector
+	*runstate.ReportStore
 	stateRoot string
 	product   domain.ProductID
 }
@@ -293,7 +295,7 @@ func (e epicReports) Append(reported report.Report) error {
 			}
 		}
 	}
-	return e.ReportCollector.Append(reported)
+	return e.ReportStore.Append(reported)
 }
 
 // wouldStart is the same decision with nothing kept, for what only reads it.

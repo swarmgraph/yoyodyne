@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
@@ -118,6 +119,25 @@ func (b *stateBench) check(found string, at time.Time) {
 	b.entry.Checks = append(b.entry.Checks, epicprogress.Check{ID: "check-" + at.String(), Commit: "abc", Found: found, At: at})
 }
 
+func (b *stateBench) deliver(at time.Time) {
+	b.check(epicprogress.FoundAllMet, at)
+	b.entry.Deliveries = append(b.entry.Deliveries, epicprogress.Delivery{At: at, Evidence: "check"})
+}
+
+func (b *stateBench) end(at time.Time) {
+	b.t.Helper()
+	_, err := operatorOf(b.t, b.root).End(stateEpic, "", at)
+	b.must(err)
+}
+
+// ask is a question between roles that is open.
+func (b *stateBench) ask(question string, opened time.Time) {
+	listed, _ := b.sources.Exchanges.(fakeExchanges)
+	listed.exchanges = append(listed.exchanges, exchange.Exchange{ID: "exchange-" + question, Asker: exchange.Party{Role: domain.RoleDevelopmentManager},
+		Answerer: exchange.Party{Role: domain.RoleArchitect}, Question: question, OpenedAt: opened})
+	b.sources.Exchanges = listed
+}
+
 func (b *stateBench) join(id, from string, at time.Time) {
 	b.entry.Joined = append(b.entry.Joined, epicprogress.Joined{WorkItemID: id, From: from, Judgment: "inside", Session: "session-1", At: at})
 }
@@ -194,18 +214,17 @@ func TestEachStateOfANamedEpic(t *testing.T) {
 		says  []string
 	}{
 		"cancelled": {func(b *stateBench) {
-			_, err := operatorOf(b.t, b.root).End(stateEpic, "", hours(3))
-			b.must(err)
+			b.end(hours(3))
 		}, EpicCancelled, []string{"Cancelled: you ended it before"}},
 		"ended after it was delivered": {func(b *stateBench) {
-			delivered(b)
-			_, err := operatorOf(b.t, b.root).End(stateEpic, "", hours(3))
-			b.must(err)
+			b.landed(stateOne, stateTwo)
+			b.deliver(hours(2))
+			b.end(hours(3))
 		}, EpicIntegrated, nil},
 		"delivered only after it was ended": {func(b *stateBench) {
-			delivered(b)
-			_, err := operatorOf(b.t, b.root).End(stateEpic, "", hours(1))
-			b.must(err)
+			b.landed(stateOne, stateTwo)
+			b.deliver(hours(2))
+			b.end(hours(1))
 		}, EpicCancelled, nil},
 		"integrated": {delivered, EpicIntegrated, []string{"Delivered, integrated"}},
 		"integrated, by a summary": {func(b *stateBench) {
@@ -416,5 +435,107 @@ func TestAStateThatCannotBeWorkedOutIsSaid(t *testing.T) {
 	b.sources.Runs = fakeRuns{}
 	if said := ReadStanding(context.Background(), b.sources).RenderEpics(); !strings.Contains(said, "where it stands could not be worked out") {
 		t.Errorf("status says\n%s", said)
+	}
+}
+
+// A pull request a person closed leaves its member parked and open in the
+// tracker, and the piece written in its place still stands for it.
+func TestAPieceInPlaceOfAClosedPullRequestStandsForItsMember(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.landed(stateOne, statePiece)
+	b.handedOver(stateTwo)
+	b.join(statePiece, stateTwo, hours(2))
+	b.closedUnmerged(stateTwo, hours(3))
+	b.check(epicprogress.FoundAllMet, hours(4))
+	// This one was split off before the request was closed.
+	b.wants(EpicWorking, "Waiting on the Lead Product Manager: Title "+stateTwo+" ("+stateTwo+") had its pull request closed unmerged")
+	b.entry.Joined[0].At = hours(4)
+	b.check(epicprogress.FoundAllMet, hours(5))
+	b.wants(EpicIntegrated)
+	b.runs[statePiece] = nil
+	b.handedOver(statePiece)
+	b.wants(EpicHandedOver)
+	b.ready, b.runs[statePiece] = []string{statePiece}, nil
+	b.status(statePiece, "open")
+	if standing := b.wants(EpicWorking); len(standing.Waits) != 0 {
+		t.Errorf("waits = %+v, want none but the piece's own start", standing.Waits)
+	}
+}
+
+func TestEachStepOwedIsNamed(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.set(stateOne, func(item *beads.WorkItem) {
+		item.Parking, item.Labels = "later", []string{domain.NeedsDesignLabel}
+	})
+	b.set(stateTwo, func(item *beads.WorkItem) {
+		item.Dependencies = []beads.Dependency{{ID: stateOther, Type: beads.BlocksDependency}, {ID: statePiece, Type: beads.BlocksDependency}}
+	})
+	b.ask("Is "+stateOne+" enough?", hours(1))
+	b.ask("Does "+stateOne+" need a lock?", hours(1))
+	standing := b.wants(EpicWorking, "enough?", "a lock?", "is parked", "waits for its design", "waits for Title "+stateOther, "waits for Title "+statePiece)
+	if len(standing.Waits) != 6 {
+		t.Errorf("waits = %+v, want six", standing.Waits)
+	}
+
+	// One directive told by its own record and by the hold it places is one step.
+	paused := newStateBench(t)
+	paused.landed(stateOne)
+	paused.ready = []string{stateTwo}
+	paused.sources.Directives = fakeDirectives{recorded: []directive.Directive{{ID: "directive-1", Kind: directive.KindAmbiguous, ReceivedAt: hours(1), Scope: []string{stateTwo}, Unresolved: "which way"}}}
+	if standing := paused.read().Open[0].EpicStanding; len(standing.Waits) != 1 || !strings.Contains(standing.Waits[0].Says, "which way") {
+		t.Errorf("waits = %+v, want the directive once", standing.Waits)
+	}
+}
+
+func TestAnEndedEpicMovesOnlyByMerges(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.landed(stateOne)
+	b.handedOver(stateTwo)
+	b.deliver(hours(2))
+	b.end(hours(3))
+	b.wants(EpicHandedOver)
+	later := func() {
+		b.ask("Was "+stateOne+" right?", hours(4))
+		b.inFlight = []runstate.State{{RunID: "run-later", WorkItemID: stateOne, Status: runstate.StatusRunning, StartedAt: hours(4)}}
+		b.run(stateOne, 4, func(run *runstate.State) { run.RunID, run.Status = "run-later", runstate.StatusFailed })
+		b.status(stateOne, "in_progress")
+	}
+	merged := hours(5)
+	b.lastRun(stateTwo, func(run *runstate.State) {
+		run.PersonMerge.MergedAt, run.Integration = &merged, &runstate.Integration{ThroughPullRequest: true}
+	})
+	b.wants(EpicIntegrated)
+	later()
+	b.wants(EpicIntegrated)
+
+	closed := newStateBench(t)
+	closed.landed(stateOne)
+	closed.handedOver(stateTwo)
+	closed.deliver(hours(2))
+	closed.end(hours(3))
+	closed.closedUnmerged(stateTwo, hours(4))
+	closed.wants(EpicHandedOver)
+
+	for name, undelivered := range map[string]func(*stateBench){
+		"a question open when it was ended": func(b *stateBench) { b.ask("Is "+stateOne+" enough?", hours(1)) },
+		"a directive open when it was ended, settled since": func(b *stateBench) {
+			settled := hours(4)
+			b.sources.Directives = fakeDirectives{recorded: []directive.Directive{{ID: "directive-1", ReceivedAt: hours(1), ResolvedAt: &settled, Scope: []string{stateOne}, Unresolved: "which way"}}}
+		},
+		"a member not done when it was ended": func(b *stateBench) { b.runs[stateTwo] = nil },
+		"a member landed only afterwards":     func(b *stateBench) { b.lastRun(stateTwo, func(run *runstate.State) { run.StartedAt = hours(4) }) },
+		"no delivery recorded":                func(b *stateBench) { b.entry.Deliveries = nil },
+	} {
+		b := newStateBench(t)
+		b.landed(stateOne, stateTwo)
+		b.deliver(hours(2))
+		b.end(hours(3))
+		b.wants(EpicIntegrated)
+		undelivered(b)
+		t.Log(name)
+		b.wants(EpicCancelled)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
@@ -49,6 +50,9 @@ type EpicWait struct {
 	WorkItemID string `json:"work_item_id,omitempty"`
 	Owner      Mover  `json:"owner"`
 	Says       string `json:"says"`
+	// step is what is owed, where two records can ask for the same one: a question
+	// and a hold of the same step are one wait.
+	step string
 }
 
 // outside is a wait that no role, the harness or the operator ends.
@@ -117,6 +121,7 @@ type epicStandings struct {
 	paused     map[string]bool
 	needs      []Attention
 	exchanges  []exchange.Exchange
+	directives []directive.Directive
 	budgets    EpicBudgets
 	unfinished map[string]struct{}
 	problem    string
@@ -130,7 +135,7 @@ func newEpicStandings(facts epicFacts, sources Sources, standing Standing, needs
 		held: map[string]Refused{}, capacity: map[string]bool{}, paused: map[string]bool{}, unfinished: map[string]struct{}{}}
 	s.runs, _ = sources.Runs.(itemRuns)
 	s.budgets, _ = sources.Epics.(EpicBudgets)
-	for _, err := range []error{progressErr, s.readExchanges(sources)} {
+	for _, err := range []error{progressErr, s.readExchanges(sources), s.readDirectives(sources)} {
 		if err != nil {
 			s.problem = joinProblems(s.problem, singleLine(err.Error(), maxEpicReasonBytes))
 		}
@@ -167,10 +172,16 @@ func (s *epicStandings) readExchanges(sources Sources) error {
 	if err != nil {
 		return fmt.Errorf("the questions between roles could not be read: %w", err)
 	}
-	for _, asked := range listed {
-		if asked.Open() {
-			s.exchanges = append(s.exchanges, asked)
-		}
+	s.exchanges = listed
+	return nil
+}
+
+func (s *epicStandings) readDirectives(sources Sources) (err error) {
+	if sources.Directives == nil {
+		return nil
+	}
+	if s.directives, err = sources.Directives.List(); err != nil {
+		return fmt.Errorf("what the operator has directed could not be read: %w", err)
 	}
 	return nil
 }
@@ -218,23 +229,19 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 		}
 		standing.Budget = why
 	}
-	passed := func(check epicprogress.Check) bool { return check.Passed() }
-	if epic.Ended != nil && !slices.ContainsFunc(entry.Checks, passed) {
+	if epic.Ended != nil && len(entry.Deliveries) == 0 {
 		return EpicStanding{State: EpicCancelled}
 	}
 	opened, err := s.openedAgain(epic, entry)
 	if err != nil {
 		return fail(err.Error())
 	}
-	// Whether an ended epic was delivered is as of when it was ended.
 	if epic.Ended != nil {
-		delivered := slices.ContainsFunc(entry.Checks, func(check epicprogress.Check) bool {
-			return check.Passed() && check.At.After(opened) && !check.At.After(epic.Ended.At)
-		})
-		if !delivered {
-			standing.State = EpicCancelled
-			return standing
+		state, err := s.ended(epic, entry, opened)
+		if err != nil {
+			return fail(err.Error())
 		}
+		return EpicStanding{State: state}
 	}
 	for _, delivery := range entry.Deliveries {
 		if !delivery.At.After(opened) {
@@ -253,9 +260,18 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 		handed = handed || member.handed
 		underway = underway || member.underway
 		refused = refused || member.refusedByBudget
-		for _, wait := range append(questions, member.waits...) {
+		if !member.done {
+			member.waits = append(member.waits, s.otherHolds(id)...)
+		}
+		for _, wait := range questions {
 			wait.WorkItemID = id
-			if !slices.ContainsFunc(standing.Waits, func(other EpicWait) bool { return other.WorkItemID == id && other.Owner == wait.Owner }) {
+			standing.Waits = append(standing.Waits, wait)
+		}
+		for _, wait := range member.waits {
+			wait.WorkItemID = id
+			if !slices.ContainsFunc(standing.Waits, func(other EpicWait) bool {
+				return other.WorkItemID == id && other.Owner == wait.Owner && (other.Says == wait.Says || wait.step != "" && other.step == wait.step)
+			}) {
 				standing.Waits = append(standing.Waits, wait)
 			}
 		}
@@ -263,13 +279,6 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 	delivered := EpicIntegrated
 	if handed {
 		delivered = EpicHandedOver
-	}
-	if epic.Ended != nil {
-		// It was delivered and then ended, so nothing in it is owed any more.
-		if !allDone {
-			delivered = EpicHandedOver
-		}
-		return EpicStanding{State: delivered}
 	}
 	if allDone {
 		wait := s.checkOwed(epic, entry, opened)
@@ -301,6 +310,95 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 		standing.Budget = ""
 	}
 	return standing
+}
+
+// ended is where an epic the operator ended stands. It had been delivered where
+// its delivery still counted then, every member's change was landed or handed
+// over, and no question that can be dated was open. Afterwards only merges move
+// it. A question put to the operator carries no time, so one is not asked about.
+func (s *epicStandings) ended(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) (EpicState, error) {
+	at := epic.Ended.At
+	counts := func(recorded time.Time) bool { return recorded.After(opened) && !recorded.After(at) }
+	if !slices.ContainsFunc(entry.Checks, func(check epicprogress.Check) bool { return check.Passed() && counts(check.At) }) ||
+		!slices.ContainsFunc(entry.Deliveries, func(delivery epicprogress.Delivery) bool { return counts(delivery.At) }) {
+		return EpicCancelled, nil
+	}
+	state := EpicIntegrated
+	for _, id := range s.view.Items(epic) {
+		done, handed, err := s.doneAt(epic, entry, id, at, map[string]bool{})
+		if err != nil {
+			return "", err
+		}
+		if !done || s.questionOpenAt(id, at) {
+			return EpicCancelled, nil
+		}
+		if handed {
+			state = EpicHandedOver
+		}
+	}
+	return state, nil
+}
+
+// doneAt is whether a member of an epic ended at a moment was done then, and
+// whether its change is not merged yet. Runs started later are not looked at,
+// other than one that took a pull request over.
+func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id string, at time.Time, seen map[string]bool) (done, handed bool, err error) {
+	runs, err := s.runsOf(id)
+	if err != nil {
+		return false, false, err
+	}
+	if s.items[id].Landing != "" && !s.items[id].ClosedAt.After(at) {
+		return true, false, nil
+	}
+	for _, run := range runs {
+		if run.StartedAt.After(at) || !run.Discharges() {
+			continue
+		}
+		for steps := 0; run.PersonMerge != nil && run.PersonMerge.Superseded() && steps < len(runs); steps++ {
+			next := slices.IndexFunc(runs, func(other runstate.State) bool { return other.RunID == run.PersonMerge.SupersededBy })
+			if next < 0 {
+				break
+			}
+			run = runs[next]
+		}
+		closed := closedUnmerged(run)
+		switch {
+		case closed != nil && !closed.After(at):
+			continue
+		case closed != nil, run.WaitingForPersonMerge(), run.BringingPersonMergeUpToDate(),
+			run.PersonMerge != nil && run.PersonMerge.Superseded(),
+			run.WaitingForTeamMerge() && run.TeamMerge.PullRequest != nil:
+			done, handed = true, true
+		case landed(run), approvedSummary(run):
+			return true, false, nil
+		}
+	}
+	if done {
+		return done, handed, nil
+	}
+	pieces := 0
+	for _, piece := range s.pieces(epic, entry, id, runs, seen) {
+		pieceDone, pieceHanded, err := s.doneAt(epic, entry, piece, at, seen)
+		if err != nil || !pieceDone {
+			return false, false, err
+		}
+		pieces++
+		handed = handed || pieceHanded
+	}
+	return pieces > 0, handed, nil
+}
+
+// questionOpenAt reports a question between roles, or a directive, that names an
+// item and was not settled at a moment.
+func (s *epicStandings) questionOpenAt(id string, at time.Time) bool {
+	open := func(since time.Time, settled ...*time.Time) bool {
+		return !since.After(at) && !slices.ContainsFunc(settled, func(end *time.Time) bool { return end != nil && !end.After(at) })
+	}
+	return slices.ContainsFunc(s.exchanges, func(asked exchange.Exchange) bool {
+		return open(asked.OpenedAt, asked.ClosedAt) && namesItem(id, questionsOf(asked)...)
+	}) || slices.ContainsFunc(s.directives, func(said directive.Directive) bool {
+		return said.Unresolved != "" && slices.Contains(said.Scope, id) && open(said.ReceivedAt, said.ResolvedAt, said.WithdrawnAt, said.BecameAt)
+	})
 }
 
 // openedAgain is when an epic was last opened to more work: a member was added or
@@ -402,7 +500,10 @@ func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry,
 // member is where one item stands.
 func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id string, budgetRefuses bool, seen map[string]bool) (epicMember, error) {
 	waits := func(owner Mover, format string, args ...any) (epicMember, error) {
-		return epicMember{waits: []EpicWait{{Owner: owner, Says: s.name(id, "") + " " + fmt.Sprintf(format, args...)}}}, nil
+		return epicMember{waits: []EpicWait{s.wait(id, owner, "", format, args...)}}, nil
+	}
+	stopped := func(owner Mover) (epicMember, error) {
+		return epicMember{waits: []EpicWait{s.stoppage(id, owner)}}, nil
 	}
 	if s.running[id] {
 		if s.capacity[id] {
@@ -443,15 +544,15 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 	if refused, held := s.held[id]; held && (refused.MergeQueued || refused.AwaitingNamedEpics) {
 		return epicMember{underway: true}, nil
 	} else if held && refused.AwaitingUnparking != "" {
-		return waits(MoverProductManager, "has a decision that waits for it to be taken out of parking")
+		return epicMember{waits: []EpicWait{s.wait(id, MoverProductManager, "parking", "has a decision that waits for it to be taken out of parking")}}, nil
 	}
 	if grouped {
 		if returned && group.Kind == backlog.HeldParked {
-			return waits(MoverProductManager, "had its pull request closed unmerged by a person: admit it again, have it replaced, or ask the operator to take it out (yoyo epic remove %s %s --words <text>)", epic.WorkItemID, id)
+			return s.replaced(epic, entry, id, true, budgetRefuses, seen)
 		}
 		switch {
 		case group.Kind == backlog.HeldForAPerson && group.Awaiting == HeldAwaitingDecision:
-			return waits(s.stoppageOwner(id, group.Mover), "has a stopped run to decide about")
+			return stopped(group.Mover)
 		case group.Kind == backlog.HeldForAPerson && group.Awaiting == HeldAwaitingWork:
 			return waits(MoverNobody, "waits for work the development manager decided to wait for")
 		case group.Kind == backlog.HeldWaitingOn || group.Kind == backlog.HeldInherited || group.Kind == backlog.HeldCovered:
@@ -459,7 +560,7 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 		case group.Mover == MoverHarness:
 			return epicMember{underway: true}, nil
 		}
-		return waits(group.Mover, "%s", epicHoldSays[group.Kind])
+		return epicMember{waits: []EpicWait{s.wait(id, group.Mover, epicHoldSteps[group.Kind], "%s", epicHoldSays[group.Kind])}}, nil
 	}
 	switch {
 	case s.paused[id]:
@@ -472,7 +573,7 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 		return waits(MoverNobody, "waits for a person to merge its pull request, which does not finish it")
 	}
 	if _, held := s.held[id]; held {
-		return waits(s.stoppageOwner(id, MoverDevelopmentManager), "has a stopped run to decide about")
+		return stopped(MoverDevelopmentManager)
 	}
 	return waits(MoverDevelopmentManager, "is neither running, ready nor held: find out why")
 }
@@ -485,6 +586,47 @@ var epicHoldSays = map[backlog.HoldKind]string{
 	backlog.HeldByDirective:    "is paused by a directive that is not settled",
 	backlog.HeldByConversation: "is to be carried out in that role's conversation",
 	backlog.HeldUnread:         "is not offered by the tracker: find out why",
+}
+
+// epicHoldSteps is the step each kind of hold that can also be told of another
+// way is.
+var epicHoldSteps = map[backlog.HoldKind]string{
+	backlog.HeldForAGate:    "person",
+	backlog.HeldParked:      "parking",
+	backlog.HeldForDesign:   "design",
+	backlog.HeldByDirective: "directive",
+}
+
+func (s *epicStandings) wait(id string, owner Mover, step, format string, args ...any) EpicWait {
+	return EpicWait{Owner: owner, step: step, Says: s.name(id, "") + " " + fmt.Sprintf(format, args...)}
+}
+
+func (s *epicStandings) stoppage(id string, owner Mover) EpicWait {
+	return s.wait(id, s.stoppageOwner(id, owner), "stoppage", "has a stopped run to decide about")
+}
+
+// otherHolds is each hold on a member beside the one reason the queue gives for
+// not offering it.
+func (s *epicStandings) otherHolds(id string) []EpicWait {
+	group, grouped := s.groups[id]
+	if !grouped || s.running[id] || s.ready[id] {
+		return nil
+	}
+	var waits []EpicWait
+	refused, held := s.held[id]
+	if held && group.Kind != backlog.HeldForAPerson && !refused.MergeQueued && !refused.AwaitingNamedEpics && refused.AwaitingUnparking == "" {
+		waits = append(waits, s.stoppage(id, MoverDevelopmentManager))
+	}
+	item := s.items[id]
+	// One parked because its pull request was closed is said as that.
+	runs := s.recorded[id]
+	if item.Parking.Parked() && (len(runs) == 0 || closedUnmerged(runs[0]) == nil) {
+		waits = append(waits, s.wait(id, MoverProductManager, "parking", "%s", epicHoldSays[backlog.HeldParked]))
+	}
+	if slices.Contains(item.Labels, domain.NeedsDesignLabel) {
+		waits = append(waits, s.wait(id, MoverArchitect, "design", "%s", epicHoldSays[backlog.HeldForDesign]))
+	}
+	return waits
 }
 
 // landed reports a run whose change is on its target branch and is the item's work.
@@ -503,14 +645,13 @@ func approvedSummary(run runstate.State) bool {
 // once every piece written in its place is, and is otherwise decided by the
 // Lead Product Manager.
 func (s *epicStandings) replaced(epic epicscope.Epic, entry epicprogress.Entry, id string, returned, budgetRefuses bool, seen map[string]bool) (epicMember, error) {
-	seen[id] = true
-	items := s.view.Items(epic)
+	runs, err := s.runsOf(id)
+	if err != nil {
+		return epicMember{}, err
+	}
 	whole, pieces := epicMember{done: true}, 0
-	for _, piece := range entry.Joined {
-		if piece.From != id || seen[piece.WorkItemID] || !slices.Contains(items, piece.WorkItemID) {
-			continue
-		}
-		stands, err := s.member(epic, entry, piece.WorkItemID, budgetRefuses, seen)
+	for _, piece := range s.pieces(epic, entry, id, runs, seen) {
+		stands, err := s.member(epic, entry, piece, budgetRefuses, seen)
 		if err != nil {
 			return epicMember{}, err
 		}
@@ -527,6 +668,27 @@ func (s *epicStandings) replaced(epic epicscope.Epic, entry epicprogress.Entry, 
 	}
 	return epicMember{waits: []EpicWait{{Owner: MoverProductManager, Says: fmt.Sprintf(
 		"%s %s: admit it again, have it replaced, or ask the operator to take it out (yoyo epic remove %s %s --words <text>)", s.name(id, ""), why, epic.WorkItemID, id)}}}, nil
+}
+
+// pieces is each piece in the epic that stands for a member: one that came from
+// it, and, where a person closed its pull request, that joined after that. Each
+// member is taken once.
+func (s *epicStandings) pieces(epic epicscope.Epic, entry epicprogress.Entry, id string, runs []runstate.State, seen map[string]bool) []string {
+	seen[id] = true
+	var since time.Time
+	if len(runs) > 0 {
+		if closed := closedUnmerged(runs[0]); closed != nil {
+			since = *closed
+		}
+	}
+	items := s.view.Items(epic)
+	var pieces []string
+	for _, piece := range entry.Joined {
+		if piece.From == id && !seen[piece.WorkItemID] && slices.Contains(items, piece.WorkItemID) && piece.At.After(since) {
+			pieces = append(pieces, piece.WorkItemID)
+		}
+	}
+	return pieces
 }
 
 // waitsOnItems is a member held by other items: those outside the epic, on it or
@@ -570,32 +732,41 @@ func (s *epicStandings) stoppageOwner(id string, otherwise Mover) Mover {
 // operator, a directive, a decision, or a question between roles.
 func (s *epicStandings) questions(id string) []EpicWait {
 	var waits []EpicWait
-	ask := func(owner Mover, what string) {
-		waits = append(waits, EpicWait{Owner: owner, Says: fmt.Sprintf("%s has %s", s.name(id, ""), what)})
+	ask := func(owner Mover, step, what string) {
+		waits = append(waits, s.wait(id, owner, step, "%s", what))
 	}
 	for _, entry := range s.needs {
 		switch {
 		case entry.Kind == AttentionConcern && entry.Concern != nil && namesItem(id, entry.Concern.Subject, entry.Concern.Detail, entry.Concern.Question):
-			ask(entry.Ownership.Owner, "a question with no answer: "+singleLine(entry.Concern.Question, maxRefusalBytes))
+			ask(entry.Ownership.Owner, "", "has a question with no answer: "+singleLine(entry.Concern.Question, maxRefusalBytes))
 		case entry.Kind == AttentionDirective && entry.Directive != nil && len(entry.Directive.Scope) > 0 && entry.Directive.Affects(id):
-			ask(entry.Ownership.Owner, "a directive that is not settled: "+singleLine(entry.Directive.Unresolved, maxRefusalBytes))
+			ask(entry.Ownership.Owner, "directive", "has a directive that is not settled: "+singleLine(entry.Directive.Unresolved, maxRefusalBytes))
 		case entry.Kind == AttentionProductDecision && entry.WorkItemID == id:
-			ask(entry.Ownership.Owner, "a decision to make about it")
+			ask(entry.Ownership.Owner, "stoppage", "has a decision to make about its stopped run "+entry.ID)
+		case entry.Kind == AttentionHumanGate && entry.HumanGate != nil && entry.WorkItemID == id:
+			ask(entry.Ownership.Owner, "person", epicHoldSays[backlog.HeldForAGate]+": "+singleLine(entry.HumanGate.Statement+entry.HumanGate.Unreadable, maxRefusalBytes))
 		}
 	}
 	for _, asked := range s.exchanges {
-		said, owes := []string{asked.Question}, asked.Answerer.Role
-		for _, round := range asked.Rounds {
-			said = append(said, round.Question)
-			if owes = asked.Answerer.Role; round.Answer != "" {
-				owes = asked.Asker.Role
-			}
+		if !asked.Open() || !namesItem(id, questionsOf(asked)...) {
+			continue
 		}
-		if namesItem(id, said...) {
-			ask(MoverOf(owes), "a question between roles that is not settled: "+singleLine(asked.Question, maxRefusalBytes))
+		owes := asked.Answerer.Role
+		if last := len(asked.Rounds) - 1; last >= 0 && asked.Rounds[last].Answer != "" {
+			owes = asked.Asker.Role
 		}
+		ask(MoverOf(owes), "", "has a question between roles that is not settled: "+singleLine(asked.Question, maxRefusalBytes))
 	}
 	return waits
+}
+
+// questionsOf is every question an exchange between roles asked.
+func questionsOf(asked exchange.Exchange) []string {
+	said := []string{asked.Question}
+	for _, round := range asked.Rounds {
+		said = append(said, round.Question)
+	}
+	return said
 }
 
 // namesItem reports a text that names the item, and not one its identifier only

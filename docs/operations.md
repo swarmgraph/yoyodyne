@@ -2051,6 +2051,12 @@ epic from being shown as delivered. A member added after delivery, a piece that 
 or a pull request closed unmerged opens the epic again, and status says when it had
 been delivered. A state that cannot be worked out is said with why.
 
+A piece that joined before a pull request was closed does not stand for that request's
+member. An epic you ended counts as delivered where its recorded delivery and passed
+check still counted then, every member was done, and no directive or question between
+roles that names one was open. A question put to you carries no time, so it is not
+asked about there. Afterwards only a merge moves such an epic.
+
 A record of the named epics that cannot be read is said there with the reason and
 the starts refused. It is never taken for no record.
 
