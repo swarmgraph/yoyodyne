@@ -21,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/cost"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -252,6 +253,17 @@ func sayNotKept(err error) {
 	said := fmt.Sprintf("the record of starts refused because of the named epics was not updated: %v", err)
 	if _, already := saidNotKept.LoadOrStore(said, true); !already {
 		fmt.Fprintln(os.Stderr, said)
+	}
+}
+
+// epicStarts writes a run's start down in the progress of the epics it is for.
+func (c components) epicStarts() orchestrator.EpicStarts {
+	return func(runID string, items []string) (func() error, error) {
+		store, err := epicprogress.Open(c.stateRoot, c.config.Product.ID)
+		if err != nil {
+			return nil, err
+		}
+		return store.ReserveRun(runID, items)
 	}
 }
 
@@ -795,7 +807,8 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	mcpCalls, mcpRecords := runMCPCalls(parts)
 
 	return orchestrator.Pipeline{
-		MayStart: parts.mayStart(),
+		MayStart:   parts.mayStart(),
+		EpicStarts: parts.epicStarts(),
 		// A document that no longer waits is no longer one the named epics hold out.
 		EndRefusedDocument: func(id string) {
 			sayNotKept(maystart.DocumentEnded(parts.stateRoot, parts.config.Product.ID, id))

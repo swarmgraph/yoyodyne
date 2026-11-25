@@ -14,6 +14,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
@@ -371,4 +372,23 @@ func TestAnActTakesAwayTheRefusalsItEnds(t *testing.T) {
 		t.Fatalf("off exited %d: %s", code, stderr)
 	}
 	says(t, stderr, "was not updated")
+}
+
+func TestEpicStartAndAddRefuseAnItemThatJoinedAnotherOpenEpic(t *testing.T) {
+	bench := newEpicBench(t)
+	bench.does("start", "yoyodyne-a")
+	store, err := epicprogress.Open(bench.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Join("yoyodyne-a", epicprogress.Joined{WorkItemID: "yoyodyne-b.1", From: "yoyodyne-a.2", Judgment: "inside", Session: "session-1", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	bench.refuses([]string{"start", "yoyodyne-b"}, "yoyodyne-b.1 (P0: Other) is already in epic yoyodyne-a (P0: Epic A)")
+	bench.does("start", "yoyodyne-loose")
+	bench.refuses([]string{"add", "yoyodyne-loose", "yoyodyne-b.1"}, "yoyodyne-b.1 (P0: Other) is already in epic yoyodyne-a (P0: Epic A)")
+	bench.does("off")
+	says(t, bench.does("start", "yoyodyne-a"), "3 member(s)", "(P0) Other (yoyodyne-b.1), which joined it")
+	bench.does("end", "yoyodyne-a")
+	bench.does("add", "yoyodyne-loose", "yoyodyne-b.1")
 }

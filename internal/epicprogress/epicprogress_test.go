@@ -366,3 +366,121 @@ func TestAReservationWithNoResultIsLookedUpBeforeAnythingIsSentAgain(t *testing.
 		})
 	}
 }
+
+// The operator's act reads the progress under the lock a join takes first, so
+// only one of the two puts the item in an epic.
+func TestAJoinAndAnOperatorsAddOfOneItemAtOncePutItInOneEpicOnly(t *testing.T) {
+	t.Parallel()
+	root, _, _ := twoNamed(t)
+	operator := operatorAt(t, root).Knowing(Holding(root, product))
+	for round := range 10 {
+		item := fmt.Sprintf("%s.%d", piece, round)
+		var waiting sync.WaitGroup
+		var joined, added error
+		store := storeAt(t, root)
+		waiting.Go(func() { joined = store.Join(epicA, joins(item)) })
+		waiting.Go(func() { _, added = operator.Add(epicB, item, namedAt) })
+		waiting.Wait()
+		if (joined == nil) == (added == nil) {
+			t.Fatalf("the join came to %v and the add to %v, want one refused", joined, added)
+		}
+		wantError(t, errors.Join(joined, added), "already in epic")
+		if holders := view(t, root).Holders(item); len(holders) != 1 {
+			t.Fatalf("%s is held by %+v", item, holders)
+		}
+	}
+}
+
+func TestAnOperatorsActRefusesAnItemThatJoinedAnotherOpenEpic(t *testing.T) {
+	t.Parallel()
+	root, _, _ := twoNamed(t)
+	operator := operatorAt(t, root).Knowing(Holding(root, product))
+	must(t, storeAt(t, root).Join(epicA, joins(piece)))
+	_, err := operator.Add(epicB, piece, namedAt)
+	wantError(t, err, "already in epic "+epicA)
+	for _, naming := range []epicscope.Naming{{Epic: piece}, {Epic: "yoyodyne-new", Members: []string{piece}}} {
+		naming.From = "terminal"
+		_, err = operator.Start(naming, namedAt)
+		wantError(t, err, "already in epic "+epicA)
+	}
+	// Its own epic may take it as a member, where it is still one item.
+	_, err = operator.Add(epicA, piece, namedAt)
+	must(t, err)
+	read := view(t, root)
+	named, _ := read.Record.Named(epicA)
+	if got := read.Items(named); !reflect.DeepEqual(got, []string{memberA, piece}) || len(read.Holders(piece)) != 1 {
+		t.Fatalf("the epic has %v", got)
+	}
+	// With a file not whole the act is refused, and ending still works.
+	must(t, os.WriteFile(pathOf(root, begunName), []byte("{"), 0o600))
+	_, err = operator.Add(epicB, "yoyodyne-more", namedAt)
+	wantError(t, err, begunName)
+	_, err = operator.End(epicA, "", namedAt)
+	must(t, err)
+}
+
+func TestARunIsReservedInTheEpicsItIsForAndCanBeTakenBack(t *testing.T) {
+	t.Parallel()
+	root, a, b := twoNamed(t)
+	store := storeAt(t, root)
+	reserved := func(naming Naming) []string {
+		var ids []string
+		found, _ := view(t, root).Entry(naming)
+		for _, reservation := range found.Reservations {
+			ids = append(ids, reservation.HeldBy)
+		}
+		return ids
+	}
+	_, err := store.ReserveRun("run-0", []string{"yoyodyne-outside"})
+	wantError(t, err, "in no open epic")
+	_, err = store.ReserveRun("run-1", []string{memberA})
+	must(t, err)
+	// A document is for each epic that holds, or is, what it answers.
+	withdraw, err := store.ReserveRun("run-2", []string{memberA, epicB, "yoyodyne-outside"})
+	must(t, err)
+	if got := reserved(a); !reflect.DeepEqual(got, []string{"the record of run run-1", "the record of run run-2"}) || len(reserved(b)) != 1 {
+		t.Fatalf("reserved %v and %v", got, reserved(b))
+	}
+	// One that found the reservation made takes nothing back.
+	again, err := store.ReserveRun("run-2", []string{epicB})
+	must(t, err)
+	must(t, again())
+	if len(reserved(b)) != 1 {
+		t.Fatal("another start's reservation was taken back")
+	}
+	must(t, withdraw())
+	if len(reserved(a)) != 1 || len(reserved(b)) != 0 {
+		t.Fatalf("taken back, reserved %v and %v", reserved(a), reserved(b))
+	}
+	must(t, os.Remove(pathOf(root, begunName)))
+	_, err = store.ReserveRun("run-3", []string{memberA})
+	wantError(t, err, "cannot be read")
+	must(t, os.WriteFile(pathOf(root, progressName), []byte("{"), 0o600))
+	_, err = operatorAt(t, root).TurnOff()
+	must(t, err)
+	// With epic mode off nothing is read.
+	_, err = store.ReserveRun("run-4", []string{memberA})
+	must(t, err)
+}
+
+// A run from before progress was kept, or that an entry points to, shows no loss.
+func TestWhichRunsAreOlderThanAnythingKept(t *testing.T) {
+	t.Parallel()
+	root, a, _ := twoNamed(t)
+	before, ran, begun := keptSince.Add(-time.Hour), keptSince.Add(time.Hour), keptSince.Add(2*time.Hour)
+	if view(t, root).Precedes(a, "run-1", before) || !view(t, root).Precedes(a, "run-1", ran) {
+		t.Fatal("with nothing kept, want only the run since progress was kept")
+	}
+	store := storeAt(t, root)
+	store.now = func() time.Time { return begun }
+	_, err := store.ReserveRun("run-2", []string{memberA})
+	must(t, err)
+	for run, want := range map[string]bool{"run-1": true, "run-2": false} {
+		if got := view(t, root).Precedes(a, run, ran); got != want {
+			t.Errorf("%s is older than anything kept: %t, want %t", run, got, want)
+		}
+	}
+	if view(t, root).Precedes(a, "run-3", begun) {
+		t.Error("a run since the entry was begun is not older than it")
+	}
+}

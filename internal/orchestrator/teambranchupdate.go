@@ -390,8 +390,10 @@ func (r *teamBranchRun) mayStart() bool {
 		return true
 	}
 	clears := "an epic the operator named is open, or epic mode is off"
-	if decision.Answer != maystart.MayNot {
-		clears = "the record of the named epics can be read again"
+	if decision.Clears != "" {
+		clears = decision.Clears
+	} else if decision.Answer != maystart.MayNot {
+		clears = "the record of the named epics, and of their progress, can be read again"
 	}
 	r.wait("it is still due and was not started: %s; it starts at the first check after %s", decision.Why, clears)
 	return false

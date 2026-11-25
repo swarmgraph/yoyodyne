@@ -41,7 +41,7 @@ const (
 
 // keptSince is about when the harness first kept progress. An epic named before
 // it may have been worked on before anything was kept.
-var keptSince = time.Date(2026, 11, 26, 0, 0, 0, 0, time.UTC)
+var keptSince = time.Date(2026, 11, 27, 0, 0, 0, 0, time.UTC)
 
 // Naming is one naming of an epic, as the operator's record holds it. An epic
 // that ended and was named again is another naming.
@@ -332,6 +332,54 @@ func (v View) Unreadable(naming Naming) string {
 		return fmt.Sprintf("%s holds its entry, and %s does not say it was begun", progressName, begunName)
 	}
 	return ""
+}
+
+// UnknownResults is each reservation of a naming whose result cannot be known.
+func (v View) UnknownResults(naming Naming) []Reservation {
+	entry, _ := v.Entry(naming)
+	return slices.DeleteFunc(slices.Clone(entry.Reservations), func(r Reservation) bool { return r.Result == nil || !r.Result.Unknown })
+}
+
+// Precedes reports a run, by when it started, that is older than anything kept
+// of a naming's progress: the naming was not begun, or was begun after it and
+// does not point to it. A run from before progress was kept is not one.
+func (v View) Precedes(naming Naming, runID string, startedAt time.Time) bool {
+	if startedAt.Before(keptSince) {
+		return false
+	}
+	entry, kept := v.Entry(naming)
+	return !kept || startedAt.Before(entry.BegunAt) &&
+		!slices.ContainsFunc(entry.Reservations, func(r Reservation) bool { return r.ID == runReservation(runID) })
+}
+
+// Items is every item in an epic, the members first, each once.
+func (v View) Items(epic epicscope.Epic) []string {
+	var items []string
+	for _, member := range epic.Members {
+		items = append(items, member.WorkItemID)
+	}
+	entry, _ := v.Entry(Of(epic))
+	for _, joined := range entry.Joined {
+		if !epic.Has(joined.WorkItemID) {
+			items = append(items, joined.WorkItemID)
+		}
+	}
+	return items
+}
+
+// Files is where the two files are, for a person.
+func Files(stateRoot string, product domain.ProductID) string {
+	directory := home.ProductDirectory(stateRoot, string(product))
+	return filepath.Join(directory, progressName) + " and " + filepath.Join(directory, begunName)
+}
+
+// Holding is what the operator's acts ask about an item while they hold the
+// record's lock: the open epics it is in, the one it joined included.
+func Holding(stateRoot string, product domain.ProductID) epicscope.JoinedReader {
+	return func(record epicscope.Record) (func(item string) []epicscope.Epic, error) {
+		view, err := Read(stateRoot, product, record)
+		return view.Holders, err
+	}
 }
 
 // Holders is every open epic the item is in, as a member or as a piece that

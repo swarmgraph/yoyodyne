@@ -3,16 +3,18 @@
 // beside the hold on new work, the hold for design and every other check: a yes
 // here lifts none of them.
 //
-// Membership is read from the record of named epics (epicscope) and never worked
-// out from the tracker.
+// Membership is read from the record of named epics (epicscope) and the pieces
+// recorded as joined (epicprogress), and never worked out from the tracker.
 package maystart
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 )
 
@@ -32,6 +34,9 @@ type Decision struct {
 	// Open is the epics that have not ended, on a run refused for being in none
 	// of them: each is one the operator can add its item to.
 	Open []string
+	// Clears is what lets the same start go ahead, in words, where it is neither
+	// adding the item nor a file being mended.
+	Clears string
 	// NotKept is why Ask could not keep the answer in the record of refused
 	// starts. The answer stands either way.
 	NotKept error `json:"-"`
@@ -154,16 +159,33 @@ func Decide(stateRoot string, product domain.ProductID, start Start) Decision {
 	if start.what == operatorConversation || start.what == roleQuestion {
 		return Decision{Answer: May}
 	}
-	record, err := epicscope.Read(stateRoot, product)
+	view, err := read(stateRoot, product)
 	if err != nil {
-		return couldNotTell("the record of the epics the operator named could not be read (%v)", err)
+		return couldNotTell("%v", err)
 	}
-	return decide(record, start)
+	return decide(view, start)
 }
 
-// decide is the answer a record that was read gives.
-func decide(record epicscope.Record, start Start) Decision {
+// read reads what a decision rests on: the record of named epics and, while epic
+// mode is on, what is kept of each epic's progress.
+func read(stateRoot string, product domain.ProductID) (epicprogress.View, error) {
+	record, err := epicscope.Read(stateRoot, product)
+	if err != nil {
+		return epicprogress.View{}, fmt.Errorf("the record of the epics the operator named could not be read (%v)", err)
+	}
 	if !record.On() {
+		return epicprogress.View{Record: record}, nil
+	}
+	view, err := epicprogress.Read(stateRoot, product, record)
+	if err != nil {
+		return epicprogress.View{}, fmt.Errorf("what is kept of the named epics' progress could not be read (%v)", err)
+	}
+	return view, nil
+}
+
+// decide is the answer the files that were read give.
+func decide(view epicprogress.View, start Start) Decision {
+	if !view.Record.On() {
 		return Decision{Answer: May}
 	}
 	if problem := start.problem(); problem != "" {
@@ -171,20 +193,20 @@ func decide(record epicscope.Record, start Start) Decision {
 	}
 	switch start.what {
 	case workItemRun:
-		return decideRun(record, start.items[0])
+		return decideRun(view, start.items[0])
 	case documentRun:
-		return decideDocument(record, start.items)
+		return decideDocument(view, start.items)
 	case rolePass:
-		return decidePass(record, start.role)
+		return decidePass(view, start.role)
 	case goalReview:
 		return mayNot("the review of unmet goals does not start while the factory works only on the epics the operator named")
 	case messageReading:
 		return mayNot("outside messages are not read for work while the factory works only on the epics the operator named")
 	case teamBranchUpdate:
-		if openEpic(record, func(string) bool { return true }) {
+		if openEpic(view, func(string) bool { return true }) {
 			return Decision{Answer: May}
 		}
-		return mayNot("every epic the operator named has ended")
+		return noEpic(view)
 	default:
 		return couldNotTell("nothing says what is about to start")
 	}
@@ -227,9 +249,10 @@ func (s Start) problem() string {
 	return ""
 }
 
-func decideRun(record epicscope.Record, item string) Decision {
-	if _, held := record.Holding(item); held {
-		return Decision{Answer: May}
+func decideRun(view epicprogress.View, item string) Decision {
+	record := view.Record
+	if decision, held := inEpics(view, item); held {
+		return decision
 	}
 	decision := mayNot("%s is not in an open epic the operator named", item)
 	for _, epic := range record.Epics {
@@ -240,11 +263,66 @@ func decideRun(record epicscope.Record, item string) Decision {
 	return decision
 }
 
-func decideDocument(record epicscope.Record, answers []string) Decision {
+// inEpics is the answer for an item that is in an open epic, and false for one
+// that is in none.
+func inEpics(view epicprogress.View, item string) (Decision, bool) {
+	switch holders := view.Holders(item); len(holders) {
+	case 0:
+		return Decision{}, false
+	case 1:
+		if why := view.Unreadable(epicprogress.Of(holders[0])); why != "" {
+			return progressUnreadable(holders[0].WorkItemID, why), true
+		}
+		return Decision{Answer: May}, true
+	default:
+		var ids, ends []string
+		for _, epic := range holders {
+			ids = append(ids, epic.WorkItemID)
+			ends = append(ends, "`yoyo epic end "+epic.WorkItemID+"`")
+		}
+		decision := mayNot("%s is in more than one open epic (%s), and may be in one only", item, strings.Join(ids, " and "))
+		decision.Clears = "the operator ends all but one of those epics: " + strings.Join(ends, " or ")
+		return decision, true
+	}
+}
+
+// progressUnreadable is a start in an epic whose own progress cannot be read. Other open
+// epics carry on.
+func progressUnreadable(epic, why string) Decision {
+	decision := couldNotTell("the progress of epic %s cannot be read: %s", epic, why)
+	decision.Clears = fmt.Sprintf("the operator runs `yoyo epic end %s` and then `yoyo epic start %s`, which begins it again", epic, epic)
+	return decision
+}
+
+// noEpic is why nothing starts for the whole of the named epics: each has ended,
+// or the ones that have not cannot be read.
+func noEpic(view epicprogress.View) Decision {
+	for _, epic := range view.Record.OpenEpics() {
+		if why := view.Unreadable(epicprogress.Of(epic)); why != "" {
+			return progressUnreadable(epic.WorkItemID, why)
+		}
+	}
+	return mayNot("every epic the operator named has ended")
+}
+
+func decideDocument(view epicprogress.View, answers []string) Decision {
+	var refused *Decision
 	for _, item := range answers {
-		if _, held := record.Holding(item); held || openEpic(record, func(epic string) bool { return epic == item }) {
+		decision, held := inEpics(view, item)
+		if held && decision.MayStart() || openEpic(view, func(epic string) bool { return epic == item }) {
 			return Decision{Answer: May}
 		}
+		for _, epic := range view.Record.OpenEpics() {
+			if why := view.Unreadable(epicprogress.Of(epic)); why != "" && epic.WorkItemID == item {
+				decision, held = progressUnreadable(item, why), true
+			}
+		}
+		if held && refused == nil {
+			refused = &decision
+		}
+	}
+	if refused != nil {
+		return *refused
 	}
 	if len(answers) == 0 {
 		return mayNot("the document answers no work item, so it waits until epic mode is turned off or it is written again naming a member of an open epic")
@@ -252,13 +330,13 @@ func decideDocument(record epicscope.Record, answers []string) Decision {
 	return mayNot("the document answers no open epic the operator named and no work item in one")
 }
 
-func decidePass(record epicscope.Record, role domain.AgentRole) Decision {
+func decidePass(view epicprogress.View, role domain.AgentRole) Decision {
 	switch role {
 	case domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleArchitect:
-		if openEpic(record, func(string) bool { return true }) {
+		if openEpic(view, func(string) bool { return true }) {
 			return Decision{Answer: May}
 		}
-		return mayNot("every epic the operator named has ended")
+		return noEpic(view)
 	case domain.RoleProgramManager:
 		return mayNot("a program manager's pass does not start while the factory works only on the epics the operator named")
 	default:
@@ -266,10 +344,11 @@ func decidePass(record epicscope.Record, role domain.AgentRole) Decision {
 	}
 }
 
-// openEpic looks at every entry because an epic that ended may have another.
-func openEpic(record epicscope.Record, matches func(epic string) bool) bool {
-	for _, epic := range record.Epics {
-		if epic.Open() && matches(epic.WorkItemID) {
+// openEpic looks at every entry because an epic that ended may have another. One
+// whose progress cannot be read lets nothing start.
+func openEpic(view epicprogress.View, matches func(epic string) bool) bool {
+	for _, epic := range view.Record.OpenEpics() {
+		if view.Unreadable(epicprogress.Of(epic)) == "" && matches(epic.WorkItemID) {
 			return true
 		}
 	}

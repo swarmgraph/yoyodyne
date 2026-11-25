@@ -49,6 +49,37 @@ func (d StartDecision) refuseDocument(document runstate.DocumentPublication) *Ou
 	return &OutsideNamedEpicsError{Document: fmt.Sprintf("document %s (%s)", document.WriteID, written.Title), Decision: decision}
 }
 
+// EpicStarts reserves a run's start for the epics the operator named that it is
+// for, before the run's record is made. The harness wires it to the one writer
+// of their progress (cli's components.epicStarts). withdraw takes it back where
+// the record was refused. Nil is a caller that names no epic.
+type EpicStarts func(runID string, items []string) (withdraw func() error, err error)
+
+// reserve reserves the start of one run. A start that cannot be written down is
+// not made.
+func (e EpicStarts) reserve(state runstate.State) (func() error, error) {
+	if e == nil {
+		return func() error { return nil }, nil
+	}
+	items := []string{state.WorkItemID}
+	switch {
+	case state.Document != nil:
+		items = state.Document.AnsweredItems()
+	case state.OutsideFile != nil:
+		items = []string{state.OutsideFile.For}
+	}
+	withdraw, err := e(state.RunID, items)
+	if err != nil {
+		refused := &OutsideNamedEpicsError{WorkItemID: state.WorkItemID, Decision: maystart.Decision{Answer: maystart.CouldNotTell,
+			Why: fmt.Sprintf("its start could not be written down in its epic's progress (%v)", err), Clears: "that progress can be written, and the epic is open"}}
+		if state.Document != nil {
+			refused.Document = fmt.Sprintf("document %s (%s)", state.Document.WriteID, state.Document.Candidate.Artifact.Title)
+		}
+		return nil, refused
+	}
+	return withdraw, nil
+}
+
 // allows is whether a start that is not a work item's run may go ahead.
 func (d StartDecision) allows(start maystart.Start) bool {
 	return d == nil || d(start).MayStart()
@@ -84,8 +115,11 @@ func (e *OutsideNamedEpicsError) Error() string {
 
 // Clears is what lets the same start go ahead, with the commands that do it.
 func (e *OutsideNamedEpicsError) Clears() string {
+	if e.Decision.Clears != "" {
+		return e.Decision.Clears
+	}
 	if e.Decision.Answer != maystart.MayNot {
-		return "the record of the named epics can be read again"
+		return "the record of the named epics, and of their progress, can be read again"
 	}
 	if e.Document != "" {
 		return "it answers a member of an open epic or the open epic itself, or the operator runs `yoyo epic off`"

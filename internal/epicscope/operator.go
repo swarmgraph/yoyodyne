@@ -26,6 +26,20 @@ const lockWait = 5 * time.Second
 type Operator struct {
 	stateRoot string
 	productID domain.ProductID
+	joined    JoinedReader
+}
+
+// JoinedReader answers which open epics an item is in, the one it joined
+// included, beside a reading of the record (epicprogress.Holding). An act asks it
+// under the record's lock.
+type JoinedReader func(Record) (func(item string) []Epic, error)
+
+// Knowing is the same acts with the pieces that joined an epic known, so that
+// one is refused as a member of another.
+func (o *Operator) Knowing(joined JoinedReader) *Operator {
+	knowing := *o
+	knowing.joined = joined
+	return &knowing
 }
 
 // ForOperator opens the record for the operator's acts. Only a command the
@@ -76,7 +90,7 @@ func (o *Operator) Start(naming Naming, at time.Time) (Started, error) {
 			started.Epic = record.Epics[index]
 			return nil
 		}
-		if err := record.free(naming.Epic); err != nil {
+		if err := o.free(*record, "", append([]string{naming.Epic}, naming.Members...)...); err != nil {
 			return err
 		}
 		epic := Epic{
@@ -88,9 +102,6 @@ func (o *Operator) Start(naming Naming, at time.Time) (Started, error) {
 			Members:     []Member{},
 		}
 		for _, item := range naming.Members {
-			if err := record.free(item); err != nil {
-				return err
-			}
 			epic.Members = append(epic.Members, Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActStart})
 		}
 		record.Epics = append(record.Epics, epic)
@@ -115,7 +126,7 @@ func (o *Operator) Add(epic, item string, at time.Time) (Record, error) {
 		if record.Epics[index].Has(item) {
 			return errUnchanged
 		}
-		if err := record.free(item); err != nil {
+		if err := o.free(*record, epic, item); err != nil {
 			return err
 		}
 		record.Epics[index].Members = append(record.Epics[index].Members, Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActAdd})
@@ -160,11 +171,27 @@ func (r Record) open(epic string) (int, error) {
 	return index, nil
 }
 
-// free refuses an item another open epic has. It is asked under the lock, so two
-// epics named at once cannot both take the item.
-func (r Record) free(item string) error {
-	if holder, held := r.Holding(item); held {
-		return fmt.Errorf("work item %s is already in epic %s, which has not ended", item, holder.WorkItemID)
+// free refuses an item another open epic has, as a member or as a piece that
+// joined. It is asked under the lock, so two epics named at once cannot both take
+// the item, and nor can a join.
+func (o *Operator) free(record Record, epic string, items ...string) error {
+	joined := func(string) []Epic { return nil }
+	if o.joined != nil {
+		var err error
+		if joined, err = o.joined(record); err != nil {
+			return err
+		}
+	}
+	for _, item := range items {
+		holder, held := record.Holding(item)
+		for _, other := range joined(item) {
+			if !held && other.WorkItemID != epic {
+				holder, held = other, true
+			}
+		}
+		if held {
+			return fmt.Errorf("work item %s is already in epic %s, which has not ended", item, holder.WorkItemID)
+		}
 	}
 	return nil
 }
