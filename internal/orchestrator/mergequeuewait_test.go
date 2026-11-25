@@ -294,6 +294,46 @@ func TestReconcileReadsAMergeQueueHandbackBeforeStoppingARun(t *testing.T) {
 	}
 }
 
+// A run whose queue entry was set aside, by the development manager's decision
+// or by the queue itself because the run's record refused the hand-back, is
+// left exactly as it recorded itself and said to be blocked with the reason:
+// stopping it would write the record the set-aside left alone.
+func TestReconcileLeavesARunWhoseMergeQueueEntryWasSetAsideUnwritten(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 11, 9, 36, 0, 0, time.UTC)
+	for name, aside := range map[string]runstate.MergeQueueHandback{
+		"by her decision": {At: at, Continuation: runstate.MergeQueueReleased, Reason: "set aside from the head of the queue",
+			SetAside: "its run's record refuses every hand-back", SetAsideAt: &at,
+			SetAsideBy: "the development manager in conversation chat-1, turn 4", DocketedAt: &at},
+		"by the queue itself": {At: at, Continuation: runstate.MergeQueueReleased, Reason: "the forge merge was withdrawn",
+			SetAside: "the merge queue could not hand this change back to its run, because its record would not take what the hand-back writes", SetAsideAt: &at},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r, queued := queuedRun(t)
+			entries, err := r.queue.Entries(runstate.MergeQueueKey{Repository: r.queueRepository(t), TargetBranch: "main"})
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("entries = %#v, %v", entries, err)
+			}
+			handback := aside
+			queues := leftQueue{entry: entries[0], handback: &handback}
+			result := reconcileOne(t, r.reconciler(listedEarlier{ReconcileStore: r.runs, listed: []runstate.State{queued}}, queues))
+			if result.Action != ActionBlocked || !strings.Contains(result.Detail, "set the entry aside ("+aside.SetAside+")") {
+				t.Fatalf("reconciliation = %#v, want the run said to be blocked with the set-aside reason", result)
+			}
+			saved, err := r.runs.Load(queued.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.Status != queued.Status || saved.Blocker != "" || saved.Failure != "" || !saved.UpdatedAt.Equal(queued.UpdatedAt) || r.tracker.Blocked {
+				t.Fatalf("run = %#v, item blocked %t; want the run and its item left as they were", saved, r.tracker.Blocked)
+			}
+		})
+	}
+}
+
 // queueRepository is the repository the fixture's queue is keyed by, read off
 // the one queue it holds.
 func (r *queueRun) queueRepository(t *testing.T) string {

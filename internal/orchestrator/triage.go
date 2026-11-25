@@ -1038,6 +1038,23 @@ func (d Docketer) RecordDecidedStop(state runstate.State, request runstate.StopR
 	return err
 }
 
+// RecordSetAsideRun dockets the run of a merge queue entry the development
+// manager set aside (orchestrator's setAsideStopped). Its record is read as it
+// stands and never written, so it still says the run succeeded with its change
+// approved, which is not a shape RecordStoppedRun dockets; the failure the
+// entry carries is the set-aside, naming who set it aside, why, and the
+// approved commit the run keeps.
+func (d Docketer) RecordSetAsideRun(state runstate.State, failure string) (bool, error) {
+	if err := d.validate(); err != nil {
+		return false, err
+	}
+	entry, err := d.stoppedRunEntryCarrying(state, d.now(), d.look(state), singleLine(failure, triage.MaxMessageBytes))
+	if err != nil {
+		return false, err
+	}
+	return d.Docket.RecordOnce(entry)
+}
+
 // supersededBy is the item a stop decision about this run named as doing its
 // work instead, read off the item's triage record, and empty where there is no
 // such decision or the record cannot be read: the stop is docketed either way,

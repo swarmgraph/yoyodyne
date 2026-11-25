@@ -126,6 +126,17 @@ func (r Reconciler) settleMergeQueueWait(ctx context.Context, state runstate.Sta
 					waiting, handback.Reason)
 				return result, true, nil
 			}
+			if handback.IsSetAside() {
+				// The queue kept the change for the development manager without
+				// writing to this run's record — because the record refused the
+				// hand-back, or because she set the entry aside — and the run is on
+				// her list as it stands; stopping it here would write the record the
+				// set-aside left alone.
+				result := reconciliationOf(state, ActionBlocked)
+				result.Detail = fmt.Sprintf("%s, and the queue set the entry aside (%s), keeping the change for the development manager; the run is left as it recorded itself",
+					waiting, handback.SetAside)
+				return result, true, nil
+			}
 			if handback.Continuation == runstate.MergeQueueReleased && handback.TransferTo != "" {
 				// The entry left this queue to be admitted to the other one, which
 				// records the new entry on the run itself.

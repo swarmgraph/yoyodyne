@@ -88,6 +88,10 @@ type MergeQueueLandingRecords interface {
 	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
 	RecordLanding(worker *runstate.Lease, key runstate.MergeQueueKey, landing runstate.MergeQueueLanding) error
 	Transfer(ctx context.Context, key runstate.MergeQueueKey, entryID string, mode runstate.MergeQueueMode, evidence runstate.MergeQueueModeEvidence, at time.Time) (runstate.MergeQueueEntry, bool, error)
+	// Admit admits a run's approved change; for a run whose earlier entry left
+	// the queue without landing it is the change's next entry, behind
+	// everything waiting (ReadmitSetAside).
+	Admit(ctx context.Context, admission runstate.MergeQueueAdmission) (runstate.MergeQueueEntry, bool, error)
 }
 
 // MergeQueueCompletion records a confirmed landing outside the queue: on the
