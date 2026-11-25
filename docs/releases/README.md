@@ -53,16 +53,12 @@ bash scripts/release-body.sh v0.7.0 body.md
 gh release edit v0.7.0 --notes-file body.md
 ```
 
-[`v0.7.0.md`](v0.7.0.md) is listed through a commit, but not yet in the words
-the cut reads, so nothing is tagged from it. An earlier draft of it has been on
-`main` since November 20, 2026, so every commit on `main` from then on holds a
-copy that names some older commit or none, and until `scripts/release-body.sh` was corrected
-to pass over such a copy where the notes on `main` name the tagged commit, it
-published that copy in place of them.
-A tag at a commit from before the correction would publish the old draft. The
-notes therefore name their commit only once there is one that has the
-correction: the release item's next run names such a commit, adds what landed
-up to it, and takes the readiness result again.
+[`v0.7.0.md`](v0.7.0.md) names a commit that has the corrected
+`scripts/release-body.sh`. Earlier drafts of it have been on `main` since
+November 20, 2026, so the tagged commit's tree holds one that names no commit
+in the words the cut reads. The corrected script passes over such a draft where
+the notes on `main` name the tagged commit, so the page carries the notes from
+`main`. A tag at a commit from before the correction would publish the draft.
 
 ## The shape
 
@@ -121,7 +117,7 @@ characters against the forge's 125,000. [`v0.6.0.md`](v0.6.0.md) therefore
 groups its items into entries by what they changed, each with a short
 account, the goals its items served, and every item's identifier, so nothing
 that shipped goes unnamed and the tracker still holds each item's own text.
-[`v0.7.0.md`](v0.7.0.md), from 918, does the same, carrying v0.6.0's entries
+[`v0.7.0.md`](v0.7.0.md), from 952, does the same, carrying v0.6.0's entries
 and folding what merged since into them or beside them.
 
 A release the Lead Product Manager decides has a work item of its own, titled
