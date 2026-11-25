@@ -17,19 +17,23 @@ import (
 // which is docketed as decided. It also leaves out a run the claim audit ended
 // with nothing kept: the audit gave that item back to be started again.
 func (s State) CancelledHoldingItem(kept bool) bool {
-	return s.Status == StatusCancelled &&
-		s.WorkItemID != "" && s.WorkItemClaimedAt != nil && !s.HarnessAuthored() &&
+	return s.Status == StatusCancelled && s.holdsItemIfCancelled(s.StopClass, kept)
+}
+
+// holdsItemIfCancelled is CancelledHoldingItem without the status, for a run
+// cancelled under the stop class given.
+func (s State) holdsItemIfCancelled(class StopClass, kept bool) bool {
+	return s.WorkItemID != "" && s.WorkItemClaimedAt != nil && !s.HarnessAuthored() &&
 		s.Retirement == nil && s.Integration == nil &&
 		strings.TrimSpace(s.Blocker) == "" &&
-		s.StopClass != StopManager &&
-		(kept || s.StopClass != StopDeadClaim)
+		class != StopManager &&
+		(kept || class != StopDeadClaim)
 }
 
 // HoldsItemOnceDeadClaim reports a run the claim audit has just ended being one
 // CancelledHoldingItem names, asked of the record as it read before the ending.
 func (s State) HoldsItemOnceDeadClaim(kept bool) bool {
-	s.Status, s.StopClass = StatusCancelled, StopDeadClaim
-	return s.CancelledHoldingItem(kept)
+	return s.holdsItemIfCancelled(StopDeadClaim, kept)
 }
 
 // CancelledSays is how a cancelled run ended and who or what cancelled it.
