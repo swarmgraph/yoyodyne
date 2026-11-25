@@ -106,6 +106,20 @@ type Comment struct {
 	At     time.Time `json:"at"`
 }
 
+// What a check of the whole epic found. A check that found anything else did not
+// pass, and its Found says what could not be told.
+const (
+	// FoundAllMet is everything met, or taken out by the operator.
+	FoundAllMet     = "all met"
+	FoundNotMet     = "not met"
+	FoundCannotTell = "cannot be told"
+	// FoundPersonsStep is something the description itself reserves for a person.
+	FoundPersonsStep = "reserved for a person"
+)
+
+// Passed reports a check that found everything met or taken out.
+func (c Check) Passed() bool { return c.Found == FoundAllMet }
+
 // Check is one check of the whole epic.
 type Check struct {
 	ID     string    `json:"id"`
@@ -360,7 +374,7 @@ func (v View) Items(epic epicscope.Epic) []string {
 	}
 	entry, _ := v.Entry(Of(epic))
 	for _, joined := range entry.Joined {
-		if !epic.Has(joined.WorkItemID) {
+		if !epic.Has(joined.WorkItemID) && !epic.TakenOut(joined.WorkItemID) {
 			items = append(items, joined.WorkItemID)
 		}
 	}
@@ -376,19 +390,19 @@ func Files(stateRoot string, product domain.ProductID) string {
 // Holding is what the operator's acts ask about an item while they hold the
 // record's lock: the open epics it is in, the one it joined included.
 func Holding(stateRoot string, product domain.ProductID) epicscope.JoinedReader {
-	return func(record epicscope.Record) (func(item string) []epicscope.Epic, error) {
+	return func(record epicscope.Record) (epicscope.Joins, error) {
 		view, err := Read(stateRoot, product, record)
-		return view.Holders, err
+		return epicscope.Joins{Holders: view.Holders, Unreadable: func(epic epicscope.Epic) string { return view.Unreadable(Of(epic)) }}, err
 	}
 }
 
 // Holders is every open epic the item is in, as a member or as a piece that
-// joined. An ended epic holds nothing.
+// joined and was not taken out. An ended epic holds nothing.
 func (v View) Holders(item string) []epicscope.Epic {
 	var holders []epicscope.Epic
 	for _, epic := range v.Record.OpenEpics() {
 		entry, _ := v.Entry(Of(epic))
-		if epic.Has(item) || entry.Has(item) {
+		if epic.Has(item) || entry.Has(item) && !epic.TakenOut(item) {
 			holders = append(holders, epic)
 		}
 	}

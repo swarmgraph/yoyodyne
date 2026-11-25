@@ -420,3 +420,60 @@ func TestTheRecordIsWrittenOnlyInsideTheStateRoot(t *testing.T) {
 		},
 	})
 }
+
+func TestARecordWithoutRemovalsIsWrittenAsBefore(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	startA(t, root)
+	if got, want := string(contents(t, root)), `{
+  "schema_version": 1,
+  "product_id": "yoyodyne",
+  "mode": "epic",
+  "epics": [
+    {
+      "work_item_id": "yoyodyne-9k1y",
+      "named_at": "2026-11-24T09:00:00Z",
+      "named_from": "terminal",
+      "words": "work only on this",
+      "description": "Epic <mode>\n\nas it read when named.\n",
+      "members": [
+        {
+          "work_item_id": "yoyodyne-9k1y.2",
+          "added_at": "2026-11-24T09:00:00Z",
+          "act": "start"
+        },
+        {
+          "work_item_id": "yoyodyne-9k1y.3",
+          "added_at": "2026-11-24T09:00:00Z",
+          "act": "start"
+        }
+      ]
+    }
+  ]
+}
+`; got != want {
+		t.Fatalf("the record is\n%s\nwant\n%s", got, want)
+	}
+	for _, removal := range []Removal{
+		{WorkItemID: "yoyodyne-9k1y.2", RemovedAt: namedAt},
+		{WorkItemID: "yoyodyne-9k1y.2", Words: "no"},
+		{WorkItemID: "yoyodyne-9k1y.2", RemovedAt: namedAt, Words: strings.Repeat("x", MaxWordsBytes+1)},
+		{WorkItemID: "yoyodyne-9k1y.2", RemovedAt: namedAt, Words: "no", Act: ActAdd},
+		{WorkItemID: "yoyodyne-9k1y.2", RemovedAt: namedAt, Words: "no", AddedAt: &namedAt, Act: "moved"},
+	} {
+		record := read(t, root)
+		record.Epics[0].Removed = []Removal{removal}
+		if record.Validate() == nil {
+			t.Errorf("a record with the removal %+v is accepted", removal)
+		}
+	}
+	operator := operatorAt(t, root)
+	for _, item := range []string{"yoyodyne-9k1y.2", "yoyodyne-9k1y.3"} {
+		if _, err := operator.Remove(epicA, item, "not needed", namedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if epic := read(t, root).Epics[0]; len(epic.Members) != 0 || len(epic.Removed) != 2 || !epic.Removed[0].AddedAt.Equal(namedAt) || !epic.TakenOut("yoyodyne-9k1y.3") {
+		t.Fatalf("epic = %+v", epic)
+	}
+}

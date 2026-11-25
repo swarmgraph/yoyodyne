@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,10 +30,16 @@ type Operator struct {
 	joined    JoinedReader
 }
 
-// JoinedReader answers which open epics an item is in, the one it joined
-// included, beside a reading of the record (epicprogress.Holding). An act asks it
-// under the record's lock.
-type JoinedReader func(Record) (func(item string) []Epic, error)
+// JoinedReader reads the pieces that joined, beside a reading of the record
+// (epicprogress.Holding). An act asks it under the record's lock.
+type JoinedReader func(Record) (Joins, error)
+
+// Joins is which open epics an item is in, the one it joined included, and why
+// an epic's progress cannot be read, where it cannot.
+type Joins struct {
+	Holders    func(item string) []Epic
+	Unreadable func(Epic) string
+}
 
 // Knowing is the same acts with the pieces that joined an epic known, so that
 // one is refused as a member of another.
@@ -134,6 +141,52 @@ func (o *Operator) Add(epic, item string, at time.Time) (Record, error) {
 	})
 }
 
+// Remove takes one item out of an open epic, a member or a piece that joined it,
+// with the operator's words. What joined is known only where the epic's progress
+// can be read; a member of the record is taken out either way.
+func (o *Operator) Remove(epic, item, words string, at time.Time) (Record, error) {
+	return o.change(func(record *Record) error {
+		index, err := record.open(epic)
+		if err != nil {
+			return err
+		}
+		entry := &record.Epics[index]
+		removal := Removal{WorkItemID: item, RemovedAt: at.UTC(), Words: strings.TrimSpace(words)}
+		if removal.Words == "" {
+			return fmt.Errorf("taking work item %s out of epic %s needs your words, because the check of the whole epic is given them", item, epic)
+		}
+		if member := slices.IndexFunc(entry.Members, func(member Member) bool { return member.WorkItemID == item }); member >= 0 {
+			removal.AddedAt, removal.Act = &entry.Members[member].AddedAt, entry.Members[member].Act
+			entry.Members = slices.Concat(entry.Members[:member], entry.Members[member+1:])
+			if entry.Members == nil {
+				entry.Members = []Member{}
+			}
+		} else if err := o.joinedIt(*record, *entry, item); err != nil {
+			return err
+		}
+		entry.Removed = append(entry.Removed, removal)
+		return nil
+	})
+}
+
+// joinedIt refuses an item that did not join the epic, or of which that cannot
+// be known.
+func (o *Operator) joinedIt(record Record, epic Epic, item string) error {
+	if o.joined != nil {
+		joins, err := o.joined(record)
+		if err != nil {
+			return fmt.Errorf("whether work item %s joined epic %s cannot be known: %w", item, epic.WorkItemID, err)
+		}
+		if why := joins.Unreadable(epic); why != "" {
+			return fmt.Errorf("whether work item %s joined epic %s cannot be known, because the epic's progress cannot be read: %s", item, epic.WorkItemID, why)
+		}
+		if slices.ContainsFunc(joins.Holders(item), func(holder Epic) bool { return holder.WorkItemID == epic.WorkItemID }) {
+			return nil
+		}
+	}
+	return fmt.Errorf("work item %s is not in epic %s", item, epic.WorkItemID)
+}
+
 // End ends an open epic and keeps its entry. Epic mode stays on, the last epic
 // included, so ending one starts nothing unrelated.
 func (o *Operator) End(epic, words string, at time.Time) (Record, error) {
@@ -177,10 +230,11 @@ func (r Record) open(epic string) (int, error) {
 func (o *Operator) free(record Record, epic string, items ...string) error {
 	joined := func(string) []Epic { return nil }
 	if o.joined != nil {
-		var err error
-		if joined, err = o.joined(record); err != nil {
+		joins, err := o.joined(record)
+		if err != nil {
 			return err
 		}
+		joined = joins.Holders
 	}
 	for _, item := range items {
 		holder, held := record.Holding(item)

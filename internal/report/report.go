@@ -218,6 +218,9 @@ type Report struct {
 	// WorkItemID is the item the reporter was working on. It is absent for a
 	// conversation, which has no assigned work rather than an unknown one.
 	WorkItemID string `json:"work_item_id,omitempty"`
+	// DuringEpic is the epic the operator named that the item was in when the
+	// report was filed, and empty where it was in none.
+	DuringEpic string `json:"during_epic,omitempty"`
 	// Build is the repository revision of the harness that invocation executed:
 	// the one a run's record pins, or the one the conversation is held by. A
 	// report is a claim about the build that produced it rather than about the

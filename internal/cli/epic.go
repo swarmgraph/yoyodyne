@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,7 +52,11 @@ type epicOutput struct {
 	// brought back.
 	NotMembers    []string `json:"not_members,omitempty"`
 	WorkedOnAgain []string `json:"worked_on_again,omitempty"`
-	Error         string   `json:"error,omitempty"`
+	// CameFrom is each piece still in the epic that came from the item remove took
+	// out, and CameFromProblem why they could not be read.
+	CameFrom        []string `json:"came_from,omitempty"`
+	CameFromProblem string   `json:"came_from_problem,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 func runEpic(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -72,7 +77,7 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 		return 0
 	}
 	verb := args[0]
-	takes := map[string]int{"start": 1, "add": 2, "end": 1, "list": 0, "off": 0}
+	takes := map[string]int{"start": 1, "add": 2, "end": 1, "remove": 2, "list": 0, "off": 0}
 	count, known := takes[verb]
 	if !known {
 		fmt.Fprintf(c.stderr, "unknown epic command %q\n\n", verb)
@@ -83,7 +88,7 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	flags.SetOutput(c.stderr)
 	flags.StringVar(&c.configPath, "config", "", "configuration file path (default: the nearest project configuration)")
 	flags.BoolVar(&c.jsonOutput, "json", false, "emit machine-readable JSON")
-	if verb == "start" || verb == "end" {
+	if verb == "start" || verb == "end" || verb == "remove" {
 		flags.StringVar(&c.words, "words", "", "what you say with it, kept in the record")
 	}
 	named, err := parseArguments(flags, args[1:])
@@ -128,6 +133,8 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 		return c.start(ctx, operator, named[0])
 	case "add":
 		return c.add(ctx, operator, named[0], named[1])
+	case "remove":
+		return c.remove(ctx, operator, named[0], named[1])
 	case "end":
 		return c.end(ctx, operator, named[0])
 	default:
@@ -192,7 +199,7 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 	output := epicOutput{Record: &started.Record, Named: started.Named, TurnedOn: started.TurnedOn}
 	if !started.Named {
 		for _, item := range below {
-			if !started.Epic.Has(item.ID) && !entry.Has(item.ID) {
+			if !slices.Contains(view.Items(started.Epic), item.ID) {
 				output.NotMembers = append(output.NotMembers, item.ID)
 			}
 		}
@@ -222,6 +229,9 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 		fmt.Fprintf(c.stdout, "  %s\n", titles.Name(member.WorkItemID))
 	}
 	for _, piece := range entry.Joined {
+		if started.Epic.Has(piece.WorkItemID) || started.Epic.TakenOut(piece.WorkItemID) {
+			continue
+		}
 		fmt.Fprintf(c.stdout, "  %s, which joined it\n", titles.Name(piece.WorkItemID))
 	}
 	if len(output.NotMembers) > 0 {
@@ -266,6 +276,47 @@ func (c epicCommand) add(ctx context.Context, operator *epicscope.Operator, epic
 	fmt.Fprintf(c.stdout, "%s is a member of epic %s\n", titles.Name(item), titles.Name(epic))
 	if !record.On() {
 		fmt.Fprintln(c.stdout, "epic mode is off, so this changes nothing that starts until `yoyo epic start` turns it on")
+	}
+	return 0
+}
+
+func (c epicCommand) remove(ctx context.Context, operator *epicscope.Operator, epic, item string) int {
+	record, err := operator.Remove(epic, item, c.words, time.Now())
+	titles := c.titles(ctx)
+	if err != nil {
+		return c.refused(titles, err, epic, item)
+	}
+	c.settle()
+	output := epicOutput{Record: &record}
+	named, _ := record.Named(epic)
+	view, err := epicprogress.Read(c.stateRoot, c.product, record)
+	if err == nil {
+		if why := view.Unreadable(epicprogress.Of(named)); why != "" {
+			err = errors.New(why)
+		}
+	}
+	if err != nil {
+		output.CameFromProblem = err.Error()
+	} else {
+		entry, _ := view.Entry(epicprogress.Of(named))
+		for _, piece := range entry.Joined {
+			if piece.From == item && slices.Contains(view.Items(named), piece.WorkItemID) {
+				output.CameFrom = append(output.CameFrom, piece.WorkItemID)
+			}
+		}
+	}
+	if c.jsonOutput {
+		return writeJSON(c.stdout, c.stderr, output)
+	}
+	fmt.Fprintf(c.stdout, "took %s out of epic %s; a run under way for it waits with its work kept\n", titles.Name(item), titles.Name(epic))
+	if len(output.CameFrom) > 0 {
+		fmt.Fprintln(c.stdout, "pieces that came from it and stay, and the command that takes each out:")
+		for _, piece := range output.CameFrom {
+			fmt.Fprintf(c.stdout, "  %s: yoyo epic remove %s %s --words <text>\n", titles.Name(piece), epic, piece)
+		}
+	}
+	if output.CameFromProblem != "" {
+		fmt.Fprintf(c.stdout, "which pieces came from it could not be read: %s\n", output.CameFromProblem)
 	}
 	return 0
 }
@@ -342,6 +393,9 @@ func (c epicCommand) list(ctx context.Context, stateRoot string) int {
 				how = "added at " + localTime(member.AddedAt)
 			}
 			fmt.Fprintf(c.stdout, "    %s, %s\n", titles.Name(member.WorkItemID), how)
+		}
+		for _, removal := range epic.Removed {
+			printIndented(c.stdout, fmt.Sprintf("%s, taken out at %s:", titles.Name(removal.WorkItemID), localTime(removal.RemovedAt)), titles.Cite(removal.Words))
 		}
 		if strings.TrimSpace(epic.Description) != "" {
 			printIndented(c.stdout, "its description when it was named:", titles.Cite(epic.Description))
@@ -426,7 +480,7 @@ func (c epicCommand) fail(err error) int {
 }
 
 func printEpicUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo epic <start|add|end|list|off> [options]
+	fmt.Fprintln(writer, `Usage: yoyo epic <start|add|remove|end|list|off> [options]
 
 Name the epics the factory works only on. While epic mode is on, only the members
 of an open epic are to start. The members are the list recorded when the epic was
@@ -441,6 +495,9 @@ start, and the refusal names each one that does not yet.
                      On an epic still open while epic mode is off, turn epic mode
                      back on and leave its members as they are
   add <epic> <item>  add an item to an open epic's members
+  remove <epic> <item>
+                     take an item out of an open epic, a member or a piece that
+                     joined it; --words is required. "add" puts it back
   end <epic>         end an open epic; its record is kept, and epic mode stays on
   list               show the record
   off                return the factory to goal mode; no epic is ended
@@ -455,6 +512,6 @@ Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --json            emit machine-readable JSON
 
-start and end options:
+start, remove and end options:
   --words <text>    what you say with it, kept in the record`)
 }

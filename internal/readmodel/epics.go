@@ -88,6 +88,12 @@ type Epics struct {
 	// epics yet, so epic mode does not hold them out.
 	WaysNotAsking int        `json:"ways_not_asking,omitempty"`
 	Open          []OpenEpic `json:"open,omitempty"`
+	// Ended is each epic the operator ended and has not named again.
+	Ended []EndedEpic `json:"ended,omitempty"`
+	// Suggestions is how many unfinished items outside the open epics were admitted
+	// from a report filed during one. They start nothing.
+	Suggestions        int    `json:"suggestions"`
+	SuggestionsProblem string `json:"suggestions_problem,omitempty"`
 	// ItemsHeldOut is how many ready items are not a member of an open epic, and
 	// ItemsHeldOutSince when the first of them was refused a start, where one was.
 	ItemsHeldOut      int        `json:"items_held_out"`
@@ -162,11 +168,12 @@ type OpenEpic struct {
 	Running    int    `json:"running"`
 	Ready      int    `json:"ready"`
 	Waiting    int    `json:"waiting"`
+	EpicStanding
 }
 
 // readEpics reads the epic lines from the records, the runs and the queue the
 // standing already read, and the one tracker listing.
-func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, listedErr error) *Epics {
+func readEpics(sources Sources, standing Standing, needs []Attention, needsProblem string, listed []beads.WorkItem, listedErr error) *Epics {
 	if sources.Epics == nil {
 		return nil
 	}
@@ -248,11 +255,20 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 		epics.NotStartedProblem = singleLine(err.Error(), maxEpicReasonBytes)
 	}
 
+	standings := newEpicStandings(facts, sources, standing, needs, needsProblem, epics.ItemsProblem, progressErr)
 	for _, epic := range record.Epics {
-		if epic.Open() {
-			epics.Open = append(epics.Open, facts.count(epic))
+		if latest, _ := record.Named(epic.WorkItemID); !latest.NamedAt.Equal(epic.NamedAt) {
+			continue
 		}
+		if epic.Open() {
+			counted := facts.count(epic)
+			counted.EpicStanding = standings.of(epic)
+			epics.Open = append(epics.Open, counted)
+			continue
+		}
+		epics.Ended = append(epics.Ended, EndedEpic{WorkItemID: epic.WorkItemID, Title: facts.title(epic.WorkItemID, ""), EpicStanding: standings.of(epic)})
 	}
+	epics.Suggestions, epics.SuggestionsProblem = facts.suggestions(sources)
 	refusedSince := map[string]time.Time{}
 	for _, refused := range refusals.Items {
 		if since, known := refusedSince[refused.WorkItemID]; !known || refused.Since.Before(since) {
@@ -437,13 +453,14 @@ func (f epicFacts) progressProblems(runs Runs, files string) []string {
 				continue
 			}
 			shared[item] = true
-			var names, ends []string
+			var names, ends, removes []string
 			for _, holder := range holders {
 				names = append(names, f.name(holder.WorkItemID, ""))
 				ends = append(ends, "yoyo epic end "+holder.WorkItemID)
+				removes = append(removes, fmt.Sprintf("yoyo epic remove %s %s --words <text>", holder.WorkItemID, item))
 			}
-			says = append(says, fmt.Sprintf("%s is in more than one open epic, so it does not start: %s. To settle it, end all but one: %s",
-				f.name(item, ""), strings.Join(names, ", "), strings.Join(ends, ", or ")))
+			says = append(says, fmt.Sprintf("%s is in more than one open epic, so it does not start: %s. To settle it, end all but one: %s; or take it out of all but one: %s",
+				f.name(item, ""), strings.Join(names, ", "), strings.Join(ends, ", or "), strings.Join(removes, ", or ")))
 		}
 		if why := f.view.Unreadable(epicprogress.Of(epic)); why != "" {
 			says = append(says, fmt.Sprintf("Nothing starts in %s, because its progress cannot be read (%s; the files are %s). To begin it again: yoyo epic end %s, then yoyo epic start %s",
@@ -616,12 +633,20 @@ func (s Standing) RenderEpics() string {
 				fmt.Fprintf(&rendered, " — %s: %d done, %d running, %d ready, %d waiting",
 					count(epic.Done+epic.Running+epic.Ready+epic.Waiting, "member"), epic.Done, epic.Running, epic.Ready, epic.Waiting)
 			}
-			rendered.WriteString("\n")
+			rendered.WriteString("\n" + epic.render())
+		}
+		for _, epic := range e.Ended {
+			fmt.Fprintf(&rendered, "  Ended epic: %s (%s), as it stood when you ended it\n%s", epic.Title, epic.WorkItemID, epic.render())
 		}
 		if e.ItemsProblem == "" {
 			fmt.Fprintf(&rendered, "  Ready items held out: %d%s\n", e.ItemsHeldOut, sinceSaid(e.ItemsHeldOutSince))
 		} else {
 			fmt.Fprintf(&rendered, "%sthe members and the items held out could not be counted: %s\n", partialRead, e.ItemsProblem)
+		}
+		if e.SuggestionsProblem == "" {
+			fmt.Fprintf(&rendered, "  Items suggested during an open epic, which start nothing: %d\n", e.Suggestions)
+		} else {
+			fmt.Fprintf(&rendered, "%sthe items suggested during an epic could not be counted: %s\n", partialRead, e.SuggestionsProblem)
 		}
 		if e.NotStartedProblem == "" {
 			fmt.Fprintf(&rendered, "  Role passes not started: %d%s\n", e.PassesNotStarted, sinceSaid(e.PassesNotStartedSince))
