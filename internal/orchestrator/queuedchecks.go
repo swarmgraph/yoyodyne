@@ -861,6 +861,10 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			}
 		case updateLostItsHost(state):
 			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
+			var refused *OutsideNamedEpicsError
+			if !handled && retirementErr == nil {
+				refused, retirementErr = r.waitForEpic(ctx, state)
+			}
 			lease.Release()
 			switch {
 			case retirementErr != nil:
@@ -868,6 +872,8 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			case handled:
 				result.Retired = retired.Retirement != nil
 				result.Detail = retirementReason(retired)
+			case refused != nil:
+				result.Detail = refused.Error()
 			default:
 				result.Continued = true
 				result.Detail = fmt.Sprintf("%s while the run was at its %s phase, so this sweep carries the update on from that step", describeLostHost(state), state.Phase)
@@ -880,6 +886,10 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			}
 		default:
 			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
+			var refused *OutsideNamedEpicsError
+			if !handled && retirementErr == nil {
+				refused, retirementErr = r.waitForEpic(ctx, state)
+			}
 			lease.Release()
 			switch {
 			case retirementErr != nil:
@@ -887,6 +897,8 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			case handled:
 				result.Retired = retired.Retirement != nil
 				result.Detail = retirementReason(retired)
+			case refused != nil:
+				result.Detail = refused.Error()
 			default:
 				result.Continued = true
 				result.Detail = state.IntegrationResumptions[len(state.IntegrationResumptions)-1].Reason
@@ -910,7 +922,11 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 					result.Detail = outcome.Summary
 				}
 			}
-			if err != nil {
+			switch {
+			case err == nil:
+			case leftWaiting(err):
+				result.Continued, result.Detail = false, err.Error()
+			default:
 				result.Failure = err.Error()
 			}
 		}(&results[index])
@@ -926,6 +942,17 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 }
 
 var _ ReconcileChecks = publish.GitHub{}
+
+// waitForEpic leaves a run already put back to be brought up to date waiting for
+// its epic, under the lease the caller holds, where its item may not go on.
+func (r Reconciler) waitForEpic(ctx context.Context, state runstate.State) (*OutsideNamedEpicsError, error) {
+	refused := r.MayStart.refuseContinuing(state)
+	if refused == nil {
+		return nil, nil
+	}
+	_, err := recordEpicWait(ctx, r.Store, state, r.clock().Now())
+	return refused, err
+}
 
 // requeueUntouchedDrop queues once more a merge GitHub's own merge queue
 // dropped because its checks on the queue's merge commit failed only in tests

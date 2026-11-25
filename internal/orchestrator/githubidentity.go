@@ -202,6 +202,9 @@ func (g GitHubIdentityStops) takeUpLanding(ctx context.Context, run runstate.Sta
 		return true, says, false
 	case result.IntakeHeld != nil:
 		return false, fmt.Sprintf("run %s of %s waits at landing: intake is held, so nothing is taken up until it is released; it is asked again next look", run.RunID, named), true
+	case result.OutsideNamedEpics != nil:
+		// About the one item, so the look carries on.
+		return false, fmt.Sprintf("run %s of %s stays stopped at landing for the development manager: %v", run.RunID, named, result.OutsideNamedEpics), false
 	case result.CapacityFull != nil:
 		return false, fmt.Sprintf("run %s of %s waits at landing: every developer slot is occupied (%d of %d); it is asked again next look", run.RunID, named, result.CapacityFull.Active, result.CapacityFull.Limit), true
 	case err != nil:

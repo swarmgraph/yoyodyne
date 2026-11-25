@@ -47,9 +47,11 @@ func (d StartDecision) refuseDocument(document runstate.DocumentPublication) *Ou
 
 // OutsideNamedEpicsError is a start declined because the factory works only on
 // the epics the operator named and the item is in none of them, or because the
-// record of them could not be read. Nothing was reserved, claimed or spent.
+// record of them could not be read. Nothing was reserved, claimed or spent. With
+// a run named, it is a run already started that waits with its work kept.
 type OutsideNamedEpicsError struct {
 	WorkItemID string `json:"work_item_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
 	// Document is the document, in words, where it is one that was to be
 	// published rather than a run of a work item.
 	Document string            `json:"document,omitempty"`
@@ -64,6 +66,9 @@ func (e *OutsideNamedEpicsError) Error() string {
 	}
 	if e.Document != "" {
 		return fmt.Sprintf("the run publishing %s was not started: %s; it starts after %s", e.Document, e.Decision.Why, e.Clears())
+	}
+	if e.RunID != "" {
+		return fmt.Sprintf("run %s of %s waits for its epic: %s; it goes on after %s", e.RunID, e.WorkItemID, e.Decision.Why, e.Clears())
 	}
 	return fmt.Sprintf("%s was not started: %s; it starts after %s", e.WorkItemID, e.Decision.Why, e.Clears())
 }

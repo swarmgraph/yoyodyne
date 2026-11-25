@@ -253,7 +253,7 @@ func reservationOf(state runstate.State) *Reservation {
 	case reservation.DocumentLanding:
 		reservation.Says = "the run is in flight: it holds its work item and a document landing"
 	case reservation.Held:
-		reservation.Says = "the run is in flight and holds its work item, but no developer slot while it waits on work its item depends on"
+		reservation.Says = "the run is in flight and holds its work item, but no developer slot while it waits to be continued"
 	default:
 		reservation.Says = fmt.Sprintf("the run is %s and holds nothing another run could take", state.Status)
 	}
@@ -269,6 +269,9 @@ func WaitOf(state runstate.State) *Wait {
 	switch {
 	case state.OperatorHeldSince != nil:
 		return &Wait{Kind: "the operator's pause", Since: state.OperatorHeldSince, Release: "the operator lifting the pause"}
+	case state.EpicWait != nil:
+		since := state.EpicWait.Since
+		return &Wait{Kind: "its epic", Since: &since, Release: state.EpicWait.Summary()}
 	case state.DependencyPause != nil:
 		return &Wait{Kind: "work its item waits on", Release: fmt.Sprintf("that work closing (%s)", state.DependencyPause.Summary())}
 	case state.CIWait != nil:

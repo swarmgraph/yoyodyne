@@ -486,7 +486,7 @@ func unfinishedObservation(instances workflowInstanceReader, state runstate.Stat
 // parksTheRun reports an ending that is an instruction to continue later rather
 // than an outcome the definition has anywhere to send.
 //
-// These are the five endings `stop` recognizes as pauses. A run that takes one
+// These are the endings `stop` recognizes as pauses. A run that takes one
 // has not left the state it is in — a later invocation reissues the attempt it
 // was owed — so the instance stays exactly where it is and the transition is
 // recorded when the resumed run makes it.
@@ -498,9 +498,10 @@ func parksTheRun(err error) bool {
 		waiting  dependencyPause
 		held     operatorHoldPause
 		ciWait   ciWaitPause
+		epic     epicPause
 	)
 	return errors.As(err, &limited) || errors.As(err, &stopped) ||
-		errors.As(err, &directed) || errors.As(err, &waiting) || errors.As(err, &held) || errors.As(err, &ciWait)
+		errors.As(err, &directed) || errors.As(err, &waiting) || errors.As(err, &held) || errors.As(err, &ciWait) || errors.As(err, &epic)
 }
 
 // raisesAnEscalation reports an ending the definition has no outcome for at all:

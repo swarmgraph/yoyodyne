@@ -189,6 +189,8 @@ func (c CarryOut) resumeIntegration(ctx context.Context, task CarryOutTask, carr
 		return carried, result.Outcome, runErr
 	case result.IntakeHeld != nil:
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("`yoyo release` to lift the hold on what the harness chooses, in place since %s", result.IntakeHeld.HeldAt.Local().Format(time.RFC1123)))
+	case result.OutsideNamedEpics != nil:
+		return waiting(runstate.TriageGateNamedEpics, result.OutsideNamedEpics.Error())
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
