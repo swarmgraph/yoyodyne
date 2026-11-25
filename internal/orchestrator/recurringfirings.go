@@ -43,6 +43,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -149,7 +150,8 @@ type candidate struct {
 	// waited longest of all.
 	due   time.Time
 	known bool
-	claim func(ctx context.Context) (claimedFiring, bool, error)
+	// find reads whether the firing is due, and claims nothing.
+	find func(ctx context.Context) (passDue, error)
 }
 
 // dueBy reports a candidate the schedule says is due at now.
@@ -251,11 +253,30 @@ func (t Trigger) Start(ctx context.Context, busy map[string]bool, free int) (Rec
 			}
 			continue
 		}
-		claimed, took, err := next.claim(ctx)
+		found, err := next.find(ctx)
+		if err != nil {
+			problems = append(problems, err)
+		}
+		if found.claim == nil {
+			continue
+		}
+		// Asked of a firing every other check would let start, and before
+		// anything is claimed for it; a refusal takes no place, and the next in
+		// the order is looked at.
+		if !found.unasked && !t.MayStart.allows(found.start) {
+			if found.problem != nil {
+				problems = append(problems, found.problem)
+			}
+			continue
+		}
+		claimed, took, err := found.claim(ctx)
 		if err != nil {
 			problems = append(problems, err)
 		}
 		if !took {
+			if found.problem != nil {
+				problems = append(problems, found.problem)
+			}
 			continue
 		}
 		if verdict == readmodel.CapacityProbeDue && claimed.settled == nil {
@@ -313,9 +334,14 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 			candidates = append(candidates, candidate{
 				name: name, role: task.Role, conversation: roleConversationKey(task.Role), kind: firingCritical,
 				due: due, known: true,
-				claim: func(ctx context.Context) (claimedFiring, bool, error) {
-					claimed, err := t.deliverCriticals(ctx, name, task, pending, pending[0].RecordedAt)
-					return claimed, err == nil, err
+				find: func(context.Context) (passDue, error) {
+					return passDue{
+						start: maystart.Pass(maystart.PromptedPass, task.Role).Due("reports", pending[0].ID),
+						claim: func(ctx context.Context) (claimedFiring, bool, error) {
+							claimed, err := t.deliverCriticals(ctx, name, task, pending, pending[0].RecordedAt)
+							return claimed, err == nil, err
+						},
+					}, nil
 				},
 			})
 		}
@@ -330,8 +356,8 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 		candidates = append(candidates, candidate{
 			name: name, role: task.Role, conversation: roleConversationKey(task.Role), kind: firingTask,
 			due: due, known: known[name],
-			claim: func(ctx context.Context) (claimedFiring, bool, error) {
-				return t.claimTask(ctx, name, task, due, outage, away)
+			find: func(context.Context) (passDue, error) {
+				return t.findTask(name, task, due, outage, away)
 			},
 		})
 	}
@@ -342,7 +368,7 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 		candidates = append(candidates, candidate{
 			name: NeedsDesignWakeTask, role: domain.RoleArchitect, conversation: roleConversationKey(domain.RoleArchitect), kind: firingTask,
 			due: due, known: known[NeedsDesignWakeTask],
-			claim: func(ctx context.Context) (claimedFiring, bool, error) {
+			find: func(ctx context.Context) (passDue, error) {
 				return t.needsDesignWake(ctx, outage, away)
 			},
 		})
@@ -361,8 +387,10 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 			candidates = append(candidates, candidate{
 				name: name, role: task.Role, conversation: roleConversationKey(task.Role), kind: firingTask,
 				due: due, known: true,
-				claim: func(ctx context.Context) (claimedFiring, bool, error) {
-					return t.goalReview(ctx, name, task, due)
+				find: func(context.Context) (passDue, error) {
+					return passDue{start: maystart.GoalReview(), claim: func(ctx context.Context) (claimedFiring, bool, error) {
+						return t.goalReview(ctx, name, task, due)
+					}}, nil
 				},
 			})
 		}
@@ -373,7 +401,7 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 		candidates = append(candidates, candidate{
 			name: agent, role: domain.RoleProgramManager, conversation: instanceConversationKey(agent), kind: firingInstance,
 			due: due, known: known[agent],
-			claim: func(ctx context.Context) (claimedFiring, bool, error) {
+			find: func(ctx context.Context) (passDue, error) {
 				return t.pass(ctx, agent, instance, outage, away, due)
 			},
 		})
@@ -395,9 +423,27 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 	return candidates, errors.Join(problems...)
 }
 
-// claimTask claims one recurring task's firing where it is due. The claim is the
-// due check: asking first and claiming after would be two reads and a write with
-// a window between them, which is exactly the window two concurrent sessions
+// findTask reads whether one recurring task's firing is due.
+func (t Trigger) findTask(name string, task config.RecurringTask, due time.Time, outage runstate.ProviderOutage, away bool) (passDue, error) {
+	fell, owed, err := t.scheduleDue(name, task.Every.Duration())
+	if err != nil {
+		return passDue{}, fmt.Errorf("claim the firing of the recurring task %s: %w", name, err)
+	}
+	if !owed {
+		return passDue{}, nil
+	}
+	return passDue{
+		start:   maystart.Pass(maystart.RecurringPass, task.Role).Due(scheduleSource(name), fell),
+		unasked: away,
+		claim: func(ctx context.Context) (claimedFiring, bool, error) {
+			return t.claimTask(ctx, name, task, due, outage, away)
+		},
+	}, nil
+}
+
+// claimTask claims one recurring task's firing where it is due. The claim makes
+// the due check itself: asking first and only claiming after would be two reads
+// and a write with a window between them, which is exactly the window two concurrent sessions
 // land in. A task that is not due is the ordinary answer on almost every pull,
 // and so is one another process claimed a moment ago; neither is this pass's to
 // report.
@@ -460,13 +506,14 @@ type recurringFirings struct {
 	taken *sync.WaitGroup
 	// summoning is the brake's summons of the development manager, where one
 	// found a pass of hers, or another turn, taking turns in her conversation and
-	// is waiting for it to end. It is made by summonWaiting at the first pull
-	// after that.
+	// is waiting for it to end, or the decision on what may start refused it. It
+	// is made by summonWaiting at the first pull after that. A session that ends
+	// loses it.
 	summoning *waitingSummons
 }
 
 // waitingSummons is a summons of the development manager held back while her
-// own pass holds her conversation: how the hold it is for is revised, and how
+// own pass holds her conversation, or while it may not start: how the hold it is for is revised, and how
 // she is reached.
 type waitingSummons struct {
 	brake   ScheduleBrake
@@ -563,7 +610,7 @@ func (f *recurringFirings) taking(task string) bool {
 }
 
 // summonsPending reports a summons of the development manager in flight, or
-// held back for her own pass to end.
+// held back until it can be made.
 func (f *recurringFirings) summonsPending() bool {
 	return f.summoning != nil || f.taking(summonsTask)
 }
@@ -811,7 +858,8 @@ func (s Scheduler) collectFirings(schedule *Schedule, firings *recurringFirings,
 }
 
 // summonWaiting makes the brake's summons that waited on the development
-// manager's conversation, once the turn holding it has ended, and only while the brake's hold
+// manager's conversation, once the turn holding it has ended, or that the
+// decision on what may start refused, at each pull until it may, and only while the brake's hold
 // it was for still stands and is still the harness's to work. A hold she or the
 // operator lifted in the meantime, or one escalated past her, has
 // nothing left to summon her over, so the waiting summons is dropped. A hold

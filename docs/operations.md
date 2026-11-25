@@ -1759,7 +1759,9 @@ nothing else. Naming an epic is your act alone:
 **Epic mode is still being built, and `start` is refused until it is.** The
 refusal names each way the harness starts work that does not yet ask whether it
 may start under the epics you named. Until all of them ask, epic mode could not
-keep its promise that nothing else starts, so it does not turn on.
+keep its promise that nothing else starts, so it does not turn on. It is also
+refused, and says so, until the checks that look for a way of starting work
+missing from that list are built, even where every way on it asks.
 
 `start` records every open item below the epic as its members, and prints that
 list. The members are that list and what you add: an item moved or created below
@@ -1816,9 +1818,11 @@ test run that checks whether a hold on new work can lift, a fresh run or a
 repair the development manager decided, a repair from feedback on a pull
 request, a run you name, the run that resolves a conflict in the team's branch
 (asked about the item the development manager named), the run that brings in
-a pinned outside file (asked about the item its record is for), the three ways an
-ended run is put back to work, below, and a new run that publishes a document. A
-refused item is free to start, subject to every other check, once it is added to
+a pinned outside file (asked about the item its record is for), the attempt to
+repair a change the merge queue handed back because its target moved, the three
+ways an ended run is put back to work, below, and a new run that publishes a
+document. A refused item is free to start, subject to every other check, once it
+is added to
 an open epic or epic mode is turned off.
 
 A refusal of one of the three ways an ended run is put back to work, or a
@@ -1857,10 +1861,22 @@ spent and nobody decides it again: the first pass after the item is added, or
 after epic mode is turned off, carries it out. A decision that waits because the
 record of the named epics could not be read is recorded the same way, saying so.
 
+A role's pass asks too, when it has come due and before anything is claimed for
+it: its recurring pass, and one started by an event, a label, a request, a
+critical report, an automatic hold or a refused tracker block. With epic mode on,
+passes of the Lead Product Manager, the development manager and the architect
+start while a named epic is open, and no program manager's does. A pass already
+begun takes all its turns. The review of unmet goals and the reading of outside
+messages do not start at all. A refused pass changes nothing else: its schedule,
+events, requests, labels and reports wait as they were, it is not recorded as
+missed, and the pass after it in the order starts. An automatic hold is placed
+whatever the answer; the development manager's refused pass over it is tried again
+at each poll while the hold stands, and is lost if the session restarts first. Your
+own conversation with a role always starts.
+
 Other starts do not ask yet, so epic mode does not hold them out. Among them are
-carrying on a run already begun, resuming an approved change stopped at its
-landing, a role's pass, the review of unmet goals and the reading of outside
-messages.
+carrying on a run already begun and resuming an approved change stopped at its
+landing.
 
 Each start that asks and is refused is recorded, and so is one refused because
 the named epics could not be read. There is one entry for each item and way of
@@ -1874,6 +1890,10 @@ A refused document has one entry of its own, whatever it answers, which a newer
 revision updates. It is taken away when a run of the document starts or may
 start, when the document is withdrawn, handed back or otherwise settled, and when
 epic mode is turned off, and not because an item it answers closes.
+A refused pass has one entry for each role, program manager and way of starting
+it, with how many times it came due and was refused. Every entry of a role is
+taken away when a pass of that role may start. Nothing is kept of the review of
+unmet goals or of the reading of outside messages.
 A refusal that could not be recorded is still a refusal: it says so in its
 reason, and the failure is printed on standard error.
 
@@ -1887,6 +1907,8 @@ epic mode on it also says:
 - how many ready items are outside every open epic, with when the first of them
   was refused a start where one was, and how many role passes were not started,
   since when;
+- whether the review of unmet goals and the reading of outside messages may
+  start, and why not;
 - each problem: a run stopped before its next step because its item is outside,
   an item that waits for one outside, and each item refused a start, with each
   way it was refused, why, and when first and last. The last two give the `yoyo

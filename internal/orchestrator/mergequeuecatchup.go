@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -63,9 +64,9 @@ type MergeQueueCatchUpCheckouts interface {
 }
 
 // MergeQueueCatchUpWaiting is a catch-up owed to a run that could not be made
-// yet: every developer slot is taken, another process holds the run, or the
-// main checkout is not ready. The
-// hand-back stays owed and the queue gives it again at a later pass
+// yet: the named epics hold it out, every developer slot is taken, another
+// process holds the run, or the main checkout is not ready. The hand-back stays
+// owed and the queue gives it again at a later pass
 // (MergeQueueHandbackUndelivered); nothing is stopped and nothing is spent.
 type MergeQueueCatchUpWaiting struct {
 	RunID        string
@@ -185,6 +186,11 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 		// An item somebody blocked or closed while the change waited is not one
 		// the harness puts a developer back to work on by itself.
 		return false, fmt.Sprintf("its item is %s rather than in progress", nonEmpty(item.Status, "of no recorded status")), nil
+	}
+	// Asked before the run is taken up. The hand-back stays owed, so the attempt
+	// is made at the first pass the decision allows it.
+	if refused := h.MayStart.refuseRun(maystart.BringUpToDate, entry.WorkItemID); refused != nil {
+		return false, "", MergeQueueCatchUpWaiting{RunID: entry.RunID, TargetBranch: entry.TargetBranch, Why: refused.Error()}
 	}
 	adopted, lease, err := h.CatchUp.AdoptRun(ctx, entry.RunID)
 	if errors.Is(err, runstate.ErrRunHeld) {

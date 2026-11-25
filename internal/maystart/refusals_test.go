@@ -45,7 +45,7 @@ func TestARefusalIsKeptUntilItsStartMayGoAhead(t *testing.T) {
 	if len(record.Items) != 1 || record.Items[0] != (RefusedItem{WorkItemID: outside, Path: ReadyWork, Why: notInAny, Since: at, Last: at}) {
 		t.Fatalf("Items = %+v, want the one first refusal", record.Items)
 	}
-	if len(record.Passes) != 1 || record.Passes[0] != (RefusedPasses{Role: domain.RoleProgramManager, Count: 2, Since: at}) {
+	if len(record.Passes) != 1 || !reflect.DeepEqual(record.Passes[0], RefusedPasses{Role: domain.RoleProgramManager, Path: RecurringPass, Why: record.Passes[0].Why, Count: 2, Since: at}) {
 		t.Fatalf("Passes = %+v, want two since the first", record.Passes)
 	}
 
@@ -394,5 +394,60 @@ func TestARefusedDocumentThatCouldNotBeRecordedIsStillRefused(t *testing.T) {
 	decision := Ask(root, product, designRun("a-design", "document-1.1", at), at)
 	if decision.Answer != MayNot || decision.NotKept == nil || !strings.Contains(decision.Why, "could not be recorded") {
 		t.Fatalf("Ask() = %+v, want a refusal that says it was not recorded", decision)
+	}
+}
+
+func TestARefusedPassIsCountedOnceForEachTimeItCameDue(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	on(t, root)
+	pass := func(path Path, agent string) Start { return Pass(path, domain.RoleProgramManager).OfAgent(agent) }
+	// An entry written before paths were kept, by role alone.
+	path := filepath.Join(home.ProductDirectory(root, product), refusalsFile)
+	if err := os.WriteFile(path, []byte(`{"schema_version":1,"product_id":"yoyodyne","passes":[{"role":"program-manager","count":4,"since":"2026-11-24T09:00:00Z"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	noted(t, root, pass(RecurringPass, "a").Due("schedule:a", "nine"), at)
+	noted(t, root, pass(RecurringPass, "a").Due("schedule:a", "nine"), at.Add(time.Hour))
+	noted(t, root, pass(RecurringPass, "b").Due("schedule:b", "nine"), at)
+	noted(t, root, pass(PromptedPass, "a").Due("events", "one"), at)
+	noted(t, root, pass(PromptedPass, "a").Due("request", "one"), at)
+	// A second thing that can start it does not make the first count again.
+	noted(t, root, pass(PromptedPass, "a").Due("events", "one"), at)
+	record := noted(t, root, pass(RecurringPass, "a").Due("schedule:a", "ten"), at)
+	var counts []int
+	for _, entry := range record.Passes {
+		counts = append(counts, entry.Count)
+	}
+	if !reflect.DeepEqual(counts, []int{4, 2, 1, 2}) {
+		t.Fatalf("Passes = %+v", record.Passes)
+	}
+
+	// Only a new reason writes again for a time already counted.
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noted(t, root, pass(RecurringPass, "a").Due("schedule:a", "ten"), at.Add(time.Hour))
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("the same refusal was written again")
+	}
+	start := pass(RecurringPass, "a").Due("schedule:a", "ten")
+	if err := Note(root, product, start, Decision{Answer: CouldNotTell, Why: "it could not be read"}, at); err != nil {
+		t.Fatal(err)
+	}
+	record, err = ReadRefusals(root, product)
+	if err != nil || record.Passes[1].Count != 2 || record.Passes[1].Why != "it could not be read" {
+		t.Fatalf("Passes = %+v, %v; want the new reason and the same count", record.Passes, err)
+	}
+
+	// Every entry of the role goes at once, the one by role alone included.
+	turnedOff, err := operatorAt(t, root).TurnOff()
+	must(t, turnedOff, err)
+	if err := Note(root, product, start, Decide(root, product, start), at); err != nil {
+		t.Fatal(err)
+	}
+	if record, err = ReadRefusals(root, product); err != nil || len(record.Passes) != 0 {
+		t.Fatalf("Passes = %+v, %v; want none", record.Passes, err)
 	}
 }

@@ -38,7 +38,8 @@ func correctorFrom(parts components, configPath string, stderr io.Writer) (orche
 		Roles:         roleCorrection{configPath: configPath, stderr: stderr},
 		// The same pause every run, turn, delivery, and firing reads. A wakeup is a
 		// provider invocation, so `yoyo pause` covers it exactly as it covers them.
-		Holds: parts.holds,
+		Holds:    parts.holds,
+		MayStart: parts.mayStart(),
 	}, nil
 }
 
