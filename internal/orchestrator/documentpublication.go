@@ -1519,7 +1519,13 @@ func (a *activeRun) validateIndependentReview() error {
 		return nil
 	}
 	if a.state.Document == nil {
-		return validateIndependentInvocations(a.outcome)
+		if err := validateIndependentInvocations(a.outcome); err != nil {
+			return err
+		}
+		if a.state.AuthoredBy(a.outcome.ReviewSessionID) {
+			return fmt.Errorf("integration requires an independent reviewer, but review session %q wrote part of the change", a.outcome.ReviewSessionID)
+		}
+		return nil
 	}
 	document := a.state.Document
 	if a.pipeline.reviewer().Role == document.Owner {

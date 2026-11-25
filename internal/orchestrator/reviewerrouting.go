@@ -527,7 +527,7 @@ func (a *activeRun) reviewReask(reask *review.Reask, route *reviewerRoute) *revi
 		return nil
 	}
 	session := strings.TrimSpace(reask.SessionID)
-	if session != "" && session == strings.TrimSpace(a.state.ProviderSessionID) {
+	if a.state.AuthoredBy(session) {
 		session = ""
 	}
 	if route != nil && route.reconstructed {

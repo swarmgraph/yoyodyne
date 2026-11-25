@@ -4325,9 +4325,9 @@ replayed onto where the target went and promoted by fast-forward — or, on a
 target the forge protects, replayed the same way and then landed through its
 pull request rather than by a local fast-forward
 ([a protected target lands through its pull request](#a-protected-target-lands-through-its-pull-request)).
-A replay that conflicts is handed back to the change's own developer to
-reconcile on top of the target, and the result is checked and reviewed again.
-The first conflict is the run's one reconciliation attempt, which spends no
+A replay that conflicts is handed back to a developer to reconcile on top of
+the target, and the result is checked and reviewed again. The first conflict is
+the run's one reconciliation attempt, made in a new session and spending no
 repair attempt; a later one is a repair attempt, and the run blocks only once a
 budget is spent. Nothing is ever forced.
 
@@ -7620,23 +7620,31 @@ back instead
 
 A replay that **conflicts** is never retried and never resolved automatically
 — which side of a conflict is right is a decision about the product, not a Git
-operation — and it goes back to the developer that wrote the change before it
-goes to anybody else. The change is moved onto where the target went, with
-whatever would not merge left in the worktree between Git's own conflict
-markers, and the same developer session is handed the conflict to settle: the
+operation — and it goes back to a developer before it goes to anybody else. The
+change is moved onto where the target went, with whatever would not merge left in the worktree between Git's own conflict
+markers, and a developer session is handed the conflict to settle: the
 branch it could not be replayed onto, the commit that branch is at, and the
 paths the replay stopped on. The first conflict a run meets is handed back as
 the run's one **reconciliation attempt**, whatever repair attempts remain: it is
 recorded on the run (`reconciliation`) before the developer is invoked, and it
 spends neither a repair attempt nor the integration budget, because a run whose
 review rounds used up its repair attempts would otherwise stop with approved work
-it never got to bring level with the target. A later conflict is handed back as
-a repair attempt, spent from `execution.repair_attempts_before_replan` like any
-other. Either way, what the developer produces goes through the whole gate again
+it never got to bring level with the target. That attempt is made in a new
+developer session rather than the one that wrote the change. It is given the
+work item with its goals and invariants, the approved change as a diff with the
+reviewer's approval, the conflicts as Git left them in the worktree, and the
+target's commits since the change's base that touch the conflicting files, and is
+told to keep what the target and the change each do and change nothing else
+unless the resolved code would not otherwise build or pass its tests. An
+interrupted attempt resumes the new session once it has reported itself. The
+session that wrote the change and the one that resolved the conflict are both
+recorded as its authors (`author_sessions`), and neither the run nor the merge
+queue lands it on the review of either. A later conflict is handed back as
+a repair attempt in the run's current session, spent from
+`execution.repair_attempts_before_replan` like any other. Either way, what the developer produces goes through the whole gate again
 — the protected-path refusal, the checks, and a fresh independent review — before
 it is promoted by the same fast-forward. A replay conflict on an approved change
-therefore costs a continuation of the session that wrote it rather than a fresh
-run. The target
+therefore costs a developer attempt on the same run rather than a fresh run. The target
 keeps every commit it has; what the move drops is only the run's own commits,
 whose content is what the developer is handed back as uncommitted work.
 
@@ -7649,7 +7657,7 @@ as every conflict did before:
 the replay is abandoned, the branch and worktree are left exactly as they were,
 both sides survive, and the blocker on the item names the paths and the target
 commit. The conflict stays on the run's record, so a repair the development
-manager grants in triage continues that same session with the same conflict,
+manager grants in triage continues the run's current session with the same conflict,
 moved onto the target first; a re-run starts the change over instead.
 
 A replay the harness itself ended — its local Git budget ran out, its context
@@ -7824,8 +7832,8 @@ change, and the entry steps aside for the entries behind it — one of which may
 be the fix — and is built afresh once the target moves. A head that will not
 merge onto the target at all, because the target moved while it waited, is
 first given its run's one reconciliation attempt rather than a stop: the run is
-put back live at its developer attempt, the reconciling sweep hosts it, its
-developer reconciles the conflict on top of the target, and the change is
+put back live at its developer attempt, the reconciling sweep hosts it, a
+new developer session reconciles the conflict on top of the target, and the change is
 checked and reviewed again and rejoins the queue by itself, charged no repair
 attempt and no fresh run (`merge-queue-behind` in
 [run stops](run-stops.md)); while every developer slot is taken, the queue
@@ -9110,7 +9118,7 @@ stopped in, resumed in the session it stalled in — and the continuation counts
 no review round and no repair attempt, because a stall judges nothing. A run
 whose record says its approved change conflicted on replay is continued like
 any other repair input (yoyodyne-ifd.132): the change is moved onto the target
-first, with the conflict left in the worktree, and the same developer session is
+first, with the conflict left in the worktree, and the run's current developer session is
 handed it to reconcile. The
 preserved worktree has
 to be as the harness left it: what a continued developer is handed back is

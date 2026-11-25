@@ -530,6 +530,9 @@ func (s State) PutBackToCatchUpWithMergeQueue(conflict ReplayConflict, reason st
 	resumed.ReviewBoundRefusal = nil
 	resumed.ChecksPassed = nil
 	resumed.ReplayConflict = &conflict
+	// The attempt is made in a new session, so the one that wrote the change is
+	// recorded before it can be replaced.
+	resumed.RecordWritingSession(s.ProviderSessionID, at)
 	resumed.Reconciliation = &Reconciliation{
 		TargetBranch: conflict.TargetBranch, TargetCommit: conflict.TargetCommit,
 		Paths: append([]string(nil), conflict.Paths...), Omitted: conflict.Omitted,

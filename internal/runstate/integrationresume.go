@@ -212,14 +212,15 @@ func (s *State) NoteHarnessResumeRefused(why string, at time.Time) bool {
 // leaves the resumed path: the environment did not stop the change, the target
 // moved under it, and which side is right is a decision about the change.
 //
-// That decision is asked of the developer that wrote the change first
-// (yoyodyne-ifd.132). The record is the repair input it is handed: the change
-// is moved onto the target with the disagreement left in the worktree, and the
-// same developer session is continued to reconcile the two, after which the
+// That decision is asked of a developer first (yoyodyne-ifd.132). The record is
+// the input it is handed: the change is moved onto the target with the
+// disagreement left in the worktree, and a developer reconciles the two — in a
+// new session for the run's one reconciliation attempt, and in the run's current
+// session for a conflict handed back as a repair — after which the
 // change re-earns the whole gate. It is cleared by the checks passing on the
 // reconciled change, because a change that passes on top of the target is the
 // settlement. A run whose budget leaves no attempt to hand it stops blocked with
-// the record standing, so a repair triage grants afterwards hands the same
+// the record standing, so a repair triage grants afterwards hands its
 // developer the same disagreement.
 //
 // It is recorded as its own fact rather than left to the blocker, because the
@@ -265,6 +266,20 @@ type ReplayConflict struct {
 	// Handback is the recorded hand-back for this conflict (ConflictHandback),
 	// which is what caused the attempt made on it.
 	Handback string `json:"handback,omitempty"`
+	// Approved is the change as it was approved and the reviewer's approval of
+	// it, kept because the move onto the target discards the review evidence and
+	// replaces the commits the run records.
+	Approved *ApprovedChange `json:"approved,omitempty"`
+}
+
+// ApprovedChange is the approved change a conflict was met with: the commits it
+// lies between, and what its reviewer said.
+type ApprovedChange struct {
+	BaseCommit      string `json:"base_commit,omitempty"`
+	HeadCommit      string `json:"head_commit,omitempty"`
+	ReviewSessionID string `json:"review_session_id,omitempty"`
+	Approves        string `json:"approves,omitempty"`
+	Summary         string `json:"summary,omitempty"`
 }
 
 // Validate reports every contract violation in the record at once.
@@ -288,6 +303,17 @@ func (c ReplayConflict) Validate() error {
 	}
 	if c.Omitted < 0 {
 		problems = append(problems, errors.New("omitted cannot be negative"))
+	}
+	if c.Approved != nil {
+		if c.Approved.BaseCommit != "" && !commitPattern.MatchString(c.Approved.BaseCommit) {
+			problems = append(problems, errors.New("approved.base_commit must be a full commit hash"))
+		}
+		if c.Approved.HeadCommit != "" && !commitPattern.MatchString(c.Approved.HeadCommit) {
+			problems = append(problems, errors.New("approved.head_commit must be a full commit hash"))
+		}
+		if len(c.Approved.Summary) > MaxReviewSummaryBytes {
+			problems = append(problems, fmt.Errorf("approved.summary is %d bytes, which exceeds the %d byte bound", len(c.Approved.Summary), MaxReviewSummaryBytes))
+		}
 	}
 	if len(c.Detail) > MaxConflictDetailBytes {
 		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(c.Detail), MaxConflictDetailBytes))

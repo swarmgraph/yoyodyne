@@ -84,6 +84,14 @@ func (PartialWorktreeManager) ReplayForRepair(context.Context, gitworktree.Workt
 	return gitworktree.Rebase{}, errors.New("partial worktree cannot be replayed")
 }
 
+func (PartialWorktreeManager) RangeChanges(context.Context, string, string, gitworktree.DiffLimits) (gitworktree.ChangeDiff, error) {
+	return gitworktree.ChangeDiff{}, errors.New("partial worktree has no committed change")
+}
+
+func (PartialWorktreeManager) CommitsTouching(context.Context, string, string, []string, int) ([]gitworktree.Commit, int, error) {
+	return nil, 0, errors.New("partial worktree has no commits")
+}
+
 func (PartialWorktreeManager) CleanupIntegrated(context.Context, gitworktree.CleanupRequest) (gitworktree.Cleanup, error) {
 	return gitworktree.Cleanup{}, errors.New("partial worktree cannot be cleaned up")
 }

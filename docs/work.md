@@ -647,11 +647,13 @@ check or a repair verdict — and the replay that takes the count past it stops
 the run there, on the change; at `0` no replay may stop on the change. The earlier
 approval never carries over, because the diff it approved is not the one that
 would now be promoted. A replay that conflicts is never
-resolved automatically, and it goes back to the developer that wrote the change
-first: the change is moved onto where the target went with the conflict left in
-the worktree as Git's markers, and the same developer session settles it. The
-first conflict a run meets is its one reconciliation attempt, which spends no
-repair attempt; a later one is a repair attempt. Either way the result is checked
+resolved automatically, and it goes back to a developer first: the change is
+moved onto where the target went with the conflict left in the worktree as Git's
+markers, and a developer session settles it. The first conflict a run meets is
+its one reconciliation attempt, which spends no repair attempt and is made in a
+new developer session, given the approved change and its approval, the conflicts,
+and the target's commits to the conflicting files; a later one is a repair
+attempt in the run's current session. Either way the result is checked
 and reviewed again before it is promoted. The
 [delivery definition](configuration.md#running-a-work-item-against-the-workflow-definition)
 names that hand-back as the `integrate` state's `reconciling` outcome and routes
@@ -663,7 +665,7 @@ conflict is a replay that stopped on the change, so it is charged to the
 integration budget as well as spending a repair attempt. Only a run with either
 budget spent stops, both sides untouched, with a blocker on the item naming the
 conflicting paths — and a repair granted in triage hands that same conflict to
-that same session. The conflict is also written on the run's own record, before
+the run's current session. The conflict is also written on the run's own record, before
 the blocker is attempted on the tracker, so the run says what stopped it even
 when that write fails — and the docket entry, the item's notes, and the refusal
 of `yoyo triage resume` all name the conflict and `yoyo triage repair` from that
@@ -3006,7 +3008,8 @@ What can happen to a queued change instead:
   minute. A change that still merges keeps its place, untouched. For one that
   does not, the hand-back names the conflicting files. The first time
   this happens the change is handed back to its own run for the run's one
-  attempt to catch up: the run is put back to work by itself, its developer reconciles the conflict on top of the target, and the
+  attempt to catch up: the run is put back to work by itself, a new developer session reconciles the
+  conflict on top of the target, and the
   change is checked and reviewed again and rejoins the queue. The item is told,
   not blocked, and no repair attempt or fresh run is spent. If the run already
   used that attempt, it is handed back as a replay conflict is, with the item

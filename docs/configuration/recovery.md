@@ -888,8 +888,8 @@ Five more things refuse it. The stopped run has to be really over, terminal and
 still standing on whichever of the two docketed it, read from the run's own
 record rather than from the docket
 entry. The run has to have recorded a repair input — a replay conflict is one,
-recorded on the run before it stops, so the continuation hands the same
-developer the same conflict to reconcile on top of the target
+recorded on the run before it stops, so the continuation hands the
+run's current developer session the conflict to reconcile on top of the target
 (yoyodyne-ifd.132); a run whose provider kept refusing, or that died before
 anything judged its work, never had a failure returned to its developer, so
 there is no repair loop to re-enter, and a re-run is what those need. The one exception is a stall — a provider

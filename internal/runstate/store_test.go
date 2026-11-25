@@ -912,6 +912,15 @@ func TestStateRequiresCoherentReviewAndIntegrationEvidence(t *testing.T) {
 			problem: "requires distinct developer and reviewer session identifiers",
 		},
 		{
+			name: "integration reviewed by the session that wrote the change before a conflict",
+			mutate: func(state *State) {
+				state.RecordWritingSession("writer-session", time.Now())
+				state.ReviewSessionID = "writer-session"
+				state.Integration = &integration
+			},
+			problem: "a reviewer session that wrote no part of the change",
+		},
+		{
 			// Two identifiers that differ only in surrounding whitespace are one
 			// session, and must not read as an independent second invocation.
 			name: "integration with a whitespace-variant session",

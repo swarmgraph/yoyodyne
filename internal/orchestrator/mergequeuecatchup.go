@@ -14,8 +14,8 @@ package orchestrator
 // developer attempt with the conflict recorded as that attempt, before any
 // developer is invoked, and the reconciling sweep hosts it (ContinueUpdates).
 // The resumed run moves the change onto the target with the disagreement left
-// in the worktree, hands its developer the reconciliation prompt, checks it and
-// has it reviewed again, and admits it to the queue again — all on the run's
+// in the worktree, hands it to a new developer session (conflictresolution.go),
+// checks it and has it reviewed again, and admits it to the queue again — all on the run's
 // own record, charged to neither the repair attempts nor the run count.
 //
 // Nothing about the checks or the review is loosened: the reconciled change
@@ -150,7 +150,7 @@ func mergeQueueCatchUpNotes(entry runstate.MergeQueueEntry, handback runstate.Me
 	return strings.Join([]string{
 		fmt.Sprintf("The merge queue handed this change back because %s moved while it waited as entry %d, and the approved change no longer merges onto it (conflicting: %s).",
 			entry.TargetBranch, entry.Order, nonEmpty(conflictPathsSay(conflict.Paths, conflict.Omitted), "no paths named")),
-		fmt.Sprintf("Run %s gets its one attempt to bring the change up to date with %s: its developer reconciles the conflict on top of %s, the change is checked and reviewed again, and it rejoins the queue by itself. This attempt is not a repair attempt and not a fresh run. If it does not pass its checks and review, the run goes on as any run does, and stops for the development manager once its repair attempts are spent.",
+		fmt.Sprintf("Run %s gets its one attempt to bring the change up to date with %s: a new developer session reconciles the conflict on top of %s, the change is checked and reviewed again, and it rejoins the queue by itself. This attempt is not a repair attempt and not a fresh run. If it does not pass its checks and review, the run goes on as any run does, and stops for the development manager once its repair attempts are spent.",
 			entry.RunID, entry.TargetBranch, entry.TargetBranch),
 		marker,
 	}, "\n")
