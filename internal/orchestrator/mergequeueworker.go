@@ -1256,6 +1256,7 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 		return generation, false, fmt.Errorf("record that generation %d's review began: %w", generation.Number, err)
 	}
 	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageReview}
+	developerSummary, summaryContext := candidateDeveloperSummary(run)
 	account := p.accountFor(run.AccountAlias)
 	// The model is chosen by kind of change, documents or code
 	// (reviewermodel.go).
@@ -1294,13 +1295,21 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 			// A queued publication of the architect's own invariant is reviewed as
 			// one here too, said from the run's record.
 			ArchitectInvariant: architectInvariant(run),
-			WorktreePath:       generation.Checkout,
-			Changes:            change.Changes,
-			Repository:         reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
-			Checks:             candidateCheckResults(generation),
-			RedactValues:       p.RedactValues,
-			LastSequence:       generation.LastSequence,
-			EventSink:          w.Events,
+			// What the run's record holds of the developer's account and of the
+			// review that approved it, or that it holds none
+			// (mergequeuesummaries.go).
+			DeveloperSummary:                 developerSummary,
+			DeveloperSummaryContext:          summaryContext,
+			EarlierDeveloperSummaries:        recordedEarlierSummaries(run),
+			EarlierDeveloperSummariesDropped: run.EarlierDeveloperSummariesDropped,
+			ApprovingReview:                  candidateApprovingReview(run),
+			WorktreePath:                     generation.Checkout,
+			Changes:                          change.Changes,
+			Repository:                       reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
+			Checks:                           candidateCheckResults(generation),
+			RedactValues:                     p.RedactValues,
+			LastSequence:                     generation.LastSequence,
+			EventSink:                        w.Events,
 			Spend: spend.Attribution{
 				ProductID:      p.Config.Product.ID,
 				Agent:          p.agentNameForRole(domain.RoleReviewer),
