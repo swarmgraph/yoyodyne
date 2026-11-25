@@ -523,12 +523,63 @@ func raisesAnEscalation(err error) bool {
 	return errors.As(err, &raised) || errors.As(err, &forDesign)
 }
 
+// stoppedForRestart reports a run its hosting session stopped to restart onto a
+// new build. The stop is read off the run's context rather than the error, for
+// the reason drainedForRedeploy gives: the step that met it may report it as
+// anything, a cancelled check or a failed Git command among them.
+//
+// It is a park and not an outcome. pauseForRedeploy keeps the run in flight and
+// the session that comes back carries it on from the state it was in, so the
+// instance has to stay in that state too. Observing the stop as the state's
+// ending would send the instance to `abandoned` while the run went on to pass
+// its checks, be approved and land, which is what a record that reads
+// `abandoned` beside a run that succeeded came from. A stop that cannot be
+// continued is the one exception, and it is observed where pauseForRedeploy
+// decides that (observeRestartEnded).
+func stoppedForRestart(ctx context.Context) bool {
+	_, drained := drainedForRedeploy(ctx)
+	return drained
+}
+
+// restartEndings is the outcome each state a restart can stop a run in has for
+// a run that ended there: the developer's and the reviewer's `stopped`, and the
+// check's `unrunnable`, which is what a check stage that judged nothing ends on.
+var restartEndings = map[string]string{
+	deliveryDevelop: "stopped",
+	deliveryCheck:   "unrunnable",
+	deliveryReview:  "stopped",
+}
+
+// observeRestartEnded records the ending of a run a restart stopped and which
+// could not be kept in flight, so pauseForRedeploy ends it as cancelled. Its
+// instance was left in the state it stood in when the stop was taken for a park
+// (stoppedForRestart), and the run is now not coming back to it, so the instance
+// is sent where that state's ending goes and both records say the run is over.
+//
+// The state is read off the instance rather than the run's phase, because the
+// instance is what is being stepped and observe refuses a state it is not
+// standing in. A state no restart stops a run in is left where it stands, and
+// the terminal write that follows records the gap (observeUnfinished).
+func (a *activeRun) observeRestartEnded(ctx context.Context) {
+	if a.trial == nil || a.trial.stopped != "" {
+		return
+	}
+	instance, err := a.trial.executor.Resume(a.trial.instance)
+	if err != nil || instance.Terminal {
+		return
+	}
+	if outcome, known := restartEndings[instance.State]; known {
+		a.observe(ctx, instance.State, outcome)
+	}
+}
+
 // observeDevelopEnded records what the developer's state produced when an
 // attempt stopped being made.
 //
-// A park is not an outcome, and neither is an escalation. Everything else that
-// ends a developer state is `stopped`, which is what the definition says it is:
-// the operator stopped the run, or the invocation failed in a way no relaunch
+// A park is not an outcome, and neither is an escalation or a stop for a
+// restart onto a new build (stoppedForRestart). Everything else that ends a
+// developer state is `stopped`, which is what the definition says it is: the
+// operator stopped the run, or the invocation failed in a way no relaunch
 // answers. The one ending that is neither is the spent relaunch budget, which is
 // observed where it is decided because that is the only place that knows the
 // budget is what ran out.
@@ -536,7 +587,7 @@ func (a *activeRun) observeDevelopEnded(ctx context.Context, err error) {
 	switch {
 	case err == nil:
 		a.observe(ctx, deliveryDevelop, "produced")
-	case parksTheRun(err), raisesAnEscalation(err):
+	case parksTheRun(err), raisesAnEscalation(err), stoppedForRestart(ctx):
 	default:
 		a.observe(ctx, deliveryDevelop, "stopped")
 	}
@@ -557,6 +608,13 @@ func (a *activeRun) observeDevelopEnded(ctx context.Context, err error) {
 // of the run and make the resumed run record a divergence that is this
 // classifier's own doing. Guarding costs nothing and does not depend on that
 // reading of `verify` staying true.
+//
+// A stop for a restart onto a new build is not `unrunnable` either, although
+// what `verify` returns for it is a cancelled check or the stop itself: the run
+// is kept in flight and its checks are run again by the session that comes back
+// (stoppedForRestart). It is asked only where nothing else was decided, because
+// a refusal or a failing check the stage reached before the stop is still the
+// round's verdict and still sends the run back to its developer.
 func (a *activeRun) observeCheckEnded(ctx context.Context, err error, unrepaired bool) {
 	if parksTheRun(err) {
 		return
@@ -602,6 +660,9 @@ func (a *activeRun) observeCheckEnded(ctx context.Context, err error, unrepaired
 			return
 		}
 		a.observe(ctx, deliveryCheck, "failed")
+		return
+	}
+	if stoppedForRestart(ctx) {
 		return
 	}
 	a.observe(ctx, deliveryCheck, "unrunnable")

@@ -8955,7 +8955,7 @@ func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
 	// here reports it as the step failing, and what it is instead is a run owed a
 	// continuation by the session that comes back.
 	if drained, forRedeploy := drainedForRedeploy(ctx); forRedeploy {
-		return a.pauseForRedeploy(drained, cause)
+		return a.pauseForRedeploy(ctx, drained, cause)
 	}
 	// A stop the operator asked for is the one ending here that is not a pause and
 	// not a failure of the work. It is recorded as cancelled, which is exactly
