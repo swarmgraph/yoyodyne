@@ -102,6 +102,21 @@ func (p MergeQueuePromoter) handBackConflictsUnder(ctx context.Context, worker *
 		found.problems = append(found.problems, fmt.Errorf("read the merge queue's entries to look for conflicts: %w", err))
 		return found
 	}
+	if working != "" {
+		// A pass gives what is owed as it recovers. While a candidate is verified,
+		// which can outlast a returned change's wait, it is given here.
+		for _, entry := range entries {
+			if ctx.Err() != nil {
+				break
+			}
+			given, err := p.giveReturned(ctx, worker, key, entry)
+			if err != nil {
+				found.problems = append(found.problems, err)
+			} else if given {
+				found.handedBack++
+			}
+		}
+	}
 	target, err := p.Lander.TargetCommit(ctx, key.TargetBranch)
 	if err != nil {
 		found.problems = append(found.problems, fmt.Errorf("read where %s stands to look for conflicts: %w", key.TargetBranch, err))
@@ -156,6 +171,21 @@ func (p MergeQueuePromoter) handBackConflictsUnder(ctx context.Context, worker *
 		}
 	}
 	return found
+}
+
+// giveReturned gives an entry handed back for a conflict to its run, where that
+// is still owed, and reports whether it was given.
+func (p MergeQueuePromoter) giveReturned(ctx context.Context, worker *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry) (bool, error) {
+	landing, found, err := p.Queue.Landing(key, entry.EntryID)
+	if err != nil || !found || landing.Handback == nil || landing.Handback.Conflict == nil || !handbackOwed(*landing.Handback) || p.Repair == nil {
+		// A landing record that cannot be read is said by the pass.
+		return false, nil
+	}
+	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
+	if err := q.handBack(ctx); err != nil {
+		return false, err
+	}
+	return !handbackOwed(*q.landing.Handback), nil
 }
 
 // conflictWith merges the entry's approved head onto target in memory, and is

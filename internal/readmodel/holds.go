@@ -1337,7 +1337,7 @@ func queuedChange(run runstate.State) string {
 	queued := run.MergeQueue
 	return fmt.Sprintf(
 		"run %s's approved change is in the merge queue for %s as entry %d, and neither a landing nor a hand-back is recorded on the run yet, so a fresh run would duplicate an approved change; the harness moves next, and the item stays out of every pull until the queue lands the change or the hand-back is recorded on the run",
-		run.RunID, queued.TargetBranch, queued.Order)
+		run.RunID, queued.TargetBranch, queued.Order) + returnedWaitSays(run, queued.EntryID)
 }
 
 // unreadQueuedChange is queuedChange where the queue's own record of the entry

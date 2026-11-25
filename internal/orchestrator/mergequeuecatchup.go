@@ -18,6 +18,10 @@ package orchestrator
 // checks it and has it reviewed again, and admits it to the queue again — all on the run's
 // own record, charged to neither the repair attempts nor the run count.
 //
+// What comes first is the wait for entries ahead that touch the conflicting
+// files, and a try at merging the change as it is
+// (mergequeueconflictwait.go).
+//
 // Nothing about the checks or the review is loosened: the reconciled change
 // earns both again exactly as a repaired one does. What follows the attempt is
 // what follows any developer attempt: a failing check or a review that does
@@ -170,6 +174,17 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 		return false, "", nil
 	}
 	notes := mergeQueueCatchUpNotes(entry, handback, marker)
+	if h.Returns != nil {
+		// A run admitted again since this hand-back is past it, whatever became
+		// of the new entry; only its record and its item may still be owed.
+		rejoined, found, err := h.Returns.Rejoined(entry)
+		if err != nil {
+			return false, "", fmt.Errorf("read whether run %s is back in the merge queue: %w", entry.RunID, err)
+		}
+		if found {
+			return true, "", h.recordRejoined(ctx, entry, handback, rejoined, runstate.ConflictWait{}, marker)
+		}
+	}
 	// A catch-up already made for this hand-back is only finished: the item is
 	// told, if it was not.
 	if conflict := state.ReplayConflict; conflict != nil && conflict.Reconciliation && strings.Contains(conflict.Detail, marker) && state.CatchingUpWithMergeQueueTarget() {
@@ -186,6 +201,12 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 		// An item somebody blocked or closed while the change waited is not one
 		// the harness puts a developer back to work on by itself.
 		return false, fmt.Sprintf("its item is %s rather than in progress", nonEmpty(item.Status, "of no recorded status")), nil
+	}
+	var wait runstate.ConflictWait
+	if h.Returns != nil {
+		if wait, err = h.waitForAhead(ctx, entry, handback, state); err != nil {
+			return false, "", err
+		}
 	}
 	// Asked before the run is taken up. The hand-back stays owed, so the attempt
 	// is made at the first pass the decision allows it.
@@ -204,6 +225,11 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 	if refusal := catchUpRefusal(adopted, handback, h.Checkouts != nil); refusal != "" {
 		return false, refusal, nil
 	}
+	if h.Returns != nil {
+		if rejoined, err := h.rejoin(ctx, entry, handback, adopted, wait, marker); rejoined || err != nil {
+			return rejoined, "", err
+		}
+	}
 	// The main checkout is asked before a cleared checkout is rebuilt, because
 	// rebuilding asks it too and a refusal there would stop the run for what
 	// is only a wait.
@@ -220,6 +246,10 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 	live := catchUpState(adopted, entry, handback, marker, h.now())
 	if err := h.CatchUp.ReserveLive(withPairs(ctx, h.SlotPairs), live, h.Capacity); err != nil {
 		if capacity, taken := slotTakenMeanwhile(err); taken {
+			// One waiting for the single slot it records takes no other.
+			if h.Returns != nil && capacity.Slot == 0 {
+				h.askForSlot(ctx, entry, wait)
+			}
 			return false, "", MergeQueueCatchUpWaiting{RunID: entry.RunID, TargetBranch: entry.TargetBranch, Why: slotWentElsewhere(capacity)}
 		}
 		return false, "", fmt.Errorf("put run %s back to bring its change up to date with %s: %w", entry.RunID, entry.TargetBranch, err)
