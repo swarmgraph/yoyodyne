@@ -646,6 +646,14 @@ type Trigger struct {
 	// trigger wired without it starts every firing, which is what every trigger
 	// did before passes could be skipped.
 	Changes PassChangeSources
+	// MayStart is the decision on what may start under the named epics, asked of
+	// each pass found due before anything is claimed for it. WouldStart is the
+	// same decision with nothing kept, which the check for missed passes asks,
+	// and EpicsChanged is when the operator last changed the epics named, zero
+	// where that is not known. See StartDecision.
+	MayStart     StartDecision
+	WouldStart   StartDecision
+	EpicsChanged func() time.Time
 }
 
 // RecurringBreakage is the report pile as a missed cadence files into it. It is
@@ -1095,6 +1103,9 @@ var ErrNoSummonableTask = errors.New("no enabled recurring task wakes the develo
 // covers every turn.
 func (t Trigger) Summon(ctx context.Context, summons BrakeSummons) (Fired, error) {
 	if err := t.validate(); err != nil {
+		return Fired{}, err
+	}
+	if err := t.MaySummon(summons); err != nil {
 		return Fired{}, err
 	}
 	if _, held, err := t.paused(); err != nil {

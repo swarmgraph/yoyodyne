@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 )
 
 // ScheduleIntake is the project's scheduled intake queries, which a watching
@@ -28,6 +30,8 @@ type intakeRuns struct {
 	done     chan intakeRunDone
 	ctx      context.Context
 	cancel   context.CancelFunc
+	// mayStart is the decision on what may start, as the last pull wired it.
+	mayStart StartDecision
 }
 
 type intakeRunDone struct {
@@ -51,6 +55,11 @@ func (s Scheduler) startIntakeRuns(schedule *Schedule, intake ScheduleIntake, ru
 	for _, query := range due {
 		if runs.inFlight[query] {
 			continue
+		}
+		// Asked before the reader runs, so a refusal reads no message and moves
+		// no query's time. It is the same answer for every query.
+		if !runs.mayStart.allows(maystart.MessageReading()) {
+			return
 		}
 		runs.inFlight[query] = true
 		schedule.IntakeRuns++
