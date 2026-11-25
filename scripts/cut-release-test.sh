@@ -54,6 +54,9 @@ unset VERSION
 # And it reads GH for the forge's command line, which every case here supplies
 # a stub for, so a caller's own would reach the real forge.
 unset GH
+# A harness running this suite inside a cut, or a machine with a tracker set,
+# would otherwise reach the cases that check which steps see one.
+unset YOYODYNE_RELEASE_BEADS_DIR ${!BEADS_@} ${!BD_@}
 
 step()   { printf '\n=== %s\n' "$*"; }
 pass()   { printf '  ok: %s\n' "$*"; }
@@ -1084,6 +1087,107 @@ cut_automatic() {
 # detach leaves a fabricated repository's checkout on a detached HEAD at the
 # commit it is on, which is how the harness's own worktree for a cut stands.
 detach() { git -C "$1" checkout -q --detach HEAD; }
+
+# settings prints a stub's recording of the tracker settings it was run with,
+# and then writes into the tracker they name, as the walkthrough's bd would.
+settings() {
+  printf '%s\n' "env | grep -E '^(BEADS_|BD_|YOYODYNE_RELEASE_BEADS_DIR)' | sort > '$scratch/$1-settings' || true"
+  printf '%s\n' 'if [ -n "${BEADS_DIR:-}" ] && [ "'"$1"'" != readiness ]; then echo leaked >> "$BEADS_DIR/database"; fi'
+}
+
+# watched makes every step of a fabricated cut record those settings.
+watched() {
+  local project="$1" target
+  { head -1 "$project/bin/yoyo"; settings readiness; tail -n +2 "$project/bin/yoyo"; } > "$scratch/watched"
+  cp -f "$scratch/watched" "$project/bin/yoyo"
+  { echo '#!/usr/bin/env bash'; settings walkthrough; echo 'echo "  ok: walked"'; } > "$project/scripts/walk-getting-started.sh"
+  for target in build check dist-verify; do
+    { echo '#!/usr/bin/env bash'; settings "$target"; } > "$project/scripts/record-$target.sh"
+    awk -v target="$target" '{ print } $0 == target ":" { print "\t@bash scripts/record-" target ".sh" }' \
+      "$project/Makefile" > "$scratch/watched"
+    cp -f "$scratch/watched" "$project/Makefile"
+  done
+  git -C "$project" add -A
+  git -C "$project" commit -qm "every step records its tracker settings"
+  rm -rf "$scratch/live" "$scratch"/*-settings
+  mkdir -p "$scratch/live"
+  echo "the live tracker" > "$scratch/live/database"
+}
+
+# only_readiness checks what watched recorded: the readiness check had $1, no
+# other step had any setting, and the tracker was not written to.
+only_readiness() {
+  local target
+  contains "$(cat "$scratch/readiness-settings" 2>&1)" "$1" "the readiness check had $1"
+  for target in build walkthrough check dist-verify; do
+    if [ -f "$scratch/$target-settings" ] && [ ! -s "$scratch/$target-settings" ]; then
+      pass "$target ran with no tracker setting"
+    else
+      fail "$target did not run with no tracker setting -- got: $(cat "$scratch/$target-settings" 2>&1)"
+    fi
+  done
+  if [ "$(cat "$scratch/live/database")" = "the live tracker" ]; then
+    pass "the tracker was left unchanged"
+  else
+    fail "the cut wrote to the tracker: $(cat "$scratch/live/database")"
+  fi
+}
+
+step "only the readiness check of a cut is pointed at the tracker"
+project="$(fabricate tracker-automatic green green)"
+watched "$project"
+origin_for "$project" >/dev/null
+detach "$project"
+export YOYODYNE_RELEASE_BEADS_DIR="$scratch/live"
+cut_automatic "$project" "v0.3.0"
+unset YOYODYNE_RELEASE_BEADS_DIR
+if [ "$status" = "0" ]; then pass "the harness's cut exits 0"; else fail "it exited $status -- got: $output"; fi
+only_readiness "BEADS_DIR=$scratch/live"
+
+project="$(fabricate tracker-person green green)"
+watched "$project"
+origin_for "$project" >/dev/null
+if output="$(PATH="$project/bin:$PATH" BEADS_DIR="$scratch/live" BEADS_DOLT_SERVER_PORT=1 BD_ACTOR=somebody \
+    "$project/scripts/cut-release.sh" "v0.3.0" 2>&1)"; then status=0; else status=$?; fi
+if [ "$status" = "0" ]; then pass "a person's cut exits 0"; else fail "it exited $status -- got: $output"; fi
+only_readiness "BEADS_DIR=$scratch/live"
+
+# The real walkthrough, as far as its first tracker command, with everything it
+# needs before that stubbed and a bd that refuses the command $walk_fails_at
+# names.
+walk="$scratch/walk"
+mkdir -p "$walk/scripts" "$walk/bin" "$walk/tools"
+cp "$repository/scripts/walk-getting-started.sh" "$walk/scripts/"
+printf 'go 1.25\n' > "$walk/go.mod"
+printf 'nothing\n' > "$walk/README.md"
+printf 'build:\n\t@true\n' > "$walk/Makefile"
+printf '#!/usr/bin/env bash\necho v0.0.0\n' > "$walk/bin/yoyo"
+printf '#!/usr/bin/env bash\necho stub\n' > "$walk/tools/go"
+cat > "$walk/tools/bd" <<SH
+#!/usr/bin/env bash
+env | grep -E '^(BEADS_|BD_)' >> "$scratch/bd-settings"
+[ -z "\${BEADS_DIR:-}" ] || echo leaked >> "\$BEADS_DIR/database"
+echo "\$*" >> "$scratch/bd-commands"
+if [ "\$1" = "\$WALK_FAILS_AT" ]; then
+  printf 'Error:\nthis workspace is\nrefused\n' >&2
+  exit 7
+fi
+[ "\$1" != "init" ] || mkdir .beads
+SH
+chmod +x "$walk/bin/yoyo" "$walk/tools/go" "$walk/tools/bd"
+printf 'the live tracker\n' > "$scratch/live/database"
+for command in init ready; do
+  step "the walkthrough run by hand clears tracker settings, and says what a failing bd $command said"
+  rm -f "$scratch/bd-settings" "$scratch/bd-commands"
+  if output="$(PATH="$walk/tools:$PATH" WALK_FAILS_AT="$command" BEADS_DIR="$scratch/live" BEADS_DB="$scratch/live" \
+      BD_ACTOR=somebody bash "$walk/scripts/walk-getting-started.sh" 2>&1)"; then status=0; else status=$?; fi
+  if [ "$status" != "0" ]; then pass "it fails"; else fail "it exited 0 -- got: $output"; fi
+  contains "$output" "$(printf 'this workspace is\nrefused')" "it prints bd's own message"
+  contains "$output" "FAIL: bd $command exited 7, saying: Error: this workspace is refused" "and a FAIL line naming it"
+  contains "$(tail -1 "$scratch/bd-commands" 2>&1)" "$command" "no tracker command follows the one that failed"
+  if [ ! -s "$scratch/bd-settings" ]; then pass "bd ran with no tracker setting"; else fail "bd had: $(cat "$scratch/bd-settings")"; fi
+  if [ "$(cat "$scratch/live/database")" = "the live tracker" ]; then pass "the caller's tracker was left unchanged"; else fail "the walkthrough wrote to the caller's tracker"; fi
+done
 
 step "the harness's cut: missing notes hand the release back, drafting nothing"
 project="$(fabricate automatic-absent green green absent)"
