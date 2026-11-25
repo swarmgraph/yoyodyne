@@ -1019,6 +1019,7 @@ func (p *product) releaseCutter(repository string, reports *runstate.ReportStore
 		Remote:       cfg.Execution.Remote,
 		WorkRoot:     filepath.Join(home.ProductDirectory(p.stateRoot, string(cfg.Product.ID)), "release-cut"),
 		Environ:      execution.WithStartedBy(slack.WithoutSecrets(p.environ), maintain.StartedByMaintenance),
+		RedactValues: execution.SensitiveEnvironmentValues(p.environ),
 		CutBy:        fmt.Sprintf("%s, process %d on %s", maintain.StartedByMaintenance, os.Getpid(), host),
 		Runner:       p.runner,
 		Tracker:      beads.Client{Runner: p.runner, Dir: repository, Timeout: chatTrackerTimeout},
