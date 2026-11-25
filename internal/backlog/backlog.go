@@ -689,27 +689,31 @@ func startable(item beads.WorkItem, reportedReady bool, waiting []string, held H
 // admission time the tracker did not give goes after the ones it did, in the
 // order it arrived, rather than being read as the oldest of all.
 func Sort(items []beads.WorkItem) {
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Priority != items[j].Priority {
-			return items[i].Priority < items[j].Priority
+	sort.SliceStable(items, func(i, j int) bool { return Before(items[i], items[j]) })
+}
+
+// Before reports whether left goes ahead of right in the order Sort puts them
+// in. It is exported so that a check on whether a change to one item moves it
+// past another asks the order itself rather than a copy of it.
+func Before(left, right beads.WorkItem) bool {
+	if left.Priority != right.Priority {
+		return left.Priority < right.Priority
+	}
+	leftPlaced, rightPlaced := left.PlacedFirst(), right.PlacedFirst()
+	switch {
+	case leftPlaced != nil && rightPlaced != nil:
+		if !leftPlaced.At.Equal(rightPlaced.At) {
+			return leftPlaced.Before(*rightPlaced)
 		}
-		leftPlaced, rightPlaced := items[i].PlacedFirst(), items[j].PlacedFirst()
-		switch {
-		case leftPlaced != nil && rightPlaced != nil:
-			if !leftPlaced.At.Equal(rightPlaced.At) {
-				return leftPlaced.Before(*rightPlaced)
-			}
-		case leftPlaced != nil || rightPlaced != nil:
-			return leftPlaced != nil
-		}
-		left, right := items[i].CreatedAt, items[j].CreatedAt
-		switch {
-		case left.IsZero() || right.IsZero():
-			return !left.IsZero() && right.IsZero()
-		default:
-			return left.Before(right)
-		}
-	})
+	case leftPlaced != nil || rightPlaced != nil:
+		return leftPlaced != nil
+	}
+	switch {
+	case left.CreatedAt.IsZero() || right.CreatedAt.IsZero():
+		return !left.CreatedAt.IsZero() && right.CreatedAt.IsZero()
+	default:
+		return left.CreatedAt.Before(right.CreatedAt)
+	}
 }
 
 // PlacementLine is the line a listing shows beside an entry placed first among
