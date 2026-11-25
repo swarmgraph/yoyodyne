@@ -195,6 +195,10 @@ type MergeQueueGeneration struct {
 	// AuthorSession is the provider session that wrote the entry's change, which
 	// the candidate's reviewer must not be.
 	AuthorSession string `json:"author_session"`
+	// OtherAuthors are the other sessions that wrote part of the change, such as
+	// the one that wrote it before a conflict was resolved in a new session. No
+	// reviewer may be any of them either.
+	OtherAuthors []string `json:"other_author_sessions,omitempty"`
 	// CreatedAt is when the generation was recorded, which is before any check
 	// ran on it.
 	CreatedAt time.Time `json:"created_at"`
@@ -284,7 +288,17 @@ func (g MergeQueueGeneration) Binding() string {
 	writeBound(sum, g.Content)
 	writeBound(sum, g.Checks.Digest)
 	writeBound(sum, g.AuthorSession)
+	// Written only where there are some, so a generation recorded before other
+	// authors were keeps its binding.
+	for _, author := range g.OtherAuthors {
+		writeBound(sum, author)
+	}
 	return hex.EncodeToString(sum.Sum(nil))
+}
+
+// AuthoredBy reports a session that wrote any part of the entry's change.
+func (g MergeQueueGeneration) AuthoredBy(session string) bool {
+	return session == g.AuthorSession || slices.Contains(g.OtherAuthors, session)
 }
 
 // MergeQueueAhead is the candidate a generation was built on while that
@@ -708,8 +722,8 @@ func (g MergeQueueGeneration) Gate(configured MergeQueueCheckConfiguration) erro
 		return refuse("its reviewer decided %q, not approve", verdict.Decision)
 	case strings.TrimSpace(verdict.SessionID) == "" || strings.TrimSpace(verdict.Model) == "":
 		return refuse("its review recorded no session or model")
-	case verdict.SessionID == g.AuthorSession:
-		return refuse("its reviewer is the session that wrote the change")
+	case g.AuthoredBy(verdict.SessionID):
+		return refuse("its reviewer is a session that wrote the change")
 	}
 	return nil
 }
@@ -750,6 +764,11 @@ func (g MergeQueueGeneration) validateBinding() error {
 	}
 	if err := mergeQueueText("author session", g.AuthorSession, true); err != nil {
 		problems = append(problems, err)
+	}
+	for _, author := range g.OtherAuthors {
+		if err := mergeQueueText("other author session", author, true); err != nil {
+			problems = append(problems, err)
+		}
 	}
 	if g.CreatedAt.IsZero() {
 		problems = append(problems, errors.New("creation time is required"))

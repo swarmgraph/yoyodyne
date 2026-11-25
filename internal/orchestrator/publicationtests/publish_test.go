@@ -970,8 +970,8 @@ func TestPipelineReplacesAPublishedBranchWithTheReconciledReplayConflict(t *test
 		t.Fatalf("Run() outcome = %#v, published = %q; want the reconciled change promoted and published", outcome, *published)
 	}
 	developers := provider.RequestsForRole(domain.RoleDeveloper)
-	if len(developers) != 2 || developers[1].SessionID != provider.DeveloperSession {
-		t.Fatalf("developer invocations = %d, want the first attempt and one reconciliation in the same session", len(developers))
+	if len(developers) != 2 || developers[1].SessionID != "" {
+		t.Fatalf("developer invocations = %d, want the first attempt and one reconciliation in a new session", len(developers))
 	}
 	if !markersSeen || !strings.Contains(developers[1].Prompt, "Integration conflict: bring the change level with the target") {
 		t.Fatalf("the reconciling developer was not handed the conflict (markers seen = %t):\n%s", markersSeen, developers[1].Prompt)

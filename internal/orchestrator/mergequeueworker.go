@@ -243,7 +243,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 		return outcome, fmt.Errorf("read run %s, which merge queue entry %d was admitted for: %w", entry.RunID, entry.Order, err)
 	}
 	author := mergeQueueAuthor(run)
-	if author == "" {
+	if author.Session == "" {
 		return outcome, fmt.Errorf("run %s records no developer session, so no reviewer can be shown to be independent of it", entry.RunID)
 	}
 	// A candidate checked ahead (mergequeueahead.go) runs beside this entry's
@@ -285,7 +285,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 // verify takes one generation as far as it goes: to a gate it passes or
 // refuses, to a wait, or to the target moving under it, which is reported by
 // returning with neither a verdict nor a refusal so the caller builds again.
-func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, author string, configured runstate.MergeQueueCheckConfiguration, outcome MergeQueueVerification, ahead *aheadCheck) (MergeQueueVerification, error) {
+func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, author mergeQueueAuthors, configured runstate.MergeQueueCheckConfiguration, outcome MergeQueueVerification, ahead *aheadCheck) (MergeQueueVerification, error) {
 	generation, err := w.current(ctx, lease, key, entry, author, configured, outcome.Choice.Selection(), &outcome.CheckoutRetries)
 	outcome.Generation = generation
 	if err != nil {
@@ -442,7 +442,7 @@ func (w MergeQueueWorker) now() time.Time {
 //
 // Each checkout attempt that failed outside the change and was tried again is
 // added to retried.
-func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, selection *runstate.MergeQueueSelection, retried *[]string) (runstate.MergeQueueGeneration, error) {
+func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author mergeQueueAuthors, configured runstate.MergeQueueCheckConfiguration, selection *runstate.MergeQueueSelection, retried *[]string) (runstate.MergeQueueGeneration, error) {
 	generations, err := w.Queue.Generations(key, entry.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, err
@@ -492,7 +492,7 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 // the target as it stands, or, for a candidate checked ahead, on the candidate
 // of the entry ahead of it. Each checkout attempt that failed outside the
 // change and was tried again is added to retried.
-func (w MergeQueueWorker) build(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, number uint64, ahead *runstate.MergeQueueAhead, selection *runstate.MergeQueueSelection, retried *[]string) (runstate.MergeQueueGeneration, error) {
+func (w MergeQueueWorker) build(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author mergeQueueAuthors, configured runstate.MergeQueueCheckConfiguration, number uint64, ahead *runstate.MergeQueueAhead, selection *runstate.MergeQueueSelection, retried *[]string) (runstate.MergeQueueGeneration, error) {
 	request := gitworktree.QueueCandidateRequest{
 		Entry:        entry.EntryID,
 		TargetBranch: key.TargetBranch,
@@ -540,7 +540,8 @@ func (w MergeQueueWorker) build(ctx context.Context, lease *runstate.Lease, key 
 		Candidate:     candidate.Commit,
 		Content:       candidate.Tree,
 		Checks:        configured,
-		AuthorSession: author,
+		AuthorSession: author.Session,
+		OtherAuthors:  author.Others,
 		CreatedAt:     w.now(),
 		BuiltAhead:    ahead,
 		Selection:     selection,

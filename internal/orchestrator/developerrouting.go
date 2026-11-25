@@ -857,6 +857,7 @@ func (a *activeRun) prepareDeveloperAttempt(ctx context.Context, route *develope
 			// recorded, so it is not offered to this one.
 			request.Mode = runstate.SessionReconstruction
 			sessionID = ""
+			a.state.RecordWritingSession(a.state.ProviderSessionID, a.pipeline.clock().Now())
 			a.state.ProviderSessionID = ""
 			a.outcome.ProviderSessionID = ""
 			prompt = a.reconstructedPrompt(prompt, last, endpoint)
@@ -1125,6 +1126,7 @@ func (a *activeRun) switchDeveloperEndpoint(ctx context.Context, route *develope
 	a.applyDeveloperEndpoint(runstate.EndpointAlternate, *snapshot.Alternate)
 	// The session belongs to the endpoint that opened it; the alternate's
 	// first attempt starts its own.
+	a.state.RecordWritingSession(a.state.ProviderSessionID, a.pipeline.clock().Now())
 	a.state.ProviderSessionID = ""
 	a.outcome.ProviderSessionID = ""
 	a.state.UpdatedAt = now

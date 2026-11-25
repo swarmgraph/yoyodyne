@@ -151,9 +151,14 @@ type WorktreeManager interface {
 	RebaseOntoTarget(ctx context.Context, worktree gitworktree.Worktree, message string) (gitworktree.Rebase, error)
 	// ReplayForRepair is the other, and it is what a refused replay is answered
 	// with: the change moved onto the target anyway, with whatever would not merge
-	// left in the worktree as conflict markers for its author to settle. It
+	// left in the worktree as conflict markers for a developer to settle. It
 	// resolves nothing either — leaving the disagreement is the point.
 	ReplayForRepair(ctx context.Context, worktree gitworktree.Worktree, message string) (gitworktree.Rebase, error)
+	// RangeChanges is what one commit changed over another, and CommitsTouching
+	// the commits between them that touch named paths, with how many more there
+	// are. Both are what a session that resolves a conflict is shown.
+	RangeChanges(ctx context.Context, baseCommit, headCommit string, limits gitworktree.DiffLimits) (gitworktree.ChangeDiff, error)
+	CommitsTouching(ctx context.Context, baseCommit, headCommit string, paths []string, maxCommits int) ([]gitworktree.Commit, int, error)
 	CleanupIntegrated(ctx context.Context, request gitworktree.CleanupRequest) (gitworktree.Cleanup, error)
 	// The publishing half. RemoteConfigured is what lets a repository with no
 	// remote degrade to purely local behavior instead of failing; PublishBranch
@@ -2537,6 +2542,15 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		if err != nil {
 			return run.fail(err, runstate.StatusFailed)
 		}
+		session := state.ProviderSessionID
+		// The attempt to bring an approved change up to date is made in a session
+		// of its own, so what is resumed is that session and never the one that
+		// wrote the change (conflictresolution.go).
+		if state.ResolvingInNewSession() {
+			run.state.RecordWritingSession(state.ProviderSessionID, p.clock().Now())
+			prompt = run.conflictResolutionPrompt(ctx)
+			session = state.ResolvingSession()
+		}
 		// The item was read as this run was taken up, so it is as it stands now. A
 		// continued attempt that had nothing handed back is given the whole item by
 		// its prompt, and is told only what was decided.
@@ -2547,12 +2561,12 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		}
 		// With no session to resume, the developer starts fresh and knows only what
 		// the prompt says, so it is handed the work item and the run's record too.
-		if state.ProviderSessionID == "" && handedBackRepair(state) {
+		if session == "" && handedBackRepair(state) && !state.ResolvingInNewSession() {
 			prompt = freshSessionRepairPrompt(prompt, p.developer().Persona.Text, bundle.Text, state)
 		}
 		// A session that is not resumed was never told about the project's
 		// install steps, so it is told now.
-		if state.ProviderSessionID == "" {
+		if session == "" {
 			prompt = withInstallSection(prompt, p.Config.Install)
 		}
 		// A run that started on the cheaper model and is resumed to repair a
@@ -2567,7 +2581,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		// here by whichever process picks the run up rather than by the one that
 		// put it down.
 		run.observe(ctx, deliveryDevelop, "reissued")
-		if err := run.develop(ctx, prompt, state.ProviderSessionID); err != nil {
+		if err := run.develop(ctx, prompt, session); err != nil {
 			return run.stop(ctx, err)
 		}
 	}
@@ -2593,10 +2607,12 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 // A refused replay is the exception that proves the ordering rather than one
 // against it. It is answered first because it is the only input decided after
 // every gate has passed, and every gate that decides another one clears it, so a
-// run still carrying one carries the most recent trigger there is.
+// run still carrying one carries the most recent trigger there is. The one
+// attempt to bring an approved change up to date is not built here: the caller
+// builds its prompt, which reads the repository (conflictresolution.go).
 func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, protected protectedpath.Set, limit int) (string, error) {
 	switch {
-	case state.ReplayConflict != nil && state.ReplayConflict.Reconciliation:
+	case state.ResolvingConflict():
 		return replayConflictReconcilePrompt(invariants, scratchDirectory, checks, limits, *state.ReplayConflict), nil
 	case state.ReplayConflict != nil && state.BringingPersonMergeUpToDate() && state.UpToDateConflicts > 0:
 		return upToDateConflictPrompt(invariants, scratchDirectory, checks, limits, *state.ReplayConflict, state.UpToDateConflicts), nil
@@ -2628,7 +2644,7 @@ func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, s
 //
 // A refused replay is recorded on a run whose budget is spent too, before the
 // run stops, and that is deliberate: it is what lets a repair triage grants
-// afterwards hand the same developer the same conflict in the same session
+// afterwards hand the same conflict to the run's current session
 // rather than leaving a re-run as the only way on.
 func handedBackRepair(state runstate.State) bool {
 	return state.HandedBack()
@@ -3403,8 +3419,8 @@ func (a *activeRun) blockOnLostRaces(cause error) error {
 //
 // A replay that conflicts is not another retry, and it is not the end of the
 // line either: the harness still decides nothing about which side is right, but
-// the developer that wrote the change is asked to reconcile it before anybody
-// else is. Only a run whose repair budget is spent hands the conflict to a
+// a developer is asked to reconcile it before anybody else is: a new session for
+// the first conflict, and the run's current one for a later one. Only a run whose repair budget is spent hands the conflict to a
 // person.
 func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (bool, error) {
 	// The first refusal for drift of a promotion a repair resumed after lost
@@ -3695,18 +3711,16 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 	return stoppedBy(runstate.StopIntegrationBudget, blocked)
 }
 
-// continueOnRebaseConflict hands a change that cannot be replayed back to the
-// developer that wrote it, and reports whether the run may go round the gate
+// continueOnRebaseConflict hands a change that cannot be replayed back to a
+// developer, and reports whether the run may go round the gate
 // again.
 //
 // It is the repair loop applied to the one failure that used to end a run
 // outright, and what changed is who is asked rather than what the harness
 // decides: nothing is forced, no side is chosen, and neither answer is
-// discarded. The developer is asked because it is the one party that already
-// knows what this change was for, its session and worktree are still open, and
-// reconciling its own work with what the target became is the same kind of work
-// every other repair asks for — at a continuation's price rather than a fresh
-// run's.
+// discarded. Reconciling the change with what the target became is the same
+// kind of work every other repair asks for, in the same worktree and on the same
+// run.
 //
 // It is not asked to answer from where the change sits, because a resolution
 // written there is another change to lines the target has already changed and
@@ -3736,7 +3750,7 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 // how many times a run may ask a developer. A run that has spent either stops
 // with both sides intact, says that its reconciliation attempt was already
 // used, and carries the conflict on its record so a repair triage grants
-// afterwards hands the same developer the same disagreement.
+// afterwards hands its developer the same disagreement.
 func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (bool, error) {
 	if a.state.HarnessAuthored() {
 		a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()), cause)
@@ -3774,16 +3788,21 @@ func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (
 }
 
 // reconcile records the run's one reconciliation attempt and hands the
-// conflict, moved onto the target here where that is still owed, to the
-// developer that wrote the change. It is repair without the count: recorded
-// before the developer is invoked, so an interrupted attempt is still the one
-// the run had, and the same session continues in the same worktree. The
-// reconciled change earns nothing on its way through; the caller re-enters the
-// gate, so it is checked again and reviewed again before it can land.
+// conflict, moved onto the target here where that is still owed, to a
+// developer. An approved change goes to a new developer session
+// (conflictresolution.go); one that conflicted while it waited for the forge's
+// checks, before any review, goes on in the session that wrote it
+// (ciconflict.go). It is repair without the count: recorded before the
+// developer is invoked, so an interrupted attempt is still the one the run had,
+// and made in the same worktree. The session that wrote the change is recorded
+// as an author of it. The reconciled change earns nothing on its way through;
+// the caller re-enters the gate, so it is checked again and reviewed again
+// before it can land.
 func (a *activeRun) reconcile(ctx context.Context) error {
 	conflict := *a.state.ReplayConflict
 	conflict.Reconciliation = true
 	a.state.ReplayConflict = &conflict
+	a.state.RecordWritingSession(a.state.ProviderSessionID, a.pipeline.clock().Now())
 	a.state.Reconciliation = &runstate.Reconciliation{
 		TargetBranch: conflict.TargetBranch,
 		TargetCommit: conflict.TargetCommit,
@@ -3803,7 +3822,14 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
-	return a.develop(ctx, a.handBackForRepair(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.ReplayConflict)), a.state.ProviderSessionID)
+	prompt, session := "", ""
+	if a.state.ResolvingInNewSession() {
+		prompt = withInstallSection(a.conflictResolutionPrompt(ctx), a.pipeline.Config.Install)
+	} else {
+		prompt = replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.ReplayConflict)
+		session = a.state.ProviderSessionID
+	}
+	return a.develop(ctx, a.handBackForRepair(ctx, prompt), session)
 }
 
 // moveOntoTargetForRepair puts the run's change onto the target with the
@@ -3827,6 +3853,7 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 // read as the request having been merged; the next attempt's own commit replaces
 // the published branch instead, from exactly the commit the harness put there.
 func (a *activeRun) moveOntoTargetForRepair(ctx context.Context) error {
+	a.keepApproved()
 	a.clearReviewEvidence()
 	rebase, err := a.pipeline.Worktrees.ReplayForRepair(ctx, a.worktree, integrationMessage(a.item, a.outcome))
 	if err != nil {
@@ -3847,7 +3874,7 @@ func (a *activeRun) moveOntoTargetForRepair(ctx context.Context) error {
 		}
 		a.recordHarnessCommit(harnessCommit)
 	}
-	a.state.ReplayConflict.Moved = true
+	a.noteMoved(rebase)
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save the change moved onto the target: %w", err)
@@ -5409,6 +5436,12 @@ func (a *activeRun) carrySession(reported, current string) string {
 	if reported == "" {
 		return current
 	}
+	// A session the run leaves for another wrote part of the change, and one that
+	// is resolving a conflict is recorded as it reports itself.
+	if a.state.ProviderSessionID != reported {
+		a.state.RecordWritingSession(a.state.ProviderSessionID, a.pipeline.clock().Now())
+	}
+	a.state.RecordResolvingSession(reported, a.pipeline.clock().Now())
 	a.state.ProviderSessionID = reported
 	a.outcome.ProviderSessionID = reported
 	return reported
@@ -10492,8 +10525,8 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		attribution.AccountAlias, attribution.Backend = route.endpoint.AccountAlias, route.endpoint.Provider
 		attribution.Billing = p.Config.AccountBilling(route.endpoint.AccountAlias)
 		reask = a.reviewReask(reask, route)
-	} else if reask != nil && reask.SessionID != "" && reask.SessionID == a.state.ProviderSessionID {
-		// The developer's session is never the reviewer's to resume.
+	} else if reask != nil && a.state.AuthoredBy(reask.SessionID) {
+		// A session that wrote any of the change is never the reviewer's to resume.
 		changed := *reask
 		changed.SessionID = ""
 		reask = &changed
@@ -11536,8 +11569,8 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, lim
 // expensive way this could go wrong. The harness contract is repeated for the
 // reason every repair prompt repeats it: it bounds the attempt whether or not
 // the provider actually restored the session it was asked to resume.
-// replayConflictRepairPrompt hands a refused replay back to the developer that
-// wrote the change. What it describes is a worktree that has already been moved
+// replayConflictRepairPrompt hands a refused replay back to the run's current
+// developer session as a repair. What it describes is a worktree that has already been moved
 // onto the target, so both answers are in front of the developer with Git's
 // markers between them — the state a person resolving a rebase by hand works
 // in, and the only state in which this is answerable at all.
@@ -11552,8 +11585,9 @@ func replayConflictRepairPrompt(invariants, scratchDirectory string, checks []st
 }
 
 // replayConflictReconcilePrompt is the same hand-back made as the run's one
-// reconciliation attempt (activeRun.reconcile), which the developer is told is
-// not one of its repair attempts and will not be offered twice.
+// reconciliation attempt (activeRun.reconcile) on a change no review has
+// approved, which the developer is told is not one of its repair attempts and
+// will not be offered twice.
 func replayConflictReconcilePrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, conflict runstate.ReplayConflict) string {
 	return replayConflictPrompt(invariants, scratchDirectory, checks, limits, conflict, "# Integration conflict: bring the change level with the target\n\n",
 		"This is the run's one attempt to bring your change level with the target branch; it is not counted against your repair attempts, and a second conflict after it is not given another one of these.")
@@ -11883,7 +11917,7 @@ func renderMissingPreservedChangeNotes(outcome Outcome, failure string) string {
 // being handed. A conflict the run's own developer was asked to settle and could
 // not is a disagreement worth a person's judgement; one reached with the budget
 // already spent on something else is work still waiting for that developer, and
-// a repair triage grants hands it exactly this conflict in the same session.
+// a repair triage grants hands it exactly this conflict in the run's current session.
 func renderRebaseConflictNotes(outcome Outcome, failure string, conflict *runstate.ReplayConflict, limit int) string {
 	headline := "Yoyodyne stopped this item: its target branch moved, and this change conflicts with what the target now holds."
 	if outcome.Reconciliation != nil {

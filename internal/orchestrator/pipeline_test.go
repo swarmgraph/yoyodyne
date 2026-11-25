@@ -1681,13 +1681,12 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 }
 
 // yoyodyne-ifd.132: an approved change whose replay conflicts is handed back to
-// the developer that wrote it, in the session it already has, rather than ending
-// the run. The change is moved onto the target with the disagreement left as
+// a new developer session on the same run, rather than ending the run. The change is moved onto the target with the disagreement left as
 // Git's markers, the developer settles it, and the settlement passes through the
 // same gate as any repair — the checks again and a fresh independent verdict —
 // before it is promoted. The cost is the run's one reconciliation attempt, which
 // is no repair attempt and no fresh run (yoyodyne-ifd.429.96).
-func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
+func TestAReplayConflictIsReconciledInANewSessionAndLands(t *testing.T) {
 	t.Parallel()
 
 	repository := pipelineRepository(t)
@@ -1733,19 +1732,20 @@ func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
 	if !markersSeen {
 		t.Fatal("the developer was not handed the change moved onto the target with the conflict left in it")
 	}
-	for _, want := range []string{"Integration conflict: bring the change level with the target", "not counted against your repair attempts", "docs/design.md"} {
+	for _, want := range []string{"Integration conflict: bring the change level with the target", "not counted against your repair attempts", "docs/design.md",
+		"# The development manager's decision", "# The work item as it stands now"} {
 		if !strings.Contains(reconciliationPrompt, want) {
 			t.Fatalf("reconciliation prompt does not say %q:\n%s", want, reconciliationPrompt)
 		}
 	}
-	// The same developer session was continued rather than a fresh one started.
+	// A new developer session was started rather than the writer's continued.
 	var developerRequests, reviews int
 	for _, request := range provider.Requests {
 		switch request.Role {
 		case domain.RoleDeveloper:
 			developerRequests++
-			if developerRequests == 2 && request.SessionID != "developer-session" {
-				t.Fatalf("the reconciliation ran in session %q, want the developer's own session continued", request.SessionID)
+			if developerRequests == 2 && request.SessionID != "" {
+				t.Fatalf("the reconciliation resumed session %q, want a new session", request.SessionID)
 			}
 		case domain.RoleReviewer:
 			reviews++

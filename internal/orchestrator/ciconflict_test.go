@@ -66,6 +66,19 @@ func (f *ciFixture) developerPrompts() []string {
 	return prompts
 }
 
+// lastDeveloperSession is the session the developer was last asked to resume.
+func (f *ciFixture) lastDeveloperSession() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	session := ""
+	for _, provider := range f.providers {
+		for _, request := range provider.RequestsForRole(domain.RoleDeveloper) {
+			session = request.SessionID
+		}
+	}
+	return session
+}
+
 func waitingOnPullRequest(runID string, at time.Time) runstate.State {
 	head := strings.Repeat("c", 40)
 	return runstate.State{RunID: runID, TargetBranch: "main",
@@ -238,6 +251,14 @@ func TestAConflictInTheWaitGoesToTheDeveloperOnceAndThenStops(t *testing.T) {
 	if f.developed != 2 || !strings.Contains(last, "waiting for its required checks on GitHub") || !strings.Contains(last, "feature.txt") || !strings.Contains(last, "The development manager's decision") || strings.Contains(last, "was approved") {
 		t.Fatalf("developed %d times, last prompt:\n%s", f.developed, last)
 	}
+	// No review approved this change, so it goes on in the session that wrote it,
+	// which is recorded as having resolved the conflict too.
+	if session := f.lastDeveloperSession(); session != "developer-session" {
+		t.Fatalf("the conflict was settled in session %q, want the writer's", session)
+	}
+	if authors := state.AuthorSessions; len(authors) != 2 || authors[1].SessionID != "developer-session" || authors[1].Work != runstate.AuthorResolvedConflict {
+		t.Fatalf("author sessions = %#v", authors)
+	}
 	if f.reviewed() != 0 || logLines(t, f.fullLog) != 0 || f.forge.pushed() != 2 || state.CIWait.Commit == parked.CIWait.Commit {
 		t.Fatalf("reviews=%d full=%d pushes=%d wait=%#v", f.reviewed(), logLines(t, f.fullLog), f.forge.pushed(), state.CIWait)
 	}
@@ -286,6 +307,13 @@ func TestAnInterruptedConflictAttemptIsMadeAgainAndNotCountedTwice(t *testing.T)
 	outcome, err := f.pipeline(t, true).Run(context.Background(), f.tracker.Item.ID)
 	if err != nil || outcome.PausedByCIWait == nil {
 		t.Fatalf("Run() = %#v, %v, want the settled change waiting", outcome, err)
+	}
+	if session := f.lastDeveloperSession(); session != "developer-session" {
+		t.Fatalf("the attempt was made again in session %q, want the writer's", session)
+	}
+	prompts := f.developerPrompts()
+	if last := prompts[len(prompts)-1]; !strings.Contains(last, "one attempt to bring your change level") || strings.Contains(last, "was approved") {
+		t.Fatalf("the attempt made again was told:\n%s", last)
 	}
 	after, _ := f.store.Load(parked.RunID)
 	if after.RepairAttempts != 1 || after.BaseCommit == parked.BaseCommit || f.developed != 2 || logLines(t, f.fullLog) != 0 {
