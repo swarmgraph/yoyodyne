@@ -80,6 +80,9 @@ type Epics struct {
 	// RefusedDocuments is each document whose run was refused and has not started
 	// since.
 	RefusedDocuments []maystart.RefusedDocument `json:"refused_documents,omitempty"`
+	// RefusedUpdates is each target branch whose update from the team's branch was
+	// refused and still may not start.
+	RefusedUpdates []maystart.RefusedUpdate `json:"refused_updates,omitempty"`
 	// Problems is each problem in full, one line each: the runs that stopped,
 	// then the members that wait, then the starts that were refused.
 	Problems []string `json:"problems,omitempty"`
@@ -258,7 +261,7 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	return epics
 }
 
-// refuse says each refused start, one line for each document and item. The run that stopped
+// refuse says each refused start, one line for each document, target branch and item. The run that stopped
 // is already said, and an item that is running, is finished or has joined since
 // was not left unstarted.
 func (e *Epics) refuse(facts epicFacts, refusals maystart.Refusals, stopped map[string]bool) {
@@ -272,6 +275,18 @@ func (e *Epics) refuse(facts epicFacts, refusals maystart.Refusals, stopped map[
 		}
 		e.RefusedDocuments = append(e.RefusedDocuments, refused)
 		e.Problems = append(e.Problems, facts.refusedDocument(refused, says))
+	}
+	// Any open epic lets an update start, at the next check that finds it due.
+	if !slices.ContainsFunc(facts.record.Epics, epicscope.Epic.Open) {
+		for _, refused := range refusals.Updates {
+			way := says[refused.Path]
+			if way == "" {
+				way = string(refused.Path)
+			}
+			e.RefusedUpdates = append(e.RefusedUpdates, refused)
+			e.Problems = append(e.Problems, fmt.Sprintf("Not started: %s, for %s (refused since %s, last at %s: %s).", way, refused.TargetBranch,
+				localMoment(refused.Since), localMoment(refused.Last), singleLine(refused.Why, maxEpicReasonBytes)))
+		}
 	}
 	var order []string
 	byItem := map[string][]maystart.RefusedItem{}

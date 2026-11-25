@@ -5,28 +5,28 @@ package maystart
 type Path string
 
 const (
-	ReadyWork       Path = "ready-work"
-	NamedRun        Path = "named-run"
-	HoldTest        Path = "hold-test"
-	DecidedRerun    Path = "decided-rerun"
-	DecidedRepair   Path = "decided-repair"
-	FinishMerge     Path = "finish-merge"
-	ContinueRun     Path = "continue-run"
-	PickUpRun       Path = "pick-up-run"
-	FeedbackRepair  Path = "feedback-repair"
-	PublishDocument Path = "publish-document"
-	BringUpToDate   Path = "bring-up-to-date"
-	ResolveConflict Path = "resolve-conflict"
-	BringInFile     Path = "bring-in-file"
-	UpdateQueued    Path = "update-queued"
-	UpdateForPerson Path = "update-for-person"
-	AfterLogin      Path = "after-login"
-	RecurringPass   Path = "recurring-pass"
-	PromptedPass    Path = "prompted-pass"
-	UnmetGoalReview Path = "unmet-goal-review"
-	MessagesForWork Path = "messages-for-work"
-	TeamUpdate      Path = "team-update"
-	BranchReview    Path = "branch-review"
+	ReadyWork        Path = "ready-work"
+	NamedRun         Path = "named-run"
+	HoldTest         Path = "hold-test"
+	DecidedRerun     Path = "decided-rerun"
+	DecidedRepair    Path = "decided-repair"
+	FinishMerge      Path = "finish-merge"
+	ContinueRun      Path = "continue-run"
+	PickUpRun        Path = "pick-up-run"
+	FeedbackRepair   Path = "feedback-repair"
+	PublishDocument  Path = "publish-document"
+	BringUpToDate    Path = "bring-up-to-date"
+	ResolveConflict  Path = "resolve-conflict"
+	BringInFile      Path = "bring-in-file"
+	UpdateQueued     Path = "update-queued"
+	UpdateForPerson  Path = "update-for-person"
+	AfterLogin       Path = "after-login"
+	RecurringPass    Path = "recurring-pass"
+	PromptedPass     Path = "prompted-pass"
+	UnmetGoalReview  Path = "unmet-goal-review"
+	MessagesForWork  Path = "messages-for-work"
+	TeamBranchUpdate Path = "team-branch-update"
+	OperatorReview   Path = "operator-review"
 )
 
 // PathEntry is one path on the closed list.
@@ -34,8 +34,12 @@ type PathEntry struct {
 	Path Path
 	// Says is the path in plain words, for whoever is told about it.
 	Says string
-	// Wired is whether the code that starts work this way asks Decide first.
+	// Wired is whether the code that starts work this way is as its rule says: it
+	// asks Decide first or, where AlwaysStarts, does not ask.
 	Wired bool
+	// AlwaysStarts is a person's own command, which starts whatever is named and
+	// does not ask.
+	AlwaysStarts bool
 
 	starts startedBy
 }
@@ -49,9 +53,9 @@ const (
 	startsPass
 	startsGoalReview
 	startsMessageReading
-	// startsUnruled is a path no rule covers yet: nothing that starts by it may be
-	// judged, and it stays unwired until the architect rules on it.
-	startsUnruled
+	startsTeamBranchUpdate
+	// startsByAPerson is an AlwaysStarts path. Nothing that asks is on it.
+	startsByAPerson
 )
 
 // Paths is the closed list. Each call returns its own copy.
@@ -77,8 +81,8 @@ func Paths() []PathEntry {
 		{Path: PromptedPass, Says: "a pass started by an event, a label or a request", Wired: true, starts: startsPass},
 		{Path: UnmetGoalReview, Says: "the review of unmet goals", Wired: true, starts: startsGoalReview},
 		{Path: MessagesForWork, Says: "reading outside messages for work", Wired: true, starts: startsMessageReading},
-		{Path: TeamUpdate, Says: "bringing the target branch up to date with the team's branch, which runs the checks and pays for a review of the merge", starts: startsUnruled},
-		{Path: BranchReview, Says: "a review of a branch that somebody asks for with yoyo review", starts: startsUnruled},
+		{Path: TeamBranchUpdate, Says: "bringing the target branch up to date with the team's branch", Wired: true, starts: startsTeamBranchUpdate},
+		{Path: OperatorReview, Says: "a review of a branch that a person asks for with yoyo review", Wired: true, AlwaysStarts: true, starts: startsByAPerson},
 	}
 }
 

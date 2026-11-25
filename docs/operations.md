@@ -1756,14 +1756,14 @@ nothing else. Naming an epic is your act alone:
 ./bin/yoyo epic off                                              # back to goal mode
 ```
 
-**`start` is refused for now.** It is refused, naming each, while any way the
-harness starts work does not ask whether it may start under the epics you named.
-Two do not, because no rule covers them yet: bringing the target branch up to
-date with the team's branch, which runs the checks and pays for a review of the
-merge, and a review of a branch that somebody asks for with `yoyo review`. Every
-other way asks. `make test` reads the whole program for calls that start a
-provider's session or take a run's lease, and fails on one that is on neither the
-list of ways work starts nor a list of calls that start none, with why.
+`start` is accepted: every way the harness starts work asks whether it may start
+under the epics you named. It would be refused, naming each, if one did not. One
+command of yours is listed as always starting and does not ask: a review of a
+branch that you ask for with `yoyo review`. `make test` reads the whole program
+for calls that start a provider's session or take a run's lease, and fails on one
+that is on neither the list of ways work starts nor a list of calls that start
+none, with why. It also fails on any other code that uses the review behind
+`yoyo review`, or that runs that command as a process.
 
 `start` records every open item below the epic as its members, and prints that
 list. The members are that list and what you add: an item moved or created below
@@ -1864,6 +1864,22 @@ spent and nobody decides it again: the first pass after the item is added, or
 after epic mode is turned off, carries it out. A decision that waits because the
 record of the named epics could not be read is recorded the same way, saying so.
 
+Bringing the target branch up to date with the team's branch
+(`execution.upstream_branch`) asks at the forge check that finds an update due,
+before anything is set aside, recorded, built, checked or reviewed. With epic mode
+on it starts while any epic you named is open, and is refused when none is, or when
+the record of them could not be read. A refusal leaves the update due, and a merge
+or a waiting conflict run an earlier check left as they were; it records no attempt
+and tells nobody. Each later check works out from the branches whether an update is
+due and asks again. Following a pull request already opened, landing a merge already
+checked and approved whose commit is still kept, and saying why a conflict or a
+refused merge waits go on without asking. A review a restart ended asks before it
+begins again, and so do the checks of a merge a conflict run made and the rebuilding
+of an approved merge whose commit is gone.
+
+A review you ask for with `yoyo review` is your own command. It always starts,
+does not ask, and nothing is kept as refused for it.
+
 A role's pass asks too, when it has come due and before anything is claimed for
 it: its recurring pass, and one started by an event, a label, a request, a
 critical report, an automatic hold or a refused tracker block. With epic mode on,
@@ -1920,6 +1936,9 @@ A refused document has one entry of its own, whatever it answers, which a newer
 revision updates. It is taken away when a run of the document starts or may
 start, when the document is withdrawn, handed back or otherwise settled, and when
 epic mode is turned off, and not because an item it answers closes.
+A refused update of a target branch has one entry for that branch, however often it
+is tried. It is taken away when the update is allowed and begins, or when none is
+due.
 A refused pass has one entry for each role, program manager and way of starting
 it, with how many times it came due and was refused. Every entry of a role is
 taken away when a pass of that role may start. Nothing is kept of the review of
@@ -1945,7 +1964,8 @@ epic mode on it also says:
   epic add` command that adds the item, where an epic is open to add it to. Where
   several are and the item is below none of them, the command for each is given.
   Each refused document is there once too, with the items it answers and the
-  commands that would add one of them.
+  commands that would add one of them, and each target branch whose update from
+  the team's branch was refused, while no epic is open.
   The first ten problems are printed, with how many more there are, and the JSON
   carries all of them.
 

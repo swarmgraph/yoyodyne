@@ -451,3 +451,63 @@ func TestARefusedPassIsCountedOnceForEachTimeItCameDue(t *testing.T) {
 		t.Fatalf("Passes = %+v, %v; want none", record.Passes, err)
 	}
 }
+
+// A refused update is one entry for its target branch however often it is tried,
+// and it ends when the update begins or is no longer due, and not before.
+func TestARefusedUpdateIsOneEntryForItsTargetBranchUntilItBeginsOrIsNotDue(t *testing.T) {
+	t.Parallel()
+	updates := func(root string) []RefusedUpdate {
+		t.Helper()
+		record, err := ReadRefusals(root, product)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return record.Updates
+	}
+	refuse := func(root, target string, when time.Time) {
+		t.Helper()
+		if decision := Ask(root, product, UpdateFromTeam(target), when); decision.Answer != MayNot || decision.NotKept != nil {
+			t.Fatalf("%+v, want it refused and kept", decision)
+		}
+	}
+	const why = "every epic the operator named has ended"
+	for name, test := range map[string]struct {
+		does func(root string) error
+		left int
+	}{
+		"tried again": {func(root string) error { refuse(root, "staging", at.Add(time.Hour)); return nil }, 2},
+		"may begin": {func(root string) error {
+			off(t, root)
+			return Settle(root, product)
+		}, 2},
+		"begins": {func(root string) error {
+			off(t, root)
+			return Ask(root, product, UpdateFromTeam("staging"), at).NotKept
+		}, 1},
+		"the only one due": {func(root string) error { return KeepUpdateOf(root, product, "staging") }, 1},
+		"none due":         {func(root string) error { return KeepUpdateOf(root, product, "") }, 0},
+	} {
+		root := t.TempDir()
+		allEnded(t, root)
+		refuse(root, "staging", at)
+		refuse(root, "other", at)
+		if err := test.does(root); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		got := updates(root)
+		if len(got) != test.left {
+			t.Errorf("%s: %+v, want %d", name, got, test.left)
+		}
+		if name == "tried again" && got[0] != (RefusedUpdate{TargetBranch: "staging", Path: TeamBranchUpdate, Why: why, Since: at, Last: at.Add(time.Hour)}) {
+			t.Errorf("%s: %+v", name, got[0])
+		}
+	}
+	// A refusal made because the record could not be read is given the reason the
+	// record then gives.
+	root := t.TempDir()
+	allEnded(t, root)
+	unreadable(t, root)
+	if decision := Ask(root, product, UpdateFromTeam("staging"), at); decision.Answer != CouldNotTell || len(updates(root)) != 1 || updates(root)[0].Why != decision.Why {
+		t.Fatalf("%+v and %+v, want one entry with that reason", decision, updates(root))
+	}
+}

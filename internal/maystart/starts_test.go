@@ -2,7 +2,10 @@ package maystart
 
 import (
 	"go/ast"
+	"go/token"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -20,6 +23,7 @@ const (
 // the lease on a run, beside those in launches.
 var starts = map[string]launch{
 	// On the closed list.
+	"internal/cli/cli.go RunContext reviewBranch":                                           starting(OperatorReview),
 	"internal/cli/correction.go correctorFrom Corrector{}":                                  starting(PromptedPass),
 	"internal/cli/correction.go correctorFrom roleCorrection{}":                             starting(PromptedPass),
 	"internal/cli/correction.go roleCorrection.Wake Send":                                   starting(PromptedPass),
@@ -28,7 +32,7 @@ var starts = map[string]launch{
 	"internal/cli/escalate.go developmentManagerConversation.Judge openChat":                starting(PromptedPass),
 	"internal/cli/escalate.go escalatorFrom Escalator{}":                                    starting(PromptedPass),
 	"internal/cli/escalate.go escalatorFrom developmentManagerConversation{}":               starting(PromptedPass),
-	"internal/cli/forgecheck.go teamBranchUpdaterFrom branchReviewerFrom":                   starting(TeamUpdate),
+	"internal/cli/forgecheck.go teamBranchUpdaterFrom branchReviewerFrom":                   starting(TeamBranchUpdate),
 	"internal/cli/recurring.go recurringTrigger Trigger{}":                                  starting(RecurringPass, PromptedPass, UnmetGoalReview),
 	"internal/cli/recurring.go recurringTrigger roleConversation{}":                         starting(RecurringPass, PromptedPass, UnmetGoalReview),
 	"internal/cli/recurring.go roleConversation.Wake Send (2)":                              starting(RecurringPass, PromptedPass, UnmetGoalReview),
@@ -36,11 +40,11 @@ var starts = map[string]launch{
 	"internal/cli/recurring.go roleConversation.Wake Send":                                  starting(RecurringPass, PromptedPass, UnmetGoalReview),
 	"internal/cli/recurring.go roleConversation.opener conversation open":                   starting(RecurringPass, PromptedPass, UnmetGoalReview),
 	"internal/cli/recurring.go roleConversation.opener prepareChat":                         starting(RecurringPass, PromptedPass, UnmetGoalReview),
-	"internal/cli/review.go branchReviewerFrom BranchReviewer{}":                            starting(TeamUpdate, BranchReview),
-	"internal/cli/review.go branchReviewerFrom Reviewer{}":                                  starting(TeamUpdate, BranchReview),
-	"internal/cli/review.go reviewBranch branchReviewerFrom":                                starting(BranchReview),
-	"internal/cli/review.go reviewBranch reviewer.Review":                                   starting(BranchReview),
-	"internal/orchestrator/branchreview.go BranchReviewer.conduct reviewer.Review":          starting(TeamUpdate, BranchReview),
+	"internal/cli/review.go branchReviewerFrom BranchReviewer{}":                            starting(TeamBranchUpdate, OperatorReview),
+	"internal/cli/review.go branchReviewerFrom Reviewer{}":                                  starting(TeamBranchUpdate, OperatorReview),
+	"internal/cli/review.go reviewBranch branchReviewerFrom":                                starting(OperatorReview),
+	"internal/cli/review.go reviewBranch reviewer.Review":                                   starting(OperatorReview),
+	"internal/orchestrator/branchreview.go BranchReviewer.conduct reviewer.Review":          starting(TeamBranchUpdate, OperatorReview),
 	"internal/orchestrator/checkstagecontinue.go CheckStageContinuer.Continue AdoptRun":     starting(ContinueRun),
 	"internal/orchestrator/correction.go Corrector.wake Wake":                               starting(PromptedPass),
 	"internal/orchestrator/documentpublication.go Pipeline.publishDocumentAttempt AdoptRun": starting(PublishDocument),
@@ -59,7 +63,7 @@ var starts = map[string]launch{
 	"internal/orchestrator/repaircontinue.go RepairContinuer.Continue AdoptRun":             starting(DecidedRepair),
 	"internal/orchestrator/schedule.go Scheduler.Schedule startIntakeRuns":                  starting(MessagesForWork),
 	"internal/orchestrator/stallcontinue.go StallContinuer.Continue AdoptRun":               starting(ContinueRun),
-	"internal/orchestrator/teambranchupdate.go teamBranchRun.review ReviewCandidate":        starting(TeamUpdate),
+	"internal/orchestrator/teambranchupdate.go teamBranchRun.review ReviewCandidate":        starting(TeamBranchUpdate),
 
 	// What starts no work.
 	"internal/backend/claudecode/backend.go Backend.CheckAvailability Command{} (2)":                    because(asksTheProgram),
@@ -195,6 +199,15 @@ func startsIn(name string, source []byte) ([]string, error) {
 	inAdapter := strings.HasPrefix(name, "internal/backend/")
 	return usesIn(name, source, func(node ast.Node, add func(string)) {
 		switch node := node.(type) {
+		case *ast.Ident:
+			// Named at all, so that a value made of it is seen as well as a call.
+			if node.Name == "reviewBranch" {
+				add("reviewBranch")
+			}
+		case *ast.BasicLit:
+			if said, err := strconv.Unquote(node.Value); err == nil && node.Kind == token.STRING && reviewCommand.MatchString(said) {
+				add(reviewProcess)
+			}
 		case *ast.SelectorExpr:
 			chosen, on := node.Sel.Name, strings.ToLower(expressionName(node.X))
 			switch {
@@ -211,13 +224,52 @@ func startsIn(name string, source []byte) ([]string, error) {
 			if called, ok := node.Fun.(*ast.Ident); ok && slices.Contains(startNames, called.Name) {
 				add(called.Name)
 			}
+			switch lastName(node.Fun) {
+			case "Command", "CommandContext", "append":
+				if namesReview(node.Args) {
+					add(reviewProcess)
+				}
+			}
 		case *ast.CompositeLit:
+			if list, ok := node.Type.(*ast.ArrayType); ok && lastName(list.Elt) == "string" && namesReview(node.Elts) {
+				add(reviewProcess)
+			}
 			made := lastName(node.Type)
 			if slices.Contains(startTypes, made) || inAdapter && made == "Command" {
 				add(made + "{}")
 			}
 		}
 	})
+}
+
+// reviewProcess is a place that names `yoyo review` as a command to run: the verb
+// among a command's arguments, or a command line opening with it.
+const reviewProcess = "yoyo review process"
+
+var reviewCommand = regexp.MustCompile(`^\s*(\S*/)?yoyo\s+review\b`)
+
+func namesReview(arguments []ast.Expr) bool {
+	return slices.ContainsFunc(arguments, func(argument ast.Expr) bool {
+		literal, ok := argument.(*ast.BasicLit)
+		return ok && literal.Value == `"review"`
+	})
+}
+
+// onlyTheCommand is what is wrong among the places found with who uses the
+// exemption of `yoyo review`: it is the command's alone, and no listing lets
+// another place have it.
+func onlyTheCommand(found map[string]bool) []string {
+	var problems []string
+	for use := range found {
+		parts := strings.SplitN(use, " ", 3) // the file, the function, and what is used
+		if strings.HasPrefix(parts[2], "reviewBranch") && use != "internal/cli/cli.go RunContext reviewBranch" {
+			problems = append(problems, use+" uses the review that always starts, which is only the yoyo review command's; it asks under a path of its own")
+		}
+		if strings.HasPrefix(parts[2], reviewProcess) {
+			problems = append(problems, use+" runs yoyo review, which is only a person's to run; it asks under a path of its own")
+		}
+	}
+	return problems
 }
 
 // expressionName is the last name of an expression, through a call to its function.
@@ -235,7 +287,8 @@ func expressionName(expression ast.Expr) string {
 // start` naming it, and never among those that start no work.
 func TestEverySessionAndEveryLeaseOnARunIsOnTheClosedList(t *testing.T) {
 	t.Parallel()
-	for _, problem := range unlisted(usesInModule(t, startsIn), starts) {
+	found := usesInModule(t, startsIn)
+	for _, problem := range append(unlisted(found, starts), onlyTheCommand(found)...) {
 		t.Error(problem)
 	}
 	listed := map[Path]bool{}
@@ -249,6 +302,46 @@ func TestEverySessionAndEveryLeaseOnARunIsOnTheClosedList(t *testing.T) {
 	for _, entry := range Paths() {
 		if !listed[entry.Path] {
 			t.Errorf("no place in the code is listed as starting %q", entry.Path)
+		}
+	}
+}
+
+// The exemption of `yoyo review` is the command's alone: another use of its
+// function, or the command run as a process, fails whatever is listed.
+func TestOnlyTheCommandUsesTheReviewThatAlwaysStarts(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{
+		`func f() { reviewBranch(ctx, args, out, out) }`,
+		`func f() { run := reviewBranch; run(ctx, args, out, out) }`,
+		`func f() { run(map[string]command{"look": reviewBranch}) }`,
+		`func f() { reviewBranch(ctx, a, out, out); reviewBranch(ctx, b, out, out) }`,
+		`func f() { runner.Run(ctx, execution.Command{Name: yoyo, Args: []string{"review", "--base", base}}) }`,
+		`func f() { cli.Run(ctx, []string{"review"}, out, out) }`,
+		`func f() { exec.CommandContext(ctx, yoyo, "review", "--base", base) }`,
+		`func f() { exec.Command(yoyo, "review") }`,
+		`func f() { args = append(args, "review") }`,
+		`func f() { shell(ctx, "./bin/yoyo review --base main") }`,
+		`const line = "yoyo review --base main"`,
+	} {
+		uses, err := startsIn("internal/cli/other.go", []byte("package planted\n"+source+"\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := map[string]bool{}
+		listed := map[string]launch{}
+		for _, use := range uses {
+			found[use], listed[use] = true, starting(OperatorReview)
+		}
+		if len(onlyTheCommand(found)) == 0 || len(unlisted(found, nil)) == 0 {
+			t.Errorf("%s: passes; found %q", source, uses)
+		}
+		if len(unlisted(found, listed)) != 0 {
+			t.Errorf("%s: %q", source, unlisted(found, listed))
+		}
+	}
+	for _, entry := range Paths() {
+		if entry.AlwaysStarts != (entry.Path == OperatorReview) {
+			t.Errorf("%s always starts: %t; only yoyo review does", entry.Path, entry.AlwaysStarts)
 		}
 	}
 }
