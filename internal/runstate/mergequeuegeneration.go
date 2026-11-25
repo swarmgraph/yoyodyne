@@ -492,6 +492,9 @@ type MergeQueueReviewEvidence struct {
 	AccountAlias string         `json:"account_alias,omitempty"`
 	Choice       EndpointChoice `json:"choice,omitempty"`
 	Summary      string         `json:"summary,omitempty"`
+	// Findings is every finding of the verdict as the reviewer wrote it. A review
+	// recorded before they were kept holds only the summary.
+	Findings []Finding `json:"findings,omitempty"`
 	// Problem is why the review ended without a verdict.
 	Problem string `json:"problem,omitempty"`
 	// Unreadable is a review the reviewer answered with a reply no verdict could
@@ -1148,7 +1151,7 @@ func sameReviewEvidence(a, b *MergeQueueReviewEvidence) bool {
 	return a.Binding == b.Binding && a.StartedAt.Equal(b.StartedAt) && sameTime(a.FinishedAt, b.FinishedAt) &&
 		a.Decision == b.Decision && a.SessionID == b.SessionID && a.Model == b.Model &&
 		a.ResolvedModel == b.ResolvedModel && a.Summary == b.Summary && a.Problem == b.Problem &&
-		a.Provider == b.Provider && a.AccountAlias == b.AccountAlias && a.Choice == b.Choice && a.Unreadable == b.Unreadable
+		a.Provider == b.Provider && a.AccountAlias == b.AccountAlias && a.Choice == b.Choice && a.Unreadable == b.Unreadable && slices.Equal(a.Findings, b.Findings)
 }
 
 func samePathEvidence(a, b *MergeQueuePathEvidence) bool {

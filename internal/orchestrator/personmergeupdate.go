@@ -91,7 +91,7 @@ func (a *activeRun) handUpToDateConflict(ctx context.Context, cause error) error
 		return errors.Join(cause, err)
 	}
 	conflict := *a.state.ReplayConflict
-	return a.develop(ctx, upToDateConflictPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), conflict, a.state.UpToDateConflicts), a.state.ProviderSessionID)
+	return a.develop(ctx, a.handBackForRepair(ctx, upToDateConflictPrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), conflict, a.state.UpToDateConflicts)), a.state.ProviderSessionID)
 }
 
 // blockOnUpToDateConflicts ends a run whose change conflicted again once its

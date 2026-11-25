@@ -10,19 +10,23 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -489,6 +493,74 @@ func TestAReviewersRepairVerdictIsADefectOfTheChange(t *testing.T) {
 	}
 	if handback := f.landing().Handback; handback == nil || handback.Continuation != runstate.MergeQueueContinueRepair {
 		t.Fatalf("handback = %#v, want a repair", handback)
+	}
+}
+
+// The queue's records keep a bounded summary that never names the findings, so a
+// finding past that bound reaches the repair only by being carried whole.
+func TestARepairOfAQueueReviewIsGivenEveryFindingWhole(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("the sentence says the change waits when it does not; ", 160) + "the end of the long finding"
+	verdict := fmt.Sprintf(`{"decision":"repair","summary":%q,"findings":[{"severity":"major","message":%q,"location":{"file":"docs/operations.md","line":1880}},{"severity":"minor","message":"the second finding","location":{"file":"feature.txt","line":1}}]}`,
+		strings.Repeat("one statement is false. ", 100)+"the end of the summary", long)
+	f := newPromotionFixture(t, landLocally, verdict)
+	f.run.admittedRun.state.Branch = "change"
+	f.run.admittedRun.state.Status = runstate.StatusSucceeded
+	f.run.admittedRun.state.ProductID = "yoyodyne"
+	f.run.admittedRun.state.TargetBranch = "main"
+	f.run.admittedRun.state.WorktreePath = f.repository
+	f.run.admittedRun.state.BaseCommit = f.local("main")
+	f.worker.Pipeline.Config.Execution.RepairAttemptsBeforeReplan = 2
+	f.promoter.Repair = MergeQueueRunHandback{Store: f.run, Tracker: f.tracker}
+	if verification, err := f.work(); err != nil || verification.Verified {
+		t.Fatalf("Work() = %#v, %v; want the repair verdict refused", verification, err)
+	}
+	if recovered, err := f.recover(); err != nil || recovered.Handback == nil || strings.Contains(recovered.Handback.Reason, "second finding") {
+		t.Fatalf("Recover() = %#v, %v; want a hand-back whose reason holds only the cut summary", recovered, err)
+	}
+	// Read back as the repair reads it, through the record on disk.
+	encoded, err := json.Marshal(f.run.latest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved runstate.State
+	if err := json.Unmarshal(encoded, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := saved.CheckFailure.Validate(); err != nil {
+		t.Fatalf("the recorded hand-back is not valid: %v", err)
+	}
+	if stops := saved.CheckFailure.QueueReview; stops == nil || stops.ReviewedCommit != f.generations()[0].Candidate {
+		t.Fatalf("queue review = %#v, want the candidate's", stops)
+	}
+	prompt, err := resumedDeveloperPrompt(saved, "", "", "", "/scratch", nil, gitworktree.DiffLimits{}, protectedpath.Set{}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{long, "the second finding", "docs/operations.md", "the end of the summary", "The merge queue's review: repair required"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("the repair's prompt is missing %q", want)
+		}
+	}
+	// A check the repair then fails keeps the same findings.
+	run := &activeRun{state: saved}
+	if before := run.reviewBeforeCheck(); before == nil || len(before.Findings) != 2 {
+		t.Fatalf("review before the failed check = %#v, want the queue's findings kept", before)
+	}
+}
+
+func TestAQueueReviewRecordedWithoutItsFindingsSaysSo(t *testing.T) {
+	t.Parallel()
+
+	prompt := checkRepairPrompt("", "/scratch", nil, gitworktree.DiffLimits{}, runstate.CheckFailure{
+		Command: queueReviewCommand, ExitCode: 1, Output: `the independent reviewer decided "repair" on generation 1's candidate: one false statement`,
+	}, 1, 2)
+	if !strings.Contains(prompt, "the findings themselves are left out") {
+		t.Fatalf("prompt does not say the findings are missing:\n%s", prompt)
+	}
+	if cut := boundedReviewSummary(strings.Repeat("é", 4<<10)); len(cut) > queueReviewSummaryBound || !strings.HasSuffix(cut, queueReviewSummaryCut) || !utf8.ValidString(cut) {
+		t.Fatalf("summary of %d bytes does not say it was cut", len(cut))
 	}
 }
 

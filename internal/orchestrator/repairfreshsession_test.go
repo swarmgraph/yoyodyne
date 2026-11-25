@@ -292,7 +292,10 @@ func TestARepairOfASessionlessRunLandsTheChangeInAFreshSession(t *testing.T) {
 	if fresh.SessionID != "" || fresh.WorkingDirectory != stopped.WorktreePath {
 		t.Fatalf("attempt = session %q in %q, want a fresh session in the preserved worktree %q", fresh.SessionID, fresh.WorkingDirectory, stopped.WorktreePath)
 	}
-	for _, want := range []string{`"message": "add the missing file"`, "This session is new", "Run: " + outcome.RunID, "yoyodyne-task"} {
+	for _, want := range []string{`"message": "add the missing file"`, "This session is new", "Run: " + outcome.RunID, "yoyodyne-task",
+		// The development manager's order and her reason, whole, with what governs.
+		"The development manager ordered a repair of this run", rerunReasoning, "the decision takes precedence",
+		"# The work item as it stands now"} {
 		if !strings.Contains(fresh.Prompt, want) {
 			t.Fatalf("fresh prompt is missing %q:\n%s", want, fresh.Prompt)
 		}

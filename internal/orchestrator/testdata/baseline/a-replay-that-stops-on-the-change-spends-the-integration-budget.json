@@ -158,6 +158,14 @@
     "failure": "the change replayed onto its moved target stopped on the change with 1 of 0 permitted replay stop(s) spent: independent review requires repair: the change misses the acceptance criteria",
     "harness_commit": "\u003ccommit-3\u003e",
     "integration_retries": 1,
+    "item_at_start": {
+      "acceptance_criteria": "\u003ccommit-4\u003e",
+      "description": "\u003ccommit-4\u003e",
+      "design": "\u003ccommit-4\u003e",
+      "notes": "\u003ccommit-4\u003e",
+      "notes_bytes": 0,
+      "title": "\u003ccommit-5\u003e"
+    },
     "last_sequence": 8,
     "lost_landings": [
       {

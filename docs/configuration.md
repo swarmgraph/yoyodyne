@@ -9067,7 +9067,9 @@ carries both `handed_back` and `superseded`.
 `yoyo triage repair <run-id>` is the other half of the same pair, and it starts
 nothing over. It re-enters the stopped run's
 own repair loop: the same branch, the same worktree, the same developer session,
-and the reviewer's findings handed back exactly as they were written. A run
+and the reviewer's findings handed back exactly as they were written, beside
+the decision and the item as it now stands
+([what a repair is given](work.md#what-a-repair-is-given)). A run
 whose record holds no developer session — its session's budget ran out before
 the provider reported one, the provider never returned one, or the harness
 carried the run on itself at a step with no developer — is not refused for it:

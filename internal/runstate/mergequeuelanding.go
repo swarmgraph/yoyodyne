@@ -576,6 +576,9 @@ type MergeQueueHandback struct {
 	// can perform.
 	Mover  ownership.Mover `json:"mover"`
 	Reason string          `json:"reason"`
+	// Review is the candidate's review that decided the hand-back, with every
+	// finding, where a review did. Reason holds no more than its summary.
+	Review *ReviewBefore `json:"review,omitempty"`
 	// Generation through Candidate are the failed candidate, as its generation
 	// records it.
 	Generation uint64   `json:"generation"`
@@ -690,6 +693,11 @@ func (h MergeQueueHandback) validate() []error {
 	}
 	if err := mergeQueueText("handback reason", h.Reason, true); err != nil {
 		problems = append(problems, err)
+	}
+	if h.Review != nil {
+		if err := h.Review.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("handback review: %w", err))
+		}
 	}
 	conflicted := h.Conflict != nil
 	switch {
