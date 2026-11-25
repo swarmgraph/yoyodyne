@@ -9444,6 +9444,7 @@ func (a *activeRun) fail(cause error, status runstate.Status) (Outcome, error) {
 	a.state.DirectivePause = nil
 	a.state.DependencyPause = nil
 	a.state.EpicWait = nil
+	a.state.CIWait = nil
 	a.state.TrackerPause = nil
 	a.state.OperatorHeldSince = nil
 	a.state.Status = status
@@ -9569,6 +9570,7 @@ func (a *activeRun) recordEndingAfterRefusedSave(status runstate.Status, complet
 	durable.DirectivePause = nil
 	durable.DependencyPause = nil
 	durable.EpicWait = nil
+	durable.CIWait = nil
 	durable.TrackerPause = nil
 	durable.OperatorHeldSince = nil
 	durable.Status = status

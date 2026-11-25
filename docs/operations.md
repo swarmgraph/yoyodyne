@@ -5692,7 +5692,7 @@ is free as the record goes terminal. `yoyo reconcile` says `cancelled` against
 the run, with the stop's own words and that the sweep ended it in the dead
 process's place. The one exception is a run whose checks have already passed on
 the change it holds: cancelling it would throw away a change that has earned
-its checks, so the sweep records the stop as having arrived late, keeps the
+its checks (a run still waiting for GitHub's has not), so the sweep records the stop as having arrived late, keeps the
 change, and settles the run as it would any run in flight, leaving it for its
 own pipeline to carry on to its review.
 

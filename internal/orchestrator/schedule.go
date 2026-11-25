@@ -918,6 +918,9 @@ type Pull struct {
 	// item waits on once that work has closed. Optional; see
 	// ScheduleContinuations.
 	Continuations ScheduleContinuations
+	// EndStopped ends a run no process holds that was asked to stop. Optional:
+	// without it such a run waits for the next sweep (endStoppedCIWaits).
+	EndStopped func(ctx context.Context, state runstate.State) error
 	// CIWaits is what a pull reads about runs waiting for the forge's checks,
 	// continuing each once the forge has decided. Optional; see CIWaitReader.
 	CIWaits CIWaitReader
@@ -3462,15 +3465,16 @@ pulling:
 		// free slots go to paused runs ahead of it in that order, and those runs
 		// are continued below, once the decisions are fired; a decision that does
 		// not build on a kept change is fresh work, and every paused run goes ahead
-		// of it. Nothing is continued under the operator's pause, while intake is
-		// held, or by a declining drain (see the continuations below), so nothing
-		// is read here then either. The item a run is about is read off the pull's
+		// of it. Nothing is continued under the operator's pause or by a declining
+		// drain, and while intake is held only a run continuedUnderHold names (see
+		// the continuations below), so nothing else is read here then either. The item a run is about is read off the pull's
 		// own reading of the queue, and only where a slot is free to be ordered.
 		var continuationCandidates []pausedContinuation
 		var continuationsRead error
 		var continuationsFirst func(CarryOutTask) []string
 		_, declining := drain.declinesDeveloperStarts(pull.Poll, s.now())
-		if !paused && !held && !declining {
+		stopsEnded := s.endStoppedCIWaits(ctx, pull, mine)
+		if !paused && !declining {
 			var itemOf func(string) (beads.WorkItem, bool)
 			if free >= 1 {
 				itemOf = func(id string) (beads.WorkItem, bool) {
@@ -3482,7 +3486,7 @@ pulling:
 					return item, known
 				}
 			}
-			continuationCandidates, continuationsRead = s.continuationCandidates(ctx, pull, occupied, mine, refusedContinuations, itemOf, passOver)
+			continuationCandidates, continuationsRead = s.continuationCandidates(ctx, pull, occupied, mine, refusedContinuations, held, itemOf, passOver)
 			// A paused run whose item carries a free slot's labels goes ahead of
 			// written work carrying none, as a decision on a kept change does in
 			// precedence above.
@@ -3492,7 +3496,7 @@ pulling:
 					continuationCandidates[index].labelled = labelledForFreeSlot(freeNow, continuationCandidates[index].labels)
 				}
 			}
-			if len(continuationCandidates) > 0 {
+			if len(continuationCandidates) > 0 && !held {
 				continuationsFirst = func(task CarryOutTask) []string {
 					onKept, labelled, priority := precedence(task)
 					return continuationsAhead(continuationCandidates, onKept, labelled, priority, task.DecidedAt, task.RunID)
@@ -3660,18 +3664,20 @@ pulling:
 			s.recordUnattempted(ctx, &schedule, pull, passedCarryOuts)
 		}
 
+		continuationProblems := []error{stopsEnded}
 		// A run paused on work its item waits on is continued here once that work
 		// has closed, beside the decisions above and for the same reason: its item
 		// is claimed rather than pullable, so nothing below would ever reach it, and
 		// before this the only thing that did was somebody typing `yoyo run`. It is
 		// not attempted under the operator's pause, which the continued run would
-		// only meet again at its first step, nor while intake is held: picking a
-		// paused run back up is the harness choosing what to spend a slot on, as
-		// carrying out a decision is, so it waits for the hold to lift exactly as a
-		// recorded repair does. A declining drain continues nothing either, for the
+		// only meet again at its first step. While intake is held it waits for the
+		// hold to lift exactly as a recorded repair does, because picking a paused
+		// run back up is the harness choosing what to spend a slot on — except a run
+		// the operator started by name (continuedUnderHold), which the hold was never
+		// over. A declining drain continues nothing either, for the
 		// reason it carries no decision out: the run would be one the drain stops
 		// at its next look, and the returning session continues it instead.
-		if !paused && !held && !declining {
+		if !paused && !declining {
 			var ahead []string
 			for _, run := range firedOrder {
 				if named, fired := firedAhead[run]; fired {
@@ -3679,11 +3685,7 @@ pulling:
 				}
 			}
 			continuations := s.takeContinuations(ctx, pull, continuationCandidates, mine, free, len(schedule.Started), ahead, passOver)
-			if continuationsRead != nil {
-				schedule.ContinuationProblem = continuationsRead.Error()
-			} else {
-				schedule.ContinuationProblem = ""
-			}
+			continuationProblems = append(continuationProblems, continuationsRead)
 			for _, continuation := range continuations {
 				workItemID := continuation.state.WorkItemID
 				delete(deferred, workItemID)
@@ -3702,22 +3704,32 @@ pulling:
 				// out stops a continued run exactly as it stops a chosen one.
 				s.host(session.dispatching(ctx, workItemID), pull, workItemID, index, selection, hosted, landings, deliver)
 			}
-		} else {
-			// Nothing is continued, but what GitHub has decided on a waiting run is
+		}
+		if paused || held || declining {
+			// Nothing else is continued, but what GitHub has decided on a waiting run is
 			// still read and recorded on it, and a continuation the development
 			// manager asked for says what it waits on.
+			var continued func(runstate.State) bool
 			waits := "the operator has paused everything the harness spends, so nothing is continued until that lifts"
 			switch {
 			case declining:
 				waits = "this session is stepping down to restart on a newly deployed build, so the session that replaces it continues it"
 			case held:
 				waits = "the operator has held what the harness chooses, so nothing is continued until the hold lifts"
+				if paused {
+					waits = "the operator has held what the harness chooses and paused everything it spends, so nothing is continued until both lift"
+				} else if pull.Continuations != nil {
+					now := s.now()
+					continued = func(state runstate.State) bool { return continuedUnderHold(pull.Runs, state, now) }
+				}
 			}
-			if err := s.recordCIDecisions(ctx, pull, waits); err != nil {
-				schedule.ContinuationProblem = err.Error()
-			} else {
-				schedule.ContinuationProblem = ""
+			if err := s.recordCIDecisions(ctx, pull, waits, continued); err != nil {
+				continuationProblems = append(continuationProblems, err)
 			}
+		}
+		schedule.ContinuationProblem = ""
+		if err := errors.Join(continuationProblems...); err != nil {
+			schedule.ContinuationProblem = err.Error()
 		}
 
 		// A repair decided from feedback on a pull request is taken into a free slot

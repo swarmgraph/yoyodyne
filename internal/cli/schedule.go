@@ -970,6 +970,10 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// recording the continuation; the run store says whether a stop was
 		// recorded on the run, which is honoured before any continuation.
 		Continuations: pausedRunContinuations{Client: tracker, stops: parts.store},
+		// One of those asked to stop while no process holds it is ended here.
+		EndStopped: func(ctx context.Context, state runstate.State) error {
+			return reconcilerFrom(parts).EndStopped(ctx, state)
+		},
 		// A run waiting for the forge's checks on the commit it pushed, continued
 		// once the forge has decided (checks on CI).
 		CIWaits: ciWaitReader(parts),

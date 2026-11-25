@@ -193,7 +193,7 @@ func continuationsAhead(candidates []pausedContinuation, kept, labelled bool, pr
 // returns the ones this pull continues, as far as the free developer slots and
 // the session's --limit allow (continuationCandidates, then takeContinuations).
 func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, free, started int, passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
-	candidates, err := s.continuationCandidates(ctx, pull, occupied, mine, refused, nil, passOver)
+	candidates, err := s.continuationCandidates(ctx, pull, occupied, mine, refused, false, nil, passOver)
 	return s.takeContinuations(ctx, pull, candidates, mine, free, started, nil, passOver), err
 }
 
@@ -301,10 +301,13 @@ func (s Scheduler) recordContinuationWait(ctx context.Context, pull Pull, state 
 // store's own capacity check is what finally decides, when the continued run is
 // adopted and takes its slot back (Store.ReclaimSlot).
 //
+// Where new work is held, only a run continuedUnderHold names is a candidate, and
+// nothing is said here of the rest (recordCIDecisions).
+//
 // The candidates are read before the decisions are carried out, so the
 // written-work order can keep a slot for a paused run that outranks a decision
 // (continuationsAhead).
-func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, itemOf func(string) (beads.WorkItem, bool), passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
+func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, held bool, itemOf func(string) (beads.WorkItem, bool), passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
 	if pull.Continuations == nil || pull.Runs == nil {
 		return nil, nil
 	}
@@ -321,6 +324,9 @@ func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupi
 			continue
 		}
 		if !pausedForDependency(state) && !pausedForEpic(state) && !state.CIWait.Waiting() && !ciWaitLostItsHost(pull.Runs, state, now) {
+			continue
+		}
+		if held && !continuedUnderHold(pull.Runs, state, now) {
 			continue
 		}
 		// A run this session is already continuing is in flight here under its
@@ -416,6 +422,9 @@ func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupi
 			reason := fmt.Sprintf("run %s waited for %s since %s and the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why)
 			if ciWaitLostItsHost(pull.Runs, state, now) {
 				reason = fmt.Sprintf("run %s waited for %s since %s and was being continued when the program carrying it ended; the forge has decided (%s), so the harness is continuing it in its own worktree and developer session", state.RunID, waitSummary(state), state.CIWait.PushedAt.UTC().Format(time.RFC3339), why)
+			}
+			if held {
+				reason += "; new work is held, and the operator started this run by name, which that hold is not over"
 			}
 			reason += ownSlotMove(pull.Runs, state, incomplete, now)
 			// A continuation the development manager asked for on this run is
@@ -556,14 +565,16 @@ func (s Scheduler) readCIWait(ctx context.Context, pull Pull, state runstate.Sta
 
 // recordCIDecisions reads the forge for every run waiting on its checks and
 // records each decision it finds (readCIWait), for a pull that continues
-// nothing — under the operator's pause, a held intake, or a session stepping
-// down to restart. Reading GitHub spends nothing and takes no slot, so what it
-// has decided is on the record whether or not anything may be continued yet.
+// nothing — under the operator's pause, or a session stepping down to
+// restart — and, under a held intake, for every run but those continuedUnderHold
+// names, which pass reports as true of and continuationCandidates reads. Reading
+// GitHub spends nothing and takes no slot, so what it has decided is on the
+// record whether or not anything may be continued yet.
 // The run's own record, and a development manager's request to continue such a
 // run, are told why it waits.
 // What could not be read or written is returned, for the pass to say as its
 // continuation problem; nothing here stops the pass.
-func (s Scheduler) recordCIDecisions(ctx context.Context, pull Pull, why string) error {
+func (s Scheduler) recordCIDecisions(ctx context.Context, pull Pull, why string, pass func(runstate.State) bool) error {
 	if pull.Runs == nil {
 		return nil
 	}
@@ -577,6 +588,9 @@ func (s Scheduler) recordCIDecisions(ctx context.Context, pull Pull, why string)
 		if !state.CIWait.Waiting() && !ciWaitLostItsHost(pull.Runs, state, now) {
 			continue
 		}
+		if pass != nil && pass(state) {
+			continue
+		}
 		if _, _, err := s.readCIWait(ctx, pull, state); err != nil {
 			problems = append(problems, fmt.Errorf("read the forge for run %s: %w", state.RunID, err))
 		}
@@ -586,6 +600,46 @@ func (s Scheduler) recordCIDecisions(ctx context.Context, pull Pull, why string)
 		}
 		if err := s.recordContinuationWait(ctx, pull, state, waits); err != nil {
 			problems = append(problems, err)
+		}
+	}
+	return errors.Join(problems...)
+}
+
+// continuedUnderHold reports a run a pull continues although new work is held:
+// one the operator started by name, waiting for the forge's checks. The hold is
+// over what the harness chooses, and naming the item made it the exception.
+func continuedUnderHold(runs ScheduleRuns, state runstate.State, now time.Time) bool {
+	return state.NamedByOperator() && (state.CIWait.Waiting() || ciWaitLostItsHost(runs, state, now))
+}
+
+// endStoppedCIWaits ends every run waiting for the forge's checks that somebody
+// asked to stop. Such a run has no process to reach a step, so the pull ends it
+// in that process's place, as the sweep would, inside the time a stop is promised
+// to take effect in (runstate.StopTakesEffectWithin). It spends nothing and takes
+// no slot, so it is done under a hold, a pause and a drain too.
+func (s Scheduler) endStoppedCIWaits(ctx context.Context, pull Pull, mine map[string]int) error {
+	if pull.EndStopped == nil || pull.Continuations == nil || pull.Runs == nil {
+		return nil
+	}
+	incomplete, err := pull.Runs.Incomplete()
+	if err != nil {
+		return fmt.Errorf("read the runs waiting on the forge's checks: %w", err)
+	}
+	now := s.now()
+	var problems []error
+	for _, state := range incomplete {
+		if !state.CIWait.Waiting() && !ciWaitLostItsHost(pull.Runs, state, now) {
+			continue
+		}
+		if _, dispatched := mine[state.WorkItemID]; dispatched {
+			continue
+		}
+		_, stopped, err := pull.Continuations.StopRequested(state.RunID)
+		if err == nil && stopped {
+			err = pull.EndStopped(ctx, state)
+		}
+		if err != nil {
+			problems = append(problems, fmt.Errorf("end run %s, which was asked to stop: %w", state.RunID, err))
 		}
 	}
 	return errors.Join(problems...)

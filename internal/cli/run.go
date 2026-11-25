@@ -1496,6 +1496,11 @@ func reportRunPause(stdout, stderr io.Writer, outcome orchestrator.Outcome, err 
 		} else {
 			fmt.Fprintln(stdout, "the provider was still working when its total budget ran out; it reported no failure")
 		}
+	} else if outcome.RedeployStop != nil {
+		fmt.Fprintln(stdout, "the session hosting it stopped it to restart on a newly deployed build; a watching `yoyo work` session takes it up again")
+	} else if outcome.UsageLimitResetsAt == nil && outcome.PauseCause == "" && outcome.UsageLimitKind == "" {
+		// A provider's usage limit is named only where the run recorded one.
+		fmt.Fprintln(stdout, "the run's record does not say what it waits for")
 	} else {
 		fmt.Fprintf(stdout, "waiting out %s\n", runstate.DescribePause(outcome.PauseCause, outcome.UsageLimitKind))
 		if outcome.UsageLimitResetsAt != nil {
@@ -1504,7 +1509,7 @@ func reportRunPause(stdout, stderr io.Writer, outcome orchestrator.Outcome, err 
 	}
 	fmt.Fprintf(stdout, "branch: %s\n", outcome.Branch)
 	fmt.Fprintf(stdout, "worktree: %s\n", outcome.WorktreePath)
-	if outcome.ProviderStop != "" {
+	if outcome.ProviderStop != "" || outcome.UsageLimitResetsAt == nil {
 		fmt.Fprintf(stdout, "run yoyodyne on %s again to continue this run\n", outcome.WorkItemID)
 	} else {
 		// The recorded time bounds the wait rather than gating it, so continuing is
