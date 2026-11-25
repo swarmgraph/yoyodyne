@@ -212,6 +212,7 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 		return result, failure
 	}
 	run.context = bundle.Text
+	run.state.ItemAtStart = itemAtStart(item)
 	worktree, err := run.createWorktree(ctx, gitworktree.CreateRequest{
 		RunID: runID, WorkItemID: itemID, BaseRef: request.TargetBranch, TargetBranch: request.TargetBranch,
 	})

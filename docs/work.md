@@ -775,6 +775,33 @@ holds the item. `yoyo status` says the same on the run's integration-stop line,
 the stop is said in ends on them, asking the repository the same way as it is
 said.
 
+### What a repair is given
+
+Beside the
+reviewer's findings, or the failing check or other failure being repaired, every
+repair's prompt carries two things:
+
+- **The development manager's decision.** Where she ordered a repair of the run,
+  her recorded decision and her whole reason, with the statement that it takes
+  precedence over the findings where they differ and that the developer names in
+  its summary each finding left because of it. It changes nothing the work item
+  asks for and lifts no check or review. Where she ordered none, the prompt says
+  that the harness handed the failure back itself, and quotes any other decision
+  of hers about the run.
+- **The work item as it stands when the repair starts.** The item is read again:
+  its title, description, design guidance and acceptance criteria, each where it
+  changed since the run started (at most the first 16 KiB of each), and the notes
+  added since (at most the latest 24 KiB). Anything cut is said, and so is an
+  item that could not be read again. The review of that repair is made against
+  the same text. A run started before this was recorded is given the item whole
+  within the same limits.
+
+A repair of a change the merge queue's reviewer sent back is given every finding
+of that review whole. The queue's own records of the hand-back hold only a cut
+summary; the findings are kept with the candidate and on the run's record under
+`check_failure.queue_review`. A change sent back before they were kept is given
+the summary, and is told that the findings are left out.
+
 ## What an item may ask of a run
 
 The gate above refuses a *change* that touches an artifact home the item did not

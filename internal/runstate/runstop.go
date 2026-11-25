@@ -203,7 +203,11 @@ func stopEvidenceOf(state State) StopEvidence {
 		evidence.CheckCommand = cut(failure.Command)
 		evidence.CheckExitCode = failure.ExitCode
 		evidence.CheckOutput = cut(failure.Output)
-		if before := failure.ReviewBefore; before != nil && len(findings) == 0 {
+		if queued := failure.QueueReview; queued != nil {
+			// The queue's review came after the run's own, so its findings are the
+			// ones this stop is about.
+			findings, summary = queued.Findings, queued.Summary
+		} else if before := failure.ReviewBefore; before != nil && len(findings) == 0 {
 			findings, summary = before.Findings, before.Summary
 		}
 	}

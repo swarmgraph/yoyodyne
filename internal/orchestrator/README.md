@@ -416,7 +416,10 @@ Landing checks after the run: `runLandingChecks`, `fileRedLanding`.
 `developerPrompt` = `developerContract` + persona + invariants + context
 bundle; an invocation given sub-agents also gets the built-in instruction after
 the persona, added by `instructSubagents` in `attemptDevelopment`. Repair rounds use the `…RepairPrompt` functions; a resumed run
-rebuilds its prompt with `resumedDeveloperPrompt`. Relevant goals and the
+rebuilds its prompt with `resumedDeveloperPrompt`. Both then carry the
+development manager's decision and the item as it stands (`handBackForRepair`
+and `repairContext`, `repaircontext.go`), and a change the merge queue's reviewer
+sent back carries every finding (`writeQueueReview`, `mergequeuefindings.go`). Relevant goals and the
 context bundle come from `internal/contextbundle`.
 
 ## Sibling files these questions lead to
