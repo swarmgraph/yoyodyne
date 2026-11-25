@@ -2630,6 +2630,14 @@ func (o *TrackerOutcome) noteRetries(retries []runstate.Retry) {
 	o.Summary += retriedClause(retries)
 }
 
+// noteUnreadHold adds to an action that was applied that the hold of the
+// operator's it names could not be read, which is why it was not checked.
+func (o *TrackerOutcome) noteUnreadHold(unread string) {
+	if o.Applied && unread != "" {
+		o.Summary += "; " + singleLine(unread, maxTrackerFailureBytes)
+	}
+}
+
 // noteAttribution says that a goal an action recorded was not checked against
 // anything. It is said exactly when there was nothing to check it against, for
 // the same reason the target's state is: an attribution the harness confirmed

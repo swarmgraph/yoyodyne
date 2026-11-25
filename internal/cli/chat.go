@@ -1038,6 +1038,8 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// holding intake is something they can do from the conversation they are
 		// already in rather than from a second tool.
 		Intake: parts.intake,
+		// And his epic mode, which a request to him about his own hold may name.
+		Epics: readmodel.NewEpicRecords(parts.stateRoot, cfg.Product.ID),
 		// Where she records which version of an item stands when two machines'
 		// versions of it could not be merged.
 		TrackerMerge: conversationTrackerMerge(parts),

@@ -1074,7 +1074,7 @@ func docketerFrom(parts components) *orchestrator.Docketer {
 }
 
 // ownHoldOf is whether a hold or pause the operator placed himself stands, read
-// from this product's switches; a switch that cannot be opened is left unread.
+// from this product's switches and its epic mode; a switch that cannot be opened is left unread.
 func ownHoldOf(parts components) func() (bool, error) {
 	var pause readmodel.OperatorHolds
 	if store, err := runstate.NewOperatorHoldStore(parts.stateRoot); err == nil {
@@ -1084,7 +1084,7 @@ func ownHoldOf(parts components) func() (bool, error) {
 	if store, err := runstate.NewIntakeHoldStore(parts.stateRoot, parts.config.Product.ID); err == nil {
 		intake = store
 	}
-	return readmodel.OwnHoldStands(pause, intake)
+	return readmodel.OwnHoldStands(pause, intake, readmodel.NewEpicRecords(parts.stateRoot, parts.config.Product.ID))
 }
 
 func buildReconciler(configPath string) (orchestrator.Reconciler, error) {
@@ -1126,7 +1126,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		StateRoot:       parts.stateRoot,
 		MayStart:        parts.mayStart(),
 		// An escalation to the operator naming his own hold is checked against
-		// his pause and his hold on intake while it waits.
+		// his pause, his hold on intake, and his epic mode while it waits.
 		OwnHold:       ownHoldOf(parts),
 		ConfigFiles:   parts.worktrees,
 		ConfigReaders: landingConfigReaders(parts.stateRoot, parts.config.Product.ID),

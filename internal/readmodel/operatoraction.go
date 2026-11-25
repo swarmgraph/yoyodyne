@@ -101,6 +101,10 @@ type OperatorAction struct {
 	// the hold it names lifted (ownership.RecheckOperatorStep). It is empty on a
 	// handling returned for giving no reason, and on every other finding.
 	ReturnedWhy string `json:"returned_why,omitempty"`
+	// HoldUnread is why the hold of his this names could not be read. The finding
+	// stays his, because a hold nobody can read is not one that was lifted, and
+	// every surface naming it says this (Asks).
+	HoldUnread string `json:"hold_unread,omitempty"`
 	// RecordedIn says where the finding is recorded, so the operator can go and
 	// read the whole of it.
 	RecordedIn string `json:"recorded_in"`
@@ -172,12 +176,13 @@ type StepRecheck struct {
 }
 
 // OwnHoldStands is whether a hold or pause the operator placed himself stands,
-// read from his pause over provider spending and his hold on intake, for
-// StepWorld.OwnHold: a pause is always his, and an intake hold is his unless
-// the record says the harness's own brake placed it. It is nil where neither
-// switch is wired, which leaves the check unasked.
-func OwnHoldStands(pause OperatorHolds, intake IntakeHolds) func() (bool, error) {
-	if pause == nil && intake == nil {
+// read from his pause over provider spending, his hold on intake, and his epic
+// mode, for StepWorld.OwnHold: a pause is always his, an intake hold is his
+// unless the record says the harness's own brake placed it, and epic mode, which
+// only his command turns on, off, or adds work to, is one while it is on. It is
+// nil where none is wired, which leaves the check unasked.
+func OwnHoldStands(pause OperatorHolds, intake IntakeHolds, epics NamedEpics) func() (bool, error) {
+	if pause == nil && intake == nil && epics == nil {
 		return nil
 	}
 	return func() (bool, error) {
@@ -198,6 +203,14 @@ func OwnHoldStands(pause OperatorHolds, intake IntakeHolds) func() (bool, error)
 				return true, nil
 			}
 		}
+		if epics != nil {
+			record, err := epics.Named()
+			if err != nil {
+				problems = append(problems, fmt.Errorf("whether epic mode is on could not be read: %w", err))
+			} else if record.On() {
+				return true, nil
+			}
+		}
 		return false, errors.Join(problems...)
 	}
 }
@@ -210,7 +223,7 @@ func (s Sources) stepRecheck() StepRecheck {
 	return StepRecheck{Now: s.now(), World: ownership.StepWorld{
 		Repository: s.Repository,
 		Home:       home,
-		OwnHold:    OwnHoldStands(s.OperatorHolds, s.IntakeHolds),
+		OwnHold:    OwnHoldStands(s.OperatorHolds, s.IntakeHolds, s.Epics),
 	}}
 }
 
@@ -264,6 +277,8 @@ func reportFindings(reports []report.Report, handlings []report.Handling, rechec
 					}
 					action.ReturnedWhy = singleLine(err.Error(), maxRefusalBytes)
 					action.Ends = returnedHandlingEnds
+				} else {
+					action.HoldUnread = ownership.OwnHoldUnread(handling.OperatorReason, recheck.World)
 				}
 			}
 			actions = append(actions, action)
@@ -387,6 +402,8 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 			FoundBy: "the development manager, escalating the stopped run to the operator",
 			Ends:    escalationFindingEnds,
 			Since:   decision.DecidedAt,
+
+			HoldUnread: ownership.OwnHoldUnread(decision.OperatorReason, recheck.World),
 		}
 		if decision.Hand.Known() {
 			action.Hand, action.DecidedBy = decision.Hand, domain.RoleDevelopmentManager
@@ -488,12 +505,25 @@ func (a OperatorAction) Whose() string {
 	return operatorActionAttention(a).Whose()
 }
 
+// Asks is what is needed, and that the hold it names could not be read where it
+// could not be.
+func (a OperatorAction) Asks() string {
+	if a.HoldUnread == "" {
+		return a.Needs
+	}
+	return a.Needs + "; " + a.HoldUnread
+}
+
 // Says is the finding as the attention line names it: what it is about, what
 // is needed, who found it, and where it is recorded. A returned handling says
 // whose it is instead of asking for his hand.
 func (a OperatorAction) Says() string {
 	what := fmt.Sprintf("%s needs your hand: %s (found by %s; recorded in %s",
 		a.Subject, singleLine(a.Needs, maxRefusalBytes), a.FoundBy, a.RecordedIn)
+	if a.HoldUnread != "" {
+		what = fmt.Sprintf("%s needs your hand: %s; %s (found by %s; recorded in %s",
+			a.Subject, singleLine(a.Needs, maxRefusalBytes), singleLine(a.HoldUnread, maxEpicReasonBytes), a.FoundBy, a.RecordedIn)
+	}
 	switch {
 	case a.Returned && a.ReturnedWhy != "":
 		what = fmt.Sprintf("%s is open for the %s to finish: it was handled as needing the operator, and the step it asks of him failed its check while it waited — %s — so it is not his: %s (recorded in %s",

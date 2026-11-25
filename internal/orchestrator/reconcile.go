@@ -212,6 +212,7 @@ type Reconciler struct {
 	// converges exactly as it did and lifts nothing.
 	Divergences ReconcileDivergences
 	// OwnHold says whether a hold or pause the operator placed himself stands,
+	// his epic mode among them,
 	// read when an escalation to him that names his own hold is checked again
 	// (EndEscalations). Optional: a sweep wired without it does not check that.
 	OwnHold func() (bool, error)

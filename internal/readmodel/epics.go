@@ -27,11 +27,17 @@ import (
 // maxEpicReasonBytes bounds why a record could not be read, which names the file.
 const maxEpicReasonBytes = 512
 
-// EpicRecords is the records the epic lines are read from.
-type EpicRecords interface {
+// NamedEpics is the record of the epics the operator named, which says whether
+// epic mode is on.
+type NamedEpics interface {
 	// Named is the epics the operator named; it names none where there is no
 	// record.
 	Named() (epicscope.Record, error)
+}
+
+// EpicRecords is the records the epic lines are read from.
+type EpicRecords interface {
+	NamedEpics
 	// NotStarted is what was refused a start.
 	NotStarted() (maystart.Refusals, error)
 	// MayStart is the one decision on a start, with nothing kept.

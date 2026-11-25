@@ -467,7 +467,10 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		Amendments:            proposals,
 		OperatorHolds:         holds,
 		IntakeHolds:           intake,
-		LandingHolds:          slackLandingHolds(stateRoot, resolved.Config.Product.ID),
+		// The epics the operator named, so a request about his epic mode is his
+		// here exactly while it is at the terminal.
+		Epics:        readmodel.NewEpicRecords(stateRoot, productID),
+		LandingHolds: slackLandingHolds(stateRoot, resolved.Config.Product.ID),
 		// Since when each item has waited on the architect's design, as the
 		// terminal says it.
 		NeedsDesignLabelled: runs.NeedsDesignLabelled(),
@@ -609,6 +612,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 			Proposals:     proposals,
 			Intake:        intake,
 			Holds:         holds,
+			Epics:         readmodel.NewEpicRecords(stateRoot, productID),
 			Watch:         watch,
 			UsageLimits:   usageLimits,
 			Outages:       outages,

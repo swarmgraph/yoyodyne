@@ -875,6 +875,7 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 			outcome.refused(fmt.Errorf("escalating %s to the operator was not recorded and the item was not blocked, because the step it asks of him does not hold: %w", id, err))
 			return
 		}
+		defer outcome.noteUnreadHold(ownership.OwnHoldUnread(action.OperatorReason, s.stepWorld()))
 	}
 	if action.decidesDocument() {
 		s.carryOutDocumentDecision(ctx, outcome, decision, run)

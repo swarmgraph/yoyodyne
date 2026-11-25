@@ -2,11 +2,14 @@ package readmodel
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -137,4 +140,62 @@ func TestAnEscalationToTheOperatorIsCheckedAgainWhileItWaits(t *testing.T) {
 			t.Errorf("%s: Escalations() = %#v, %#v, want it back with the development manager saying %q", tc.name, standing, ended, tc.says)
 		}
 	}
+}
+
+// A waiting handling and a waiting escalation that name the operator's epic mode
+// stay his while it is on, go back to the role that recorded them once it is off
+// whatever the brake holds, and stay his saying so while it cannot be read.
+func TestRequestsWaitingOnEpicModeFollowIt(t *testing.T) {
+	t.Parallel()
+	root, sources := epicFixture(t)
+	reported := filedReport("report-00000000000000000000000000000013", report.SeverityWarning, moment.Add(-2*time.Hour))
+	sources.Reports = fakeReports{reports: []report.Report{reported}, handlings: []report.Handling{{
+		ReportID: reported.ID, Role: domain.RoleProductManager, RunID: "chat-1",
+		Reason: "add yoyodyne-9k1y.17 with yoyo epic add", RecordedAt: moment.Add(-time.Hour),
+		NeedsOperator: true, OperatorReason: ownership.OperatorOwnHold,
+	}}}
+	run := heldRun("run-153a", "yoyodyne-ifd.153", moment.Add(-2*time.Hour))
+	decisions := recordedDecisions{"yoyodyne-ifd.153": {Decisions: []runstate.TriageDecision{{
+		Decision: runstate.TriageDecisionEscalate, RunID: run.RunID, Reason: "the run waits on the operator adding the item to his epic",
+		DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 9, DecidedAt: moment.Add(-time.Hour),
+		OperatorReason: ownership.OperatorOwnHold,
+	}}}}
+	sources.IntakeHolds = fakeIntakeHolds{held: true, hold: runstate.IntakeHold{HeldBy: runstate.IntakeHolderBrake}}
+	check := func(when string, his bool, says string) {
+		t.Helper()
+		listed := false
+		for _, entry := range ReadStanding(context.Background(), sources).NeedsHuman {
+			if entry.ID != "report:"+reported.ID {
+				continue
+			}
+			listed = true
+			said := entry.What() + entry.Whose()
+			if entry.Mover.IsOperator() != his || !strings.Contains(said, says) || (says == "" && strings.Contains(said, "could not be read")) {
+				t.Errorf("%s: the handling is with %s and says %q, want his %t saying %q", when, entry.Mover, said, his, says)
+			}
+		}
+		if !listed {
+			t.Errorf("%s: the handling is not listed", when)
+		}
+		standing, ended, problem := Escalations([]runstate.State{run}, decisions, nil, nil, sources.stepRecheck())
+		if problem != "" || (len(standing) == 1) != his || (len(ended) == 1) == his {
+			t.Fatalf("%s: Escalations() = %#v, %#v, %q, want his %t", when, standing, ended, problem, his)
+		}
+		if his {
+			if said := standing[0].Says(); !strings.Contains(said, says) {
+				t.Errorf("%s: the escalation says %q, want %q", when, said, says)
+			}
+		} else if ended[0].ReturnedTo != MoverDevelopmentManager || !strings.Contains(ended[0].Why, says) {
+			t.Errorf("%s: ended = %#v, want it back with the development manager saying %q", when, ended[0], says)
+		}
+	}
+	check("epic mode on", true, "")
+	if _, err := operatorOf(t, root).TurnOff(); err != nil {
+		t.Fatal(err)
+	}
+	check("epic mode off", false, "none stands now")
+	if err := os.WriteFile(filepath.Join(home.ProductDirectory(root, "yoyodyne"), "epic-scope.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check("epic mode unreadable", true, "whether epic mode is on could not be read")
 }
