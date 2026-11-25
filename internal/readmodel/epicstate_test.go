@@ -523,7 +523,7 @@ func TestAnEndedEpicMovesOnlyByMerges(t *testing.T) {
 		"a question open when it was ended": func(b *stateBench) { b.ask("Is "+stateOne+" enough?", hours(1)) },
 		"a directive open when it was ended, settled since": func(b *stateBench) {
 			settled := hours(4)
-			b.sources.Directives = fakeDirectives{recorded: []directive.Directive{{ID: "directive-1", ReceivedAt: hours(1), ResolvedAt: &settled, Scope: []string{stateOne}, Unresolved: "which way"}}}
+			b.sources.Directives = fakeDirectives{recorded: []directive.Directive{{ID: "directive-1", Kind: directive.KindAmbiguous, ReceivedAt: hours(1), ResolvedAt: &settled, Scope: []string{stateOne}, Unresolved: "which way"}}}
 		},
 		"a member not done when it was ended": func(b *stateBench) { b.runs[stateTwo] = nil },
 		"a member landed only afterwards":     func(b *stateBench) { b.lastRun(stateTwo, func(run *runstate.State) { run.StartedAt = hours(4) }) },

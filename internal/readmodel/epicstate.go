@@ -397,7 +397,7 @@ func (s *epicStandings) questionOpenAt(id string, at time.Time) bool {
 	return slices.ContainsFunc(s.exchanges, func(asked exchange.Exchange) bool {
 		return open(asked.OpenedAt, asked.ClosedAt) && namesItem(id, questionsOf(asked)...)
 	}) || slices.ContainsFunc(s.directives, func(said directive.Directive) bool {
-		return said.Unresolved != "" && slices.Contains(said.Scope, id) && open(said.ReceivedAt, said.ResolvedAt, said.WithdrawnAt, said.BecameAt)
+		return said.Kind.Pauses() && len(said.Scope) > 0 && said.Affects(id) && open(said.ReceivedAt, said.ResolvedAt, said.WithdrawnAt, said.BecameAt)
 	})
 }
 
