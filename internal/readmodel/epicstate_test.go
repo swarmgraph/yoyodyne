@@ -636,6 +636,21 @@ func TestAnEndedEpicKeepsTheStateItHadWhenItWasEnded(t *testing.T) {
 		b.wants(EpicIntegrated)
 	}
 
+	// A run retired only afterwards counts as it stood.
+	for at, want := range map[int]EpicState{4: EpicHandedOver, 2: EpicCancelled} {
+		retired := newStateBench(t)
+		retired.landed(stateOne)
+		retired.handedOver(stateTwo)
+		retired.deliver(hours(2).Add(time.Minute))
+		retired.end(hours(3))
+		for _, id := range []string{stateOne, stateTwo} {
+			retired.lastRun(id, func(run *runstate.State) {
+				run.Status, run.Retirement = runstate.StatusCancelled, &runstate.RunRetirement{At: hours(at), PriorStatus: runstate.StatusSucceeded}
+			})
+		}
+		retired.wants(want)
+	}
+
 	untimed := newStateBench(t)
 	untimed.landed(stateOne, stateTwo)
 	untimed.deliver(hours(2))

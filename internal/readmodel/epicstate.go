@@ -474,9 +474,8 @@ func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id
 			}
 			run = runs[next]
 		}
-		if run.Retirement != nil && run.Retirement.At.After(at) {
-			run.Status, run.Retirement = run.Retirement.PriorStatus, nil
-		}
+		// What a retirement recorded later ended was still so at the moment.
+		standing := run.Retirement != nil && run.Retirement.At.After(at) && run.Retirement.PriorStatus == runstate.StatusSucceeded
 		closed := closedUnmerged(run)
 		switch {
 		case closed != nil && !closed.After(at):
@@ -485,9 +484,11 @@ func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id
 			continue
 		case closed != nil, run.WaitingForPersonMerge(), run.BringingPersonMergeUpToDate(),
 			run.PersonMerge != nil && (run.PersonMerge.Superseded() || run.PersonMerge.Merged() && run.PersonMerge.MergedAt.After(at)),
+			standing && run.PersonMerge != nil && run.PersonMerge.Waiting() && run.Integration == nil && run.PullRequest != nil,
 			run.TeamMerge != nil && (run.TeamMerge.FoundAt == nil || run.TeamMerge.FoundAt.After(at)):
 			done, handed = true, true
-		case landed(run), approvedSummary(run):
+		case landed(run), approvedSummary(run),
+			standing && run.Integration != nil && (run.PullRequest == nil || run.PullRequest.Merged):
 			return true, false, nil
 		}
 	}
