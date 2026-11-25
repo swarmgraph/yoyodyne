@@ -47,6 +47,7 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		"carry-out of both":                   carryOutFrom(parts).MayStart,
 		"repair decided from feedback":        feedbackRepairerFrom(parts).MayStart,
 		"repair round asked for on a request": reconcilerFrom(parts).MayStart,
+		"taking up after GitHub's refusal":    gitHubIdentityStopsFrom(parts).MayStart,
 	} {
 		if decide == nil {
 			t.Errorf("the %s is wired no decision, so it would start anything", name)
@@ -69,6 +70,9 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		maystart.FeedbackRepair:  {feedbackRepairerFrom(parts).MayStart, reconcilerFrom(parts).MayStart, pipelineFrom(parts).MayStart},
 		maystart.ResolveConflict: {pipelineFrom(parts).MayStart},
 		maystart.BringInFile:     {pipelineFrom(parts).MayStart},
+		maystart.UpdateQueued:    {reconcilerFrom(parts).MayStart},
+		maystart.UpdateForPerson: {reconcilerFrom(parts).MayStart},
+		maystart.AfterLogin:      {gitHubIdentityStopsFrom(parts).MayStart},
 	}
 	items := func() []maystart.RefusedItem {
 		t.Helper()

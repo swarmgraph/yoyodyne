@@ -65,6 +65,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -380,7 +381,9 @@ func invalidateForgeApproval(state *runstate.State) {
 // rewrite, and a run whose worktree, branch, or sessions are gone has nothing to
 // replay from. Those are handed back as a red merge is. Where the replay is
 // possible and the moment is not — no sweep hosting runs, intake held, every
-// slot taken — the merge is left queued, saying why, for the next sweep.
+// slot taken — the merge is left queued, saying why, for the next sweep, until
+// the limit on a queued merge. A run whose item may not start under the epics
+// the operator named is left however long it has waited.
 //
 // dropped is a merge the forge already stopped holding (replayDroppedLanding),
 // which has nothing to withdraw; its caller has already refused the runs that
@@ -407,18 +410,26 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// change is replayed as any lost race is, and the replay's own gate is where
 	// the integration budget is enforced, against a replay that stops on the
 	// change.
-	waiting := func(why string) (Reconciliation, error) {
-		// A wait for the moment to replay is still a merge not landing, and one
-		// past the limit is handed on rather than waited on again (stuckmerge.go).
-		if waited, past := r.queuedPastLimit(state); past {
-			return r.settleStuckMerge(ctx, state, waited, !dropped, why)
-		}
+	stays := func(why string) (Reconciliation, error) {
 		left := "it is left queued for the next sweep"
 		if dropped {
 			left = "it is left for the next sweep, which asks the forge again"
 		}
 		result.Detail += fmt.Sprintf("; its head is to be brought up to date onto %s, and %s, so %s", target, why, left)
 		return result, nil
+	}
+	waiting := func(why string) (Reconciliation, error) {
+		// A wait for the moment to replay is still a merge not landing, and one
+		// past the limit is handed on rather than waited on again (stuckmerge.go).
+		if waited, past := r.queuedPastLimit(state); past {
+			return r.settleStuckMerge(ctx, state, waited, !dropped, why)
+		}
+		return stays(why)
+	}
+	// Asked before anything that waits, a pass that hosts no runs included,
+	// because a wait past the limit is withdrawn and handed on.
+	if refused := r.MayStart.refuseRun(maystart.UpdateQueued, state.WorkItemID); refused != nil {
+		return stays(refused.Error())
 	}
 	if !r.HostsRuns {
 		return waiting("this pass hosts no runs — `yoyo reconcile` does")
