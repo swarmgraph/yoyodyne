@@ -1502,6 +1502,8 @@ type fakeTracker struct {
 	// is the half of the admitted work a listing of the open queue never carries
 	// — and the half a status left over from a stoppage that ended is in.
 	blockedItems []beads.WorkItem
+	// claimedItems is what a listing of the work in progress answers with.
+	claimedItems []beads.WorkItem
 	// unblocked is every item it was asked to clear a blocked status on and the
 	// note each carried, which is what makes "a repair records what it corrected
 	// and why" an assertion rather than a claim about prose.
@@ -1555,6 +1557,8 @@ func (f *fakeTracker) List(_ context.Context, status string) ([]beads.WorkItem, 
 		return f.all, nil
 	case "blocked":
 		return f.blockedItems, nil
+	case "in_progress":
+		return f.claimedItems, nil
 	default:
 		return f.open, nil
 	}
