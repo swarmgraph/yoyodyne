@@ -58,7 +58,9 @@
 # and that commit is required to be one origin's default branch holds rather
 # than its tip, since the notes landed after it; the notes themselves are read
 # from the file YOYODYNE_RELEASE_NOTES names, which the harness writes from
-# origin's default branch, because the named commit's own tree lacks them; origin
+# origin's default branch, because the named commit's own tree lacks them; the
+# readiness check, and no other step, is pointed at the tracker that
+# YOYODYNE_RELEASE_BEADS_DIR names; origin
 # being unreachable refuses rather than being named as unchecked, because
 # HEAD being on origin's default branch is a check the harness cannot skip; and
 # once every check passes it prints the commit they ran on and exits 0 with no tag
@@ -134,6 +136,20 @@ automatic=0
 # the harness hands the release back rather than preparing it itself. Its own
 # exit status is how the harness tells it from a red gate.
 refuse_preparation() { printf '\ncut-release: %s\n' "$*" >&2; exit 3; }
+
+# The harness's cut names the live tracker here, for the readiness check alone.
+# It is taken out of the environment so nothing else this starts inherits it.
+readiness_beads_dir="${YOYODYNE_RELEASE_BEADS_DIR:-}"
+unset YOYODYNE_RELEASE_BEADS_DIR
+
+# without_tracker runs a command with every tracker setting this was started
+# with taken out, so it cannot be pointed at a live tracker. Everything that
+# builds, walks or tests goes through it; only the readiness check, which reads
+# the work items, does not.
+without_tracker() (
+  unset ${!BEADS_@} ${!BD_@}
+  "$@"
+)
 
 walk_log=""
 readiness=""
@@ -359,7 +375,7 @@ step "gate: release readiness"
 # and only one of them would be the one that refused or did not.
 printf 'The tag is refused unless the system still matches what it records about\n'
 printf 'itself. The section below is what this tag carries in its notes.\n\n'
-if ! "$make_program" -C "$repository" build >/dev/null; then
+if ! without_tracker "$make_program" -C "$repository" build >/dev/null; then
   refuse "the harness could not be built, so release readiness was never checked and $tag was not cut"
 fi
 readiness="$(mktemp "${TMPDIR:-/tmp}/cut-release-readiness.XXXXXX")"
@@ -367,7 +383,11 @@ readiness="$(mktemp "${TMPDIR:-/tmp}/cut-release-readiness.XXXXXX")"
 # the harness discovers a project's configuration by walking up from the working
 # directory, and a cut invoked from elsewhere would otherwise check whichever
 # project that directory happens to be inside, or none.
-if (cd "$repository" && ./bin/yoyo conformance --notes) > "$readiness"; then
+if (
+  cd "$repository" || exit 1
+  [ -z "$readiness_beads_dir" ] || export BEADS_DIR="$readiness_beads_dir"
+  ./bin/yoyo conformance --notes
+) > "$readiness"; then
   cat "$readiness"
 else
   cat "$readiness" >&2
@@ -514,7 +534,7 @@ step "gate: the getting-started walkthrough"
 printf 'A release is what the install path consumes, so the documented first hour\n'
 printf 'is walked before the tag exists rather than after it is published.\n\n'
 walk_log="$(mktemp "${TMPDIR:-/tmp}/cut-release-walk.XXXXXX")"
-if ! bash "$walkthrough" 2>&1 | tee "$walk_log"; then
+if ! without_tracker bash "$walkthrough" 2>&1 | tee "$walk_log"; then
   named="$(grep 'FAIL:' "$walk_log" || true)"
   if [ -n "$named" ]; then
     printf '\nwhat the walkthrough found:\n%s\n' "$named" >&2
@@ -527,12 +547,12 @@ fi
 step "gate: make check"
 # The release workflow runs this after the tag push. Running it here means a
 # red check costs a rerun rather than a pushed tag with no release behind it.
-if ! "$make_program" -C "$repository" check; then
+if ! without_tracker "$make_program" -C "$repository" check; then
   refuse "make check is red, so $tag was not cut and nothing was written"
 fi
 
 step "build: the archives and their checksums for $tag"
-if ! "$make_program" -C "$repository" dist-verify VERSION="$tag"; then
+if ! without_tracker "$make_program" -C "$repository" dist-verify VERSION="$tag"; then
   refuse "the release build for $tag failed, so no tag was written"
 fi
 

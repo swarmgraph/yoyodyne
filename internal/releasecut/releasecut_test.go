@@ -376,6 +376,55 @@ func TestADecidedReleaseIsCutPushedAndRecorded(t *testing.T) {
 	}
 }
 
+// A cut's checks never have BEADS_DIR or another tracker setting, whatever
+// started the harness: the live tracker is named only in the variable the
+// script turns into BEADS_DIR for its readiness check. The fixture's script
+// writes to whatever tracker BEADS_DIR names, as the walkthrough of a commit
+// from before the script cleared it would, and the tracker is left as it was.
+func TestACutsChecksAreNotPointedAtTheLiveTracker(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, false)
+	tracker := filepath.Join(f.repository, ".beads")
+	database := filepath.Join(tracker, "database")
+	seen := filepath.Join(filepath.Dir(f.repository), "settings")
+	if err := os.MkdirAll(tracker, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(database, []byte("the live tracker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/usr/bin/env bash
+env | grep -E '^(BEADS_|BD_|YOYODYNE_RELEASE_BEADS_DIR)' > '` + seen + `'
+[ -z "${BEADS_DIR:-}" ] || echo leaked >> "$BEADS_DIR/database"
+[ -z "${BEADS_DB:-}" ] || echo leaked >> "$BEADS_DB/database"
+echo "checked commit: $(git -C "$(dirname "$0")/.." rev-parse HEAD)"
+`
+	if err := os.WriteFile(filepath.Join(f.repository, "scripts", "cut-release.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, f.repository, "add", "scripts")
+	git(t, f.repository, "commit", "-qm", "the script writes to the tracker it is pointed at")
+	f.landNotes(t, strings.ReplaceAll(stamped, "NAMED", f.head(t)))
+	git(t, f.repository, "push", "-q", "origin", "main")
+	f.cutter.Environ = append(os.Environ(), "BEADS_DIR="+tracker, "BEADS_DB="+tracker, "BEADS_DOLT_SERVER_PORT=1", "BD_ACTOR=somebody",
+		"YOYODYNE_RELEASE_BEADS_DIR=/elsewhere")
+
+	step := f.cutter.Pass(context.Background())
+	if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, "pushed v0.6.0") {
+		t.Fatalf("step = %+v, want the release cut", step)
+	}
+	got, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "YOYODYNE_RELEASE_BEADS_DIR=" + tracker + "\n"; string(got) != want {
+		t.Errorf("the checks' tracker settings = %q, want only %q", got, want)
+	}
+	if left, err := os.ReadFile(database); err != nil || string(left) != "the live tracker" {
+		t.Errorf("the live tracker holds %q (%v) after a cut, want it unchanged", left, err)
+	}
+}
+
 // Missing notes hand the release back to the Lead Product Manager without
 // running a gate or drafting anything, and the same notes are handed back once
 // however often main moves.

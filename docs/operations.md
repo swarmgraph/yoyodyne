@@ -843,7 +843,14 @@ else in the way, the step:
    getting-started walkthrough, `make check`, and the release build. These are
    `scripts/cut-release.sh` itself, run with `YOYODYNE_RELEASE_CUT=automatic`
    and the notes in `YOYODYNE_RELEASE_NOTES`, which drafts nothing, opens no
-   pull request, and tags nothing. The worktree and the notes beside it are
+   pull request, and tags nothing. Only the readiness check reads the live
+   tracker: the harness names it in `YOYODYNE_RELEASE_BEADS_DIR`, which the
+   script turns into `BEADS_DIR` for that check alone, and the walkthrough,
+   `make check`, and the release build run with no `BEADS_DIR` and no other
+   `BEADS_` or `BD_` setting. A named commit whose script is from before
+   `YOYODYNE_RELEASE_BEADS_DIR` is given no `BEADS_DIR` either, and its readiness
+   check finds the tracker through the checkout being a Git worktree of the
+   primary one. The worktree and the notes beside it are
    removed afterwards. Before the worktree is made, and again however the cut
    ends, whatever is at its path in the product's `release-cut` folder is
    removed, so the next pass cuts without anyone clearing it: a worktree Git

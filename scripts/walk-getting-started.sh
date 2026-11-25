@@ -41,6 +41,12 @@
 
 set -euo pipefail
 
+# Nothing the walk runs may reach a tracker other than the scratch projects'
+# own. bd reads where its store is, and how to reach it, from these, so whatever
+# the caller had set would point the walk's bd at the caller's tracker: bd init
+# refuses there, and bd create would write into it.
+unset ${!BEADS_@} ${!BD_@}
+
 readme_clone_url="https://github.com/swarmgraph/yoyodyne"
 readme_install_module="github.com/mason-bryant/yoyodyne"
 # The one home Beads has, which the README names and every other document here
@@ -107,6 +113,20 @@ fail()   { printf '  FAIL: %s\n' "$*"; failures=$((failures + 1)); }
 # silent skip reads as coverage, which is the failure mode this whole script
 # exists to avoid.
 skip()   { printf '  SKIPPED: %s\n' "$*"; skips=$((skips + 1)); }
+
+# tracker runs one bd command, leaving what it printed in $tracker_output. A
+# failure prints bd's own message, carries it on a FAIL line as one line, and
+# ends the walk: every later step needs the tracker.
+tracker_output="$scratch/bd.stdout"
+tracker() {
+  local status=0
+  bd "$@" >"$tracker_output" 2>"$scratch/bd.stderr" || status=$?
+  [ "$status" != "0" ] || return 0
+  cat "$scratch/bd.stderr" "$tracker_output"
+  fail "bd $1 exited $status, saying: $(cat "$scratch/bd.stderr" "$tracker_output" | tr -s '[:space:]' ' ')"
+  printf '\n=== result\nthe walk stopped at a tracker command that failed, shown above\n'
+  exit 1
+}
 
 # contains asserts that a haystack holds a substring, which is how a claim about
 # what a command *says* is checked: the README quotes these messages.
@@ -304,9 +324,10 @@ git commit -qm "a tiny Python project"
 pass "created a Python project with one commit at $project"
 
 step "2. initialize the tracker"
-run bd init >/dev/null 2>&1
+printf '$ bd init\n'
+tracker init
 if [ -d "$project/.beads" ]; then pass "bd init created .beads"; else fail "bd init created no .beads"; fi
-run bd ready >/dev/null
+tracker ready
 pass "bd ready answers in the scratch project"
 
 step "3. write the configuration"
@@ -329,7 +350,8 @@ contains "$refusal" "pass --force to overwrite it" "a second init refuses rather
 # the project already has one, and init reports leaving that alone rather than
 # overwriting it.
 contains "$written" "syncs through origin" "init leaves the tracker syncing over the project's Git remote"
-tracker_remote="$(bd dolt remote list 2>&1 || true)"
+tracker dolt remote list
+tracker_remote="$(cat "$tracker_output")"
 printf '%s\n' "$tracker_remote"
 contains "$tracker_remote" "$scratch/origin.git" "bd holds the sync remote init configured"
 
@@ -439,15 +461,16 @@ contains "$validate" "configuration valid" "config validate passes with checks: 
 # Something has to be in the tracker before a run can be refused for anything
 # else, so the first work item is filed here rather than where the README files
 # one, which is inside its third step.
-bd create --title="Add a subtract function" \
+tracker create --title="Add a subtract function" \
   --description="calc has add and nothing else. Add subtract(a, b) with a test." \
-  --type=feature --priority=2 >/dev/null 2>&1
-item="$(bd ready --json 2>/dev/null | python3 -c '
+  --type=feature --priority=2
+tracker ready --json
+item="$(python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
 issues = payload if isinstance(payload, list) else payload.get("issues", payload)
 print(issues[0]["id"])
-')"
+' < "$tracker_output")"
 printf 'work item: %s\n' "$item"
 refusal="$("$yoyo" run "$item" 2>&1 || true)"
 contains "$refusal" "requires at least one configured check" "yoyo run refuses a run with no checks"
