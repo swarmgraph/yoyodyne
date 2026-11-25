@@ -55,8 +55,11 @@ unset VERSION
 # a stub for, so a caller's own would reach the real forge.
 unset GH
 # A harness running this suite inside a cut, or a machine with a tracker set,
-# would otherwise reach the cases that check which steps see one.
-unset YOYODYNE_RELEASE_BEADS_DIR ${!BEADS_@} ${!BD_@}
+# would otherwise reach every case: YOYODYNE_RELEASE_CUT=automatic turns each
+# practice cut into the harness's, which writes no tag, and the notes and
+# tracker it names would be read in place of each case's own. A case that needs
+# one sets it for that case.
+unset ${!YOYODYNE_RELEASE_@} ${!BEADS_@} ${!BD_@}
 
 step()   { printf '\n=== %s\n' "$*"; }
 pass()   { printf '  ok: %s\n' "$*"; }
@@ -1088,10 +1091,11 @@ cut_automatic() {
 # commit it is on, which is how the harness's own worktree for a cut stands.
 detach() { git -C "$1" checkout -q --detach HEAD; }
 
-# settings prints a stub's recording of the tracker settings it was run with,
-# and then writes into the tracker they name, as the walkthrough's bd would.
+# settings prints a stub's recording of the tracker settings, the release
+# settings, and the harness's check-narrowing settings it was run with, and
+# then writes into the tracker they name, as the walkthrough's bd would.
 settings() {
-  printf '%s\n' "env | grep -E '^(BEADS_|BD_|YOYODYNE_RELEASE_BEADS_DIR)' | sort > '$scratch/$1-settings' || true"
+  printf '%s\n' "env | grep -E '^(BEADS_|BD_|YOYODYNE_RELEASE_|YOYODYNE_CHANGED_GO_PACKAGES=|YOYODYNE_FAILING_TESTS=)' | sort > '$scratch/$1-settings' || true"
   printf '%s\n' 'if [ -n "${BEADS_DIR:-}" ] && [ "'"$1"'" != readiness ]; then echo leaked >> "$BEADS_DIR/database"; fi'
 }
 
@@ -1115,15 +1119,15 @@ watched() {
 }
 
 # only_readiness checks what watched recorded: the readiness check had $1, no
-# other step had any setting, and the tracker was not written to.
+# other step had any of those settings, and the tracker was not written to.
 only_readiness() {
   local target
   contains "$(cat "$scratch/readiness-settings" 2>&1)" "$1" "the readiness check had $1"
   for target in build walkthrough check dist-verify; do
     if [ -f "$scratch/$target-settings" ] && [ ! -s "$scratch/$target-settings" ]; then
-      pass "$target ran with no tracker setting"
+      pass "$target ran with no tracker, release or check-narrowing setting"
     else
-      fail "$target did not run with no tracker setting -- got: $(cat "$scratch/$target-settings" 2>&1)"
+      fail "$target ran with a tracker, release or check-narrowing setting -- got: $(cat "$scratch/$target-settings" 2>&1)"
     fi
   done
   if [ "$(cat "$scratch/live/database")" = "the live tracker" ]; then
@@ -1138,11 +1142,15 @@ project="$(fabricate tracker-automatic green green)"
 watched "$project"
 origin_for "$project" >/dev/null
 detach "$project"
-export YOYODYNE_RELEASE_BEADS_DIR="$scratch/live"
+cp -f "$project/docs/releases/v0.3.0.md" "$scratch/tracker-automatic-notes.md"
+export YOYODYNE_RELEASE_BEADS_DIR="$scratch/live" YOYODYNE_RELEASE_NOTES="$scratch/tracker-automatic-notes.md"
+export YOYODYNE_CHANGED_GO_PACKAGES="./nothing" YOYODYNE_FAILING_TESTS="TestNothing"
 cut_automatic "$project" "v0.3.0"
-unset YOYODYNE_RELEASE_BEADS_DIR
+unset YOYODYNE_RELEASE_BEADS_DIR YOYODYNE_RELEASE_NOTES YOYODYNE_CHANGED_GO_PACKAGES YOYODYNE_FAILING_TESTS
 if [ "$status" = "0" ]; then pass "the harness's cut exits 0"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "handed over by the harness" "it read the notes it was handed"
 only_readiness "BEADS_DIR=$scratch/live"
+missing "$(cat "$scratch/readiness-settings" 2>&1)" "YOYODYNE_RELEASE_" "the readiness check had no release setting"
 
 project="$(fabricate tracker-person green green)"
 watched "$project"
