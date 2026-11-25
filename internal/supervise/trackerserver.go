@@ -253,7 +253,7 @@ func (t *TrackerServer) noOtherServer(ctx context.Context, database string) erro
 		return fmt.Errorf("whether another server holds the tracker's store could not be told: %w", err)
 	}
 	for _, holder := range holders {
-		if strings.HasPrefix(holder.Command, "dolt sql-server") {
+		if words := strings.Fields(holder.Command); len(words) > 1 && words[0] == "dolt" && words[1] == "sql-server" {
 			return fmt.Errorf("a server the record does not name holds the tracker's store: %s", holder.Says())
 		}
 	}

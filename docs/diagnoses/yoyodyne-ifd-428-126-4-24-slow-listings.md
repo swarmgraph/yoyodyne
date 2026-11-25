@@ -532,8 +532,9 @@ Read on November 25, 2026, with dolt 2.7.6 and bd 1.1.2 on a store made for it:
   opens its TCP port as well: asked for a socket on a port already taken, it
   refuses to start with "Port … already in use", and it refuses port 0 and an
   empty host. Only the password condition is left, so under the decision on
-  developer runs and local services the server stays off until every role is
-  refused the services folder (yoyodyne-ifd.435.98).
+  developer runs and local services the server stays off until every role
+  is refused the services folder on both Claude Code and Codex
+  (yoyodyne-ifd.435.98 is the Codex half).
 - **dolt writes a second secret beside the data it serves.** `.dolt/sql-server.info`
   in the served directory holds the password of a local superuser,
   `__dolt_local_user__`, which connected through the port with it. The server is

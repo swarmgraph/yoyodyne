@@ -1259,8 +1259,9 @@ instead run one server that keeps the store open (`dolt sql-server`, from the
 harness's own dolt), and every tracker command the harness makes is then answered
 through it. **It is built and not switched on.** dolt always opens a network port
 on this machine, so the server has to be reached with a password, and a role
-other than a developer can still read the folder the password is kept in
-(yoyodyne-ifd.435.98); a real install of dolt 2.7.6 by the harness's setup has
+other than a developer can still read the folder the password is kept in until
+sessions on both Claude Code and Codex are refused it (yoyodyne-ifd.435.98 is the
+Codex half); a real install of dolt 2.7.6 by the harness's setup has
 also to be recorded as checked. Until both are done this build starts no server,
 and no configuration key turns it on.
 
