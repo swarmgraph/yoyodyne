@@ -417,6 +417,9 @@ type Rebase struct {
 	HeadCommit         string `json:"head_commit"`
 	PreviousBaseCommit string `json:"previous_base_commit"`
 	PreviousHeadCommit string `json:"previous_head_commit"`
+	// Conflicts are the paths a change moved onto the target by ReplayForRepair
+	// left unmerged in the worktree.
+	Conflicts []string `json:"conflicts,omitempty"`
 }
 
 // RebaseConflict is a refused replay with the detail whoever settles it needs
@@ -3114,9 +3117,11 @@ func (m *Manager) ReplayForRepair(ctx context.Context, worktree Worktree, messag
 		return rebase, fmt.Errorf("put the current exports back before moving onto the target: %w", err)
 	}
 	defer func() { _ = m.refreshExports(ctx, path) }()
-	if err := m.applyOverTarget(ctx, path, targetCommit, source, squashed); err != nil {
+	conflicts, err := m.applyOverTarget(ctx, path, targetCommit, source, squashed)
+	if err != nil {
 		return rebase, err
 	}
+	rebase.Conflicts = conflicts
 	rebase.BaseCommit = targetCommit
 	rebase.HeadCommit = targetCommit
 	return rebase, nil
@@ -3206,9 +3211,10 @@ func (m *Manager) squashChange(ctx context.Context, path, base, source, message 
 // that would otherwise lose work: the branch has already been moved, so the
 // change would be left in a commit nothing points at. The branch is put back on
 // the change before the failure is reported.
-func (m *Manager) applyOverTarget(ctx context.Context, path, targetCommit, source, squashed string) error {
+func (m *Manager) applyOverTarget(ctx context.Context, path, targetCommit, source, squashed string) ([]string, error) {
+	var conflicts []string
 	if err := m.resetHard(ctx, path, targetCommit); err != nil {
-		return err
+		return nil, err
 	}
 	picked, err := m.runWithEnvironment(ctx, harnessCommitEnvironment(), "-C", path,
 		"-c", "core.hooksPath="+os.DevNull,
@@ -3216,25 +3222,26 @@ func (m *Manager) applyOverTarget(ctx context.Context, path, targetCommit, sourc
 		"-c", "user.email="+harnessCommitAuthorEmail,
 		"cherry-pick", "--no-commit", squashed)
 	if err != nil {
-		return errors.Join(err, m.resetHard(ctx, path, source))
+		return nil, errors.Join(err, m.resetHard(ctx, path, source))
 	}
 	if picked.Status != execution.ProcessSucceeded {
 		failed := fmt.Errorf("apply %s over %s failed with exit code %d: %s",
 			squashed, targetCommit, picked.ExitCode, strings.TrimSpace(picked.Stderr))
 		conflicted, err := m.conflictedPaths(ctx, path)
 		if err != nil {
-			return errors.Join(failed, err, m.resetHard(ctx, path, source))
+			return nil, errors.Join(failed, err, m.resetHard(ctx, path, source))
 		}
+		conflicts = conflicted
 		if len(conflicted) == 0 {
 			// Git declined the apply rather than stopping inside it, so there is no
 			// disagreement to hand anybody and nothing was written.
-			return errors.Join(failed, m.resetHard(ctx, path, source))
+			return nil, errors.Join(failed, m.resetHard(ctx, path, source))
 		}
 		// An apply that stopped inside itself can leave sequencer state behind,
 		// which would make this an operation in progress rather than a dirty
 		// worktree. Clearing it keeps what was written and nothing else.
 		if err := m.quitCherryPick(ctx, path); err != nil {
-			return errors.Join(failed, err)
+			return nil, errors.Join(failed, err)
 		}
 	}
 	// Whatever the apply staged is unstaged, resolved and conflicting alike: a
@@ -3242,12 +3249,12 @@ func (m *Manager) applyOverTarget(ctx context.Context, path, targetCommit, sourc
 	// one would hide from every later step which paths still hold a disagreement.
 	unstaged, err := m.run(ctx, "-C", path, "reset", "--quiet")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if unstaged.Status != execution.ProcessSucceeded {
-		return fmt.Errorf("unstage the applied change failed with exit code %d: %s", unstaged.ExitCode, strings.TrimSpace(unstaged.Stderr))
+		return nil, fmt.Errorf("unstage the applied change failed with exit code %d: %s", unstaged.ExitCode, strings.TrimSpace(unstaged.Stderr))
 	}
-	return nil
+	return conflicts, nil
 }
 
 func (m *Manager) resetHard(ctx context.Context, path, commit string) error {

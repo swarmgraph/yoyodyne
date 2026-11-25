@@ -1159,6 +1159,7 @@ var notAStep = map[string]string{
 	"payOwedPublish":             "is candidate.publish for a run taken up at its checks after GitHub refused its identity: the push it still owes, made once the checks pass and before the review",
 	"prepareIntegrationRetry":    "replays a change whose promotion lost its race, so candidate.integrate can be re-earned",
 	"moveOntoTargetForRepair":    "puts a change whose replay conflicted onto the target for its developer to reconcile, which is the setup of the repair candidate.develop then performs",
+	"conflictResolutionPrompt":   "builds what the session that resolves a handed-back conflict is given, reading the repository and changing nothing, inside candidate.develop",
 	"reconcilingPublishedBranch": "reads whether candidate.develop's publication replaces the published branch rather than extending it",
 	"publishOntoPullRequest":     "publishes the change onto the pull request an earlier run opened, inside candidate.develop's publication, for a run selected to update it",
 	"pullRequestUpdate":          "reads which pull request the run was selected to update, inside candidate.develop's publication",

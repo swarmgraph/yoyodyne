@@ -124,8 +124,8 @@ var deliveryAnswers = map[string][]string{
 	// whole-module checks fail and send it back to the check as a superseded
 	// promotion does, or the publication fails and the run ends.
 	"candidate.publish": {"published", "stopped", "superseded"},
-	// "reconciling" is a replay conflict handed back to the developer that wrote
-	// the change, which re-earns the whole gate from the developer's own state.
+	// "reconciling" is a replay conflict handed back to a developer — a new
+	// session the first time, the run's current one after that — which re-earns the whole gate from the developer's own state.
 	// The built-in routes it to `develop`. A project's own copy made before that
 	// transition existed does not, so a run executing such a copy records a
 	// divergence when it takes it, and `yoyo config drift` reports the transition

@@ -554,7 +554,7 @@ type ReplayConflict struct {
 // change whose replay conflicted: that it is approved (or, with beforeReview,
 // that it was still waiting for its checks), what it conflicted with,
 // and who moves next — the repair-continue, which hands the conflict back to
-// the developer that wrote the change (yoyodyne-ifd.132), or a person, and not
+// the run's developer (yoyodyne-ifd.132), or a person, and not
 // the resume verb, which replays onto the same target and meets the same
 // conflict. It is one sentence here for the reason
 // ResumeIntegrationSays is: a docket entry and a run record that say different
@@ -566,7 +566,7 @@ func ReplayConflictSays(runID, targetBranch string, beforeReview bool) string {
 			runID, nonEmpty(targetBranch, "its target branch"), runID)
 	}
 	return fmt.Sprintf(
-		"run %s's change is approved and its replay onto %s conflicted, so what it needs is `yoyo triage repair %s`, which continues the developer that wrote it with the conflict handed back to reconcile against the target, or a person to settle the conflict — and not `yoyo triage resume`, which would replay onto the same target and meet the same conflict",
+		"run %s's change is approved and its replay onto %s conflicted, so what it needs is `yoyo triage repair %s`, which continues the run's developer with the conflict handed back to reconcile against the target, or a person to settle the conflict — and not `yoyo triage resume`, which would replay onto the same target and meet the same conflict",
 		runID, nonEmpty(targetBranch, "its target branch"), runID)
 }
 
@@ -2711,7 +2711,7 @@ func (e Entry) nextMover() string {
 		return fmt.Sprintf("      Next mover: you — this change conflicted with its target before any review, so it is waiting on your decision: a repair (`yoyo triage repair %s`) continues the developer that wrote it with the conflict to settle.\n", e.RunID)
 	}
 	if e.ReplayConflict != nil {
-		return fmt.Sprintf("      Next mover: you — this change is approved and its replay conflicted, so it is waiting on your decision: a repair (`yoyo triage repair %s`) continues the developer that wrote it with the conflict to reconcile, and `yoyo triage resume` is not the answer.\n", e.RunID)
+		return fmt.Sprintf("      Next mover: you — this change is approved and its replay conflicted, so it is waiting on your decision: a repair (`yoyo triage repair %s`) continues the run's developer with the conflict to reconcile, and `yoyo triage resume` is not the answer.\n", e.RunID)
 	}
 	return "      Next mover: you — " + gone + "nothing the harness has still to carry out is recorded about this stoppage, so what happens to it next is your decision.\n"
 }

@@ -247,8 +247,8 @@ records 2, the same as an ordinary repair round, and a reader expecting a replay
 to be free of that counter should read the trace rather than this sentence.
 Each lost race is also recorded in `lost_landings`, and a replay that applied
 cleanly and passed its checks is counted in `clean_replays`. A replay that
-conflicts is never resolved by the harness: the first conflict is handed to the
-developer as the run's one reconciliation attempt (`reconciliation`), charging
+conflicts is never resolved by the harness: the first conflict is handed to a
+new developer session as the run's one reconciliation attempt (`reconciliation`), charging
 no repair attempt, and a later one with nothing left to hand it back with leaves
 both sides intact and blocks the item.
 
@@ -661,9 +661,9 @@ them.
   asserted through the registered door in `internal/orchestrator/actions_test.go`
   (`TestPerformingIntegrateRefusesAChangeTheRecordDoesNotShowPassedItsGate`)
   and held by no trace here.
-- A replay that conflicts, which is handed back to the change's own developer
-  on top of the target (yoyodyne-ifd.132): the first conflict as the run's one
-  reconciliation attempt, which spends no repair attempt, and a later one as a
+- A replay that conflicts, which is handed back to a developer on top of the
+  target (yoyodyne-ifd.132): the first conflict as the run's one
+  reconciliation attempt, made in a new session, which spends no repair attempt, and a later one as a
   repair attempt, blocking with both sides intact only once the repair budget is
   spent.
 - A reviewer's reply that cannot be read as a verdict, which is asked for once

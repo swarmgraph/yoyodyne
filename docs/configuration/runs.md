@@ -919,9 +919,9 @@ replayed onto where the target went and promoted by fast-forward — or, on a
 target the forge protects, replayed the same way and then landed through its
 pull request rather than by a local fast-forward
 ([a protected target lands through its pull request](publishing.md#a-protected-target-lands-through-its-pull-request)).
-A replay that conflicts is handed back to the change's own developer to
-reconcile on top of the target, and the result is checked and reviewed again.
-The first conflict is the run's one reconciliation attempt, which spends no
+A replay that conflicts is handed back to a developer to reconcile on top of
+the target, and the result is checked and reviewed again. The first conflict is
+the run's one reconciliation attempt, made in a new session and spending no
 repair attempt; a later one is a repair attempt, and the run blocks only once a
 budget is spent. Nothing is ever forced.
 

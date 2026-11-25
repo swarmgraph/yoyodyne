@@ -82,7 +82,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    limit is asked again, `replayKilledRetries` times, on a doubled limit),
    `recordRebase`, `continueOnRebaseConflict`,
    `moveOntoTargetForRepair`, `reconcile` (the first conflict at landing, the
-   run's one reconciliation attempt, charging no repair attempt), `noteReplay`
+   run's one reconciliation attempt, charging no repair attempt and made in a
+   new developer session, whose prompt and author records are
+   `conflictresolution.go`), `noteReplay`
    and `judgeReplay` (what each lost landing's replay made of the change; a
    clean one is not counted, `runstate`'s `landingattempts.go`),
    `recordReplayConflict` (also records the hand-back,
@@ -202,8 +204,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
 20. **Prompts.** `developerContract` / `developerContractTemplate`,
     `developerPrompt`, `repairPrompt`, `pathRefusalRepairPrompt`,
     `checkRepairPrompt`, `replayConflictRepairPrompt`,
-    `replayConflictReconcilePrompt`, `accountPrompt`,
-    `boundedCheckOutput`.
+    `accountPrompt`, `boundedCheckOutput`. The prompt of the session that
+    resolves a handed-back conflict is `conflictResolutionPrompt`, in
+    `conflictresolution.go`.
 21. **Notes written on the work item.** `renderOutcomeNotes` (success),
     `renderFailureNotes` + `renderPreservationNotes` (failure), one
     `render…Notes` per blocker and pause, `renderReviewNotes`,

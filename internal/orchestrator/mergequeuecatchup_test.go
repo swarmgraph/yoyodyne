@@ -3,7 +3,7 @@ package orchestrator
 // A change the harness's merge queue hands back only because the target moved
 // under it gets its run's one attempt to catch up, end to end through a real
 // run, a real queue, and a real run store: the run is put back live rather
-// than stopped, its developer reconciles the conflict on top of the target,
+// than stopped, a new developer session reconciles the conflict on top of the target,
 // the change is checked and reviewed again and rejoins the queue by itself,
 // and no repair attempt or fresh run is spent. A second conflict, or a
 // catch-up whose result fails its checks with no repair attempts left, stops

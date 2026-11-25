@@ -136,9 +136,16 @@ func stagesLeft(generation runstate.MergeQueueGeneration) bool {
 	return verdict == nil || verdict.FinishedAt == nil || verdict.Problem != ""
 }
 
+// mergeQueueAuthors are the sessions that wrote an entry's change: the run's
+// current developer session, or who stands for it, and any others.
+type mergeQueueAuthors struct {
+	Session string
+	Others  []string
+}
+
 // mergeQueueAuthor is who wrote an entry's change, whom the candidate's
 // reviewer must not be, and empty where the run records nobody.
-func mergeQueueAuthor(run runstate.State) string {
+func mergeQueueAuthor(run runstate.State) mergeQueueAuthors {
 	author := strings.TrimSpace(run.ProviderSessionID)
 	if author == "" && run.Document != nil {
 		// A document's author is the owning role's conversation session that
@@ -152,7 +159,7 @@ func mergeQueueAuthor(run runstate.State) string {
 		// author session is named the same way.
 		author = "harness:" + run.RunID
 	}
-	return author
+	return mergeQueueAuthors{Session: author, Others: run.OtherAuthorSessions()}
 }
 
 // checkAhead builds or takes up the next waiting entry's candidate on base's
@@ -195,7 +202,7 @@ func (w MergeQueueWorker) checkAhead(ctx context.Context, lease *runstate.Lease,
 		return stopped(fmt.Errorf("read run %s, which merge queue entry %d was admitted for: %w", next.RunID, next.Order, err))
 	}
 	author := mergeQueueAuthor(run)
-	if author == "" {
+	if author.Session == "" {
 		return skip(fmt.Sprintf("run %s records no developer session, so no reviewer can be shown to be independent of it", next.RunID))
 	}
 	// A record that cannot be read here is read again, and reported, when the
@@ -273,7 +280,7 @@ func (w MergeQueueWorker) nextAhead(ctx context.Context, key runstate.MergeQueue
 // and nothing is checked ahead, because it is the evidence the entry needs if
 // the candidate ahead does not land. One built ahead on any other candidate is
 // invalidated first, because that candidate is not the one going to land.
-func (w MergeQueueWorker) aheadGeneration(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, next runstate.MergeQueueEntry, author string, configured runstate.MergeQueueCheckConfiguration, base runstate.MergeQueueGeneration, retried *[]string) (runstate.MergeQueueGeneration, bool, string, error) {
+func (w MergeQueueWorker) aheadGeneration(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, next runstate.MergeQueueEntry, author mergeQueueAuthors, configured runstate.MergeQueueCheckConfiguration, base runstate.MergeQueueGeneration, retried *[]string) (runstate.MergeQueueGeneration, bool, string, error) {
 	generations, err := w.Queue.Generations(key, next.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, false, "", err

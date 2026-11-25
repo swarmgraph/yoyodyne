@@ -1411,6 +1411,9 @@ func TestManagerReplayForRepairLeavesTheConflictOnTopOfTheTarget(t *testing.T) {
 	if moved.BaseCommit != target || moved.HeadCommit != target || !moved.Moved() {
 		t.Fatalf("moved = %#v, want the change based on the target at %q", moved, target)
 	}
+	if strings.Join(moved.Conflicts, ",") != "README.txt" {
+		t.Fatalf("conflicts = %v, want the one file left unmerged", moved.Conflicts)
+	}
 	if head := gitLine(t, worktree.Path, "rev-parse", "HEAD"); head != target {
 		t.Fatalf("worktree HEAD = %q, want the target %q", head, target)
 	}
