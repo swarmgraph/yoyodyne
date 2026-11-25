@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-25T10:08:33.901255Z
       reason: 'yoyodyne-9k1y: corrects point 5. Turning epic mode off does not itself clear a refused team branch update; it clears when the update begins or none is due, as internal/maystart/refusals.go at 9e1fc663f6b1 does and as the published first part says. The other points are unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-25T21:02:02.825815Z
+      reason: 'yoyodyne-9k1y.19: rules what saved fact shows the list of unpublished pull requests that an update is due. It is the refused start, which names its run and is taken away by a check that finds no update due or cannot tell. The run''s record stays untouched. Point 4 is reworded to match and point 6 and its checks are added; the other paths are unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-11-25T10:08:33.901255Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4017, for document-4017.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-25T21:02:02.825815Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4058, for document-4058.1 under the automatic approval policy
 ---
 # Epic mode rulings: naming an epic again, turning epic mode back on, and how the remaining paths ask the one decision
 
@@ -78,14 +87,40 @@ Each of these makes a run that had ended live again, takes a developer slot, and
 1. **Bringing a change queued on GitHub up to date.** `Reconciler.updateQueuedHead` in `internal/orchestrator/queuedchecks.go` asks after the run is retired or found impossible to replay, and before its check of the hold on new work. Those two earlier steps start nothing and stay as they are. A refusal, or a decision that could not be made, leaves the run's record, the item and the pull request exactly as they are: the merge is not withdrawn, and it is not handed on as stuck however long it has waited. The check returns without reaching the limit on a queued merge. The next one asks again. A merge GitHub already dropped waits the same way. A merge still queued may land by itself if its checks come to pass, because its head is the one that was approved.
 2. **Bringing a change that waits for a person's merge up to date.** `Reconciler.updatePersonMerge` in `internal/orchestrator/personmerge.go` asks after its refusal of a run that cannot be put back, and before its check of the hold on new work. A refusal, or a decision that could not be made, is one more reason the wait is kept as it stands: nothing is withdrawn, nothing is noted on the item, and the next check asks again. A merge or a closing by the person is still settled while the update is refused.
 3. **Taking up the checks of a run stopped because GitHub refused the harness's login.** `GitHubIdentityStops.takeUpPublishing` in `internal/orchestrator/githubidentity.go` asks beside its check of the hold on new work, before the item is noted or claimed. A refusal, or a decision that could not be made, leaves the run stopped, its entry on the development manager's list open, and its count of attempts as it was. It never ends the look: unlike the hold on new work or a full set of slots, it is about this one item, so the next run is still looked at.
-4. **The list of unpublished pull requests says the same.** While the decision refuses the update of point 1 or 2, `stuckPublication` in `internal/orchestrator/triage.go` does not list that change to the development manager as an unpublished pull request, however old it is. It reads the answer with `Decide`, which keeps nothing, never with `Ask`. A decision that could not be made lists the change as today. A change whose pull request is closed, or whose merge failed for a cause other than the update being refused, is listed as today. Status still shows the refused start.
+4. **The list of unpublished pull requests says the same.** While the decision refuses the update of point 1 or 2, and point 6 shows that the update is due, `stuckPublication` in `internal/orchestrator/triage.go` does not list that change to the development manager as an unpublished pull request, however old it is. It reads the answer with `Decide`, which keeps nothing, never with `Ask`. A decision that could not be made lists the change as today. A change whose pull request is closed, or whose merge failed for a cause other than the update being refused, is listed as today. Status still shows the refused start.
 5. **A change is left off that list only while an update is due and the decision is what keeps it from being made.** A queued change for which no update is due, such as one whose head is level with its target and whose merge was not dropped, is stuck for another reason and is listed as today. So is one whose checks on GitHub could not be read, because the harness then cannot tell whether an update is due. Epic mode may hide only a wait that it causes.
+6. **The refused start is what shows that an update is due.** The list reads `not-started.json`, and that file is the only saved fact it uses for this. It leaves a change off only where all of these hold: the file can be read; it has an entry for the item, under the path of point 1 or 2 that fits the change; that entry names this run; the entry was last refused no more than an hour ago; and `Decide` refuses the update now. Otherwise the change is listed as today.
+
+### How that entry is kept true
+
+- **It names its run.** An entry under either of the two paths gains an optional field with the identifier of the run it is about, given by the check that was refused. The schema version stays 1. There is still one entry for each item and path. A refusal for another run of the item puts that run in its place, and the entry is written at once when the run changes. An entry that names no run hides nothing.
+- **It is taken away when no update is due.** A check of that run that finds no update due takes away the entry that names the run. So does one that cannot tell whether an update is due, and one that finds the run cannot be put back. For a queued change this covers checks that pass or are still running, a head level with its target, a failure that is the change's own, checks that could not be read, and a run retired or impossible to replay. For a person's merge it covers a head level with its target, a failed reading of how far behind it is, a merge in progress on GitHub, a request that is no longer open, and a run that `cannotUpdatePersonMerge` refuses. An entry that names another run is left as it is. This adds to the ways an item's entries are cleared that [the first part](epic-mode-first-part.md) lists.
+- **A check that stops before it can ask leaves it.** An example is a check in a process that hosts no runs, which has already found the update due. Such a check neither makes an entry nor takes one away.
+- **A dropped merge is judged by the check that looks at it.** Where that check finds an update due and asks, the refusal makes the entry as for a merge still queued. Where it finds another cause, it takes the entry away. The reading of GitHub's checks kept on the run is not consulted by the list, because it may be from before the merge was dropped.
+- **There is one writer.** The removal is a function of `internal/maystart/refusals.go`, beside `KeepUpdateOf`, under the same lock. A check that would remove nothing writes nothing. A failed write or removal is reported, changes nothing else, and is tried again by the next check. The hour in point 6 is what bounds how long an entry that could not be removed may hide a change. It also means that a change may be listed after the harness was stopped for longer than an hour, until its next check, and that is accepted.
+- **The run's record is not used.** Points 1 and 2 leave it as it is.
 
 The look of point 3 also resumes an approved change stopped at its landing. That is finishing an interrupted merge, already on the list, and it asks where every resumption asks. A refusal there does not end the look either.
 
 Once one of the first two has put a run back, the run has started. `Reconciler.ContinueUpdates` in `internal/orchestrator/queuedchecks.go` then hosts it. That is picking up a waiting or interrupted run, so it asks under that path, and a run outside the members waits, gives back its slot, and keeps its claim, branch and checkout. The attempt to bring a handed back change up to date is hosted there too, and asks first under its own path.
 
 Each refused start is recorded by the same shared writer.
+
+### Rejected for the list
+
+- **Saving each refused check's reading on the run.** It would be a second saved answer to the same question, it would change a record that points 1 and 2 leave alone, and status would still show a refused start after no update was due.
+- **Asking GitHub while the list is built.** Building the list would then wait on GitHub, and the check has already asked.
+
+### What a reviewer can check of points 4 to 6
+
+- For a queued change and for a person's merge, outside the members and past the listing age: refused with an update due, it is left off. After a check finds its head level it is listed, and the entry is gone. After a check whose reading fails it is listed, and the entry is gone.
+- A dropped merge whose update is due and refused is left off.
+- A change is listed where it has no entry, where its entry names no run or another run, where the entry was last refused more than an hour ago, and where the file cannot be read.
+- One left off is listed once its item is added or epic mode is turned off.
+- A check that hosts no runs changes no entry, and a check of one run takes away no entry of another.
+- Building the list writes nothing, and the run's record is the same before and after a refused check apart from what a check records today before it asks.
+
+`internal/maystart/refusals.go` and `internal/orchestrator/personmerge.go` were read whole for points 4 to 6 at main aca8fae72a05, with the first 16226 of the 52589 bytes of `internal/orchestrator/queuedchecks.go`. The rest of that file, with `updateQueuedHead` and what becomes of a dropped merge, was not read, and neither were `internal/orchestrator/triage.go` and the code of `refuseRun`. Where they differ, the builder stops and says so for the architect.
 
 ## Decision: what a role pass asks, and when
 
