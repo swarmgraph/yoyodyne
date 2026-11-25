@@ -37,6 +37,8 @@ const (
 	progressName = "epic-progress.json"
 	begunName    = "epic-progress-begun.json"
 	lockName     = progressName + ".lock"
+
+	judgingLockName = progressName + ".judging.lock"
 )
 
 // keptSince is about when the harness first kept progress. An epic named before
@@ -83,6 +85,7 @@ type Entry struct {
 	// progress, as far as it can tell (keptSince).
 	NamedBeforeKept bool          `json:"named_before_kept,omitempty"`
 	Joined          []Joined      `json:"joined,omitempty"`
+	Pieces          []Piece       `json:"pieces,omitempty"`
 	Comments        []Comment     `json:"comments,omitempty"`
 	Checks          []Check       `json:"checks,omitempty"`
 	Deliveries      []Delivery    `json:"deliveries,omitempty"`
@@ -97,6 +100,74 @@ type Joined struct {
 	Judgment   string    `json:"judgment"`
 	Session    string    `json:"session"`
 	At         time.Time `json:"at"`
+}
+
+// MaxJoined is how many pieces may join one naming. Nothing raises it. A piece the
+// operator took out still counts, and an item the operator added does not.
+const MaxJoined = 12
+
+// Piece is one made by an act that may let it join, and whether it did. Judgment
+// is the reservation of its judgment, and Outcome is nil until it is judged.
+type Piece struct {
+	WorkItemID string    `json:"work_item_id"`
+	From       string    `json:"from"`
+	Judgment   string    `json:"judgment"`
+	At         time.Time `json:"at"`
+	Outcome    *Outcome  `json:"outcome,omitempty"`
+}
+
+// Answer is what decided whether a piece joined.
+type Answer string
+
+// Every answer but AnswerInside is a question about scope.
+const (
+	AnswerInside     Answer = "inside"
+	AnswerOutside    Answer = "outside"
+	AnswerCannotTell Answer = "cannot tell"
+	AnswerLimit      Answer = "limit reached"
+	AnswerTakenOut   Answer = "taken out"
+)
+
+// Valid reports an answer this build knows.
+func (a Answer) Valid() bool {
+	return slices.Contains([]Answer{AnswerInside, AnswerOutside, AnswerCannotTell, AnswerLimit, AnswerTakenOut}, a)
+}
+
+// Outcome is what became of a piece. Session is the judging session's, where one
+// answered.
+type Outcome struct {
+	At      time.Time `json:"at"`
+	Answer  Answer    `json:"answer"`
+	Why     string    `json:"why"`
+	Session string    `json:"session,omitempty"`
+}
+
+// Asked is what is kept of a piece that may join, where anything is.
+func (e Entry) Asked(item string) (Piece, bool) {
+	if at := e.piece(item); at >= 0 {
+		return e.Pieces[at], true
+	}
+	return Piece{}, false
+}
+
+func (e Entry) piece(item string) int {
+	return slices.IndexFunc(e.Pieces, func(piece Piece) bool { return piece.WorkItemID == item })
+}
+
+// Full is why no further piece may join, and empty while one may.
+func (e Entry) Full() string {
+	if len(e.Joined) < MaxJoined {
+		return ""
+	}
+	return fmt.Sprintf("%d pieces have joined, which is the most that may", len(e.Joined))
+}
+
+// Reservation is the one kept under an identifier, where one is.
+func (e Entry) Reservation(id string) (Reservation, bool) {
+	if at := slices.IndexFunc(e.Reservations, func(r Reservation) bool { return r.ID == id }); at >= 0 {
+		return e.Reservations[at], true
+	}
+	return Reservation{}, false
 }
 
 // Comment is a review comment acted on, by the forge's identifier.
@@ -153,7 +224,7 @@ type Result struct {
 }
 
 func (e Entry) empty() bool {
-	return len(e.Joined)+len(e.Comments)+len(e.Checks)+len(e.Deliveries)+len(e.Reservations) == 0
+	return len(e.Joined)+len(e.Pieces)+len(e.Comments)+len(e.Checks)+len(e.Deliveries)+len(e.Reservations) == 0
 }
 
 // Has reports whether the item joined.
@@ -210,6 +281,10 @@ func (e Entry) validate() error {
 	}
 	for _, j := range e.Joined {
 		part("joined piece", j.WorkItemID, beads.ValidIssueID(j.WorkItemID) && j.WorkItemID != e.WorkItemID && j.From != "" && j.Judgment != "" && j.Session != "" && !j.At.IsZero())
+	}
+	for _, p := range e.Pieces {
+		part("piece", p.WorkItemID, beads.ValidIssueID(p.WorkItemID) && p.WorkItemID != e.WorkItemID && p.From != "" && p.Judgment != "" && !p.At.IsZero() &&
+			(p.Outcome == nil || p.Outcome.Answer.Valid() && p.Outcome.Why != "" && !p.Outcome.At.IsZero()))
 	}
 	for _, c := range e.Comments {
 		part("comment", c.ID, c.Became != "" && !c.At.IsZero())

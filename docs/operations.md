@@ -1855,8 +1855,9 @@ for a role or on its own schedule.
 The harness keeps what it remembers about each epic in `epic-progress.json` beside
 that record, which your commands never write: the pieces that joined it, review
 comments acted on, checks of the whole epic, its delivery, and each start and paid
-call, written down before it is made. For now only the starts of runs are written
-there, each pointing to the run's own record. There is one entry for each time you
+call, written down before it is made. For now the starts of runs are written there,
+each pointing to the run's own record, and [the pieces that may join](#what-joins-a-named-epic)
+with their judgments. There is one entry for each time you
 named an epic, so an epic you ended and named again starts with an empty one and
 the old entry is kept. `epic-progress-begun.json` lists the namings whose entry was
 begun, which shows that an entry once existed. Neither file is made until the first
@@ -1876,6 +1877,30 @@ mode is off. While it is on:
 
 A run of a member is written down before it is reserved. One that is then refused
 is taken back out, and one that cannot be written down is not started.
+
+### What joins a named epic
+
+An item the development manager creates under a member, splitting or replacing it,
+may join the epic without you. A session in the reviewer's role that wrote nothing it
+judges is given the epic's description as it read when you named it, the items you took
+out with your words, and the piece's title, description, design and acceptance criteria.
+Where it answers that the piece asks only for what the description already asks, the
+piece joins and may start. Where it answers that the piece asks for more, or cannot
+tell, the piece does not join and starts nothing, and it is a question about scope for
+the Lead Product Manager, which `yoyo status` names.
+
+At most twelve pieces join one naming of an epic, and nothing raises that. A piece you
+took out still counts and cannot join again; an item you add yourself is not counted.
+No other item joins: not one created under the epic itself, moved below it, made a
+prerequisite of a member, or created by another role.
+
+A watching scheduler makes the judgments beside its other work, and none while
+`yoyo pause` stands. Each is written down before it is sent. After a restart its record
+is looked up first: one that was never sent is sent, one that answered is used, and one
+whose result nothing shows is not sent again, and the development manager decides. One
+the provider refused is tried again after half an hour. Its cost is in the cost log
+under its own `review-` identifier. Once a piece is recorded, a build older than this
+refuses the file and starts nothing while epic mode is on.
 
 ## Holding landing on one branch
 
@@ -2089,7 +2114,9 @@ is the one shown:
 - **Delivered, handed over:** the same, with each change approved and at least one
   pull request still open for a person to merge.
 - **Working:** a member is running or ready, the check of the whole epic is owed, or
-  a role owes a step. Each step is named with the role that owes it.
+  a role owes a step. Each step is named with the role that owes it. A piece that has
+  not been judged, or is a question about scope, is one, until it joins, you add it or
+  it is closed.
 - **Out of budget:** nothing is under way and the epic's budget refuses the next
   start. No budget can be set yet.
 - **Waiting on the operator:** everything left waits on you.
