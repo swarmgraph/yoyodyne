@@ -1197,3 +1197,61 @@ func TestOnlyTheFirstCandidateReviewAfterAConflictIsChargedToIt(t *testing.T) {
 		})
 	}
 }
+
+func TestACandidatesReviewerIsGivenTheRunsSummariesOrToldThereAreNone(t *testing.T) {
+	t.Parallel()
+
+	const none = "has no developer summary on its record"
+	for _, test := range []struct {
+		name   string
+		record func(*runstate.State)
+		want   []string
+		absent []string
+	}{
+		{"both recorded", func(state *runstate.State) {
+			state.SaveDeveloperSummary(runstate.RecordDeveloperSummary("First attempt: looked in the scheduler.", "c0", 0))
+			state.SaveDeveloperSummary(runstate.RecordDeveloperSummary("The cause lies in the slot count, not here.", "c1", 1))
+			state.ReviewApproves, state.ReviewSummary = runstate.ApprovesEvidence, "The diagnosis is sound."
+		}, []string{"First attempt: looked in the scheduler.", "The cause lies in the slot count, not here.", "at attempt 1",
+			"approved the change as evidence", "The diagnosis is sound."}, []string{none}},
+		{"a summary the harness cut", func(state *runstate.State) {
+			state.SaveDeveloperSummary(runstate.RecordDeveloperSummary(strings.Repeat("x", runstate.MaxDeveloperSummaryBytes+1), "c0", 0))
+		}, []string{"The harness cut this summary when it recorded it"}, nil},
+		{"neither recorded", func(*runstate.State) {},
+			[]string{none, "No developer final summary is available", "no summary of that review is on the run's record"}, nil},
+		{"only a review that did not approve", func(state *runstate.State) {
+			state.ReviewDecision, state.ReviewSummary = runstate.ReviewRepair, "Send it back."
+		}, []string{"has no approving review on its record"}, []string{"Send it back."}},
+		{"a document, which has no developer", func(state *runstate.State) {
+			state.Document = &runstate.DocumentPublication{}
+		}, []string{"The owning role wrote this document"}, []string{none}},
+		{"a file the harness brought in", func(state *runstate.State) {
+			state.OutsideFile = &runstate.OutsideFileLanding{}
+		}, []string{"The harness fetched this file"}, []string{none}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newQueueFixture(t)
+			test.record(&f.runs.(*admittedRun).state)
+			if _, err := f.work(); err != nil {
+				t.Fatal(err)
+			}
+			provider := f.reviewer.reviewer.(review.Reviewer).Backend.(*orchestratortest.Backend)
+			if len(provider.Requests) != 1 {
+				t.Fatalf("the provider was asked %d times, want only the candidate's review", len(provider.Requests))
+			}
+			prompt := provider.Requests[0].Prompt
+			for _, want := range test.want {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("the candidate's reviewer was not told %q", want)
+				}
+			}
+			for _, absent := range test.absent {
+				if strings.Contains(prompt, absent) {
+					t.Errorf("the candidate's reviewer was told %q", absent)
+				}
+			}
+		})
+	}
+}
