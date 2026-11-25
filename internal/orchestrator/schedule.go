@@ -9117,7 +9117,7 @@ func slotlessStarts(occupied map[string]runstate.State, mine map[string]int, sta
 // push, dependency, or wait for GitHub.
 func stillPausedAsContinued(now, from runstate.State) bool {
 	return now.RunID == from.RunID && reflect.DeepEqual(now.CIWait, from.CIWait) &&
-		reflect.DeepEqual(now.DependencyPause, from.DependencyPause) && reflect.DeepEqual(now.ForgeWait, from.ForgeWait)
+		reflect.DeepEqual(now.DependencyPause, from.DependencyPause) && reflect.DeepEqual(now.EpicWait, from.EpicWait) && reflect.DeepEqual(now.ForgeWait, from.ForgeWait)
 }
 
 // withoutItems is occupied without the items named, as a copy.

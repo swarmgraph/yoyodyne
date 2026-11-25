@@ -166,6 +166,9 @@ func retirementWait(state runstate.State) string {
 	if pause := state.DirectivePause; pause != nil {
 		waits = append(waits, fmt.Sprintf("directive %s (%s): %s", pause.DirectiveID, pause.Kind, pause.Unresolved))
 	}
+	if state.EpicWait != nil {
+		waits = append(waits, "waiting for "+state.EpicWait.Summary())
+	}
 	if state.DependencyPause != nil {
 		waits = append(waits, "waiting on "+state.DependencyPause.Summary())
 	}
