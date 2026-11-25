@@ -50,6 +50,9 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		"repair decided from feedback":        feedbackRepairerFrom(parts).MayStart,
 		"repair round asked for on a request": reconcilerFrom(parts).MayStart,
 		"taking up after GitHub's refusal":    gitHubIdentityStopsFrom(parts).MayStart,
+		"finishing a merge":                   integrationResumerFrom(parts).MayStart,
+		"continuing a silent run":             stallContinuerFrom(parts).MayStart,
+		"continuing checks":                   checkStageContinuerFrom(parts).MayStart,
 	} {
 		if decide == nil {
 			t.Errorf("the %s is wired no decision, so it would start anything", name)
@@ -74,6 +77,9 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		maystart.BringInFile:     {pipelineFrom(parts).MayStart},
 		maystart.UpdateQueued:    {reconcilerFrom(parts).MayStart},
 		maystart.UpdateForPerson: {reconcilerFrom(parts).MayStart},
+		maystart.FinishMerge:     {carrying, integrationResumerFrom(parts).MayStart},
+		maystart.ContinueRun:     {carrying, stallContinuerFrom(parts).MayStart, checkStageContinuerFrom(parts).MayStart},
+		maystart.PickUpRun:       {pull.MayStart, pipelineFrom(parts).MayStart, reconcilerFrom(parts).MayStart},
 		maystart.AfterLogin:      {gitHubIdentityStopsFrom(parts).MayStart},
 	}
 	parts.config.RecurringTasks = map[string]config.RecurringTask{"look": {Role: domain.RoleArchitect, Every: config.Duration(time.Hour), Enabled: true, Prompt: "look", MaxTurns: 1}}

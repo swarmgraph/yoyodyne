@@ -1104,6 +1104,9 @@ type Outcome struct {
 	// stopped before anything was claimed, and unlike the directive what lifts it
 	// is other work finishing rather than a person deciding.
 	PausedByDependency *runstate.DependencyPause `json:"paused_by_dependency,omitempty"`
+	// PausedByEpic is why a run already started may not go on to its next call to
+	// a provider under the epics the operator named.
+	PausedByEpic *OutsideNamedEpicsError `json:"paused_by_epic,omitempty"`
 	// PausedByCIWait is the wait for the forge's checks this run parked on after
 	// pushing its candidate commit (cichecks.go).
 	PausedByCIWait *runstate.CIWait `json:"paused_by_ci_wait,omitempty"`
@@ -1460,11 +1463,15 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		if !resumable(inFlight) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
+		if err := p.waitForEpic(ctx, inFlight); err != nil {
+			return Outcome{}, err
+		}
+		waitedForEpic := inFlight.EpicWait != nil
 		inFlight, err = p.reclaimSlot(ctx, inFlight)
 		if err != nil {
 			return Outcome{}, err
 		}
-		return p.resumeRun(ctx, inFlight, item, publishing, skipped)
+		return p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
 	case errors.Is(err, runstate.ErrNoRunInFlight):
 	default:
 		var existing runstate.ExistingWorkItemError
@@ -2011,11 +2018,15 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 				inFlight.Status, inFlight.Phase),
 		}
 	}
+	if err := p.waitForEpic(ctx, inFlight); err != nil {
+		return Outcome{}, err
+	}
+	waitedForEpic := inFlight.EpicWait != nil
 	inFlight, err = p.reclaimSlot(ctx, inFlight)
 	if err != nil {
 		return Outcome{}, err
 	}
-	return p.resumeRun(ctx, inFlight, item, publishing, skipped)
+	return p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
 }
 
 // recordDependencyContinued tells the item a run paused on work it waited on is
@@ -2032,7 +2043,7 @@ func (p Pipeline) recordDependencyContinued(ctx context.Context, state runstate.
 }
 
 // reclaimSlot takes a developer slot back for an adopted run whose dependency
-// pause gave its slot up, before anything about the run is resumed, and does
+// pause, or whose wait for its epic or the forge, gave its slot up, before anything about the run is resumed, and does
 // nothing for any other run. Nothing reaches here while the item still waits on
 // unfinished work — that was read before the run was adopted — so the pause is
 // over and what is left of it is the slot. A full harness refuses exactly as a
@@ -2044,7 +2055,7 @@ func (p Pipeline) recordDependencyContinued(ctx context.Context, state runstate.
 // Every run taken up here holds a slot from now on, so one whose record names
 // no slot number is given one (recordTakenUpSlot).
 func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runstate.State, error) {
-	if state.DependencyPause == nil && !state.CIWait.Waiting() {
+	if !state.AwaitsContinuation() {
 		return p.recordTakenUpSlot(ctx, state), nil
 	}
 	// The checkout is asked before the slot is taken, not only by resumeRun
@@ -2167,7 +2178,7 @@ func (p Pipeline) recordTakenUpSlot(ctx context.Context, state runstate.State) r
 // durable state, so the resumed run continues the same change at the attempt it
 // had reached instead of starting a second one against a fresh budget. Its
 // caller holds the run's lease for the whole of it.
-func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item beads.WorkItem, publishing bool, skipped string) (Outcome, error) {
+func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item beads.WorkItem, publishing bool, skipped string, waitedForEpic bool) (Outcome, error) {
 	if state.Document != nil {
 		return Outcome{}, errors.New("a document run is resumed from its owning conversation")
 	}
@@ -2270,7 +2281,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// So is an update onto the target whose hosting process ended at its checks:
 	// that process is stopped with the old build or at its own time limit, and a
 	// stage that started over each time would never finish (updateLostItsHost).
-	hostLostAtChecks := !pickedUpAtChecks && state.Phase == runstate.PhaseChecking && updateLostItsHost(state)
+	// One that stopped by itself to wait for its epic lost no process, so its
+	// checks run again as any other run's do.
+	hostLostAtChecks := !waitedForEpic && !pickedUpAtChecks && state.Phase == runstate.PhaseChecking && updateLostItsHost(state)
 	pickedUpAtChecks = pickedUpAtChecks || hostLostAtChecks
 	state.RedeployStop = nil
 	// A development manager's run.recover request to continue this run is
@@ -4996,6 +5009,12 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		// spends, and a pause that only covered the first one would let a run keep
 		// spending for as long as the provider kept refusing it.
 		if err := a.holdForOperator(ctx); err != nil {
+			a.observeDevelopEnded(ctx, err)
+			return err
+		}
+		// Asked at the same place for the same reason, and the one place a run
+		// whose item has been left outside the named epics stops for it.
+		if err := a.holdForEpic(ctx); err != nil {
 			a.observeDevelopEnded(ctx, err)
 			return err
 		}
@@ -8918,6 +8937,10 @@ func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
 	if errors.As(cause, &waiting) {
 		return a.pauseForDependency(waiting)
 	}
+	var forEpic epicPause
+	if errors.As(cause, &forEpic) {
+		return a.pauseForEpic(forEpic)
+	}
 	var waitingForCI ciWaitPause
 	if errors.As(cause, &waitingForCI) {
 		return a.pauseForCIWait(waitingForCI)
@@ -9372,7 +9395,7 @@ func (a *activeRun) fail(cause error, status runstate.Status) (Outcome, error) {
 	message := runstate.RecordFailure(cause.Error())
 	completedAt := p.clock().Now()
 	// A recorded pause or stop is an instruction to resume later, and this run is
-	// ending now. Clearing all six keeps the terminal record coherent; what
+	// ending now. Clearing them keeps the terminal record coherent; what
 	// stopped the run is still named by the recorded limit kind and by the
 	// failure, and what it spent waiting stays on the record either way. The
 	// one exception is the cause of a capacity wait the run refused to take
@@ -9385,6 +9408,7 @@ func (a *activeRun) fail(cause error, status runstate.Status) (Outcome, error) {
 	a.state.RedeployStop = nil
 	a.state.DirectivePause = nil
 	a.state.DependencyPause = nil
+	a.state.EpicWait = nil
 	a.state.TrackerPause = nil
 	a.state.OperatorHeldSince = nil
 	a.state.Status = status
@@ -9509,6 +9533,7 @@ func (a *activeRun) recordEndingAfterRefusedSave(status runstate.Status, complet
 	durable.RedeployStop = nil
 	durable.DirectivePause = nil
 	durable.DependencyPause = nil
+	durable.EpicWait = nil
 	durable.TrackerPause = nil
 	durable.OperatorHeldSince = nil
 	durable.Status = status
@@ -9874,6 +9899,9 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// A run that reached the gate while the operator was holding activity waits
 		// there rather than buying one more invocation.
 		if err := a.holdForOperator(ctx); err != nil {
+			return "", err
+		}
+		if err := a.holdForEpic(ctx); err != nil {
 			return "", err
 		}
 		responseStarted := a.pipeline.clock().Now()

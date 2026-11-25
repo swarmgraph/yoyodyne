@@ -725,6 +725,13 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 			return result, err
 		}
 	}
+	// A run waiting for its epic keeps everything it has, however long it waits,
+	// and is asked about before any other park its record carries.
+	if pausedForEpic(state) {
+		result := reconciliationOf(state, ActionResumable)
+		result.Detail = "the run is waiting for " + state.EpicWait.Summary() + ", and is picked up then"
+		return result, nil
+	}
 	if park, parked := r.parkNothingServes(state); parked && r.vanished(park) {
 		return r.settleVanished(ctx, state, park)
 	}
@@ -2229,6 +2236,7 @@ func clearRecordedParks(state *runstate.State) {
 	state.ProviderStop = ""
 	state.DirectivePause = nil
 	state.DependencyPause = nil
+	state.EpicWait = nil
 	state.CIWait = nil
 	state.TrackerPause = nil
 	state.OperatorHeldSince = nil

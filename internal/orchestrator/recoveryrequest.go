@@ -58,7 +58,7 @@ func RecoveryContinuable(state runstate.State) error {
 	if state.OutsideFile != nil {
 		return errors.New("it brings an outside file in, which the scheduler continues at its next look at the record")
 	}
-	if pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForCIWait(state) || pausedForTracker(state) ||
+	if pausedForEpic(state) || pausedForUsageLimit(state) || pausedForDirective(state) || pausedForDependency(state) || pausedForCIWait(state) || pausedForTracker(state) ||
 		pausedForOperatorHold(state) || stoppedProviderIsResumable(state) || stoppedForRedeployIsResumable(state) ||
 		continuedAtCheckStage(state) || resumableRepair(state) {
 		return nil
@@ -245,7 +245,7 @@ func (r RecoveredIntegrations) note(ctx context.Context, workItemID, note string
 // Finish resumes the run's integration on the request its record carries. A
 // refusal the resumer gives for the run itself is written onto the request, so
 // the work session does not ask again each pull and the development manager
-// reads why; a wait for the intake hold or a free slot is not, because the next
+// reads why; a wait for the intake hold, the item's epic or a free slot is not, because the next
 // pull asks again.
 func (r RecoveredIntegrations) Finish(ctx context.Context, runID string) (IntegrationResumeResult, error) {
 	state, err := r.Runs.Read(runID)
@@ -372,6 +372,8 @@ func (c CarryOut) finishMerge(ctx context.Context, task CarryOutTask, carried Ca
 	switch {
 	case result.IntakeHeld != nil:
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
+	case result.OutsideNamedEpics != nil:
+		return waiting(runstate.TriageGateNamedEpics, result.OutsideNamedEpics.Error())
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
