@@ -51,6 +51,9 @@ type Start struct {
 
 	document Document
 
+	// target is the branch a team branch update is for.
+	target string
+
 	// agent, source and due are said of a role's pass only; see OfAgent and Due.
 	agent  string
 	source string
@@ -79,6 +82,7 @@ const (
 	rolePass
 	goalReview
 	messageReading
+	teamBranchUpdate
 	operatorConversation
 	roleQuestion
 )
@@ -129,6 +133,11 @@ func GoalReview() Start { return Start{path: UnmetGoalReview, what: goalReview} 
 // MessageReading is reading outside messages for work.
 func MessageReading() Start { return Start{path: MessagesForWork, what: messageReading} }
 
+// UpdateFromTeam is bringing the target branch up to date with the team's branch.
+func UpdateFromTeam(target string) Start {
+	return Start{path: TeamBranchUpdate, what: teamBranchUpdate, target: target}
+}
+
 // OperatorConversation is the operator's own conversation with a role. It is on
 // no path, because it always may start.
 func OperatorConversation() Start { return Start{what: operatorConversation} }
@@ -171,6 +180,11 @@ func decide(record epicscope.Record, start Start) Decision {
 		return mayNot("the review of unmet goals does not start while the factory works only on the epics the operator named")
 	case messageReading:
 		return mayNot("outside messages are not read for work while the factory works only on the epics the operator named")
+	case teamBranchUpdate:
+		if openEpic(record, func(string) bool { return true }) {
+			return Decision{Answer: May}
+		}
+		return mayNot("every epic the operator named has ended")
 	default:
 		return couldNotTell("nothing says what is about to start")
 	}
@@ -198,9 +212,14 @@ func (s Start) problem() string {
 		fits = starts == startsGoalReview
 	case messageReading:
 		fits = starts == startsMessageReading
+	case teamBranchUpdate:
+		fits = starts == startsTeamBranchUpdate
 	}
 	if !fits {
 		return fmt.Sprintf("what is about to start is not something %q starts", s.path)
+	}
+	if s.what == teamBranchUpdate && s.target == "" {
+		return "nothing says which branch is about to be brought up to date"
 	}
 	if s.what == workItemRun && !beads.ValidIssueID(s.items[0]) {
 		return fmt.Sprintf("the run is for %q, which is not a work item identifier", s.items[0])

@@ -92,6 +92,11 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 	wiredTo[maystart.BringUpToDate] = []orchestrator.StartDecision{handback.MayStart}
 	wiredTo[maystart.RecurringPass] = []orchestrator.StartDecision{trigger.MayStart}
 	wiredTo[maystart.PromptedPass] = []orchestrator.StartDecision{trigger.MayStart, corrections.(*orchestrator.Corrector).MayStart, escalatorFrom(parts, configPath, io.Discard).MayStart}
+	teamUpdater, err := teamBranchUpdaterFrom(parts, reconcilerFrom(parts))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wiredTo[maystart.TeamBranchUpdate] = []orchestrator.StartDecision{teamUpdater.Pipeline.MayStart}
 	wiredTo[maystart.UnmetGoalReview] = []orchestrator.StartDecision{trigger.MayStart}
 	wiredTo[maystart.MessagesForWork] = []orchestrator.StartDecision{pull.MayStart}
 	notRuns := map[maystart.Path]maystart.Start{
@@ -113,7 +118,7 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 	}
 	decide := pipelineFrom(parts).MayStart
 	for _, path := range maystart.Paths() {
-		if !path.Wired || path.Path == maystart.PublishDocument {
+		if !path.Wired || path.AlwaysStarts || path.Path == maystart.PublishDocument {
 			continue // a document is kept by its own entry, below
 		}
 		if len(wiredTo[path.Path]) == 0 {

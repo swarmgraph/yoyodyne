@@ -11,6 +11,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -134,6 +135,8 @@ func checkForge(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	go func() {
 		defer close(branchDone)
 		if parts.config.Execution.UpstreamBranch == "" {
+			// No update can be due, so none is left shown as refused.
+			sayNotKept(maystart.KeepUpdateOf(parts.stateRoot, parts.config.Product.ID, ""))
 			return
 		}
 		branchUpdater, buildErr := teamBranchUpdaterFrom(parts, reconciler)
@@ -235,6 +238,9 @@ func teamBranchUpdaterFrom(parts components, reconciler orchestrator.Reconciler)
 		Records:  records,
 		Reviewer: branchReviewerFrom(parts, ""),
 		Reports:  reconciler.Reports,
+		KeepRefused: func(target string) {
+			sayNotKept(maystart.KeepUpdateOf(parts.stateRoot, parts.config.Product.ID, target))
+		},
 	}, nil
 }
 

@@ -55,6 +55,21 @@ type Refusals struct {
 	// run of it starts or may start, or it ends (DocumentEnded). An item it
 	// answers closing does not end it.
 	Documents []RefusedDocument `json:"documents,omitempty"`
+	// Updates is one entry for each target branch whose update from the team's
+	// branch was refused, until it begins or none is due (KeepUpdateOf). Being
+	// allowed to start does not end it.
+	Updates []RefusedUpdate `json:"updates,omitempty"`
+}
+
+// RefusedUpdate is a target branch whose update from the team's branch was
+// refused.
+type RefusedUpdate struct {
+	TargetBranch string `json:"target_branch"`
+	Path         Path   `json:"path"`
+	Why          string `json:"why"`
+	// Since and Last are as a RefusedItem's.
+	Since time.Time `json:"since"`
+	Last  time.Time `json:"last"`
 }
 
 // RefusedItem is a work item whose start by one path was refused.
@@ -125,6 +140,11 @@ func (r Refusals) Validate() error {
 			problems = append(problems, fmt.Errorf("the refusal of document %q needs its identifier, a path, the write, a reason and when it was first and last refused", document.DocumentID))
 		}
 	}
+	for _, update := range r.Updates {
+		if update.TargetBranch == "" || update.Path == "" || update.Why == "" || update.Since.IsZero() || update.Last.IsZero() {
+			problems = append(problems, fmt.Errorf("the refused update of branch %q needs its branch, a path, a reason and when it was first and last refused", update.TargetBranch))
+		}
+	}
 	return errors.Join(problems...)
 }
 
@@ -182,6 +202,17 @@ func ItemsClosed(stateRoot string, product domain.ProductID, closed func(item st
 func DocumentEnded(stateRoot string, product domain.ProductID, id string) error {
 	return change(stateRoot, product, func(current *Refusals, _ epicscope.Record, _ bool) bool {
 		return current.endDocument(id)
+	})
+}
+
+// KeepUpdateOf takes away every refused update but the named target branch's:
+// work lands on that branch and an update of it is due, so no other is. With no
+// branch named, none is due.
+func KeepUpdateOf(stateRoot string, product domain.ProductID, target string) error {
+	return change(stateRoot, product, func(current *Refusals, _ epicscope.Record, _ bool) bool {
+		before := len(current.Updates)
+		current.Updates = slices.DeleteFunc(current.Updates, func(update RefusedUpdate) bool { return update.TargetBranch != target })
+		return len(current.Updates) != before
 	})
 }
 
@@ -266,6 +297,21 @@ func (r *Refusals) note(start Start, decision Decision, at time.Time) bool {
 				changed = true
 			}
 		}
+	case teamBranchUpdate:
+		index := slices.IndexFunc(r.Updates, func(update RefusedUpdate) bool { return update.TargetBranch == start.target })
+		switch {
+		case decision.MayStart() && index >= 0:
+			r.Updates = slices.Delete(r.Updates, index, index+1)
+			changed = true
+		case decision.MayStart() || start.target == "":
+		case index < 0:
+			r.Updates = append(r.Updates, RefusedUpdate{TargetBranch: start.target, Path: start.path, Why: decision.Why, Since: at.UTC(), Last: at.UTC()})
+			changed = true
+		default:
+			if entry := &r.Updates[index]; entry.Why != decision.Why || at.Sub(entry.Last) >= refusedAgainAfter {
+				entry.Why, entry.Last, changed = decision.Why, at.UTC(), true
+			}
+		}
 	case rolePass:
 		if decision.MayStart() {
 			before := len(r.Passes)
@@ -338,8 +384,8 @@ func (r *Refusals) endDocument(id string) bool {
 	return len(r.Documents) != before
 }
 
-// settle takes away each refusal of what the record now lets start, and reports
-// whether there was one. One made while the record could not be read is given
+// settle takes away each refusal of what the record now lets start, an update's
+// aside, which ends when it begins, and reports whether it changed anything. One made while the record could not be read is given
 // the reason the record now gives.
 func (r *Refusals) settle(record epicscope.Record) bool {
 	changed := false
@@ -373,6 +419,12 @@ func (r *Refusals) settle(record epicscope.Record) bool {
 		documents = append(documents, entry)
 	}
 	r.Documents = documents
+	for index := range r.Updates {
+		entry := &r.Updates[index]
+		if now := decide(record, UpdateFromTeam(entry.TargetBranch)); now.Answer == MayNot && now.Why != entry.Why {
+			entry.Why, changed = now.Why, true
+		}
+	}
 	r.Passes = slices.DeleteFunc(r.Passes, func(passes RefusedPasses) bool {
 		allowed := decide(record, Pass(RecurringPass, passes.Role)).MayStart()
 		changed = changed || allowed
