@@ -1541,7 +1541,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueuesAt(sources.MergeQueues, now, sources.MergeQueueStepOverdueAfter)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
-	standing.Epics = readEpics(sources, standing, listed, listedErr)
+	standing.Epics = readEpics(sources, standing, needs, needsProblem, listed, listedErr)
 	markOutside(standing.DocumentsWaitingForSlot, standing.Epics)
 	standing.MCPCalls, standing.MCPCallsProblem = ReadMCPCalls(sources.MCPCalls, now)
 	standing.IntakeQueries, standing.IntakeQueriesProblem = ReadIntakeQueries(sources.IntakeQueries)

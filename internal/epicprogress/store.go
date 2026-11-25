@@ -55,6 +55,9 @@ func (s *Store) Join(epic string, piece Joined) error {
 		if !found || !named.Open() {
 			return fmt.Errorf("epic %s is not open", epic)
 		}
+		if named.TakenOut(piece.WorkItemID) {
+			return fmt.Errorf("the operator took work item %s out of epic %s, so it cannot join it again", piece.WorkItemID, epic)
+		}
 		view, err := Read(s.stateRoot, s.product, record)
 		if err != nil {
 			return err

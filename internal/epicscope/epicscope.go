@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -88,6 +89,9 @@ type Epic struct {
 	// authorized.
 	Description string   `json:"description"`
 	Members     []Member `json:"members"`
+	// Removed is each item the operator took out, oldest first. One put back is a
+	// member again, and its removal is kept here as history.
+	Removed []Removal `json:"removed,omitempty"`
 	// Ended is absent while the epic is open.
 	Ended *Ending `json:"ended,omitempty"`
 }
@@ -97,6 +101,17 @@ type Member struct {
 	WorkItemID string    `json:"work_item_id"`
 	AddedAt    time.Time `json:"added_at"`
 	Act        Act       `json:"act"`
+}
+
+// Removal is the operator taking one item out of an epic.
+type Removal struct {
+	WorkItemID string    `json:"work_item_id"`
+	RemovedAt  time.Time `json:"removed_at"`
+	Words      string    `json:"words"`
+	// AddedAt and Act are when and by which act a member had been put in. A piece
+	// that joined was in no list of this record and has neither.
+	AddedAt *time.Time `json:"added_at,omitempty"`
+	Act     Act        `json:"act,omitempty"`
 }
 
 // Ending is the operator ending an epic.
@@ -159,6 +174,12 @@ func (e Epic) Has(item string) bool {
 		}
 	}
 	return false
+}
+
+// TakenOut reports an item the operator took out and has not put back. A piece
+// that joined is in the epic unless it is one.
+func (e Epic) TakenOut(item string) bool {
+	return !e.Has(item) && slices.ContainsFunc(e.Removed, func(removal Removal) bool { return removal.WorkItemID == item })
 }
 
 // Validate refuses a record this build cannot speak for.
@@ -225,6 +246,18 @@ func (e Epic) validate() error {
 		}
 		if member.Act != ActStart && member.Act != ActAdd {
 			problems = append(problems, fmt.Errorf("member %q was added by %q, which is not an act this build records", member.WorkItemID, member.Act))
+		}
+	}
+	for _, removal := range e.Removed {
+		if !beads.ValidIssueID(removal.WorkItemID) || removal.WorkItemID == e.WorkItemID || removal.RemovedAt.IsZero() {
+			problems = append(problems, fmt.Errorf("removed item %q needs a work item identifier that is not the epic's and when it was taken out", removal.WorkItemID))
+		}
+		if strings.TrimSpace(removal.Words) == "" || len(removal.Words) > MaxWordsBytes {
+			problems = append(problems, fmt.Errorf("the words %q was taken out with are required and may be at most %d bytes", removal.WorkItemID, MaxWordsBytes))
+		}
+		wasMember := removal.AddedAt != nil && !removal.AddedAt.IsZero() && (removal.Act == ActStart || removal.Act == ActAdd)
+		if !wasMember && (removal.AddedAt != nil || removal.Act != "") {
+			problems = append(problems, fmt.Errorf("removed item %q needs both when and by which act it had been put in, or neither", removal.WorkItemID))
 		}
 	}
 	if e.Ended != nil {

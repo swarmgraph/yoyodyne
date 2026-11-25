@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/cost"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -265,6 +266,34 @@ func (c components) epicStarts() orchestrator.EpicStarts {
 		}
 		return store.ReserveRun(runID, items)
 	}
+}
+
+// epicReports is the collected pile, with each report about an item in an open
+// named epic naming that epic. Where the epics cannot be read the report is
+// filed without it.
+func (c components) epicReports() orchestrator.ReportCollector {
+	if c.reports == nil {
+		return nil
+	}
+	return epicReports{c.reports, c.stateRoot, c.config.Product.ID}
+}
+
+type epicReports struct {
+	orchestrator.ReportCollector
+	stateRoot string
+	product   domain.ProductID
+}
+
+func (e epicReports) Append(reported report.Report) error {
+	reported.DuringEpic = ""
+	if record, err := epicscope.Read(e.stateRoot, e.product); err == nil && record.On() && reported.WorkItemID != "" {
+		if view, err := epicprogress.Read(e.stateRoot, e.product, record); err == nil {
+			if holders := view.Holders(reported.WorkItemID); len(holders) == 1 {
+				reported.DuringEpic = holders[0].WorkItemID
+			}
+		}
+	}
+	return e.ReportCollector.Append(reported)
 }
 
 // wouldStart is the same decision with nothing kept, for what only reads it.
@@ -909,7 +938,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// run state, because a report outlives the run that made it: the run is
 		// settled and its artifacts are removed, and what it reported is still
 		// waiting for somebody to read.
-		Reports: parts.reports,
+		Reports: parts.epicReports(),
 		// What the operator has directed is read from the product's own records
 		// every time a run is about to commit to work. It is wired here rather
 		// than delivered into a prompt because a directive that pauses work is not

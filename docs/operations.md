@@ -1751,6 +1751,7 @@ nothing else. Naming an epic is your act alone:
 ```bash
 ./bin/yoyo epic start yoyodyne-ab1 --words "finish this first"   # names it and turns epic mode on
 ./bin/yoyo epic add yoyodyne-ab1 yoyodyne-ab1.9                  # adds an item to it
+./bin/yoyo epic remove yoyodyne-ab1 yoyodyne-ab1.9 --words "not needed now"   # takes it out
 ./bin/yoyo epic list                                             # shows the record
 ./bin/yoyo epic end yoyodyne-ab1                                 # ends it; its record is kept
 ./bin/yoyo epic off                                              # back to goal mode
@@ -1771,6 +1772,17 @@ the epic afterwards is not one until you add it, and the epic itself is not one.
 A member waits on a prerequisite outside the members, which is not started.
 `start` and `add` refuse an item that another open epic has, or that joined one,
 and name that epic.
+
+`remove` takes one item out of an open epic, a member or a piece that joined it.
+Your words are required and kept, with when it was taken out and, for a member,
+when and how it had been put in. The item no longer starts, a run under way for it
+waits with its work kept, and another epic may have it. A piece that joined and was
+taken out cannot join again. `add` puts an item back, and the record keeps the
+removal. `remove` prints each piece that came from the item, which stays, with the
+command that takes it out. It refuses an epic that was never named or has ended, and
+an item that is not in it; where the epic's progress cannot be read it takes out only
+an item in its recorded list. A build older than `remove` refuses a record that has a
+removal, and so starts nothing.
 
 `end` leaves epic mode on, the last epic included, and `off` ends no epic. While
 epic mode is off you can still add to an epic or end it. `start` on an epic you
@@ -1804,7 +1816,7 @@ mode is off. While it is on:
 - Both files missing reads as nothing kept yet, and what they held is lost.
   `yoyo status` says so where a run of the epic is older than anything kept of it.
 - An item found in two open epics, which only a file changed by hand can cause,
-  starts in neither until you end one of them.
+  starts in neither until you end one of them, or take the item out of one.
 
 A run of a member is written down before it is reserved. One that is then refused
 is taken back out, and one that cannot be written down is not started.
@@ -1986,7 +1998,10 @@ epic mode on it also says:
 
 - how many ways of starting work do not ask yet, where there are any;
 - each open epic, with how many of its recorded items are done, running, ready
-  and waiting;
+  and waiting, and [where it stands](#where-a-named-epic-stands);
+- each epic you ended and have not named again, with whether it was delivered first;
+- how many unfinished items outside the open epics were admitted from a report filed
+  during one of them. Each such report names the epic, and the items start nothing;
 - how many ready items are outside every open epic, with when the first of them
   was refused a start where one was, and how many role passes were not started,
   since when;
@@ -2006,6 +2021,35 @@ epic mode on it also says:
   the team's branch was refused, while no epic is open.
   The first ten problems are printed, with how many more there are, and the JSON
   carries all of them.
+
+### Where a named epic stands
+
+The state is worked out from the records each time, and the first of these that fits
+is the one shown:
+
+- **Cancelled:** you ended it before it was delivered.
+- **Delivered, integrated:** every member's change is on the target branch and the
+  check of the whole epic passed.
+- **Delivered, handed over:** the same, with each change approved and at least one
+  pull request still open for a person to merge.
+- **Working:** a member is running or ready, the check of the whole epic is owed, or
+  a role owes a step. Each step is named with the role that owes it.
+- **Out of budget:** nothing is under way and the epic's budget refuses the next
+  start. No budget can be set yet.
+- **Waiting on the operator:** everything left waits on you.
+- **Blocked outside the factory:** what is left waits on something else, such as the
+  provider, the forge, another person or an item outside the epic. Anything that also
+  waits on you is named with it.
+
+The check of the whole epic is not built yet, so an epic whose members are all done
+shows Working and says so. A member that was closed with nothing landed, or whose pull
+request a person closed unmerged, waits on the Lead Product Manager until it is
+admitted again, replaced by a piece that is done, or taken out with `yoyo epic remove`.
+A member whose run ended complete with no change, and whose summary the reviewer
+approved, counts as done. An item with an unanswered question that names it keeps its
+epic from being shown as delivered. A member added after delivery, a piece that joined,
+or a pull request closed unmerged opens the epic again, and status says when it had
+been delivered. A state that cannot be worked out is said with why.
 
 A record of the named epics that cannot be read is said there with the reason and
 the starts refused. It is never taken for no record.
@@ -2226,7 +2270,7 @@ every invocation is built from; the variable is under the harness's own
 prefix, so a shell the agent opens and every `yoyo` that shell runs carry it
 too. `yoyo pause`, `yoyo resume` in both its forms, `yoyo release`,
 `yoyo artifact approve`, `yoyo role activate`, `yoyo gate record`, and
-[`yoyo epic start`, `add`, `end` and `off`](#working-only-on-the-epics-you-name)
+[`yoyo epic start`, `add`, `remove`, `end` and `off`](#working-only-on-the-epics-you-name)
 read it before they read anything else, and a process that carries it is told, in a
 sentence rather than a permission error, whose act this is:
 
