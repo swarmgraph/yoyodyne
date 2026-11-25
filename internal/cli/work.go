@@ -412,6 +412,8 @@ func snapshotOf(state runstate.State) chat.RunSnapshot {
 	case state.DirectivePause != nil:
 		snapshot.Detail = fmt.Sprintf("paused for unresolved directive %s: %s",
 			state.DirectivePause.DirectiveID, state.DirectivePause.Unresolved)
+	case state.EpicWait != nil:
+		snapshot.Detail = "waiting for " + state.EpicWait.Summary()
 	case state.DependencyPause != nil:
 		snapshot.Detail = "paused waiting on unfinished work it depends on: " + state.DependencyPause.Summary()
 	case state.CIWait != nil:
@@ -586,6 +588,9 @@ func runReportOf(outcome orchestrator.Outcome) chat.RunReport {
 	// A dependency pause is carried the same way and for the same reason: what a
 	// conversation says about it is which work is being waited on, and the items
 	// themselves are read with /show.
+	if outcome.PausedByEpic != nil {
+		report.EpicWait = outcome.PausedByEpic.Error()
+	}
 	if outcome.PausedByDependency != nil {
 		report.DependencyPause = outcome.PausedByDependency.Summary()
 	}

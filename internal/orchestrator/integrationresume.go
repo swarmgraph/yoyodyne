@@ -73,6 +73,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -127,6 +128,9 @@ type IntegrationResumer struct {
 	Docket ResumeDocket
 	Runs   RepairRuns
 	Intake IntakeHolds
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart StartDecision
 	// Items is the work item the stopped run holds. Required: the run cannot be
 	// resumed on an item that has been closed or made to wait on other work.
 	Items RepairItems
@@ -199,7 +203,10 @@ type IntegrationResumeResult struct {
 	// is waiting on. It is not a refusal: nothing was written, and asking again
 	// once a slot frees resumes the same run.
 	CapacityFull *runstate.CapacityError `json:"capacity_full,omitempty"`
-	Outcome      Outcome                 `json:"outcome"`
+	// OutsideNamedEpics is the item being in none of the epics the operator named,
+	// when that is what stopped this. Nothing was written to the run or the item.
+	OutsideNamedEpics *OutsideNamedEpicsError `json:"outside_named_epics,omitempty"`
+	Outcome           Outcome                 `json:"outcome"`
 	// RecordProblem names a durable record this action could not write once it had
 	// begun. It is reported beside the result rather than in place of it: the
 	// docket entry a resumption could not close is a stoppage put to the
@@ -311,6 +318,10 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	}
 	if held {
 		result.IntakeHeld = &hold
+		return result, nil
+	}
+	if refused := r.MayStart.refuseRun(maystart.FinishMerge, entry.WorkItemID); refused != nil {
+		result.OutsideNamedEpics = refused
 		return result, nil
 	}
 	// Capacity last, because it is the condition most likely to have changed
@@ -740,6 +751,11 @@ func (result IntegrationResumeResult) Render() string {
 			result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339), result.IntakeHeld.Says())
 		fmt.Fprintf(&rendered, "nothing was resumed for %s and nothing was spent; `yoyo release` lifts the hold, and asking again resumes the same run\n",
 			result.WorkItemID)
+		return rendered.String()
+	}
+	if result.OutsideNamedEpics != nil {
+		fmt.Fprintf(&rendered, "WAITING FOR THE ITEM TO BE IN A NAMED EPIC: %v\n", result.OutsideNamedEpics)
+		fmt.Fprintf(&rendered, "nothing was resumed for %s and nothing was spent, so asking again then resumes the same run\n", result.WorkItemID)
 		return rendered.String()
 	}
 	if result.CapacityFull != nil {
