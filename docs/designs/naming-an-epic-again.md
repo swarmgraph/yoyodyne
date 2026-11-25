@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-11-25T08:38:01.115992Z
       reason: 'yoyodyne-9k1y: adds the rulings on the team branch update, yoyo review and repeated merge requests, checked against the code (reports 1308f3b6 and 97a88ba2); says a queued change is left off the list of unpublished pull requests only while an update is due and epic mode refuses it (report c4106115); replaces the out of date line on when yoyo epic start stops being refused. The other rulings are unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-25T10:08:33.901255Z
+      reason: 'yoyodyne-9k1y: corrects point 5. Turning epic mode off does not itself clear a refused team branch update; it clears when the update begins or none is due, as internal/maystart/refusals.go at 9e1fc663f6b1 does and as the published first part says. The other points are unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-11-25T08:38:01.115992Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4008, for document-4008.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-25T10:08:33.901255Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4017, for document-4017.1 under the automatic approval policy
 ---
 # Epic mode rulings: naming an epic again, turning epic mode back on, and how the remaining paths ask the one decision
 
@@ -114,7 +123,7 @@ This was built by the last part of piece 6 (yoyodyne-9k1y.7.4). Both starts belo
 2. **It asks once an update is found due and before any work.** `teamBranchRun.update` in `internal/orchestrator/teambranchupdate.go` asks after it has found that the target does not carry the team's latest commit, and before it sets aside a waiting run, drops an earlier attempt, records a new one, builds, checks or reviews anything. Bringing the local copy of the target onto the remote's, earlier in that function, starts no work and is not asked about.
 3. **What carries on without asking.** Following a pull request already open for the update; landing a merge already checked and approved for the same two commits, while its commit is still held; and saying why a conflict or a refused merge still waits. None of these begins work. An approved merge whose commit is no longer held has to be built again, so it asks. A run that resolves a conflict asks under its own path.
 4. **A refusal changes nothing that was kept.** The update stays due, the earlier attempt stays as it was, and no attempt, failure, report or escalation is recorded. The outcome says it is still due, why it was not started, and what clears it.
-5. **A refused update is shown with the other refused starts**, counted once for each target branch however often it is tried. It is cleared when the update begins, when no update is due any more, or when epic mode is turned off. An entry for another target branch is cleared too.
+5. **A refused update is shown with the other refused starts**, counted once for each target branch however often it is tried. It is cleared when the decision lets the update begin, or when no update is due any more. An entry for another target branch is cleared too. Naming an epic, or turning epic mode off, does not clear it by itself: the update is still due until it is tried again, and the next check that begins it or finds none due clears it. An earlier version of this record said that turning epic mode off clears it; the code was read afterwards and is right. For this version the functions `note`, `settle` and `KeepUpdateOf` in `internal/maystart/refusals.go` were read at main 9e1fc663f6b1, after the account at the end of this record was written.
 6. **`yoyo review` always starts.** It is a person's own command naming one branch, and it does not ask (`OperatorReview`, marked as always starting). It is on the closed list so that the check over the whole module knows of it, and nothing the harness starts by itself may use that path.
 7. **Asking GitHub again for a merge already approved starts no work** and has no path. The last part of piece 6 was given this to prove by a test.
 
