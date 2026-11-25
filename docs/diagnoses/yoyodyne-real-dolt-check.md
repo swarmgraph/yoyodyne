@@ -65,3 +65,7 @@ The test was also seen to fail: with the account given an empty password, checks
 left out, the test stopped because the secret was not in the server's folder.
 Both edits were undone. With dolt off the path it skipped, saying
 `SKIPPED, not passed: dolt was not found`; that is not counted as a pass.
+
+The forge's workflows install no dolt, so a passing check there is expected to
+be that skip and is no evidence for these results. To make the check again, run
+the command above on a machine with dolt on the path and look for `--- PASS`.
