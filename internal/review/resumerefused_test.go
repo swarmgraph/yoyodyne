@@ -64,8 +64,10 @@ func TestARefusedResumeOnEachProviderAdapterIsReportedAsOne(t *testing.T) {
 		process []execution.ProcessResult
 	}{
 		{
-			name:    "Claude Code that cannot find the session",
-			backend: func(runner *scriptedProcess) Backend { return claudecode.Backend{Runner: runner} },
+			name: "Claude Code that cannot find the session",
+			backend: func(runner *scriptedProcess) Backend {
+				return claudecode.Backend{Runner: runner, StateRoot: t.TempDir()}
+			},
 			process: []execution.ProcessResult{{
 				Status: execution.ProcessFailed, ExitCode: 1,
 				Stderr: "No conversation found with session ID: " + session + "\n",
@@ -73,7 +75,7 @@ func TestARefusedResumeOnEachProviderAdapterIsReportedAsOne(t *testing.T) {
 		},
 		{
 			name:    "Codex that cannot find the session",
-			backend: func(runner *scriptedProcess) Backend { return codex.Backend{Runner: runner} },
+			backend: func(runner *scriptedProcess) Backend { return codex.Backend{Runner: runner, StateRoot: t.TempDir()} },
 			process: []execution.ProcessResult{
 				{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "Error: no rollout found for thread id " + session + "\n"},
 				{Status: execution.ProcessSucceeded, Stdout: "codex-cli 0.160.0\n"},
@@ -81,7 +83,7 @@ func TestARefusedResumeOnEachProviderAdapterIsReportedAsOne(t *testing.T) {
 		},
 		{
 			name:    "Codex that starts a new session in its place",
-			backend: func(runner *scriptedProcess) Backend { return codex.Backend{Runner: runner} },
+			backend: func(runner *scriptedProcess) Backend { return codex.Backend{Runner: runner, StateRoot: t.TempDir()} },
 			process: []execution.ProcessResult{{
 				Status: execution.ProcessSucceeded,
 				Stdout: `{"id":"0","msg":{"type":"session_configured","session_id":"a-new-session"}}` + "\n" +

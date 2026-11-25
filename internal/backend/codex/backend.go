@@ -140,8 +140,7 @@ func toolPolicy(profile string) backend.ToolPolicy {
 // Every profile may read the whole machine, as the CLI's sandboxes always did,
 // and has its network switched off, which refuses connecting to a socket file
 // as it does any other connection. The one exception to reading is denied,
-// which a developer's invocation names and no other does: the harness's services
-// folder, given as a path with the access "deny", which outranks the wider
+// which every invocation names: the harness's services folder, given as a path with the access "deny", which outranks the wider
 // entries it is inside. The developer's may also write the
 // directories it is given, each with protectedNames inside it kept read-only,
 // and the system and user temporary directories, which the `workspace-write`
@@ -151,10 +150,7 @@ func toolPolicy(profile string) backend.ToolPolicy {
 // name is the name the profile is defined and selected under, which
 // profileName makes from the profile.
 func profileArgs(profile, name string, writable []string, denied string) []string {
-	entries := []string{tomlString(":root") + `="read"`}
-	if denied != "" {
-		entries = append(entries, tomlString(denied)+`="deny"`)
-	}
+	entries := []string{tomlString(":root") + `="read"`, tomlString(denied) + `="deny"`}
 	if profile == profileDeveloper {
 		entries = append(entries, tomlString(":slash_tmp")+`="write"`, tomlString(":tmpdir")+`="write"`)
 		seen := make(map[string]bool)
@@ -175,17 +171,6 @@ func profileArgs(profile, name string, writable []string, denied string) []strin
 		"--config", "permissions." + name + ".filesystem={" + strings.Join(entries, ",") + "}",
 		"--config", "permissions." + name + ".network.enabled=false",
 	}
-}
-
-// servicesDenied is the harness's services folder, which a developer's profile
-// refuses, and empty for every other role. A developer is refused it whichever
-// profile it is held to: the read-only one reads the whole machine too. One
-// whose folder cannot be found is an error, and is not started.
-func servicesDenied(request backend.RunRequest, repository string) (string, error) {
-	if request.Role != domain.RoleDeveloper {
-		return "", nil
-	}
-	return execution.ServicesDirectoryDeniedTo(request.ScratchDirectory, request.RunID, repository)
 }
 
 // profileName is the name one invocation defines and selects profile under:
@@ -229,6 +214,10 @@ type Backend struct {
 	// takes no request, so the account it is asking about has to be on the value
 	// being asked. Empty is the machine's own provider home.
 	ConfigDir string
+	// StateRoot is the harness's state directory, where the services folder every
+	// session is refused is found for one with no run folder of its own. A session
+	// that needs it and has none is not started (backend.ServicesDirectory).
+	StateRoot string
 	// Context is the skills and instruction files the project's configuration
 	// names. Nothing else the CLI could find is given to a role: see context.go.
 	Context backend.NamedContext
@@ -627,9 +616,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
 		}
 	}
-	denied, err := servicesDenied(request, repository)
+	denied, err := backend.ServicesDirectory(request, b.StateRoot)
 	if err != nil {
-		return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
+		return backend.RunResult{}, fmt.Errorf("prepare Codex sandbox: %w", err)
 	}
 	name, err := profileName(profile)
 	if err != nil {

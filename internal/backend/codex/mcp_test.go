@@ -170,7 +170,7 @@ func TestAReadOnlyRoleAsksForNoListing(t *testing.T) {
 	t.Parallel()
 	repository, worktree := sandboxRepository(t, true)
 	runner := &fakeRunner{results: completedTurn()}
-	if _, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
+	if _, err := (Backend{StateRoot: testState, Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree,
 		RepositoryRoot: repository, Prompt: "review",
 	}); err != nil {

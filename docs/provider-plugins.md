@@ -332,6 +332,8 @@ The two kinds of tool access are:
   read and search inside its worktree and read-only Git commands in a sandbox
   that refuses writes to the worktree and has no network; Codex permits native
   read-only inspection and disables tool network access and external integrations.
+  Both refuse every role the harness's own `services/` folder
+  ([runs](configuration/runs.md)).
 - `worktree-write` — the agent's work is editing a worktree, and the provider
   must be able to scope writes to it. The developer needs this.
 

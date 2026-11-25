@@ -69,7 +69,7 @@ func TestAvailabilityAndLaunchUseTheSameExecutable(t *testing.T) {
 			// different installation. Read-only launch also changes directory.
 			t.Setenv("PATH", filepath.Join(root, "empty"))
 			for _, session := range []string{"", "fixture-session"} {
-				result, err := provider.Run(context.Background(), backend.RunRequest{RunID: "run-fixture", Role: domain.RoleArchitect, Model: "gpt-6-astra", WorkingDirectory: t.TempDir(), Prompt: "ping", SessionID: session})
+				result, err := provider.Run(context.Background(), backend.RunRequest{RunID: "run-fixture", Role: domain.RoleArchitect, ScratchDirectory: testScratch, Model: "gpt-6-astra", WorkingDirectory: t.TempDir(), Prompt: "ping", SessionID: session})
 				if err != nil || result.IsError || result.FinalText == "" {
 					t.Fatalf("launch = %+v, %v", result, err)
 				}

@@ -216,7 +216,7 @@ func TestEveryProfileSwitchesItsNetworkOffAndGrantsNothingElse(t *testing.T) {
 	}
 }
 
-// A read-only role's profile reads and writes nothing: no directory, not even
+// A read-only role's profile reads the machine less the services folder, and writes nothing: no directory, not even
 // the temporary ones, on a fresh launch or a resume of a session a developer
 // saved.
 func TestTheReadOnlyProfileWritesNothing(t *testing.T) {
@@ -228,8 +228,8 @@ func TestTheReadOnlyProfileWritesNothing(t *testing.T) {
 		}
 		for _, session := range []string{"", "session-one"} {
 			command := sandboxCommand(t, repository, worktree, "", session, role)
-			if got := profileFilesystem(t, command.Args); !reflect.DeepEqual(got, map[string]string{":root": "read"}) {
-				t.Fatalf("read-only role %s (session %q) file system = %q, want reading only", role, session, got)
+			if got := profileFilesystem(t, command.Args); !reflect.DeepEqual(got, map[string]string{":root": "read", servicesBeside(testScratch): "deny"}) {
+				t.Fatalf("read-only role %s (session %q) file system = %q, want reading everything but the services folder", role, session, got)
 			}
 		}
 	}
@@ -253,8 +253,10 @@ func TestEachInvocationNamesItsProfileAfresh(t *testing.T) {
 func TestProfileArgsQuoteEveryPathAndGiveEachOnce(t *testing.T) {
 	t.Parallel()
 	odd := `/a "quoted" path\with a backslash`
-	args := append([]string{"exec"}, profileArgs(profileDeveloper, profileDeveloper+"-0123456789abcdef0123456789abcdef", []string{odd, "/plain", odd}, "")...)
-	if got, want := profileFilesystem(t, args), developerFilesystem(odd, "/plain"); !reflect.DeepEqual(got, want) {
+	args := append([]string{"exec"}, profileArgs(profileDeveloper, profileDeveloper+"-0123456789abcdef0123456789abcdef", []string{odd, "/plain", odd}, "/services")...)
+	want := developerFilesystem(odd, "/plain")
+	want["/services"] = "deny"
+	if got := profileFilesystem(t, args); !reflect.DeepEqual(got, want) {
 		t.Fatalf("file system = %q, want %q", got, want)
 	}
 }

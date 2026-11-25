@@ -56,7 +56,7 @@ func sandboxCommand(t *testing.T, repository, worktree, scratch, session string,
 	}
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded,
 		Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
-	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
+	_, err := (Backend{StateRoot: testState, Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID: testRunID, Role: role, WorkingDirectory: worktree,
 		RepositoryRoot: repository, ScratchDirectory: scratch, Prompt: "do the work", SessionID: session,
 	})
@@ -239,6 +239,52 @@ func TestEveryCodexDeveloperIsRefusedTheServicesFolder(t *testing.T) {
 	}
 	if info, err := os.Stat(servicesBeside(scratch)); err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("services folder = %v, %v; want it made for its owner only", info, err)
+	}
+}
+
+// Every other role's session -- a review, a management conversation, a helper
+// answering for a role -- has no run folder, and is refused the services folder
+// of the adapter's state directory, fresh and resumed, with the rest of the
+// machine still readable. One whose folder cannot be found is not started.
+func TestEveryCodexSessionOfAnyOtherRoleIsRefusedTheServicesFolder(t *testing.T) {
+	t.Parallel()
+	repository, worktree := sandboxRepository(t, true)
+	state, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := filepath.Join(state, "services")
+	for _, role := range domain.Roles() {
+		if role == domain.RoleDeveloper {
+			continue
+		}
+		for name, request := range map[string]backendapi.RunRequest{
+			"a fresh session":   {WorkingDirectory: worktree, RepositoryRoot: repository},
+			"a resumed session": {WorkingDirectory: worktree, RepositoryRoot: repository, SessionID: "session-one"},
+			// As repositoryask launches the reading helper: under the asking
+			// role, in the checkout, with no tools asked for.
+			"a helper": {WorkingDirectory: repository, RepositoryRoot: repository, AllowedTools: []string{}},
+		} {
+			request.Model, request.RunID, request.Role, request.Prompt = "gpt-6.1-sol", testRunID, role, "answer"
+			runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded,
+				Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
+			if _, err := (Backend{Runner: runner, Clock: fixedClock{}, StateRoot: state}).Run(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			args := runner.commands[0].Args
+			if got, want := profileFilesystem(t, args), map[string]string{":root": "read", services: "deny"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("%s, %s: file system = %q, want %q", role, name, got, want)
+			}
+			if off := "permissions." + profileNameArgument(t, args) + ".network.enabled=false"; !strings.Contains(strings.Join(args, " "), off) {
+				t.Errorf("%s, %s: the network is not off: %q", role, name, args)
+			}
+			for _, missing := range []string{"", filepath.Join(state, "state*"), filepath.Join(state, "absent")} {
+				refused := &fakeRunner{}
+				if _, err := (Backend{Runner: refused, StateRoot: missing}).Run(context.Background(), request); err == nil || len(refused.commands) != 0 {
+					t.Errorf("%s, %s: Run() over state directory %q = %v, commands = %v, want a refusal", role, name, missing, err, refused.commands)
+				}
+			}
+		}
 	}
 }
 

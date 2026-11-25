@@ -30,7 +30,7 @@ func folderProvider(t *testing.T, descriptor backend.Descriptor, folders ...stri
 
 func launch(t *testing.T, provider backend.Backend) (backend.RunResult, error) {
 	t.Helper()
-	return provider.Run(context.Background(), backend.RunRequest{RunID: "run-fixture", Role: domain.RoleArchitect, Model: "gpt-6-astra", WorkingDirectory: t.TempDir(), Prompt: "ping"})
+	return provider.Run(context.Background(), backend.RunRequest{RunID: "run-fixture", Role: domain.RoleArchitect, ScratchDirectory: testScratch, Model: "gpt-6-astra", WorkingDirectory: t.TempDir(), Prompt: "ping"})
 }
 
 // The program is not on the search path and nothing is configured, so the

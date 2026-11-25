@@ -49,9 +49,9 @@ import (
 //
 // dolt always opens a TCP port, so the server cannot listen on a socket file
 // alone and has to be reached with a password
-// (docs/decisions/developer-runs-and-local-services.md); until every role on
-// both providers is refused the folder the password is kept in, a role could read and repeat it.
-const ServerHold = "a role other than a developer can still read the folder its password would be kept in, until sessions on both Claude Code and Codex are refused it (yoyodyne-ifd.435.98 is the Codex half), and no real install of dolt 2.7.6 by the harness's setup has been recorded as checked"
+// (docs/decisions/developer-runs-and-local-services.md), in a folder every
+// session on both providers is refused (backend.ServicesDirectory).
+const ServerHold = "no real install of dolt 2.7.6 by the harness's setup has been recorded as checked"
 
 // The states a server's record is in. Starting is written before the server's
 // process is started, so a supervisor that died between the two leaves a record
