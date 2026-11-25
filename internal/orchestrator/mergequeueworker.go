@@ -157,6 +157,12 @@ type MergeQueueWorker struct {
 	// full local checks in its place at once, as before.
 	Asker  MergeQueueChecksAsker
 	Reruns MergeQueueCheckReruns
+	// TargetMoved is called every TargetWatch (zero is targetWatchEvery) while
+	// an entry's candidate is verified, with the worker lease the call holds and
+	// the entry being verified, to look for waiting entries the target has moved
+	// into conflict with (mergequeueconflicts.go). Nil looks for none.
+	TargetMoved func(ctx context.Context, lease *runstate.Lease, working string)
+	TargetWatch time.Duration
 }
 
 // mergeQueueWait is a stage the worker did not start, and why: a process an
@@ -231,6 +237,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 	}
 	entry := choice.Entry
 	outcome := MergeQueueVerification{Entry: entry, Choice: choice}
+	defer w.watchTarget(ctx, lease, entry)()
 	run, err := w.Pipeline.Store.Load(entry.RunID)
 	if err != nil {
 		return outcome, fmt.Errorf("read run %s, which merge queue entry %d was admitted for: %w", entry.RunID, entry.Order, err)
