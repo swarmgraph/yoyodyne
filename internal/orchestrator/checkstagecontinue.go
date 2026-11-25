@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -71,6 +72,9 @@ type CheckStageContinuer struct {
 	Redocket CheckStageRedocket
 	Runs     RepairRuns
 	Intake   IntakeHolds
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart StartDecision
 	// Items is the work item the stopped run holds. Required: a closed item, or
 	// one made to wait on other work, is not one a run may be continued on.
 	Items RepairItems
@@ -124,6 +128,9 @@ type CheckStageContinueResult struct {
 	// IntakeHeld and CapacityFull are waits, and the next pull asks again.
 	IntakeHeld   *runstate.IntakeHold    `json:"intake_held,omitempty"`
 	CapacityFull *runstate.CapacityError `json:"capacity_full,omitempty"`
+	// OutsideNamedEpics is the item being in none of the epics the operator named,
+	// when that is what stopped this. Nothing was written to the run or the item.
+	OutsideNamedEpics *OutsideNamedEpicsError `json:"outside_named_epics,omitempty"`
 	// Refused is why the harness will not continue this run, written onto it,
 	// where what refused is something only a person settles.
 	Refused string  `json:"refused,omitempty"`
@@ -217,6 +224,10 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 	}
 	if held {
 		result.IntakeHeld = &hold
+		return result, nil
+	}
+	if refused := c.MayStart.refuseRun(maystart.ContinueRun, entry.WorkItemID); refused != nil {
+		result.OutsideNamedEpics = refused
 		return result, nil
 	}
 	full, free, err := slotIsFree(c.Runs, c.Capacity)

@@ -315,7 +315,12 @@ func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupi
 	now := s.now()
 	var paused []runstate.State
 	for _, state := range incomplete {
-		if !pausedForDependency(state) && !state.CIWait.Waiting() && !ciWaitLostItsHost(pull.Runs, state, now) {
+		// A run that resolves a conflict with the team's branch is taken up by the
+		// update it is for (teambranchresolve.go).
+		if state.TeamConflict != nil {
+			continue
+		}
+		if !pausedForDependency(state) && !pausedForEpic(state) && !state.CIWait.Waiting() && !ciWaitLostItsHost(pull.Runs, state, now) {
 			continue
 		}
 		// A run this session is already continuing is in flight here under its
@@ -360,7 +365,7 @@ func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupi
 		var decided bool
 		var why string
 		var readErr error
-		if state.DependencyPause == nil {
+		if state.DependencyPause == nil && state.CIWait != nil {
 			decided, why, readErr = s.readCIWait(ctx, pull, state)
 		}
 		if last, tried := refused[state.RunID]; tried {
@@ -378,6 +383,19 @@ func (s Scheduler) continuationCandidates(ctx context.Context, pull Pull, occupi
 		if stopped {
 			passOver(state, fmt.Sprintf("run %s is paused waiting on %s and %s asked for it to stop, so it is not continued; the next `yoyo reconcile` ends it",
 				state.RunID, waitSummary(state), request.StoppedBy()))
+			continue
+		}
+		if refused := pull.MayStart.refuseContinuing(state); refused != nil {
+			passOver(state, refused.Error())
+			continue
+		}
+		// Nothing but its epic: whatever else its item waits on is asked as the run
+		// is taken up.
+		if state.DependencyPause == nil && state.CIWait == nil {
+			_, holdsOne := occupied[state.WorkItemID]
+			candidates = append(candidates, candidate(state, holdsOne,
+				fmt.Sprintf("run %s waited for its epic since %s and may go on now, so the harness is continuing it in its own worktree and developer session", state.RunID, state.EpicWait.Since.UTC().Format(time.RFC3339))+ownSlotMove(pull.Runs, state, incomplete, now),
+				fmt.Sprintf("run %s waited for its epic, may go on now, and is continued when a developer slot is free", state.RunID), nil))
 			continue
 		}
 		if state.DependencyPause == nil {
@@ -444,6 +462,9 @@ func waitSummary(state runstate.State) string {
 	}
 	if state.CIWait != nil {
 		return state.CIWait.Summary()
+	}
+	if state.EpicWait != nil {
+		return state.EpicWait.Summary()
 	}
 	return "nothing recorded"
 }

@@ -2107,7 +2107,7 @@ func TestStatusSaysTheModeOnceAnEpicIsNamed(t *testing.T) {
 		t.Fatal(err)
 	}
 	stdout, stderr, code = runCLI(t, "status", "--config", configPath)
-	if code != 0 || !strings.Contains(stdout, "\nMode: epic mode; ") || !strings.Contains(stdout, " do not ask yet\n  Open epic: ") || !strings.Contains(stdout, "(yoyodyne-ep)") {
+	if code != 0 || !strings.Contains(stdout, "\nMode: epic mode; only work in the epics you named starts\n  Open epic: ") || !strings.Contains(stdout, "(yoyodyne-ep)") {
 		t.Fatalf("with an epic named, status exited %d (%s) and said\n%s", code, stderr, stdout)
 	}
 }

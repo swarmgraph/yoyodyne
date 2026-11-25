@@ -894,12 +894,13 @@ resolve a conflict with the team's branch waits with its round unspent, a pinned
 outside file is passed over, a change queued to merge or waiting for a person's merge is
 not brought up to date, a run stopped because GitHub refused the harness's login
 stays stopped, the attempt to repair a change the merge queue handed back stays
-owed, and a run you name is refused with the command that
+owed, a run already begun waits before its next call to a provider with
+its slot given back, and a run you name is refused with the command that
 adds the item to an open epic. Adding the item, or turning epic mode off, lets
 the same start go ahead. Being in a named epic lifts
-no other check: a member held for its design still waits for it. Other starts do
-not ask yet; [which epics the factory works on](../operations.md#which-epics-the-factory-works-on)
-names some of them.
+no other check: a member held for its design still waits for it. [Which epics the
+factory works on](../operations.md#which-epics-the-factory-works-on) has every
+start that asks.
 
 `yoyo work` reads the admitted work in the order you set — highest priority first — takes
 the items the tracker itself reports as ready to pull, and starts as many of them

@@ -1324,6 +1324,11 @@ func reportRunResult(stdout, stderr io.Writer, jsonOutput bool, outcome orchestr
 			if err != nil {
 				fmt.Fprintf(stderr, "the pause is recorded, but reporting it failed: %v\n", err)
 			}
+		} else if outcome.PausedByEpic != nil {
+			fmt.Fprintf(stdout, "%v\nit keeps its claim, branch and checkout, and gave back its developer slot\n", outcome.PausedByEpic)
+			if err != nil {
+				fmt.Fprintf(stderr, "the wait is recorded, but reporting it failed: %v\n", err)
+			}
 		} else if outcome.PausedByDependency != nil {
 			// A dependency pause is the fourth that can have no run behind it, and it
 			// is reported on its own terms for the same reason: what lifts it is other

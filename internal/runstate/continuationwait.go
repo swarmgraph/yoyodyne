@@ -46,8 +46,8 @@ func (u ContinuationPassedOver) apply(state *State) (bool, error) {
 }
 
 // AwaitsContinuation reports a run paused until the scheduler continues it:
-// waiting on work its item depends on, or waiting for the forge's checks
-// without having taken its developer slot back yet.
+// waiting on work its item depends on, waiting for its epic, or waiting for the
+// forge's checks without having taken its developer slot back yet.
 func (s State) AwaitsContinuation() bool {
-	return s.DependencyPause != nil || s.CIWait.Waiting()
+	return s.DependencyPause != nil || s.EpicWait != nil || s.CIWait.Waiting()
 }

@@ -59,6 +59,10 @@ func resumableRuns() map[string]runstate.State {
 	dependency.DependencyPause = &runstate.DependencyPause{}
 	runs["pausedForDependency"] = dependency
 
+	epic := preservedRun(runstate.PhaseIntegrating)
+	epic.EpicWait = &runstate.EpicWait{Since: at}
+	runs["pausedForEpic"] = epic
+
 	ciWait := preservedRun(runstate.PhaseChecking)
 	ciWait.CIWait = &runstate.CIWait{}
 	runs["pausedForCIWait"] = ciWait

@@ -88,7 +88,7 @@ func TestReadinessWrapsKeepTheBeginningOfALongCause(t *testing.T) {
 			if resume {
 				item.Status = "in_progress"
 				state := runstate.State{RunID: pipelineRunID, WorkItemID: item.ID}
-				_, err = pipeline.resumeRun(context.Background(), state, item, false, "")
+				_, err = pipeline.resumeRun(context.Background(), state, item, false, "", false)
 				condition = "the repository is not ready to resume a run"
 				prefix = "repository is not ready to resume run " + pipelineRunID + ": "
 			} else {

@@ -418,6 +418,8 @@ func (s *Store) SlotHolders(states []State, now time.Time) []SlotHolder {
 // holderSays is why one run is or is not counted against the slots.
 func (s *Store) holderSays(state State, counted bool, now time.Time) string {
 	switch {
+	case state.EpicWait != nil:
+		return "not counted: the run waits for its epic, and takes a slot again when it continues"
 	case state.DependencyPause != nil:
 		return "not counted: the run is paused on work its item waits on, and takes a slot again when it continues"
 	case state.CIWait.Waiting() && state.CIWait.Overdue(now):

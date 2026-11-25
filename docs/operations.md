@@ -1756,12 +1756,11 @@ nothing else. Naming an epic is your act alone:
 ./bin/yoyo epic off                                              # back to goal mode
 ```
 
-**Epic mode is still being built, and `start` is refused until it is.** The
-refusal names each way the harness starts work that does not yet ask whether it
-may start under the epics you named. Until all of them ask, epic mode could not
-keep its promise that nothing else starts, so it does not turn on. It is also
-refused, and says so, until the checks that look for a way of starting work
-missing from that list are built, even where every way on it asks.
+**Epic mode is still being built, and `start` is refused until it is.** Every way
+the harness starts work that is on its list now asks whether it may start under
+the epics you named, and `start` is refused, naming it, if any ever does not. It
+is also refused, and says so, until the checks that look for a way of starting
+work missing from that list are built, so it does not turn on yet.
 
 `start` records every open item below the epic as its members, and prints that
 list. The members are that list and what you add: an item moved or created below
@@ -1820,9 +1819,10 @@ request, a run you name, the run that resolves a conflict in the team's branch
 (asked about the item the development manager named), the run that brings in
 a pinned outside file (asked about the item its record is for), the attempt to
 repair a change the merge queue handed back because its target moved, the three
-ways an ended run is put back to work, below, and a new run that publishes a
-document. A refused item is free to start, subject to every other check, once it
-is added to
+ways an ended run is put back to work, below, finishing an interrupted merge,
+continuing a silent run or one whose checks ran out of time, and a new run that
+publishes a document. A run already begun is asked too, below. A refused item is
+free to start, subject to every other check, once it is added to
 an open epic or epic mode is turned off.
 
 A refusal of one of the three ways an ended run is put back to work, or a
@@ -1874,9 +1874,27 @@ whatever the answer; the development manager's refused pass over it is tried aga
 at each poll while the hold stands, and is lost if the session restarts first. Your
 own conversation with a role always starts.
 
-Other starts do not ask yet, so epic mode does not hold them out. Among them are
-carrying on a run already begun and resuming an approved change stopped at its
-landing.
+A run already begun when epic mode is turned on finishes the step it is in. If its
+item is outside every open epic, it then waits before its next call to a provider,
+and its record says it waits for its epic. It gives back its developer slot and
+keeps its claim, branch and checkout. Picking up a run that was already waiting,
+or that a restart interrupted, asks first, so such a run waits the same way, and
+so does one put back to be brought up to date with its target branch. A watching
+`yoyo work` session, or whatever was carrying the run, goes on with the same run
+once its item is added or epic mode is turned off, when a developer slot is free.
+
+- A run that resolves a conflict with the team's branch waits the same way. The
+  update asks about it at each check, and no further round is spent. If either
+  branch moves meanwhile, its merge could not land: the run is ended, and the
+  development manager's decision starts a fresh one once the item may start.
+- A run that brings in a pinned outside file and has started carries on to its
+  end. It holds no developer slot.
+- A change in the merge queue carries on to landing, its review included, and so
+  does an approved change a run is already landing.
+- The attempt to bring a change the merge queue handed back up to date with its
+  target asks before its run is put back. A run put back before epic mode was
+  turned on is one already begun: it waits, with its slot given back and its
+  attempt kept, before its developer is called.
 
 Each start that asks and is refused is recorded, and so is one refused because
 the named epics could not be read. There is one entry for each item and way of

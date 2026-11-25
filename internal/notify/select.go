@@ -1548,12 +1548,13 @@ func verdictGiven(state runstate.State) bool {
 
 // parked reports a run stopped short of finishing with an instruction to resume:
 // a provider that refused it, the operator holding everything, a directive
-// nobody has resolved, work the item was made to wait on, or a tracker that
-// would not answer the read a gate boundary makes. All five keep the run's claim
+// nobody has resolved, work the item was made to wait on, an epic the operator
+// has to name, or a tracker that would not answer the read a gate boundary
+// makes. All of them keep the run's claim
 // and its worktree, which is what makes a park different from a failure.
 func parked(state runstate.State) bool {
 	return state.UsageLimitResetsAt != nil || state.OperatorHeldSince != nil ||
-		state.DirectivePause != nil || state.DependencyPause != nil ||
+		state.DirectivePause != nil || state.DependencyPause != nil || state.EpicWait != nil ||
 		state.TrackerPause != nil
 }
 
@@ -1568,6 +1569,9 @@ func causeOf(state runstate.State) string {
 			waiting += ": " + unresolved
 		}
 		return waiting
+	}
+	if wait := state.EpicWait; wait != nil {
+		return wait.Summary()
 	}
 	if pause := state.DependencyPause; pause != nil {
 		return "unfinished work this item depends on: " + pause.Summary()
@@ -1603,7 +1607,7 @@ func causeOf(state runstate.State) string {
 // writes through, and a run parked on it is work that will not move until
 // somebody looks at the machine.
 func parkSeverity(state runstate.State) report.Severity {
-	if state.DirectivePause != nil || state.DependencyPause != nil {
+	if state.DirectivePause != nil || state.DependencyPause != nil || state.EpicWait != nil {
 		return report.SeverityNote
 	}
 	if state.TrackerPause != nil {

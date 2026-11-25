@@ -349,8 +349,8 @@ func TestARunOutsideTheNamedEpicsIsNotStartedOnAConflict(t *testing.T) {
 			t.Fatalf("asked about %+v, want the item the development manager named", start)
 		}
 	}
-	if len(asked) != 3 {
-		t.Fatalf("asked %d times, want once for each start", len(asked))
+	if len(asked) != 4 {
+		t.Fatalf("asked %d times, want once for each start and once before the developer", len(asked))
 	}
 }
 
