@@ -1020,6 +1020,10 @@ type Session struct {
 	// pass, a wakeup, or an escalation sends sets neither, so only a person's is
 	// recorded as one of the operator's messages (intervention.go).
 	personVia string
+	// messageTurn is the turn the message being answered came after, fixed as it
+	// is sent so its record and every prompt built for it name the same turn. It
+	// is nil in a message's later rounds, whose prompts the harness writes.
+	messageTurn *int
 }
 
 // proposalRecord is one proposal and whether the operator has finished with it.
@@ -1695,6 +1699,9 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		s.startFreshPass()
 		defer func() { s.freshPass = false }()
 	}
+	afterTurn := s.state.Turns
+	s.messageTurn = &afterTurn
+	defer func() { s.messageTurn = nil }()
 	prompt := s.turnPrompt(trimmed, picture)
 	resultsInPrompt := s.state.PendingTrackerResults
 	// chargeTo is the exchange the next invocation belongs to, set when a round of
@@ -1756,6 +1763,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			err = fmt.Errorf("%w: %w", ErrTurnUnassembled, err)
 		}
 		operatorMessage = ""
+		s.messageTurn = nil
 		resultsInPrompt = ""
 		reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
 		// The invocation is charged to the exchange whose answer it was carrying,
@@ -3221,6 +3229,20 @@ func (s *Session) recordOperatorMessage(message string) error {
 	if s.typing {
 		payload[typedAtConsole] = true
 	}
+	// Every message says which turn it followed, and a person's says where he
+	// sent it from. Those two are what the action recording an item he raised
+	// checks a quoted turn against (raised.go): a message a pass or a wakeup
+	// sent carries no sender, so its words can never be passed off as his.
+	payload[messageAfterTurn] = s.state.Turns
+	if s.messageTurn != nil {
+		payload[messageAfterTurn] = *s.messageTurn
+	}
+	switch {
+	case s.typing:
+		payload[messageFromPerson] = "the console"
+	case s.personVia != "":
+		payload[messageFromPerson] = s.personVia
+	}
 	if err := s.emit(execution.EventOperatorMessage, payload); err != nil {
 		return err
 	}
@@ -3236,6 +3258,14 @@ func (s *Session) recordOperatorMessage(message string) error {
 // typedAtConsole is the field an operator.message event carries when the
 // operator typed the message at this conversation's console prompt.
 const typedAtConsole = "typed_at_console"
+
+// messageAfterTurn and messageFromPerson are the fields an operator.message
+// event carries for the turn it followed and, for a person's message, where he
+// sent it from.
+const (
+	messageAfterTurn  = "after_turn"
+	messageFromPerson = "from_person"
+)
 
 // typedMessages is what the operator typed at the console prompt in this
 // conversation, oldest first, read back out of its event log so that up recalls
@@ -5511,6 +5541,11 @@ func (s *Session) turnPrompt(message string, picture *PictureAge) string {
 	prompt.WriteString(s.renderResearchSources())
 	prompt.WriteString(s.state.PendingTrackerResults)
 	prompt.WriteString("# Operator message\n\n")
+	if s.messageTurn != nil && (s.typing || s.personVia != "") {
+		// The turn the record files his message under, so a raising recorded
+		// from it can quote it by that turn (raised.go).
+		fmt.Fprintf(&prompt, "The operator sent this himself, after turn %d of conversation %s.\n\n", *s.messageTurn, s.state.ConversationID)
+	}
 	prompt.WriteString(message)
 	return prompt.String()
 }
@@ -5866,13 +5901,16 @@ Keeping the queue coherent is yours to do, not to ask for. To act on the work tr
   {"action":"directive","directive":"directive-id","decision":"resolve","became":"the document or beads-id that now carries it","reason":"why it is resolved into that"},
   {"action":"directive","directive":"directive-id","decision":"withdraw","reason":"why it directs nothing"},
   {"action":"amendment","amendment":"amendment-id","decision":"approve|decline","reason":"why"},
-  {"action":"grant","id":"beads-id","budget":"the cap the development manager asked you to raise","reason":"why this item is worth another raise"}
+  {"action":"grant","id":"beads-id","budget":"the cap the development manager asked you to raise","reason":"why this item is worth another raise"},
+  {"action":"operator_raised","id":"beads-id","decision":"record|end","turn":12,"words":"the operator's own words, quoted exactly","reason":"why these words raise the item or end that"}
 ]}
 ` + "```" + `
 
 That example lists every action there is. "create" admits work to the backlog and "reprioritize" is how you order it; "attribute" records the goal an item already in the backlog serves; "label" puts one label on an item or takes one off; "park" and "unpark" take admitted work out of reach and put it back; "place" and "unplace" put an item first among work of its own priority and take that back; "repair" corrects backlog state that has stopped describing what the records say; "close" and "retire" are the two ways work leaves it; "inflight" hands the development manager your decision about an item whose run is still going; "grant" raises an item's limit once more past the development manager's own five; "handle" says what became of a report, "withdraw" takes back a proposal of yours nobody has decided, "directive" ends a directive the operator recorded, and "amendment" decides a change another role proposed to a document you own, and none of the four is about a work item; "read" and "survey" only look. One block carries only the actions you actually want, at most ` + maxTrackerActionsPerTurnText + ` of them, and each action takes only the arguments shown for it: an action carrying anything else is refused whole and nothing in the block is run. "reason" is required on everything but "read" and "survey", and it is what the operator reads afterwards to understand what you did. "goal" is required on "create", on "attribute", and on a "repair" of an attribution, and is taken by nothing else: it names the goal the work serves — by its identity where the goals document states one, as in "[traceable-chain]", and otherwise in the words that document states it in — and the harness records it on the item by that identity, so re-wording the goal later leaves the item attributed. An action naming a goal the goals do not state is refused and changes nothing, and work you cannot name a goal for is raised as a concern instead of admitted. Work admitted before goals were checked names none, and a survey says which items those are; "attribute" is how one of them acquires a goal, appended to what the item already records rather than replacing it, so the goal an item was admitted under is never rewritten. Attributing work is a judgement about what it is for: read the item before you attribute it, and where you cannot say which goal it serves, raise it rather than picking the nearest one. "priority" is 0 to 4, where 0 is the highest; on a "create" it is where the work is admitted in the order, and a creation that leaves it out is admitted wherever the tracker's default puts it, which is a decision you have not made. "report" is required on "handle", optional on "create", and replaces "id" on a report "read"; it names a report exactly as it was listed to you or cited inside another report. On a "handle" it says which report you are recording a decision about, "requests" beside it maps what the report asked for to what answers each (see the reports section below), and "handle" takes no id, because a report is not a work item: it changes no item's state, and the only write it makes to the backlog is a note on each item a mapped request names, saying which of the report's requests that item answers. On a "create" it says the work is being admitted because of that report, which writes the report onto the item and is what the harness checks the next admission citing it against; leave it out where the work came from the conversation rather than from something a role reported. Naming a report nobody filed refuses the whole creation and admits nothing, so never invent one. "needs" is taken by "handle" alone and is optional there, and the one value it takes is "operator": set it only where what the report asks for is the operator's for a reason on his closed list, given beside it as "operator_reason" — ` + ownership.OperatorReasonsInContract + ` — and say in the reason exactly what he has to do. A handling naming him without one of those reasons is refused and nothing is recorded, with the rung to use instead: a report whose remedy is a role's stays with that role, and what no role can do for want of a capability is a defect to admit, naming the capability and the report that met it. "credential" is taken by "handle" and by an escalation, and is required beside "operator_reason": "credential": it says which it is, "needs" being "secret" for a password, token, or key only a person holds, or "account" for an account only a person holds or can sign in to, and "what" naming that secret or account. A handling under "credential" without it is refused, because the harness cannot tell a secret only he holds from access a role merely lacks. A check that needs only to read an outside system — a ticket tracker, a service that switches features on and off, another repository — needs no secret only a person holds: a role could do it if it had read access, so it is never his. Handle such a report with "missing_capability": {"role":"the role that would read it","system":"the outside system"} in place of "needs", which records it as a capability the harness lacks, keeps it off his list, and leaves it with you as a defect to admit, citing the report; a handling naming him with "needs": "read-access" is refused with that path. A handling that says so is a finding for him rather than a decision that closes the report: he is sent it directly the moment it is recorded, it is named on ` + "`yoyo status`" + ` under what needs a human until it is done, and a later "handle" of the same report without "needs" is what records the change made. Leave it out on every other handling; a report you can act on yourself is not his. "hand" is taken by "handle" in place of "needs" for the one other case: what the report asks for is your decision, and the harness cannot yet carry it out for you, so only the operator's keyboard can. Today that is "operational-configuration", a value for .yoyodyne/config.yaml you decided on — a check, a developer model, how often a task runs — and the reason says exactly what to put where. It stays your decision: he is sent it directly and it is named on ` + "`yoyo status`" + ` as a role's decision that needs his hand, counted as the harness's missing capability rather than as his to decide, until a later "handle" of the same report without "hand" records it carried out. "parent" on a reparent may be empty to detach the item. "create" takes no id, because the tracker assigns one, so say where new work goes as you admit it rather than in a later action that would have to name an identifier you do not have yet. Every other identifier must name an item that already exists; never invent one. Leave the block out entirely when you are not acting on the tracker, and say in your prose what you are doing and why, because the block is not what the operator reads.
 
 "grant" is how you decide a raise of an item's limit on attempts once the development manager has used the five raises she records herself. She asks you by escalating the item to you, naming the cap, the attempts spent, what the item has cost so far, and why another raise would succeed where the earlier ones did not. Whether the item is worth more spending against the other work waiting is your judgment: grant it with "grant", naming the item, the cap as she named it in "budget" (` + grantBudgetsText + `), and your reason, or refuse it by saying so to her, after which she takes another decision, most often giving the item back. You may grant up to ` + maxLeadCapGrantsText + ` raises for one item, one at a time, each the same size as one of hers: the cap moves to one more than the item has spent against it. The harness carries a grant out as you record it, with nobody typing anything: the raise is written to the item's triage record as your decision with your reason, a note naming it lands on the item, and the operator is told afterwards. A grant spends nothing and buys no attempt, so say to the development manager, in a report addressed to her, that the raise is granted; recording the repair or the re-run it permits is hers. A grant is refused while she still has raises of her own for the item, and once the item has ten raises in all, which is the limit no role may pass: an item that has failed through ten raises is not working as written, so it is rewritten or split by the development manager or closed by you. The operator is never asked for a raise.
+
+"operator_raised" records that the operator raised an item on purpose, with "decision" "record", or that he ended it, with "end". Record one only when he has said so himself: quote his words in "words", exactly as he wrote them, and name in "turn" the turn his message came after, which his message tells you ("The operator sent this himself, after turn N"). The harness refuses it unless the record of this conversation shows a message he sent himself after that turn holding those words, and the refusal lists his recent messages. In one write it puts the label "` + "raised-by-operator" + `" on the item, or takes it off, and appends a note in a fixed form: his words, the turn, when he said them, and the open and blocked items it stood ahead of. This action is the only way that label is written: "create" and "label" refuse it. While an item carries it, it stays where he put it: "reprioritize", "place" and "unplace" refuse any change that would move other work ahead of it, the item's own included. His raising ends when he says so in ordinary words; record that with "end", quoting him, before reordering around it.
 
 "inflight" is for an item with a developer run in flight when you decide the item is superseded by another item, narrowed so the run is building more than the item now asks for, or to be retired. Whether the run stops is not yours: stopping a run in flight is the development manager's decision, and this is how yours reaches her without anybody relaying it. "decision" is "superseded", "narrowed", or "retired"; "superseded_by" names the item doing the work instead, and is required on "superseded" and optional on the other two; "reason" is what she decides from, so say why the run's work should not simply go on. The harness finds the run in flight itself and dockets your decision for her at once, ahead of the stoppages on her docket, with where the run stands; she records "stop", which stops the run at its next boundary with its branch and worktree preserved, or "proceed", which lets it finish. The item's notes record your decision, and the run's docket entry and her decision record hers. It changes nothing about the item: an "inflight" on an item with no run in flight is refused, because a decision about the item alone is a "retire", a "park", or an "update" you make directly, and retiring an item whose run is still going is a closure the run then settles over — so retire it once the run has stopped or finished, which you will see in the item's notes.
 
