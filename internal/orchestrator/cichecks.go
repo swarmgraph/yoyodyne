@@ -236,6 +236,7 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 	p := a.pipeline
 	wait := *a.state.CIWait
 	now := p.clock().Now()
+	a.noteContinuedUnderHold(now)
 	if wait.Commit != strings.ToLower(strings.TrimSpace(a.state.HarnessCommit)) {
 		return a.endCIWaitWithFullChecks(ctx, wait, "the run's change moved on from the commit it waited for, so the forge's answer does not apply to it")
 	}
@@ -301,6 +302,23 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 		}
 	}
 	return a.parkAgain(wait, "still waiting for "+strings.Join(unsettled, ", "))
+}
+
+// noteContinuedUnderHold notes on a run the operator started by name that its
+// wait was taken up while new work was held, and why that was allowed. Every way
+// settling a wait can end saves the run or ends it, and that save writes this.
+// The hold is read for the record only, so one that cannot be read notes nothing.
+func (a *activeRun) noteContinuedUnderHold(now time.Time) {
+	if !a.state.NamedByOperator() {
+		return
+	}
+	hold, held, err := a.pipeline.Intake.Held()
+	if err != nil || !held {
+		return
+	}
+	a.state.ContinuedUnderHold = &runstate.ContinuedUnderHold{At: now.UTC(), Why: fmt.Sprintf(
+		"the operator started this run by name, so it was taken up from its wait for the forge's checks although new work has been held since %s (%s)",
+		runstate.LocalStamp(hold.HeldAt), hold.Says())}
 }
 
 // handBackCIFailure ends the wait on required checks that failed on the

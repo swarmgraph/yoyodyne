@@ -253,6 +253,12 @@ func (s Selection) SelectedByHarness() bool {
 	return strings.TrimSpace(s.By) != SelectedByOperator
 }
 
+// NamedByOperator reports a run the operator started by name, which no hold on
+// new work is over. A run recorded with no selection was not.
+func (s State) NamedByOperator() bool {
+	return s.Selection != nil && !s.Selection.SelectedByHarness()
+}
+
 // OperatorSelection is the selection every run an operator asked for by name
 // carries. The reason is supplied by whoever took the instruction, because
 // "from a conversation, after turn 12" and "from a command line" are different

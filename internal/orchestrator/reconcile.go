@@ -553,6 +553,18 @@ func asksForge(state runstate.State) bool {
 	return queuedMerge(state) || unconfirmedLanding(state)
 }
 
+// EndStopped settles one run no process holds that was asked to stop, so a
+// scheduler's pull can end it without waiting for the next sweep.
+func (r Reconciler) EndStopped(ctx context.Context, state runstate.State) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+	if result := r.reconcileRun(ctx, state); result.Failure != "" {
+		return errors.New(result.Failure)
+	}
+	return nil
+}
+
 // reconcileRun takes the run's lease and settles what it finds under it. The
 // state is re-read by AdoptRun, so nothing is decided from the listing snapshot
 // that another process may have moved on from in the meantime.

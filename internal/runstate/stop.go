@@ -275,11 +275,11 @@ func (r StopRequest) Pending() string {
 // change it holds keeps that change for its review instead (LateStop), and is
 // said to be doing that rather than to be late.
 func (s State) StoppingSays(request StopRequest, now time.Time) string {
-	if !s.Status.InFlight() || (s.LateStop != nil && s.LateStop.RequestedAt.Equal(request.RequestedAt.UTC())) {
+	if !s.Status.InFlight() || (s.CIWait == nil && s.LateStop != nil && s.LateStop.RequestedAt.Equal(request.RequestedAt.UTC())) {
 		return ""
 	}
 	by, asked := request.StoppedBy(), LocalStamp(request.RequestedAt)
-	if passed := s.ChecksPassed; passed != nil && passed.Attempt == s.RepairAttempts {
+	if _, kept := s.ChecksPassedOnHeldChange(); kept {
 		return fmt.Sprintf("asked to stop by %s at %s, after its checks had passed, so the change is kept for its review rather than cancelled", by, asked)
 	}
 	if now.Before(request.TakesEffectBy()) {
@@ -288,6 +288,25 @@ func (s State) StoppingSays(request StopRequest, now time.Time) string {
 	waited := int(now.Sub(request.RequestedAt) / time.Minute)
 	return fmt.Sprintf("stopping, overdue: %s asked it to stop at %s, and it is still running %d minutes later, past the %s a stop is given to end a run; the process working on it has not carried the stop out",
 		by, asked, waited, StopBoundSays())
+}
+
+// ChecksPassedOnHeldChange reports the checks having passed on the attempt the
+// run holds now, which is what makes a stop found after them a late one. A
+// repair handed back since is a new attempt and does not count.
+//
+// Nor does the short local check of a run that pushed its change for the
+// forge's checks: while the run waits for them its checks are not finished, and
+// where the wait ended without a pass the full checks here are what decides, so
+// evidence older than that ending does not count either.
+func (s State) ChecksPassedOnHeldChange() (*ChecksPassed, bool) {
+	passed := s.ChecksPassed
+	if passed == nil || passed.Attempt != s.RepairAttempts || s.CIWait != nil {
+		return nil, false
+	}
+	if end := s.CIWaitEnd; end != nil && !end.Passed && end.Commit == passed.Commit && passed.At.Before(end.At) {
+		return nil, false
+	}
+	return passed, true
 }
 
 // LateStop is a stop that reached a run only after its checks had passed on the
