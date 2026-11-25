@@ -11,12 +11,21 @@ revisions:
       by: architect
       at: 2026-11-25T07:58:37.824799Z
       reason: 'yoyodyne-9k1y.1: sends document-3985.1 again with the reviewer''s three findings answered. Piece 8 builds yoyo epic remove, the operator''s act that takes one item out, kept in the operator''s own record; shared items are corrected to match what the commands already refuse; a critical report waiting on a program manager starts the Lead Product Manager''s pass; the list of events names the rewrite, later feedback and the judgment of a comment.'
+    - action: amended
+      by: architect
+      at: 2026-11-25T19:16:46.277714Z
+      reason: 'yoyodyne-9k1y.10: settles the three cases the developer of piece 8 reported: which state a mixed wait takes, how an item judged by its summary is recognised, and how an ended epic treats a question put to the operator whose record holds no time. It adds the reviewer''s checks for them. Read whole at main 529de40314b7.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-25T07:58:37.824799Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3992, for document-3992.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-25T19:16:46.277714Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4048, for document-4048.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -89,13 +98,19 @@ The read model works out one state from the records each time. The first that fi
 4. **Working:** any member is running or ready, the check of the whole epic is owed, or a role owes any step: a decision about a stopped member, a cancelled or given up member, a closed pull request, a question, missing evidence, a third failed check, or a piece to be written or rewritten. A member that is ready only because the budget refuses its start does not count as ready here.
 5. **Out of budget:** nothing under way remains, and the next start is refused by the epic's budget.
 6. **Waiting on the operator:** everything left waits on an answer or a step only the operator can give, for a reason on the closed list.
-7. **Blocked outside the factory:** everything left waits on something else: a provider, the forge, another person, or an item outside the members.
+7. **Blocked outside the factory:** everything left waits, and at least one wait is on something other than the operator: a provider, the forge, another person, or an item outside the members. Where some of what is left waits on the operator as well, this is still the state, because the operator's answer alone would not let the epic finish. Status names every wait, the operator's included, so the answer owed is not hidden.
 
 While it is Working, status names each step owed and the role that owes it. Here and below, a member is an item in the epic, whether the operator named it or it joined.
 
-Only the two delivered states and cancelled finish an epic. A member closed without a landed change counts as done only where its item is judged by its summary and the reviewer approved it. An item the operator took out is no longer a member and is not waited for. A member cancelled or given up by a role, or with an unanswered question, leaves the epic open and is named. It is never shown as delivered.
+Only the two delivered states and cancelled finish an epic. A member closed without a landed change counts as done only where its item is judged by its summary and the reviewer approved it. Nothing in the tracker marks such an item. It is read from the item's run: the run ended complete, the reviewer approved it as that item's work, and it recorded no change and no pull request. A member closed with no such run is not done on that ground. An item the operator took out is no longer a member and is not waited for. A member cancelled or given up by a role, or with an unanswered question, leaves the epic open and is named. It is never shown as delivered.
 
 **A cancelled or given up member is the Lead Product Manager's to decide**, and so is one whose pull request a person closed. That role admits the item again, or has the development manager write a piece in its place, which joins by the joining rule as a split of that member. Such a member counts as done when that piece is. Where the epic should be delivered without the item, only the operator can take it out, because the operator named the epic and it holds everything else back until it ends. The operator is then asked, for the reason of lifting a hold the operator placed, with the command that does it.
+
+### An epic the operator has ended
+
+The state of an ended epic is worked out from what stood when the operator ended it. Nothing recorded later changes it.
+
+A question to the operator is recorded without a time. The time is in the log of the conversation that put it, and the read model may look there while an ended epic with a delivered entry is shown, and at no other time. A question whose time cannot be found is left out, because nothing shows that it stood when the epic was ended. This applies to an ended epic only: an unanswered question counts in an open epic whether or not its time is known.
 
 ### Taking one item out
 
@@ -118,6 +133,10 @@ Until piece 10 lands, an epic whose members are all done shows Working and says 
 The delivered entry in the progress record is evidence, and the state is still worked out from all the records. An epic opens again when the operator adds a member after it was delivered, or when a person closes one of its pull requests unmerged. The old delivered entry is then kept as history and no longer counts.
 
 A suggestion found during an epic is filed and admitted as today. It starts nothing, wakes nobody and is asked of nobody. Its record names the epic during which it was found, and `yoyo status` counts such items beside the work held out. A critical report still goes where it goes today. No second list is kept.
+
+### What else a reviewer checks in piece 8
+
+Beside the list for piece 8 at the end of this document: an epic with one wait on the operator and one outside is blocked outside the factory and both waits are named; a member closed with no landed change is done where its approved, complete run recorded no change and no pull request, and not otherwise; an ended epic keeps the state it had when it was ended, and a question whose time cannot be found does not change it.
 
 ## What may join an epic: piece 9 (yoyodyne-9k1y.11)
 
