@@ -16,7 +16,6 @@ const (
 	operatorTalks     = "the operator's own conversation with a role, which always may start"
 	roleAsks          = "a question asked inside a turn that was allowed to start, which always may start"
 	opensConversation = "opens a conversation for a caller listed here, and takes no turn in it"
-	judgesAPiece      = "judges whether a piece joins, for an epic that is open and readable while epic mode is on and for nothing else, as piece 9 of docs/designs/epic-mode-second-part.md rules"
 	writesTheRecord   = "holds the run while its record, its pull request or what it left is settled; no session, check or developer slot"
 )
 
@@ -29,6 +28,10 @@ var starts = map[string]launch{
 	"internal/cli/correction.go correctorFrom roleCorrection{}":                             starting(PromptedPass),
 	"internal/cli/correction.go roleCorrection.Wake Send":                                   starting(PromptedPass),
 	"internal/cli/correction.go roleCorrection.Wake openChat":                               starting(PromptedPass),
+	"internal/cli/epicjoin.go epicJoins.judge RunRequest{}":                                 starting(JoiningJudgment),
+	"internal/cli/epicjoin.go epicJoins.judge provider.Run":                                 starting(JoiningJudgment),
+	"internal/epicjoin/epicjoin.go Joiner.send Judge":                                       starting(JoiningJudgment),
+	"internal/orchestrator/epicjoin.go Scheduler.judgeEpicPieces Judge":                     starting(JoiningJudgment),
 	"internal/cli/escalate.go developmentManagerConversation.Judge Send":                    starting(PromptedPass),
 	"internal/cli/escalate.go developmentManagerConversation.Judge openChat":                starting(PromptedPass),
 	"internal/cli/escalate.go escalatorFrom Escalator{}":                                    starting(PromptedPass),
@@ -100,10 +103,6 @@ var starts = map[string]launch{
 	"internal/cli/dashboard.go serveDashboard Serve":                                                    because("serves the dashboard's pages"),
 	"internal/cli/dashboardacts.go decideInConversation conversation open":                              because("the operator's own decision, recorded in the conversation it is about; a document it publishes asks as a document"),
 	"internal/cli/dashboardacts.go decideInConversation prepareChat":                                    because("the operator's own decision, recorded in the conversation it is about; a document it publishes asks as a document"),
-	"internal/cli/epicjoin.go epicJoins.judge RunRequest{}":                                             because(judgesAPiece),
-	"internal/cli/epicjoin.go epicJoins.judge provider.Run":                                             because(judgesAPiece),
-	"internal/epicjoin/epicjoin.go Joiner.send Judge":                                                   because(judgesAPiece),
-	"internal/orchestrator/epicjoin.go Scheduler.judgeEpicPieces Judge":                                 because(judgesAPiece),
 	"internal/cli/exchange.go conversationExchanges Conductor{}":                                        because(roleAsks),
 	"internal/cli/exchange.go conversationExchanges exchangeVoice{}":                                    because(roleAsks),
 	"internal/cli/exchange.go exchangeVoice.Answer RunRequest{}":                                        because(roleAsks),

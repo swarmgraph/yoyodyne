@@ -86,8 +86,9 @@ func (b *bench) joiner() Joiner {
 	log, err := runstate.NewBranchReviewStore(b.root, product)
 	b.must(err)
 	return Joiner{StateRoot: b.root, Product: product, Progress: store, Log: log, NewID: runstate.NewBranchReviewID,
-		SplitFrom: chat.SplitByDevelopmentManager, Now: func() time.Time { return b.now }, Paused: func() (bool, error) { return b.paused, b.unread },
-		Items: func(context.Context) ([]beads.WorkItem, error) { return b.items, nil },
+		SplitFrom: chat.SplitByDevelopmentManager, Now: func() time.Time { return b.now }, MayStart: func(start maystart.Start) maystart.Decision { return maystart.Decide(b.root, product, start) },
+		Paused: func() (bool, error) { return b.paused, b.unread },
+		Items:  func(context.Context) ([]beads.WorkItem, error) { return b.items, nil },
 		Judge: func(_ context.Context, request Request) (backend.RunResult, error) {
 			b.requests = append(b.requests, request)
 			// What a provider's own session writes to the same log changes nothing.
@@ -492,5 +493,39 @@ func TestAPausePlacedDuringARoundStopsTheRestOfIt(t *testing.T) {
 	b.wants("yoyodyne-ep.1.2", epicprogress.AnswerInside, true)
 	if len(b.requests) != 2 {
 		t.Errorf("%d calls were made", len(b.requests))
+	}
+}
+
+// endsFirst has the operator end the epic once the call is reserved and before it
+// is sent.
+type endsFirst struct {
+	Progress
+	end func()
+}
+
+func (e endsFirst) Call(naming epicprogress.Naming, id, purpose string, lookUp func() (string, epicprogress.Looked, error), send func() (string, error)) (string, error) {
+	return e.Progress.Call(naming, id, purpose, lookUp, func() (string, error) {
+		e.end()
+		return send()
+	})
+}
+
+func TestTheOneDecisionIsAskedBeforeACallIsSent(t *testing.T) {
+	t.Parallel()
+	b := newBench(t)
+	b.split(piece, member)
+	joiner := b.joiner()
+	joiner.Progress = endsFirst{joiner.Progress, func() {
+		_, err := b.operator().End(epic, "", b.now)
+		b.must(err)
+	}}
+	err := joiner.Round(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "has ended") || len(b.requests) != 0 {
+		t.Fatalf("%d calls were made: %v", len(b.requests), err)
+	}
+	// Nothing was written as sent.
+	asked, _ := b.entry().Asked(piece)
+	if events, err := joiner.Log.LoadEvents(asked.Judgment); err != nil || len(events) != 0 {
+		t.Errorf("its log holds %+v, %v", events, err)
 	}
 }

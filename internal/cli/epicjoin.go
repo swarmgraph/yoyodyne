@@ -81,8 +81,9 @@ func (e epicJoins) joiner(spent func(runstate.Spend)) (epicjoin.Joiner, error) {
 		Judge: func(ctx context.Context, request epicjoin.Request) (backend.RunResult, error) {
 			return e.judge(ctx, request, spent)
 		},
-		Paused: e.paused,
-		Now:    time.Now,
+		MayStart: e.parts.wouldStart(),
+		Paused:   e.paused,
+		Now:      time.Now,
 	}, nil
 }
 

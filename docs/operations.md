@@ -2006,6 +2006,11 @@ refused merge waits go on without asking. A review a restart ended asks before i
 begins again, and so do the checks of a merge a conflict run made and the rebuilding
 of an approved merge whose commit is gone.
 
+The [judgment of whether a piece joins](#what-joins-a-named-epic) asks before it is
+sent, and starts only for a naming of an epic that has not ended and whose progress
+can be read. Nothing is kept of a refusal, because the piece itself is listed as not
+judged.
+
 A review you ask for with `yoyo review` is your own command. It always starts,
 does not ask, and nothing is kept as refused for it.
 

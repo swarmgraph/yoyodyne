@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
@@ -76,6 +77,8 @@ type Joiner struct {
 	NewID     func() (string, error)
 	// Judge makes the call in a session of its own, which is never resumed.
 	Judge func(ctx context.Context, request Request) (backend.RunResult, error)
+	// MayStart asks the one decision on what may start (internal/maystart).
+	MayStart func(maystart.Start) maystart.Decision
 	// Paused is whether the operator has paused what the harness spends, read before
 	// each call. One that cannot be read is an error and makes no call.
 	Paused func() (bool, error)
@@ -126,6 +129,10 @@ func (j Joiner) Round(ctx context.Context) error {
 	return errors.Join(problems...)
 }
 
+func (j Joiner) decide(naming epicprogress.Naming) maystart.Decision {
+	return j.MayStart(maystart.JudgmentOfAPiece(naming))
+}
+
 func (j Joiner) read() (epicprogress.View, error) {
 	record, err := epicscope.Read(j.StateRoot, j.Product)
 	if err != nil || !record.On() {
@@ -150,7 +157,7 @@ func (j Joiner) owed(ctx context.Context) ([]owed, map[string]beads.WorkItem, er
 	var found []owed
 	for _, epic := range view.Record.OpenEpics() {
 		naming := epicprogress.Of(epic)
-		if view.Unreadable(naming) != "" {
+		if !j.decide(naming).MayStart() {
 			continue
 		}
 		entry, _ := view.Entry(naming)
@@ -230,9 +237,10 @@ func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.Work
 	if err != nil {
 		return err
 	}
-	// An epic ended, or epic mode turned off, since it was found to be owed.
+	// The epic may have ended or been named again since. While epic mode is off
+	// nothing is owed, whatever may start.
 	epic, named := view.Record.Named(naming.WorkItemID)
-	if !view.Record.On() || !named || !epic.Open() || epicprogress.Of(epic) != naming || view.Unreadable(naming) != "" {
+	if !view.Record.On() || !named || !epic.Open() || epicprogress.Of(epic) != naming {
 		return nil
 	}
 	one.epic = epic
@@ -245,7 +253,7 @@ func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.Work
 	}
 	says, err := j.Progress.Call(naming, piece.Judgment, "the judgment of whether "+piece.WorkItemID+" joins",
 		func() (string, epicprogress.Looked, error) { return j.lookUp(piece.Judgment) },
-		func() (string, error) { return j.send(ctx, piece.Judgment, prompt(one, items)) })
+		func() (string, error) { return j.send(ctx, naming, piece.Judgment, prompt(one, items)) })
 	if errors.Is(err, epicprogress.ErrResultUnknown) {
 		return nil // kept as unknown, which status shows
 	}
@@ -339,7 +347,7 @@ func (s sending) permission() budget.Permission {
 
 // send makes the call. What it is and what came of it are written to its log
 // before and after.
-func (j Joiner) send(ctx context.Context, id, asked string) (string, error) {
+func (j Joiner) send(ctx context.Context, naming epicprogress.Naming, id, asked string) (string, error) {
 	events, err := j.Log.LoadEvents(id)
 	if err != nil {
 		return "", err
@@ -348,6 +356,9 @@ func (j Joiner) send(ctx context.Context, id, asked string) (string, error) {
 	permission := before.permission()
 	if !permission.Granted() {
 		return "", errors.New("no further session may be started for it")
+	}
+	if decision := j.decide(naming); !decision.MayStart() {
+		return "", fmt.Errorf("the judgment may not start: %s", decision.Why)
 	}
 	if paused, err := j.Paused(); err != nil {
 		return "", fmt.Errorf("read whether the operator has paused what the harness spends: %w", err)
