@@ -40,8 +40,8 @@ type StepWorld struct {
 	// Home is the person's home directory, for a path written from "~/".
 	Home string
 	// OwnHold says whether a hold or pause the operator placed himself stands
-	// now. An error is read as standing, because a hold nobody can read must
-	// never be treated as lifted.
+	// now, his epic mode among them. An error is read as standing, because a hold
+	// nobody can read must never be treated as lifted, and OwnHoldUnread says it.
 	OwnHold func() (bool, error)
 }
 
@@ -62,10 +62,26 @@ func CheckOperatorStep(reason OperatorReason, step string, remedy *PersonOnlyRem
 			return nil
 		}
 		if stands, err := world.OwnHold(); err == nil && !stands {
-			return errors.New(`it names a hold or pause the operator placed himself, and none stands now, so nothing waits on him; a request for a hold that is gone is recorded as done rather than put to him`)
+			return errors.New(`it names a hold or pause the operator placed himself, and none stands now, his epic mode included, so nothing waits on him; a request for a hold that is gone is recorded as done rather than put to him`)
 		}
 	}
 	return nil
+}
+
+// OwnHoldUnread is why a request naming a hold of the operator's could not be
+// checked, as the clause a line about it ends on; empty where it could be, and
+// on a request under any other reason. Such a request is let stand, so whoever
+// lets it stand says this.
+func OwnHoldUnread(reason OperatorReason, world StepWorld) string {
+	if reason != OperatorOwnHold || world.OwnHold == nil {
+		return ""
+	}
+	stands, err := world.OwnHold()
+	if err == nil || stands {
+		return ""
+	}
+	return fmt.Sprintf("whether a hold of the operator's stands could not be read, so it is taken as standing: %s",
+		strings.Join(strings.Fields(err.Error()), " "))
 }
 
 // RecheckOperatorStep is CheckOperatorStep for a request already waiting on

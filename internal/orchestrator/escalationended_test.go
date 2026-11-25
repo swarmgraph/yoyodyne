@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -294,9 +295,21 @@ func TestTheSweepMovesAnEscalationWhoseStepFailsToTheDevelopmentManager(t *testi
 		Tracker: tracker,
 		Store:   store,
 		Docket:  &Docketer{Docket: docket, Decisions: decisions},
-		OwnHold: func() (bool, error) { return false, nil },
 		Clock:   fixedClock{at: now},
 	}
+	// While epic mode is on the escalation stays his, and where it cannot be read
+	// it stays his and the sweep says so; once it is off it goes back.
+	epics := newListingEpics(t)
+	reconciler.OwnHold = readmodel.OwnHoldStands(nil, nil, readmodel.NewEpicRecords(epics.root, "yoyodyne"))
+	if ended, err := reconciler.EndEscalations(context.Background()); err != nil || len(ended) != 0 || len(tracker.NoteRecords) != 0 {
+		t.Fatalf("EndEscalations(epic mode on) = %#v, %v, want it still his", ended, err)
+	}
+	unread := reconciler
+	unread.OwnHold = func() (bool, error) { return false, errors.New("epic-scope.json is cut short") }
+	if ended, err := unread.EndEscalations(context.Background()); err == nil || !strings.Contains(err.Error(), "epic-scope.json is cut short") || len(ended) != 0 || len(tracker.NoteRecords) != 0 {
+		t.Fatalf("EndEscalations(unreadable) = %#v, %v, want it still his and the reading that failed said", ended, err)
+	}
+	epics.turnOff(t)
 
 	ended, err := reconciler.EndEscalations(context.Background())
 	if err != nil || len(ended) != 1 || ended[0].RunID != run.RunID || ended[0].Failure != "" {

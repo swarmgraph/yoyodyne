@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
@@ -322,6 +324,74 @@ func TestAHandlingNamingTheOperatorWithNoReasonIsNotSaidToHim(t *testing.T) {
 		t.Fatalf("cursor = %#v, want only the handling with a closed-list reason said", marks)
 	}
 	harness.poll(t, cursors)
+}
+
+// fakeNamedEpics is the record of the epics the operator named.
+type fakeNamedEpics struct {
+	mode epicscope.Mode
+	fail error
+}
+
+func (f fakeNamedEpics) Named() (epicscope.Record, error) {
+	return epicscope.Record{Mode: f.mode}, f.fail
+}
+
+// A handling and an escalation naming his epic mode are said to the operator
+// while it is on, and while it cannot be read, saying that; and neither is while
+// it is off.
+func TestRequestsNamingEpicModeAreSaidToTheOperatorWhileItStands(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		epics fakeNamedEpics
+		said  int
+		says  string
+	}{
+		{"on", fakeNamedEpics{mode: epicscope.ModeEpic}, 2, ""},
+		{"off", fakeNamedEpics{mode: epicscope.ModeGoal}, 0, ""},
+		{"unreadable", fakeNamedEpics{fail: errors.New("epic-scope.json is cut short")}, 2, "whether epic mode is on could not be read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			harness := newTestHarness(t, time.Time{})
+			harness.feed.Epics = tc.epics
+			harness.file(t, "report-0123456789abcdef0123456789abcde0", report.SeverityWarning, moment)
+			harness.handleFor(t, "report-0123456789abcdef0123456789abcde0", "add yoyodyne-9k1y.17 with yoyo epic add", true, ownership.OperatorOwnHold, moment.Add(time.Hour))
+			stopped := harness.run(t, runstate.StatusFailed)
+			stopped.Blocker = "Yoyodyne stopped this item: it is outside the named epics."
+			harness.record(t, stopped)
+			decision := runstate.TriageDecision{
+				Decision: runstate.TriageDecisionEscalate, RunID: stopped.RunID,
+				Reason:    "the run waits on the operator adding the item to his epic",
+				DecidedBy: "development-manager", Conversation: "chat-0123456789abcdef0123456789abcdef",
+				Turn: 7, DecidedAt: moment.Add(time.Hour), OperatorReason: ownership.OperatorOwnHold,
+			}
+			if _, err := harness.runs.Triage().RecordDecision(context.Background(), stopped.WorkItemID, decision, decision.DecidedAt); err != nil {
+				t.Fatalf("RecordDecision() error = %v", err)
+			}
+			batch, err := harness.feed.Poll(context.Background(), harness.start())
+			if err != nil {
+				t.Fatalf("Poll() error = %v", err)
+			}
+			said := 0
+			for _, delivery := range batch.Deliveries {
+				if delivery.Stream != operatorActionStream || !delivery.Posts() {
+					continue
+				}
+				said++
+				message, err := notify.Render(delivery.Notification.Topic, delivery.Notification.Speaker, delivery.Notification.Event)
+				if err != nil {
+					t.Fatalf("render the finding: %v", err)
+				}
+				if !strings.Contains(message.Body, tc.says) {
+					t.Errorf("finding reads as %q, which does not say %q", message.Body, tc.says)
+				}
+			}
+			if said != tc.said {
+				t.Fatalf("said %d findings, want %d", said, tc.said)
+			}
+		})
+	}
 }
 
 // A run stopping on a condition only a person can clear is recorded as the

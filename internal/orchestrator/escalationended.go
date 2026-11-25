@@ -80,6 +80,13 @@ func (r Reconciler) EndEscalations(ctx context.Context) ([]EscalationSettlement,
 	actions, ended, problem := readmodel.Escalations(recorded, r.Docket.Decisions, items, look, recheck)
 	var settled []EscalationSettlement
 	for _, action := range actions {
+		if action.HoldUnread != "" {
+			unread := fmt.Sprintf("the escalation of %s stays the operator's, because %s", action.WorkItemID, action.HoldUnread)
+			if problem != "" {
+				unread = problem + "; " + unread
+			}
+			problem = unread
+		}
 		if failure := itemProblems[action.WorkItemID]; failure != "" {
 			settled = append(settled, EscalationSettlement{RunID: action.RunID, WorkItemID: action.WorkItemID, Failure: failure})
 		}

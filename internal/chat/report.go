@@ -466,10 +466,17 @@ func (s *Session) renderOperatorFindings() string {
 	// no hand is not his, and is listed apart as this role's to finish.
 	returned := map[string]bool{}
 	var yours []readmodel.OperatorAction
-	for _, action := range readmodel.ReturnedHandlings(reports, handlings, readmodel.StepRecheck{Now: s.options.clock().Now(), World: s.stepWorld()}) {
+	recheck := readmodel.StepRecheck{Now: s.options.clock().Now(), World: s.stepWorld()}
+	for _, action := range readmodel.ReturnedHandlings(reports, handlings, recheck) {
 		returned[action.ReportID] = true
 		if action.DecidedBy == s.state.Role {
 			yours = append(yours, action)
+		}
+	}
+	unread := map[string]string{}
+	for _, action := range readmodel.OperatorActions(reports, handlings, recheck) {
+		if action.HoldUnread != "" {
+			unread[action.ReportID] = "; " + singleLine(action.HoldUnread, maxTrackerFailureBytes)
 		}
 	}
 	var standing []report.Report
@@ -495,7 +502,7 @@ func (s *Session) renderOperatorFindings() string {
 		listed = listed[:maxRenderedFindings]
 	}
 	for _, reported := range listed {
-		fmt.Fprintf(&rendered, "- %s%s: %s\n", reported.ID, reportedOn(reported), strings.Join(strings.Fields(handled[reported.ID].Reason), " "))
+		fmt.Fprintf(&rendered, "- %s%s: %s%s\n", reported.ID, reportedOn(reported), strings.Join(strings.Fields(handled[reported.ID].Reason), " "), unread[reported.ID])
 	}
 	if len(standing) > len(listed) {
 		fmt.Fprintf(&rendered, "\n%d further finding(s) stand and are not listed here; `yoyo status` names every one of them.\n", len(standing)-len(listed))
@@ -595,6 +602,7 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		outcome.refused(fmt.Errorf("the handling of %s names the operator and was not recorded, because the step it asks of him does not hold: %w", strings.TrimSpace(outcome.Action.Report), err))
 		return
 	}
+	defer outcome.noteUnreadHold(ownership.OwnHoldUnread(operatorReason, s.stepWorld()))
 	requests, err := s.resolveRequests(ctx, outcome)
 	if err != nil {
 		outcome.fail(fmt.Errorf("nothing was recorded: %w", err))
@@ -690,7 +698,8 @@ func (s *Session) handlingOperatorReason(action TrackerAction) (ownership.Operat
 
 // stepWorld is what the step a handling asks of the operator is checked
 // against (ownership.CheckOperatorStep): the repository this conversation
-// reads, the person's home, and the operator's own pause and intake hold.
+// reads, the person's home, and the operator's own pause, intake hold, and
+// epic mode.
 func (s *Session) stepWorld() ownership.StepWorld {
 	home, _ := os.UserHomeDir()
 	var pause readmodel.OperatorHolds
@@ -701,7 +710,7 @@ func (s *Session) stepWorld() ownership.StepWorld {
 	if s.options.Intake != nil {
 		intake = s.options.Intake
 	}
-	return ownership.StepWorld{Repository: s.options.Repository, Home: home, OwnHold: readmodel.OwnHoldStands(pause, intake)}
+	return ownership.StepWorld{Repository: s.options.Repository, Home: home, OwnHold: readmodel.OwnHoldStands(pause, intake, s.options.Epics)}
 }
 
 // reportedOn names the work the report was about, where it was about any. A

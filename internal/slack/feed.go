@@ -301,6 +301,10 @@ type HarnessFeed struct {
 	Proposals *runstate.AmendmentStore
 	Intake    *runstate.IntakeHoldStore
 	Holds     *runstate.OperatorHoldStore
+	// Epics is the record of the epics the operator named, read for whether his
+	// epic mode is on when a finding for him names his own hold. Optional: a feed
+	// without one counts no epic mode.
+	Epics readmodel.NamedEpics
 	// Watch is where a watch session says what it is doing. It is optional in the
 	// same sense the conversations are: a feed assembled without one reports
 	// everything else, and what is lost is the one thing nothing else in the
@@ -1465,7 +1469,7 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 	if f.Intake != nil {
 		intake = f.Intake
 	}
-	recheck := readmodel.StepRecheck{Now: f.now(), World: ownership.StepWorld{OwnHold: readmodel.OwnHoldStands(pause, intake)}}
+	recheck := readmodel.StepRecheck{Now: f.now(), World: ownership.StepWorld{OwnHold: readmodel.OwnHoldStands(pause, intake, f.Epics)}}
 	actions := readmodel.OperatorActions(filed, handlings, recheck)
 	passFailuresRead := true
 	if f.Runs != nil {
@@ -1505,7 +1509,7 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		notification, err := notify.FromOperatorAction(notify.OperatorAction{
 			WorkItemID: action.WorkItemID,
 			RunID:      action.RunID,
-			Needs:      action.Needs,
+			Needs:      action.Asks(),
 			RecordedIn: action.RecordedIn,
 			FoundBy:    action.FoundBy,
 			Ends:       action.Ends,
