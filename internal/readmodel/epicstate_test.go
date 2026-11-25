@@ -3,6 +3,7 @@ package readmodel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -56,6 +58,7 @@ func newStateBench(t *testing.T) *stateBench {
 	t.Helper()
 	b := &stateBench{t: t, root: t.TempDir(), items: map[string]beads.WorkItem{}, runs: map[string][]runstate.State{}, sources: quietSources()}
 	b.sources.Gates = fakeGates{}
+	b.sources.Conversations = loggedConversations{fakeConversations: fakeConversations{recorded: []runstate.Conversation{{ConversationID: "chat-1", Agent: "product-manager", Role: domain.RoleProductManager}}}}
 	started, err := operatorOf(t, b.root).Start(epicscope.Naming{Epic: stateEpic, From: "terminal", Members: []string{stateOne, stateTwo}}, afterKept)
 	b.must(err)
 	b.entry = epicprogress.Entry{Naming: epicprogress.Of(started.Epic), BegunAt: afterKept}
@@ -136,6 +139,36 @@ func (b *stateBench) ask(question string, opened time.Time) {
 	listed.exchanges = append(listed.exchanges, exchange.Exchange{ID: "exchange-" + question, Asker: exchange.Party{Role: domain.RoleDevelopmentManager},
 		Answerer: exchange.Party{Role: domain.RoleArchitect}, Question: question, OpenedAt: opened})
 	b.sources.Exchanges = listed
+}
+
+// loggedConversations is one conversation's saved record and its event log.
+type loggedConversations struct {
+	fakeConversations
+	events  []execution.Event
+	skipped []runstate.SkippedLine
+}
+
+func (l loggedConversations) LoggedConversations() ([]string, error) { return []string{"chat-1"}, nil }
+
+func (l loggedConversations) EventsOfType(string, ...execution.EventType) ([]execution.Event, []runstate.SkippedLine, error) {
+	return l.events, l.skipped, nil
+}
+
+// askOperator is a question to the operator, and when it was answered, if it was.
+func (b *stateBench) askOperator(about string, raised time.Time, answered ...time.Time) {
+	asked := b.sources.Conversations.(loggedConversations)
+	id := fmt.Sprintf("c%d.1", len(asked.events)+1)
+	payload, err := json.Marshal(map[string]any{"id": id, "concern": map[string]string{"subject": about, "detail": "seen", "question": "Is it right?"}})
+	b.must(err)
+	asked.events = append(asked.events, execution.Event{Type: execution.EventConcernRaised, Timestamp: raised, Payload: payload})
+	for _, at := range answered {
+		asked.events = append(asked.events, execution.Event{Type: execution.EventConcernAnswered, Timestamp: at, Payload: payload})
+	}
+	saved := &asked.recorded[0]
+	if len(answered) == 0 {
+		saved.PendingConcerns = append(saved.PendingConcerns, runstate.PendingConcern{ID: id, Kind: "judgement", Subject: about, Detail: "seen", Question: "Is it right?"})
+	}
+	b.sources.Conversations = asked
 }
 
 func (b *stateBench) join(id, from string, at time.Time) {
@@ -319,6 +352,20 @@ func TestAnEpicWithACancelledMemberOrAnOpenQuestionIsNeverDelivered(t *testing.T
 	b.wants(EpicWorking, "Waiting on the architect: Title "+stateOne+" ("+stateOne+") has a question between roles that is not settled")
 }
 
+func TestAQuestionToTheOperatorKeepsAnOpenEpicFromDelivered(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.landed(stateOne, stateTwo)
+	b.check(epicprogress.FoundAllMet, hours(2))
+	b.askOperator(stateOne+"0", hours(1))
+	b.wants(EpicIntegrated)
+	b.askOperator("the scope of "+stateOne, hours(1))
+	standing := b.wants(EpicWaitsOnOperator, "Waiting on the operator: Title "+stateOne+" ("+stateOne+") has a question with no answer: Is it right?")
+	if len(standing.Waits) != 1 || standing.Waits[0].WorkItemID != stateOne || !standing.Waits[0].Owner.IsOperator() {
+		t.Errorf("waits = %+v, want the one question to the operator", standing.Waits)
+	}
+}
+
 func TestAPersonsMergeAloneMovesAnEpicFromHandedOverToIntegrated(t *testing.T) {
 	t.Parallel()
 	b := newStateBench(t)
@@ -498,6 +545,7 @@ func TestAnEndedEpicMovesOnlyByMerges(t *testing.T) {
 	b.end(hours(3))
 	b.wants(EpicHandedOver)
 	later := func() {
+		b.askOperator(stateOne, hours(4))
 		b.ask("Was "+stateOne+" right?", hours(4))
 		b.inFlight = []runstate.State{{RunID: "run-later", WorkItemID: stateOne, Status: runstate.StatusRunning, StartedAt: hours(4)}}
 		b.run(stateOne, 4, func(run *runstate.State) { run.RunID, run.Status = "run-later", runstate.StatusFailed })
@@ -519,7 +567,38 @@ func TestAnEndedEpicMovesOnlyByMerges(t *testing.T) {
 	closed.closedUnmerged(stateTwo, hours(4))
 	closed.wants(EpicHandedOver)
 
+	for name, unmoved := range map[string]func(*stateBench){
+		"a question to the operator raised only afterwards": func(b *stateBench) { b.askOperator(stateOne, hours(4)) },
+		"one its conversation dropped before the delivery": func(b *stateBench) {
+			b.askOperator(stateOne, hours(1))
+			b.sources.Conversations.(loggedConversations).recorded[0].PendingConcerns = nil
+		},
+		"one answered before it was ended": func(b *stateBench) { b.askOperator(stateOne, hours(1), hours(2)) },
+		"one about another item":           func(b *stateBench) { b.askOperator(stateOther, hours(1)) },
+	} {
+		b := newStateBench(t)
+		b.landed(stateOne, stateTwo)
+		b.deliver(hours(2))
+		b.end(hours(3))
+		unmoved(b)
+		t.Log(name)
+		b.wants(EpicIntegrated)
+		// With a line of a log unread, what was open cannot be told.
+		unread := b.sources.Conversations.(loggedConversations)
+		unread.skipped = []runstate.SkippedLine{{}}
+		b.sources.Conversations = unread
+		b.wants("", "could not be worked out", "1 line of the event log of chat-1")
+		b.sources.Conversations = unread.fakeConversations
+		b.wants("", "nothing was wired to read the conversations' event logs")
+	}
+
 	for name, undelivered := range map[string]func(*stateBench){
+		"a question to the operator open when it was ended": func(b *stateBench) { b.askOperator(stateOne, hours(1)) },
+		"one whose conversation was replaced since": func(b *stateBench) {
+			b.askOperator(stateOne, hours(2).Add(time.Minute))
+			b.sources.Conversations.(loggedConversations).recorded[0].PendingConcerns = nil
+		},
+		"one answered only since":           func(b *stateBench) { b.askOperator(stateOne, hours(1), hours(4)) },
 		"a question open when it was ended": func(b *stateBench) { b.ask("Is "+stateOne+" enough?", hours(1)) },
 		"a directive open when it was ended, settled since": func(b *stateBench) {
 			settled := hours(4)

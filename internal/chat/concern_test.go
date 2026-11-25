@@ -631,3 +631,22 @@ func TestTheDecisionListNamesEachConcernKindInTheConversationsWords(t *testing.T
 		}
 	}
 }
+
+// The read model decodes these fields of a question's event for itself, because
+// it cannot import this package (readmodel's epicstate.go).
+func TestAConcernEventHasTheFieldsTheReadModelReads(t *testing.T) {
+	t.Parallel()
+
+	concern := PendingConcern{ID: "c1.1", Concern: Concern{Subject: "about", Detail: "seen", Question: "right?"}}
+	for _, payload := range []any{concern, answeredConcern{PendingConcern: concern, Answer: "yes"}} {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{`"id":"c1.1"`, `"concern":{`, `"subject":"about"`, `"detail":"seen"`, `"question":"right?"`} {
+			if !strings.Contains(string(encoded), want) {
+				t.Errorf("%s has no %s", encoded, want)
+			}
+		}
+	}
+}

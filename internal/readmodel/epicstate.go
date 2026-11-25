@@ -4,6 +4,7 @@ package readmodel
 // reading: docs/designs/epic-mode-second-part.md, piece 8.
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -125,13 +127,19 @@ type epicStandings struct {
 	budgets    EpicBudgets
 	unfinished map[string]struct{}
 	problem    string
+	// conversations is read for the questions put to the operator, and asked is
+	// what was read.
+	conversations Conversations
+	asked         []operatorQuestion
+	askedErr      error
+	askedRead     bool
 	// needsProblem is why a question may be missing from needs, so that an epic is
 	// not shown as delivered.
 	needsProblem string
 }
 
 func newEpicStandings(facts epicFacts, sources Sources, standing Standing, needs []Attention, needsProblem, problem string, progressErr error) *epicStandings {
-	s := &epicStandings{epicFacts: facts, needs: needs, needsProblem: needsProblem, problem: problem, recorded: map[string][]runstate.State{}, groups: map[string]WaitGroup{},
+	s := &epicStandings{epicFacts: facts, needs: needs, needsProblem: needsProblem, conversations: sources.Conversations, problem: problem, recorded: map[string][]runstate.State{}, groups: map[string]WaitGroup{},
 		held: map[string]Refused{}, capacity: map[string]bool{}, paused: map[string]bool{}, unfinished: map[string]struct{}{}}
 	s.runs, _ = sources.Runs.(itemRuns)
 	s.budgets, _ = sources.Epics.(EpicBudgets)
@@ -314,8 +322,7 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 
 // ended is where an epic the operator ended stands. It had been delivered where
 // its delivery still counted then, every member's change was landed or handed
-// over, and no question that can be dated was open. Afterwards only merges move
-// it. A question put to the operator carries no time, so one is not asked about.
+// over, and no question was open. Afterwards only merges move it.
 func (s *epicStandings) ended(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) (EpicState, error) {
 	at := epic.Ended.At
 	counts := func(recorded time.Time) bool { return recorded.After(opened) && !recorded.After(at) }
@@ -336,7 +343,130 @@ func (s *epicStandings) ended(epic epicscope.Epic, entry epicprogress.Entry, ope
 			state = EpicHandedOver
 		}
 	}
+	var delivered time.Time
+	for _, delivery := range entry.Deliveries {
+		if counts(delivery.At) && delivery.At.After(delivered) {
+			delivered = delivery.At
+		}
+	}
+	// The logs are long, so they are read only for what is otherwise delivered.
+	asked, err := s.operatorQuestions()
+	if err != nil {
+		return "", err
+	}
+	for _, id := range s.view.Items(epic) {
+		if slices.ContainsFunc(asked, func(question operatorQuestion) bool {
+			return namesItem(id, question.texts...) && question.openAt(at, delivered)
+		}) {
+			return EpicCancelled, nil
+		}
+	}
 	return state, nil
+}
+
+// ConcernEvents is when each question to the operator was raised and answered,
+// which the saved conversation does not hold. It is an optional capability of
+// Conversations, satisfied by *runstate.ConversationStore.
+type ConcernEvents interface {
+	// LoggedConversations is every conversation with a log, those replaced since
+	// included.
+	LoggedConversations() ([]string, error)
+	EventsOfType(conversationID string, types ...execution.EventType) ([]execution.Event, []runstate.SkippedLine, error)
+}
+
+// operatorQuestion is one question a role put to the operator.
+type operatorQuestion struct {
+	texts    []string
+	raised   time.Time
+	answered *time.Time
+	// pending is that the saved conversation still holds it.
+	pending bool
+}
+
+// openAt reports a question open at a moment. One that was never answered and
+// that no saved conversation holds was dropped at a time nothing records. An epic
+// is delivered only with none open, so one raised before the delivery was dropped
+// by then.
+func (q operatorQuestion) openAt(at, delivered time.Time) bool {
+	if q.raised.After(at) {
+		return false
+	}
+	if q.answered != nil {
+		return q.answered.After(at)
+	}
+	return q.pending || q.raised.After(delivered)
+}
+
+// operatorQuestions is every question put to the operator, read once for a
+// reading. A log or a line of one that cannot be read is an error, because what
+// it held could have been open.
+func (s *epicStandings) operatorQuestions() ([]operatorQuestion, error) {
+	if s.askedRead {
+		return s.asked, s.askedErr
+	}
+	s.askedRead = true
+	s.asked, s.askedErr = readOperatorQuestions(s.conversations)
+	if s.askedErr != nil {
+		s.askedErr = fmt.Errorf("when the operator was asked could not be read: %w", s.askedErr)
+	}
+	return s.asked, s.askedErr
+}
+
+func readOperatorQuestions(conversations Conversations) ([]operatorQuestion, error) {
+	events, can := conversations.(ConcernEvents)
+	if !can {
+		return nil, errors.New("nothing was wired to read the conversations' event logs")
+	}
+	recorded, err := conversations.Recorded()
+	if err != nil {
+		return nil, err
+	}
+	pending := map[string]bool{}
+	for _, conversation := range recorded {
+		for _, concern := range conversation.PendingConcerns {
+			pending[concernWaitID(conversation.ConversationID, concern.ID)] = true
+		}
+	}
+	logged, err := events.LoggedConversations()
+	if err != nil {
+		return nil, err
+	}
+	var asked []operatorQuestion
+	for _, conversation := range logged {
+		found, skipped, err := events.EventsOfType(conversation, execution.EventConcernRaised, execution.EventConcernAnswered)
+		if err != nil {
+			return nil, err
+		}
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("%s of the event log of %s could not be read", count(len(skipped), "line"), conversation)
+		}
+		at := map[string]int{}
+		for _, event := range found {
+			// chat.PendingConcern, which this package cannot import.
+			var concern struct {
+				ID      string `json:"id"`
+				Concern struct {
+					Subject  string `json:"subject"`
+					Detail   string `json:"detail"`
+					Question string `json:"question"`
+				} `json:"concern"`
+			}
+			if err := json.Unmarshal(event.Payload, &concern); err != nil || concern.ID == "" {
+				return nil, fmt.Errorf("an event about a question in %s could not be read", conversation)
+			}
+			index, known := at[concern.ID]
+			switch {
+			case event.Type == execution.EventConcernRaised:
+				at[concern.ID] = len(asked)
+				asked = append(asked, operatorQuestion{texts: []string{concern.Concern.Subject, concern.Concern.Detail, concern.Concern.Question}, raised: event.Timestamp,
+					pending: pending[concernWaitID(conversation, concern.ID)]})
+			case known && asked[index].answered == nil:
+				answered := event.Timestamp
+				asked[index].answered = &answered
+			}
+		}
+	}
+	return asked, nil
 }
 
 // doneAt is whether a member of an epic ended at a moment was done then, and

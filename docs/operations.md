@@ -2053,9 +2053,10 @@ been delivered. A state that cannot be worked out is said with why.
 
 A piece that joined before a pull request was closed does not stand for that request's
 member. An epic you ended counts as delivered where its recorded delivery and passed
-check still counted then, every member was done, and no directive or question between
-roles that names one was open. A question put to you carries no time, so it is not
-asked about there. Afterwards only a merge moves such an epic.
+check still counted then, every member was done, and no directive, question between
+roles or question to you that names one was open. When you were asked and answered is
+read from the conversations' event logs. Where one cannot be read, status says the state
+could not be worked out. Afterwards only a merge moves such an epic.
 
 A record of the named epics that cannot be read is said there with the reason and
 the starts refused. It is never taken for no record.
