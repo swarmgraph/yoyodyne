@@ -15,7 +15,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
-	"github.com/mason-bryant/yoyodyne/internal/epicscope"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -172,9 +172,9 @@ func Note(stateRoot string, product domain.ProductID, start Start, decision Deci
 	if start.what == documentRun && !decision.MayStart() && (start.document.ID == "" || start.document.WriteID == "" || start.path == "") {
 		return errors.New("what asked did not say which document, write and path it is")
 	}
-	return change(stateRoot, product, func(current *Refusals, record epicscope.Record, readable bool) bool {
+	return change(stateRoot, product, func(current *Refusals, view epicprogress.View, readable bool) bool {
 		noted := current.note(start, decision, at)
-		return readable && current.settle(record) || noted
+		return readable && current.settle(view) || noted
 	})
 }
 
@@ -182,14 +182,14 @@ func Note(stateRoot string, product domain.ProductID, start Start, decision Deci
 // the record of named epics calls it, so what it lets start is not left as
 // refused until a path happens to ask again.
 func Settle(stateRoot string, product domain.ProductID) error {
-	return change(stateRoot, product, func(current *Refusals, record epicscope.Record, readable bool) bool {
-		return readable && current.settle(record)
+	return change(stateRoot, product, func(current *Refusals, view epicprogress.View, readable bool) bool {
+		return readable && current.settle(view)
 	})
 }
 
 // ItemsClosed takes away every refusal of a work item that has closed.
 func ItemsClosed(stateRoot string, product domain.ProductID, closed func(item string) bool) error {
-	return change(stateRoot, product, func(current *Refusals, _ epicscope.Record, _ bool) bool {
+	return change(stateRoot, product, func(current *Refusals, _ epicprogress.View, _ bool) bool {
 		before := len(current.Items)
 		current.Items = slices.DeleteFunc(current.Items, func(item RefusedItem) bool { return closed(item.WorkItemID) })
 		return len(current.Items) != before
@@ -200,7 +200,7 @@ func ItemsClosed(stateRoot string, product domain.ProductID, closed func(item st
 // published: it was withdrawn, handed back or settled some other way, or a run
 // of it is recorded.
 func DocumentEnded(stateRoot string, product domain.ProductID, id string) error {
-	return change(stateRoot, product, func(current *Refusals, _ epicscope.Record, _ bool) bool {
+	return change(stateRoot, product, func(current *Refusals, _ epicprogress.View, _ bool) bool {
 		return current.endDocument(id)
 	})
 }
@@ -209,7 +209,7 @@ func DocumentEnded(stateRoot string, product domain.ProductID, id string) error 
 // work lands on that branch and an update of it is due, so no other is. With no
 // branch named, none is due.
 func KeepUpdateOf(stateRoot string, product domain.ProductID, target string) error {
-	return change(stateRoot, product, func(current *Refusals, _ epicscope.Record, _ bool) bool {
+	return change(stateRoot, product, func(current *Refusals, _ epicprogress.View, _ bool) bool {
 		before := len(current.Updates)
 		current.Updates = slices.DeleteFunc(current.Updates, func(update RefusedUpdate) bool { return update.TargetBranch != target })
 		return len(current.Updates) != before
@@ -220,14 +220,14 @@ func KeepUpdateOf(stateRoot string, product domain.ProductID, target string) err
 // changed anything. Almost every call changes nothing, so that is found out
 // first, without the lock. The record of named epics is read again under it, so
 // a refusal decided before the operator's act is not kept after it.
-func change(stateRoot string, product domain.ProductID, apply func(current *Refusals, record epicscope.Record, readable bool) bool) error {
+func change(stateRoot string, product domain.ProductID, apply func(current *Refusals, view epicprogress.View, readable bool) bool) error {
 	changes := func(strict bool) (Refusals, bool, error) {
 		current, err := readRefusals(stateRoot, product, strict)
 		if err != nil {
 			return Refusals{}, false, err
 		}
-		record, err := epicscope.Read(stateRoot, product)
-		return current, apply(&current, record, err == nil), nil
+		view, err := read(stateRoot, product)
+		return current, apply(&current, view, err == nil), nil
 	}
 	if _, changed, err := changes(false); err != nil || !changed {
 		return err
@@ -387,7 +387,7 @@ func (r *Refusals) endDocument(id string) bool {
 // settle takes away each refusal of what the record now lets start, an update's
 // aside, which ends when it begins, and reports whether it changed anything. One made while the record could not be read is given
 // the reason the record now gives.
-func (r *Refusals) settle(record epicscope.Record) bool {
+func (r *Refusals) settle(view epicprogress.View) bool {
 	changed := false
 	kept := make([]RefusedItem, 0, len(r.Items))
 	for _, item := range r.Items {
@@ -395,7 +395,7 @@ func (r *Refusals) settle(record epicscope.Record) bool {
 		if item.Path.starts() == startsDocument {
 			start = DocumentRun(item.Path, item.WorkItemID)
 		}
-		now := decide(record, start)
+		now := decide(view, start)
 		if now.MayStart() {
 			changed = true
 			continue
@@ -408,7 +408,7 @@ func (r *Refusals) settle(record epicscope.Record) bool {
 	r.Items = kept
 	documents := make([]RefusedDocument, 0, len(r.Documents))
 	for _, entry := range r.Documents {
-		now := decide(record, DocumentRun(entry.Path, entry.Answers...))
+		now := decide(view, DocumentRun(entry.Path, entry.Answers...))
 		if now.MayStart() {
 			changed = true
 			continue
@@ -421,12 +421,12 @@ func (r *Refusals) settle(record epicscope.Record) bool {
 	r.Documents = documents
 	for index := range r.Updates {
 		entry := &r.Updates[index]
-		if now := decide(record, UpdateFromTeam(entry.TargetBranch)); now.Answer == MayNot && now.Why != entry.Why {
+		if now := decide(view, UpdateFromTeam(entry.TargetBranch)); now.Answer == MayNot && now.Why != entry.Why {
 			entry.Why, changed = now.Why, true
 		}
 	}
 	r.Passes = slices.DeleteFunc(r.Passes, func(passes RefusedPasses) bool {
-		allowed := decide(record, Pass(RecurringPass, passes.Role)).MayStart()
+		allowed := decide(view, Pass(RecurringPass, passes.Role)).MayStart()
 		changed = changed || allowed
 		return allowed
 	})

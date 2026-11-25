@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
 	"sort"
 	"strconv"
@@ -617,6 +618,8 @@ type Pipeline struct {
 	// MayStart is the decision on what may start under the named epics, asked of
 	// a fresh run. See StartDecision.
 	MayStart StartDecision
+	// EpicStarts reserves a fresh run's start in the progress of its epic.
+	EpicStarts EpicStarts
 	// EndRefusedDocument takes a document off the record of refused starts. Nil
 	// is a caller that keeps no such record.
 	EndRefusedDocument func(id string)
@@ -748,6 +751,10 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	state.ProviderEffort = p.Config.InvocationEffort(p.developer(), effortModel)
 	state.ProviderEffortDescription = p.Config.DescribeInvocationEffort(p.developer(), state.ProviderEffort, "", false)
 	state.EffortSettled = true
+	withdraw, err := p.EpicStarts.reserve(state)
+	if err != nil {
+		return state, nil, err
+	}
 	var lease *runstate.Lease
 	reserving := "reserve developer run"
 	if state.Document != nil {
@@ -760,13 +767,18 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 		reserving = "reserve the run that brings a file in"
 		store, ok := p.Store.(OutsideFileStore)
 		if !ok {
-			return runstate.State{}, nil, errors.New("this run store cannot reserve a run that brings a file in")
+			return runstate.State{}, nil, errors.Join(errors.New("this run store cannot reserve a run that brings a file in"), withdraw())
 		}
 		lease, err = store.ReserveOutsideFileLanding(ctx, state)
 	} else {
 		lease, err = p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
 	}
 	if err != nil {
+		// Where the failure left a record, or another process made it, the epic's
+		// progress goes on pointing to it.
+		if _, unmade := p.Store.Load(state.RunID); errors.Is(unmade, fs.ErrNotExist) {
+			err = errors.Join(err, withdraw())
+		}
 		// The wrapping is the reservation's own, so that what a caller reports about
 		// a run it could not start still says which of the two steps refused it.
 		return state, nil, fmt.Errorf("%s: %w", reserving,
