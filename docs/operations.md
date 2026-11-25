@@ -2369,13 +2369,12 @@ discipline, whether or not a deadline was quoted. A reset that is not in the
 future is one the harness genuinely cannot wait for, so it stops the run and
 records a blocker rather than guessing a wait. A reset that no longer fits the
 run's remaining budget is different: the wait is well defined, only longer than
-the harness will take, so nobody has anything to decide. The run ends cancelled,
+the harness will take, so no blocker is recorded. The run ends cancelled,
 recorded as ended by something outside the work (cause `usage-window`) and
 naming the reset; it gives its
-claim back, and keeps its branch and worktree. It spends nothing — no brake
-count, no review round, repair grant, or re-run — and a watching session holds
-the item under "waiting on the provider's usage limit" until the reset passes,
-then pulls it again by itself. An exhausted limit is not the only thing a run waits out:
+claim back, keeps its branch and worktree, and goes on the development manager's
+list of stopped runs, which holds the item until she decides. It spends nothing — no brake
+count, no review round, repair grant, or re-run. An exhausted limit is not the only thing a run waits out:
 [an overloaded provider](#waiting-out-an-overloaded-provider) below takes the
 same machinery on a much shorter clock.
 
@@ -7247,8 +7246,8 @@ is each thing the provider has stopped on its own. `runs` lists each work item's
 latest run that is either `waiting` — in flight and asleep on a recorded
 deadline, still counted on the running line — or `capacity-blocked`, which is a
 run the provider refused and the harness would not wait for. One stopped by a
-usage window resetting past the maximum pause gave its item back to the queue
-and names the reset it is pulled again after. A usage-limit stop is listed too:
+usage window resetting past the maximum pause is on the development manager's
+list of stopped runs and names the reset it refused to wait for. A usage-limit stop is listed too:
 a run the provider refused on a usage limit naming a reset that is not in the
 future, or on an overload that outlasted the pause budget, stopped with a
 blocker on its item and its stop cause `usage-pause`, and its record keeps
@@ -7501,8 +7500,13 @@ only test of liveness that is not a guess, because a lease belongs to a live
 process and the operating system drops it when that process dies, so a lease the
 audit can take is a process that is gone. The ending is recorded as **cancelled**:
 nothing here judged the change, and the branch and worktree the killed run left
-are untouched, exactly where they were. The item is then pulled again on the same
-pass, with nobody having typed anything.
+are untouched, exactly where they were. Where neither is there, the item is pulled
+again on the same pass, with nobody having typed anything. Where either is, the
+run is on the development manager's list of stopped runs, and the item is held
+until she decides what happens to what it left. Every run that ends cancelled
+while it holds its item is on that list, with how it ended and who or what
+cancelled it, unless she stopped it herself, until she decides or a later run of
+the item starts; the health check names the same runs.
 
 This settles a much narrower set than [`yoyo reconcile`](#recovering-interrupted-runs)
 does and never overlaps it: it moves no refs, removes nothing, closes nothing,
@@ -7562,8 +7566,8 @@ which is what the sweep does from the promotion the record holds.
 **And an item whose latest run ended holding its change is left alone, whatever
 the claim says.** A claim there is not a claim nothing is working on: it is the
 one thing saying an item whose change is sitting on a branch is spoken for, and
-giving it back buys a fresh run started over the top of that change. Four
-endings are in the class, and they are the same four the pull's own
+giving it back buys a fresh run started over the top of that change. Five
+endings are in the class, and they are the same five the pull's own
 [hold](work.md#letting-the-harness-choose-the-work) reads, so the two cannot
 disagree about one run:
 
@@ -7581,6 +7585,10 @@ disagree about one run:
   its finished change on the branch. The harness
   [continues it at its checks](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs)
   once the load allows, and the audit leaves it for that.
+- **A run that ended cancelled while it held its item**, with its branch or
+  worktree still there, which is on the development manager's list of stopped
+  runs. One that kept nothing is on her list and held too, but its claim is given
+  back, so the item is free to be pulled as soon as she has decided.
 
 The death inside a run's own process is what this rule was written for. On 2026-09-22 run-b0b6d18d's
 change on yoyodyne-ifd.436.4 was approved and then stopped at the promotion by a
@@ -7591,11 +7599,11 @@ working on it and gave it back, the next pull started a run from scratch, and
 that run spent a developer and a reviewer re-deriving the change that was
 already on the branch and integrated it a second time.
 
-A run whose process was killed is none of these, and is a dead claim exactly as
-it was however much of its half-finished change is on disk: nothing ended it and
-nothing owes it a move, which is the whole failure the audit exists for. What
-tells them apart is the ending on the record rather than what is in the
-worktree.
+A run whose process was killed has no ending on its record, so the audit ends it
+and gives its claim back however much of its half-finished change is on disk.
+What is on disk decides what comes next: where the branch or worktree is there,
+the run is on the development manager's list and the item is held until she
+decides; where neither is, the item is pulled again.
 
 Whether the change is still there is asked of the repository as the audit reads
 the claim — the run's branch and its checkout, looked for — and never of the
@@ -7605,12 +7613,16 @@ look found, because "nothing was working on it" is a sentence about processes
 and was read as one about the change: on 2026-09-23 the development manager
 crossed yoyodyne-ifd.432.10's re-run cap reasoning that run-838ffc48 had left no
 preserved change, from a release that said nothing either way, while the run's
-branch held the approved change. A release now reads:
+branch held the approved change. A release whose item is held for the
+development manager reads:
 
 ```text
-The harness gave this item back to the queue at 2026-09-23T01:43:04Z: its run run-838ffc48… ended cancelled at 2026-09-23T01:01:32Z and the claim outlived it. Nothing was working on it, so it was released to be pulled again.
+The harness released the claim on this item at 2026-09-23T01:43:04Z: its run run-838ffc48… was recorded as still in flight and last wrote to its own record at 2026-09-23T01:01:32Z, so the process holding it is gone. Nothing was working on it. Its run ended cancelled while it held the item, so what happens to it is the development manager's to decide, and nothing pulls the item until she has.
 What the run left: branch yoyodyne/yoyodyne-ifd-432-10/838ffc48 (checked and there at 2026-09-23T01:43:04Z); worktree …/yoyodyne-ifd-432-10-838ffc48 (checked and NOT there at 2026-09-23T01:43:04Z). That change is still there; a run started for this item should pick it up rather than derive it again.
 ```
+
+Any other release says instead that nothing was working on the item, "so it was
+released to be pulled again".
 
 A release written before the audit looked says none of that, so
 [the convergence sweep](#recovering-interrupted-runs) corrects it: where a
@@ -7622,7 +7634,8 @@ told once. `yoyo reconcile` prints the branch as kept with its item corrected.
 Each release is
 [sent to the operators once](reporting.md#reporting-into-slack), in the item's
 own thread, as the degraded harness it is. It is said once and never repeated:
-what follows a release is the item being pulled again, which says so itself.
+what follows is the item being pulled again, or the development manager deciding
+about a run the release says is hers, and each says so itself.
 
 The two deaths are worded apart because they are two different histories and a
 reader acts on the difference: a run that ended left the claim behind by
@@ -8769,9 +8782,8 @@ slowly or not at all`.
    carries the same runs whole), each conversation the provider is still
    refusing, and a provider usage limit past
    `execution.usage_window_degraded_percent` are each a degraded entry. A run
-   asleep on a reset and a run the usage window gave back to the queue are
-   the harness's; a run the refusal stopped with its item handed back is the
-   development manager's to decide; a refused conversation and a limit past
+   asleep on a reset is the harness's; a run the usage window or the refusal
+   stopped is the development manager's to decide; a refused conversation and a limit past
    its threshold are nobody's, because they lift on the provider's clock.
    None of them is the operator's. A failing product pass is one broken entry
    with how many times in a row it has failed, since when, its latest error,

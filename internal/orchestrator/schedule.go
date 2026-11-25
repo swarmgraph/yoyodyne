@@ -2131,8 +2131,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			excluded.reason = excludedBecause(*started)
 			// A run the provider's usage window stopped holds its item until the
 			// window resets and no longer. That is a wait with an end rather than a
-			// memory of having tried: the item is pulled again the moment the reset
-			// passes, and a run started before then is refused the same way.
+			// memory of having tried: the session's own exclusion ends the moment
+			// the reset passes, and what holds the item after that is the stopped run
+			// the development manager decides about.
 			excluded.until = time.Time{}
 			if resetsAt, windowed := usageWindowReset(started.Outcome); windowed {
 				excluded.until = resetsAt
@@ -4771,7 +4772,7 @@ func unstartedAttempt(started Started) bool {
 // later: the outcome is in hand here and nowhere afterwards.
 func excludedBecause(started Started) string {
 	if stoppedByUsageWindow(started.Outcome.Environmental) {
-		return fmt.Sprintf("run %s was stopped by the provider's usage limit rather than by anything about the work, and the item was given back to the queue: %s",
+		return fmt.Sprintf("run %s was stopped by the provider's usage limit rather than by anything about the work, and its claim was released: %s; the development manager decides what happens to the run",
 			started.Outcome.RunID, started.Outcome.Environmental.ResetSays())
 	}
 	switch {

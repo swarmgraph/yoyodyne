@@ -251,7 +251,15 @@ func (a ClaimAuditor) Audit(ctx context.Context, claimed []beads.WorkItem) (Clai
 			// is left exactly where it is and nothing is said about it.
 			continue
 		}
-		if _, err := a.Tracker.Release(ctx, dead.WorkItemID, releaseNotes(released)); err != nil {
+		run := recorded[dead.RunID]
+		listed := run.CancelledHoldingItem(dead.Found.Holds()) || (ended && run.HoldsItemOnceDeadClaim(dead.Found.Holds()))
+		note := releaseNotes(released, listed)
+		if listed {
+			// The record is what the message about the release is written from, and
+			// that message otherwise reads as an item free to be pulled.
+			released.Because += "; what happens to the run is the development manager's to decide, and nothing pulls the item until she has"
+		}
+		if _, err := a.Tracker.Release(ctx, dead.WorkItemID, note); err != nil {
 			sweep.Problems = append(sweep.Problems, fmt.Sprintf(
 				"%s is claimed with nothing working on it and the claim could not be given back, so nothing will pull it: %v",
 				dead.WorkItemID, err))
@@ -300,9 +308,10 @@ func (a ClaimAuditor) Audit(ctx context.Context, claimed []beads.WorkItem) (Clai
 //
 // The ending recorded is cancelled rather than failed, in the read model's own
 // vocabulary: nothing here judged the change. The worktree and the branch are
-// untouched, so whatever the killed run produced is exactly where it left it, and
-// the fresh run this frees the item for is a fresh run rather than a repair —
-// which is what a process nobody can resume leaves either way.
+// untouched, so whatever the killed run produced is exactly where it left it.
+// Where either is still there the run joins the development manager's list of
+// stopped runs, which holds the item until she decides (runstate's
+// CancelledHoldingItem); where neither is, a fresh pull starts the item again.
 //
 // This settles a narrower set than `yoyo reconcile` does and never overlaps it:
 // it moves no refs, removes nothing, closes nothing, and touches only runs that
@@ -395,9 +404,16 @@ func saidAlready(released []runstate.ReleasedClaim, dead readmodel.DeadClaim) bo
 // crossed a cap on yoyodyne-ifd.432.10 reasoning that run-838ffc48 held no
 // preserved change, from a release that said nothing either way while the run's
 // branch held the approved change.
-func releaseNotes(released runstate.ReleasedClaim) string {
+//
+// listed is the run being one the development manager's list of stopped runs
+// takes in, which holds the item until she decides.
+func releaseNotes(released runstate.ReleasedClaim, listed bool) string {
 	note := fmt.Sprintf("The harness gave this item back to the queue at %s: %s. Nothing was working on it, so it was released to be pulled again.",
 		released.ReleasedAt.UTC().Format(time.RFC3339), released.Because)
+	if listed {
+		note = fmt.Sprintf("The harness released the claim on this item at %s: %s. Nothing was working on it. Its run ended cancelled while it held the item, so what happens to it is the development manager's to decide, and nothing pulls the item until she has.",
+			released.ReleasedAt.UTC().Format(time.RFC3339), released.Because)
+	}
 	if released.Found == nil {
 		return note
 	}

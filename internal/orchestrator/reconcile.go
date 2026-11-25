@@ -2353,9 +2353,11 @@ func (r Reconciler) settleStopRequest(ctx context.Context, state runstate.State,
 	result := reconciliationOf(state, ActionCancelled)
 	result.Detail = reason
 	// A stop the development manager decided is docketed as settled by her
-	// decision, as the run would have docketed it; an operator's stop hands
-	// nobody a decision and is docketed nowhere, as it always was.
-	if strings.TrimSpace(request.Decision) != "" && r.Docket != nil {
+	// decision, as the run would have docketed it; any other stop is docketed
+	// for her to decide what becomes of the run.
+	if strings.TrimSpace(request.Decision) == "" {
+		result.DocketProblem = r.docketStoppedRun(state)
+	} else if r.Docket != nil {
 		if err := r.Docket.RecordDecidedStop(state, request); err != nil {
 			result.DocketProblem = fmt.Errorf("docket the stop the development manager decided on run %s: %w", state.RunID, err).Error()
 		}

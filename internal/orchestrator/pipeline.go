@@ -60,8 +60,8 @@ type WorkTracker interface {
 	// something no further attempt of its own can resolve.
 	Block(ctx context.Context, id, reason string) (beads.WorkItem, error)
 	// Release gives the claimed item back to the queue. The harness uses it when
-	// a run ends on something that is nobody's decision and lifts by itself — the
-	// provider's usage window — so the item is pulled again once it has.
+	// a run ends on the provider's usage window, which judged nothing about the
+	// work; the development manager's list of stopped runs then holds the item.
 	Release(ctx context.Context, id, reason string) (beads.WorkItem, error)
 	Complete(ctx context.Context, id, reason string) (beads.WorkItem, error)
 	// Reopen returns a claimed item to the backlog under the parking it is given.
@@ -6427,10 +6427,10 @@ func (e usageWindowStop) Error() string { return e.reason }
 
 // endOnUsageWindow ends a run stopped by the provider's usage window. It is
 // recorded cancelled rather than failed, in the read model's own vocabulary for
-// an ending nothing judged, and it leaves nobody a decision: no blocker is
-// written, the branch and worktree are left exactly as a stopped run's are, and
-// the claim is given back so the item is ready to be pulled again once the
-// window resets. The environmental refusal recorded where the wait was refused
+// an ending nothing judged. No blocker is written, the branch and worktree are
+// left exactly as a stopped run's are, and the claim is given back. The run
+// joins the development manager's list of stopped runs, which holds the item
+// until she decides (runstate's CancelledHoldingItem). The environmental refusal recorded where the wait was refused
 // is settled by fail, which is what returns the round and the grant.
 //
 // A claim that could not be given back is reported rather than swallowed. The
@@ -9004,7 +9004,7 @@ func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
 		// A stop the development manager decided leaves a stoppage she has already
 		// settled, so it is docketed with her decision closing it: it reads as
 		// decided rather than as one more run waiting on her. An operator's stop
-		// hands nobody a decision and is docketed nowhere, as it always was.
+		// is docketed by fail, for her to decide what becomes of the run.
 		if strings.TrimSpace(stoppedByOperator.request.Decision) != "" && a.pipeline.Docket != nil {
 			if docketErr := a.pipeline.Docket.RecordDecidedStop(a.state, stoppedByOperator.request); docketErr != nil {
 				err = errors.Join(err, fmt.Errorf("docket the stop the development manager decided: %w", docketErr))
@@ -12361,15 +12361,15 @@ func stoppedByUsageWindow(refused *runstate.EnvironmentalRefusal) bool {
 // renderUsageWindowReleaseNotes is what the item's notes say about its claim
 // being given back after the provider's usage window stopped its run. The
 // outcome note written just before it carries the account; this says only what
-// became of the claim, and when the item will be pulled again.
+// became of the claim, when the limit resets, and who moves next.
 func renderUsageWindowReleaseNotes(outcome Outcome) string {
-	note := "Yoyodyne gave this item back to the queue: run " + outcome.RunID + " was stopped by the provider's usage limit rather than by anything about the work, and nothing was charged to the item for it."
+	note := "Yoyodyne released its claim on this item: run " + outcome.RunID + " was stopped by the provider's usage limit rather than by anything about the work, and nothing was charged to the item for it."
 	if outcome.Environmental != nil {
 		if said := outcome.Environmental.ResetSays(); said != "" {
-			note += " " + strings.ToUpper(said[:1]) + said[1:] + ", and a watching session pulls the item again once that has passed."
+			note += " " + strings.ToUpper(said[:1]) + said[1:] + "."
 		}
 	}
-	return note
+	return note + " The run is on the development manager's list of stopped runs, and nothing pulls the item until she has decided what happens to it."
 }
 
 // renderFailureNotes describes a failed run on its work item.
@@ -12395,7 +12395,7 @@ func renderFailureNotes(outcome Outcome) string {
 		headline = "Yoyodyne blocked this item; the blocker recorded on the item says what stopped it."
 	}
 	if stoppedByUsageWindow(outcome.Environmental) {
-		headline = "Yoyodyne stopped this run without judging anything: the provider's usage limit refused it and resets later than the harness will wait, so the item goes back to the queue and is picked again once the limit resets."
+		headline = "Yoyodyne stopped this run without judging anything: the provider's usage limit refused it and resets later than the harness will wait, so its claim is released and the development manager decides what happens to what the run left."
 	}
 	lines := []string{
 		headline,

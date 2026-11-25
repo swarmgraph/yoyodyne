@@ -3327,8 +3327,8 @@ two commands.
 `yoyo triage rerun <run-id>` starts a fresh run of the item whose stopped run the
 docket entry names — the case where the ground moved under a change that was
 never wrong — or whose raise it names, once the item's owner has released it. It
-also takes a run the docket never held, such as a re-run the harness cancelled on
-its way out. **Where that run's branch is still there, whatever stopped it, the
+also takes a run the docket never held, such as a re-run the harness cancelled before
+it took its item. **Where that run's branch is still there, whatever stopped it, the
 fresh run starts from the change it kept**: the worktree is cut from the target
 branch as every worktree is, what the branch carries past the target is applied
 to it uncommitted before the developer is invoked, and the run records the

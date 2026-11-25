@@ -282,6 +282,7 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 	if decision, found := counters.DecisionOf(run.RunID); found && problem == "" {
 		reading.rerun = decision.Decision == runstate.TriageDecisionRerun
 		reading.decidedAt = decision.DecidedAt
+		reading.waits = decision.Decision == runstate.TriageDecisionWait
 		if decision.Decision == runstate.TriageDecisionWait {
 			reading.waitsOn = strings.TrimSpace(decision.WaitsOn)
 		}
@@ -317,6 +318,8 @@ type decidedStanding struct {
 	// rerunBy is the item's later run that carried a re-run decided about this
 	// run out (carriedOutBy), and nil where none has.
 	rerunBy *runstate.State
+	// waits is a decision to wait standing about the run, timed or on named work.
+	waits bool
 	// waitsOn is the work item a wait standing about the run names.
 	waitsOn string
 	problem string
@@ -723,13 +726,22 @@ func heldReasons(runs []runstate.State, escalated []runstate.Escalation, decided
 	looked := make(map[string]triage.Found)
 	latest := latestPerItem(runs, func(run runstate.State) bool { return run.WorkItemID != "" })
 	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool {
-		if !stoppage(run) {
+		cancelled := run.Status == runstate.StatusCancelled && latest[run.WorkItemID].RunID == run.RunID
+		if !stoppage(run) && !(cancelled && run.CancelledHoldingItem(true)) {
 			return false
 		}
 		found := look(run)
 		looked[run.RunID] = found
 		if found.Holds() {
 			return true
+		}
+		// A run that ended cancelled holding its item is hers to decide whatever
+		// it left, as the docket lists it; a decision that has settled it lets an
+		// item with nothing kept go.
+		if cancelled && run.CancelledHoldingItem(false) {
+			if reading := decided.of(run.WorkItemID, run); !reading.decided || reading.waits {
+				return true
+			}
 		}
 		// A decision the harness was refused carrying out still stands, so it holds
 		// the item as surely as one it has still to carry out — except a re-run
@@ -843,6 +855,9 @@ func stoppageHold(run, latest runstate.State, decided standing, found triage.Fou
 	if !preserved && reading.rerun && reading.carryOut && !reading.namedEpics && !reading.parked && reading.problem == "" {
 		return backlog.Hold{Reason: freshRerun(run), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
+	if !preserved && run.CancelledHoldingItem(false) {
+		return heldFor(run.RunID, cancelledLeavingNothing(run), reading, stoppedAt(run))
+	}
 	if !preserved {
 		return heldFor(run.RunID, continuedStoppage(run), reading, stoppedAt(run))
 	}
@@ -936,7 +951,7 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 		// A re-run asks only that its run has ended, so a run the docket never held
 		// is one it answers: the carry-out walks it and starts the item again from
 		// the target branch (yoyodyne-ifd.428.94).
-		if !stoppage(run) && !outstandingPublication(run) && !run.Escalated() && decision.Decision != runstate.TriageDecisionRerun {
+		if !stoppage(run) && !run.CancelledHoldingItem(true) && !outstandingPublication(run) && !run.Escalated() && decision.Decision != runstate.TriageDecisionRerun {
 			problem = fmt.Sprintf("run %s records neither a stoppage nor an unfinished publication nor a raised item", decision.RunID)
 		}
 	}
@@ -953,7 +968,7 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 	switch {
 	case outstandingPublication(run) && mergeConfirmed(run):
 		return heldFor(run.RunID, mergedPublication(run), reading, stoppedAt(run)), ""
-	case stoppage(run) || (!outstandingPublication(run) && !run.Escalated()):
+	case stoppage(run) || run.CancelledHoldingItem(true) || (!outstandingPublication(run) && !run.Escalated()):
 		return stoppageHold(run, latest, decided, look(run)), ""
 	case outstandingPublication(run):
 		if run.WaitingOnRedTarget() {
@@ -1120,6 +1135,10 @@ func latestPerItem(runs []runstate.State, matches func(runstate.State) bool) map
 // A run whose check stage its bound stopped is the same fact a third time: it
 // ends `timed out` with its finished change on the branch, and the harness
 // continues it at its checks rather than anybody starting it over.
+//
+// A run that ended cancelled holding its item is a stoppage too, but only while
+// it is the item's latest run, so heldReasons asks that itself
+// (runstate's CancelledHoldingItem).
 func stoppage(run runstate.State) bool {
 	if run.WorkItemID == "" || !run.Status.Terminal() {
 		return false
@@ -1231,6 +1250,12 @@ func continuedStoppage(run runstate.State) string {
 	return fmt.Sprintf(
 		"run %s stopped on it and a decision about that stoppage is recorded and not yet carried out, so a fresh run would start beside the continuation that decision buys",
 		run.RunID)
+}
+
+// cancelledLeavingNothing says why an item is held whose run ended cancelled
+// while it held the item and left no branch or worktree.
+func cancelledLeavingNothing(run runstate.State) string {
+	return fmt.Sprintf("run %s was cancelled while it held it, and no branch or worktree of it remains", run.RunID)
 }
 
 // freshRerun says why an item is held whose stopped run left no branch or
