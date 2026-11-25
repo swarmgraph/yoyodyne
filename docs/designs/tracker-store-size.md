@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-11-22T19:44:41.868185Z
       reason: 'amendment-162715f6, approved by the architect: dolt 2.7.6 has been installed on this machine since 19:00 PST on November 21 and the server mode measurement uses it. bd''s documentation names no dolt version, so condition 4 pins 2.7.6, the version measured with bd 1.1.2, and a later pin needs a fresh measurement and a revision. Condition 4, build pieces 7 and 8, the reviewer''s checks and one assumption change. Read whole at main 1c494e218811.'
+    - action: amended
+      by: architect
+      at: 2026-11-25T18:31:05.851357Z
+      reason: 'yoyodyne-ifd.428.126.4.30: report d52013fa from the reviewer. Condition 2 refused server mode wherever a developer run could connect to the server''s port, while the landed decision on the harness''s own services settles on a password on 127.0.0.1. Condition 2 now points at that decision, says what counts as failing it, and says the decision governs, so the server change is not refused under one document while meeting the other. Read whole at main 2e643570c9f9.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -70,6 +74,11 @@ approvals:
       by: harness
       at: 2026-11-22T19:44:41.868185Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3532, for document-3532.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-25T18:31:05.851357Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4042, for document-4042.1 under the automatic approval policy
 ---
 # Keeping the tracker store small
 
@@ -208,8 +217,10 @@ The harness writes every few minutes, so the store nearly always has a journal, 
 
 The harness opens the tracker store through bd's server mode, provided all four conditions below hold. Each is checked before the live store moves. Where any fails, server mode is not adopted, the route under When server mode is not adopted carries the limit alone, and the reason is recorded in the slow listings diagnosis.
 
-1. **It is fast enough, measured first.** Server mode has never been timed here. On a copy of the live store with a journal of at least 100 MB, with developer runs loading the machine, the server and direct opening are run side by side for eight minutes, each with the live mix the diagnosis used: four processes reading one item every 12 seconds and three listing every 30 seconds. Server mode is adopted only if no listing through it takes over 10 seconds and the median one item read through it is under half a second.
-2. **No developer run can reach the server.** This is a safety boundary, not a matter of speed: no role or run reads or writes the tracker except through the harness. The server listens only on the machine's own local address, on a port the supervisor picks, behind a password the harness generates and keeps in its own state, outside every worktree and never placed in any run's environment. The measurement shows that a developer run, under the confinement it works in, is refused when it tries to connect to that port. If its confinement cannot refuse the connection, server mode is not adopted.
+1. **It is fast enough, measured first.** Before the measurement, server mode had never been timed here. On a copy of the live store with a journal of at least 100 MB, with developer runs loading the machine, the server and direct opening are run side by side for eight minutes, each with the live mix the diagnosis used: four processes reading one item every 12 seconds and three listing every 30 seconds. Server mode is adopted only if no listing through it takes over 10 seconds and the median one item read through it is under half a second.
+2. **No session the harness starts for a role can use the server.** This is a safety boundary, not a matter of speed: no role or run reads or writes the tracker except through the harness. [The decision on the harness's own services](../decisions/developer-runs-and-local-services.md) says how it is held, and its conditions on the tracker server are this condition. In short: the server listens only on 127.0.0.1, on a port the supervisor picks, and refuses every connection without a password. The password, and the secret dolt writes for itself, are kept only in the harness's services folder, which every session that can read files or run commands is refused, and neither is ever placed in a run's environment. The server stays switched off until that refusal covers every role on both providers. Being able to open a connection to the port is not a failure of this condition, because the port answers nothing without the password. Being able to read the password or dolt's secret, or being answered without one, is.
+
+   As first ruled, this condition refused server mode wherever a developer run could connect to the port at all. The measurement (yoyodyne-ifd.428.126.4.28) found that a run on Claude Code can connect to any port on 127.0.0.1, and that decision gives why that cannot be refused without breaking every project's tests that start a local server. Where the two documents differ, the decision governs.
 3. **Every bd on this machine goes through the server while it runs.** A bd that opened the store files directly beside a running server would be a second writer on one store. The measurement finds bd's own setting for reaching the store through its server, and the harness writes it in this machine's local tracker configuration, never in a committed file, so other contributors' clones are untouched. If bd has no such setting, server mode is not adopted.
 4. **The harness installs `dolt` 2.7.6.** Server mode needs a `dolt` program. This machine had none until 19:00 PST on November 21, 2026, when the operator installed `dolt` 2.7.6 at `/opt/homebrew/bin/dolt`, and build piece 7 measures with that install. bd's documentation names no `dolt` version for its server mode, so the version is chosen here: `dolt` 2.7.6, the version measured with bd 1.1.2. A later version is pinned only by a revision of this design made after a fresh measurement with that version. Installing a program the harness needs is harness work, not a step for the operator, and a copy installed by hand outside the harness's own folder is not what the factory relies on: the harness's setup installs `dolt` 2.7.6 into the harness's own tools folder under its state directory, and refuses a download whose checksum does not match. `yoyo doctor` reports `dolt` missing from that folder or at another version, naming 2.7.6. Until it is installed there the factory keeps opening the store directly, and nothing else in this design waits on it.
 
