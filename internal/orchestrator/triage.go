@@ -369,6 +369,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	var missed []NotDocketed
 	var unrecorded []string
 	rerunEnded := d.endedReruns(recorded, already)
+	cancelled := d.cancelledHolding(recorded, already)
 	for _, state := range recorded {
 		// A run whose record supplies some entries and refuses another has the
 		// ones it supplied docketed: entriesFor returns both.
@@ -376,8 +377,9 @@ func (d Docketer) Build() (DocketBuild, error) {
 		if err != nil {
 			missed = append(missed, NotDocketed{RunID: state.RunID, Problem: err.Error()})
 		}
-		if rerunEnded(state) {
+		if rerunEnded(state) || cancelled(state) {
 			entry, err := d.stoppedRunEntryCarrying(state, now, d.look(state), runstate.RecordFailure(state.Failure))
+			entry.StopRequested = d.requestedStop(state)
 			if err != nil {
 				missed = append(missed, NotDocketed{RunID: state.RunID, Problem: err.Error()})
 			} else {
@@ -479,14 +481,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 // A claim list that cannot be read dockets nothing for its item, which is the
 // state before this rule existed; the next build asks again.
 func (d Docketer) endedReruns(recorded []runstate.State, already standingDocket) func(runstate.State) bool {
-	latest := make(map[string]string)
-	ordered := append([]runstate.State(nil), recorded...)
-	runstate.NewestFirst(ordered)
-	for _, state := range ordered {
-		if _, seen := latest[state.WorkItemID]; !seen && state.WorkItemID != "" {
-			latest[state.WorkItemID] = state.RunID
-		}
-	}
+	latest := latestRunOf(recorded)
 	claimed := make(map[string]map[string]bool)
 	return func(state runstate.State) bool {
 		if state.HarnessAuthored() || state.WorkItemID == "" || latest[state.WorkItemID] != state.RunID ||
@@ -508,6 +503,45 @@ func (d Docketer) endedReruns(recorded []runstate.State, already standingDocket)
 			claimed[state.WorkItemID] = runs
 		}
 		return runs[state.RunID]
+	}
+}
+
+// latestRunOf is each item's latest run, by run id.
+func latestRunOf(recorded []runstate.State) map[string]string {
+	latest := make(map[string]string)
+	ordered := append([]runstate.State(nil), recorded...)
+	runstate.NewestFirst(ordered)
+	for _, state := range ordered {
+		if _, seen := latest[state.WorkItemID]; !seen && state.WorkItemID != "" {
+			latest[state.WorkItemID] = state.RunID
+		}
+	}
+	return latest
+}
+
+// cancelledHolding answers, for one recorded run, whether it ended cancelled
+// holding its item and is still that item's latest run, which is when the hold
+// names it as hers (readmodel's heldReasons). It is asked of the history at
+// every build because not every ending has a docketer at hand: the claim audit
+// cancels a run whose process is gone and dockets nothing itself.
+//
+// A run whose decided re-run the harness has still to make, or one she decided
+// to stop, is not asked about again here.
+func (d Docketer) cancelledHolding(recorded []runstate.State, already standingDocket) func(runstate.State) bool {
+	latest := latestRunOf(recorded)
+	return func(state runstate.State) bool {
+		if latest[state.WorkItemID] != state.RunID || state.Status != runstate.StatusCancelled ||
+			!already.dockets(triage.Key(triage.ClassStoppedRun, state.RunID), stoppedAt(state)) ||
+			!state.CancelledHoldingItem(d.look(state).Holds()) || d.carryOutAwaited(state) {
+			return false
+		}
+		counters, err := d.Decisions.Counters(state.WorkItemID)
+		if err != nil {
+			return true
+		}
+		decision, decided := counters.DecisionOf(state.RunID)
+		return !decided || decision.DecidedAt.Before(stoppedAt(state)) ||
+			decision.Decision != runstate.TriageDecisionStop
 	}
 }
 
@@ -980,7 +1014,7 @@ func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 		return false, err
 	}
 	found := d.look(state)
-	if !stoppedRun(state) && !diedHolding(state, found) && !stageBoundHolding(state, found) {
+	if !stoppedRun(state) && !diedHolding(state, found) && !stageBoundHolding(state, found) && !state.CancelledHoldingItem(found.Holds()) {
 		return false, nil
 	}
 	entry, err := d.stoppedRunEntry(state, d.now(), found)
@@ -993,9 +1027,9 @@ func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 // RecordDecidedStop dockets a run the development manager decided to stop in
 // flight, and closes the entry with her decision in the same call.
 //
-// A run stopped this way ends cancelled with no blocker, which is a shape the
-// docket otherwise passes over — an operator's stop hands nobody a decision. This
-// one is a stoppage somebody decided, and the change it leaves on its branch is
+// Any other run that ends cancelled holding its item is docketed as a question
+// for her (runstate's CancelledHoldingItem). This one is a stoppage she has
+// already decided, and the change it leaves on its branch is
 // still hers to account for, so it is put on the docket where she and anybody
 // reading after her find it — as a settled entry, carrying who stopped it and
 // why, rather than as a question put back to the person who already answered
@@ -1942,9 +1976,9 @@ func stoppedRun(state runstate.State) bool {
 // the item by name — which starts a run and records no decision at all.
 //
 // Three conditions narrow it, and each excludes a run that is not this. A status
-// other than failed is a run something stopped rather than one that died: an
-// operator's stop and a deadline are both deliberate, and neither hands anybody a
-// decision. A run that integrated its work is reconciliation's to finish, and an
+// other than failed is a run something stopped rather than one that died: a
+// deadline hands nobody a decision, and a cancelled run is docketed by a rule of
+// its own (runstate's CancelledHoldingItem). A run that integrated its work is reconciliation's to finish, and an
 // unfinished publication of it is docketed as the publication it is. And a run
 // that left nothing behind is the harness having failed to carry it, which is a
 // failure to read rather than work to decide about.
@@ -2237,6 +2271,13 @@ func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, f
 	if state.Document != nil {
 		entry.Document = documentCopies{}.document(state)
 	}
+	if state.CancelledHoldingItem(found.Holds()) {
+		requestedBy := ""
+		if requested := d.requestedStop(state); requested != nil {
+			requestedBy = requested.By
+		}
+		entry.Cancelled = oneline.Fold(state.CancelledSays(requestedBy), triage.MaxMessageBytes)
+	}
 	entry.StopUnrecorded = stopUnrecorded(entry, state)
 	if err := entry.Validate(); err != nil {
 		return triage.Entry{}, fmt.Errorf("docket the stoppage of run %s: %w", state.RunID, err)
@@ -2250,7 +2291,7 @@ func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, f
 // rather than refused: a stoppage left off the list is one nobody can see or
 // decide, and a refusal failed the whole reconcile it was found in.
 func stopUnrecorded(entry triage.Entry, state runstate.State) string {
-	if strings.TrimSpace(entry.Blocker) != "" || strings.TrimSpace(entry.Failure) != "" || strings.TrimSpace(entry.CheckStageFailure) != "" ||
+	if strings.TrimSpace(entry.Blocker) != "" || strings.TrimSpace(entry.Failure) != "" || strings.TrimSpace(entry.Cancelled) != "" || strings.TrimSpace(entry.CheckStageFailure) != "" ||
 		(entry.Document != nil && strings.TrimSpace(entry.Document.Stopped) != "") {
 		return ""
 	}
@@ -2747,7 +2788,7 @@ func docketEnvironmental(refused *runstate.EnvironmentalRefusal) *triage.Environ
 // a stoppage refused at the docket is one the development manager never hears
 // about, which is the silence this whole path exists to end.
 func docketFailure(state runstate.State, found triage.Found) string {
-	if state.Blocker != "" || !diedHolding(state, found) {
+	if state.Blocker != "" || (!diedHolding(state, found) && !state.CancelledHoldingItem(found.Holds())) {
 		return ""
 	}
 	return runstate.RecordFailure(state.Failure)

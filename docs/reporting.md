@@ -2033,12 +2033,13 @@ The audit is the watch loop's rather than the sink's, because giving a claim bac
 is directing work and this surface does not direct work. What arrives here is
 what it did:
 [the harness gives the claim back and ends the record of the run that left it](operations.md#claims-with-nothing-working-on-them),
-so the item is pullable again and the developer slot is free, and the sink says
+so the developer slot is free, and the item is pullable again unless its run is
+the development manager's to decide, which the message then says. The sink says
 each release once — in the item's own thread, shown at the top of the channel as
 well, and as a direct message to whoever the project granted `direct-work`. Once is the
 log's position rather than this process's memory, so a restarted sink re-says
 nothing; and it is never repeated, because what follows a release is the item
-being pulled again, which says so itself.
+being pulled again or her decision about its run, and each says so itself.
 
 ### A finding that needs your hand
 

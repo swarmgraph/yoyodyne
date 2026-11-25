@@ -192,7 +192,7 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 // by a fresh pull that spent a developer run and a review to reach the change
 // that was already sitting on the branch.
 //
-// Four endings qualify, and the first is the one that had no other marker at
+// Five endings qualify, and the first is the one that had no other marker at
 // all. An integration stop is an approved change the environment stopped short
 // of the target branch, which `yoyo triage resume` carries the rest of the way.
 // A recorded blocker is the harness having handed the item to somebody — a
@@ -203,7 +203,13 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 // with its finished change on the branch, and the harness continues it at its
 // checks — a claim given back here is a fresh run that redoes the development.
 //
-// All four ask whether the change survived, and none of them holds a claim
+// A run that ended cancelled holding its item is a fifth: the development
+// manager decides it (runstate's CancelledHoldingItem). One that kept nothing is
+// held until she has, but by the pull's hold alone and not by its claim: the
+// hold ends with her decision, and a claim that stood past it would leave the
+// item out of every pull with nobody told.
+//
+// All five ask whether the change survived, and none of them holds a claim
 // without it: a stoppage whose branch is gone leaves nothing for a fresh run to
 // strand, and an integration stop whose branch is gone is one nothing can resume
 // at all. It is asked of the repository, as the pull's hold asks it, and a look
@@ -221,7 +227,8 @@ func stillHeld(run runstate.State, found triage.Found) bool {
 	return run.IntegrationStop != nil ||
 		strings.TrimSpace(run.Blocker) != "" ||
 		run.DiedInItsOwnProcess() ||
-		run.StoppedUnfinishedAtChecks()
+		run.StoppedUnfinishedAtChecks() ||
+		run.CancelledHoldingItem(true)
 }
 
 // readClaim reads one item's runs: the most recent of them, the last moment that
