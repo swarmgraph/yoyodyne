@@ -341,6 +341,8 @@ func (p *Pass) rebuildLive(ctx context.Context, step runstate.SweepStep, record 
 		return p.holdBack(step, record, earlier, heldByOutsideProcess, "with the store lock held, a process outside the harness still had the store open: "+beads.SayHolders(rebuilt.Busy), runstate.StepSkipped)
 	case rebuilt.Unknown != "":
 		return p.holdBack(step, record, earlier, heldByUnknownHolders, "with the store lock held, whether a process outside the harness still had the store open could not be told: "+rebuilt.Unknown, runstate.StepSkipped)
+	case rebuilt.ServerKept != "":
+		return p.holdBack(step, record, earlier, heldByFailure, "the tracker's server could not be stopped for the rebuild: "+rebuilt.ServerKept, runstate.StepFailed)
 	case err != nil && rebuilt.Step == "" && rebuilt.Failed == "" && !rebuilt.Swapped:
 		return p.holdBack(step, record, earlier, heldByFailure, fmt.Sprintf("the rebuild could not start: %v", err), runstate.StepFailed)
 	}
@@ -350,6 +352,9 @@ func (p *Pass) rebuildLive(ctx context.Context, step runstate.SweepStep, record 
 	}
 	step.Outcome = runstate.StepRan
 	recorded := "; recorded in " + p.Rebuilds.Path()
+	if rebuilt.ServerDown != "" {
+		recorded += "; the tracker's server, stopped for the rebuild, could not be started again, and the supervisor tries again: " + rebuilt.ServerDown
+	}
 	if size, over := p.stillOverAfter(rebuilt); over {
 		record.StillOver = size
 	}

@@ -408,6 +408,8 @@ const pages = [
   // last good one and when it was taken.
   { name: "listing", token: "t", standing: ok(Object.assign(aged(fixture("standing-busy"), {}), { tracker_listing: { taken_at: "2026-09-18T14:04:20Z" } })), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "listing-failed", token: "t", standing: ok(Object.assign(aged(fixture("standing-busy"), {}), { tracker_listing: { taken_at: "2026-09-18T14:02:00Z", failure: "the listing of every item: bd list timed out after 30s", failed_at: "2026-09-18T14:04:50Z" } })), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
+  // The standing says how the tracker's store is reached.
+  { name: "tracker-reach", token: "t", standing: ok(Object.assign(aged(fixture("standing-busy"), {}), { tracker_reach: { through_server: true, said: "the tracker is reached through its server, process 4242 on port 41877, since 2026-09-18 07:00 PDT" } })), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "snapshot-failed", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 34, failure: "bd list timed out after 30s" })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 95, interval_seconds: 60, failure: "the state root could not be resolved" })), spend: ok(fixture("spend-busy")) },
   // A standing with things waiting on the operator's own approve or decline,
   // which puts the band's "Your decisions" tile on the page; and one whose

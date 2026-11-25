@@ -156,6 +156,9 @@ type Environment struct {
 	// UserHomeDir is the other half of resolving the state root and the
 	// namespaced environment file.
 	UserHomeDir func() (string, error)
+	// StoreHolders says which processes have the tracker's store open; nil asks
+	// the operating system.
+	StoreHolders beads.HolderFinder
 	// GOOS is the platform, which decides how a secret store is asked and which
 	// install command a remedy names.
 	GOOS string
@@ -250,6 +253,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkTrackerRemote(ctx, resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
 	report.Findings = append(report.Findings, diagnosis.checkDolt(repository))
+	report.Findings = append(report.Findings, diagnosis.checkStoreHolders(ctx, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkKeptConfigurationBinding(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkInstall(resolved, repository)...)

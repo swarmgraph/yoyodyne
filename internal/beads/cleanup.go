@@ -142,6 +142,7 @@ func (c Client) cleanUpStore(ctx context.Context, hold time.Duration, beside boo
 	lookup, cancel := context.WithTimeout(ctx, holderLookupTimeout)
 	holders, holdersErr := c.holdersFinder().Holders(lookup, store)
 	cancel()
+	holders = c.withoutServer(holders)
 	if holdersErr == nil && len(holders) > 0 {
 		if !beside {
 			cleanup.Busy, cleanup.SizeAfter = holders, before

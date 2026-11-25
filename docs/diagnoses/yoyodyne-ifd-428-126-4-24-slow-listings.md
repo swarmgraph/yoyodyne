@@ -522,3 +522,23 @@ run connect to local ports it did not open, or the server is reached some way
 the sandbox refuses, these figures still stand and only condition 2 needs
 checking again. Until then the shared listing (build piece 10) is the route
 that carries the limit, as the design says, and pieces 8 and 9 are not built.
+
+## The server built, and left off (yoyodyne-ifd.428.126.4.30)
+
+Read on November 25, 2026, with dolt 2.7.6 and bd 1.1.2 on a store made for it:
+
+- **A socket file alone is not possible.** bd can connect through one
+  (`BEADS_DOLT_SERVER_SOCKET`), and dolt can open one (`--socket`), but dolt
+  opens its TCP port as well: asked for a socket on a port already taken, it
+  refuses to start with "Port … already in use", and it refuses port 0 and an
+  empty host. Only the password condition is left, so under the decision on
+  developer runs and local services the server stays off until every role is
+  refused the services folder (yoyodyne-ifd.435.98).
+- **dolt writes a second secret beside the data it serves.** `.dolt/sql-server.info`
+  in the served directory holds the password of a local superuser,
+  `__dolt_local_user__`, which connected through the port with it. The server is
+  therefore given a `.dolt` that is a link into the services folder.
+- **metadata.json is committed here.** The account above says bd keeps it out of
+  Git in every clone; in this repository, and by bd's own ignore file, it is
+  tracked. The setting that is local is `.beads/.env`, which bd reads and its
+  ignore file leaves out, and which an environment variable overrides.

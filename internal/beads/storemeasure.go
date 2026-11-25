@@ -535,6 +535,11 @@ func copyStore(store string, work *repowrite.PinnedRoot, name string) error {
 		}
 		target := filepath.ToSlash(filepath.Join(".beads", relative))
 		switch {
+		// What belongs to the live store's server stays out of a copy: the local
+		// setting, which would send bd on the copy to that server, and the link
+		// to the server's own folder.
+		case relative == localSettingName, entry.Type()&fs.ModeSymlink != 0 && relative == serverLinkPath:
+			return nil
 		case entry.IsDir():
 			return project.MakeDirectory(target, 0o700)
 		case entry.Type()&fs.ModeSymlink != 0:
