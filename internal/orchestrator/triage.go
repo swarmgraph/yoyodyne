@@ -2324,6 +2324,7 @@ func docketReplayConflict(conflicted *runstate.ReplayConflict) *triage.ReplayCon
 		TargetBranch: conflicted.TargetBranch,
 		Detail:       singleLine(conflicted.Detail, triage.MaxMessageBytes),
 		Phase:        string(conflicted.Phase),
+		BeforeReview: conflicted.BeforeReview(),
 	}
 }
 

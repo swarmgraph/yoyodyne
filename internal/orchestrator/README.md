@@ -234,7 +234,10 @@ that the repair loop answers with one repair round like a local failure. A log
 that cannot be read is handed back all the same, with why and where it is, and
 reported once for the commit (`readCIOutputs`,
 `runstate.CIWaitEnd.UnreadLogReported`) rather than sending the run to the full
-checks. After the fallback `lateCIResult` reads the forge again for the same
+checks. A pull request that conflicts with its target ends the wait first
+(`ciconflict.go`): `bringTargetIn` replays the change onto the target and waits
+again on the new head, and a replay that conflicts goes back to the developer
+through `handCIWaitConflict`. After the fallback `lateCIResult` reads the forge again for the same
 commit — once the local checks pass, and from `checkCandidateWhole` before
 promotion — records any answer on `runstate.CIWaitLate`, and returns a forge
 failure as a `checkFailure` carrying the failing tests and the end of each

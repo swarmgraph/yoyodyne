@@ -129,3 +129,21 @@ func TestGitHubMergeWaitThatCannotBeReadFails(t *testing.T) {
 		t.Errorf("MergeWait() error = %v, want GitHub's own error named", err)
 	}
 }
+
+// A conflict is either of GitHub's two words for one, at the head it answered
+// for, and an answer it has not worked out yet is not a conflict.
+func TestMergeWaitConflictsOnlyWhereGitHubSaysSo(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		mergeable, state string
+		want             bool
+	}{
+		{"CONFLICTING", "DIRTY", true}, {"CONFLICTING", "UNKNOWN", true}, {"UNKNOWN", "DIRTY", true},
+		{"UNKNOWN", "UNKNOWN", false}, {"MERGEABLE", "BLOCKED", false}, {"MERGEABLE", "BEHIND", false}, {"", "", false},
+	} {
+		wait, err := decodeMergeWait(7, `{"data":{"repository":{"pullRequest":{"headRefOid":"abc","mergeable":"`+test.mergeable+`","mergeStateStatus":"`+test.state+`"}}}}`)
+		if err != nil || wait.HeadCommit != "abc" || wait.Conflicts() != test.want {
+			t.Errorf("%s/%s = %#v, conflicts %t, %v; want %t at abc", test.mergeable, test.state, wait, wait.Conflicts(), err, test.want)
+		}
+	}
+}

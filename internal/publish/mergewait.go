@@ -19,6 +19,8 @@ import (
 // asks GitHub to do nothing.
 type MergeWait struct {
 	Number int `json:"number"`
+	// HeadCommit is the head GitHub answered for.
+	HeadCommit string `json:"head_commit,omitempty"`
 	// Mergeable is GitHub's word for whether the head merges cleanly:
 	// MERGEABLE, CONFLICTING, or UNKNOWN while it has not worked it out.
 	Mergeable string `json:"mergeable,omitempty"`
@@ -59,6 +61,12 @@ const (
 	RequiredCheckPassed  = "passed"
 	RequiredCheckFailed  = "failed"
 )
+
+// Conflicts reports whether GitHub says the request conflicts with its target.
+// An answer it has not worked out yet is not a conflict.
+func (w MergeWait) Conflicts() bool {
+	return strings.EqualFold(w.Mergeable, "CONFLICTING") || strings.EqualFold(w.MergeState, "DIRTY")
+}
 
 // FailedRequired is every required check that ended without passing.
 func (w MergeWait) FailedRequired() []HeldMergeCheck {
@@ -202,7 +210,7 @@ func quotedList(names []string) string {
 // branch rules decide it and the check listing does not say.
 const mergeWaitQuery = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    mergeable mergeStateStatus isDraft reviewDecision
+    headRefOid mergeable mergeStateStatus isDraft reviewDecision
     mergeQueueEntry { state }
     commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
       __typename
@@ -236,6 +244,7 @@ func decodeMergeWait(number int, stdout string) (MergeWait, error) {
 		Data struct {
 			Repository struct {
 				PullRequest *struct {
+					HeadRefOid       string `json:"headRefOid"`
 					Mergeable        string `json:"mergeable"`
 					MergeStateStatus string `json:"mergeStateStatus"`
 					IsDraft          bool   `json:"isDraft"`
@@ -282,6 +291,7 @@ func decodeMergeWait(number int, stdout string) (MergeWait, error) {
 	}
 	wait := MergeWait{
 		Number:         number,
+		HeadCommit:     strings.TrimSpace(pull.HeadRefOid),
 		Mergeable:      strings.TrimSpace(pull.Mergeable),
 		MergeState:     strings.TrimSpace(pull.MergeStateStatus),
 		Draft:          pull.IsDraft,

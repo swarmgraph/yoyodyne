@@ -30,6 +30,9 @@ package orchestrator
 // checks have passed and once more before an approved change is promoted. An
 // answer found then is recorded on the run (runstate.CIWaitLate), and a failure
 // from the forge counts as a failure even though the local checks passed.
+//
+// A pull request that conflicts with its target ends the wait at the look that
+// finds it, before anything its checks say (ciconflict.go).
 
 import (
 	"context"
@@ -176,6 +179,10 @@ func (a *activeRun) pushAndWait(ctx context.Context) error {
 		Required:         append([]string(nil), ci.Required...),
 		WaitLimitSeconds: int64(ci.WaitLimitInForce() / time.Second),
 	}
+	// A wait that follows one a conflict ended says what was done about it.
+	if end := a.state.CIWaitEnd; end != nil && end.Conflict {
+		wait.Follows = end.Says
+	}
 	a.state.CIWait = &wait
 	a.state.UpdatedAt = pushedAt
 	if err := p.Store.Save(a.state); err != nil {
@@ -213,7 +220,10 @@ func renderRefusedPushBlockerNotes(outcome Outcome, refusal error) string {
 
 // settleCIWait is the first thing a run does once it has a slot again with a
 // wait recorded. It reads the forge for exactly the commit the wait names and
-// never pushes. Every required check passed: the wait ends and review goes on.
+// pushes nothing for it. A pull request that conflicts with its target is
+// answered first (bringTargetIn), and where that changes the head the wait
+// starts again on it. Every required check passed: the wait ends and review
+// goes on.
 // A required check that failed goes back to the developer as a failed check
 // (handBackCIFailure). Still running within the limit: the run parks again.
 // Anything else, or the switch turned off, ends the wait and runs the full
@@ -231,6 +241,14 @@ func (a *activeRun) settleCIWait(ctx context.Context) error {
 	}
 	if !p.Config.Execution.CIChecks.Enabled || p.CIForge == nil {
 		return a.endCIWaitWithFullChecks(ctx, wait, "checks on CI was switched off during the wait")
+	}
+	// A conflict is answered before anything the checks say (ciconflict.go).
+	if ciWaitConflicts(ctx, p.CIForge, a.state) {
+		answered, err := a.bringTargetIn(ctx, wait)
+		if answered || err != nil {
+			return err
+		}
+		wait = *a.state.CIWait
 	}
 	reading, err := p.CIForge.RequiredChecks(ctx, wait.Commit, wait.Required)
 	if err != nil {
@@ -744,8 +762,19 @@ var ciPolls = struct {
 	unreadable map[string]time.Time
 }{polled: map[string]time.Time{}, lastSay: map[string]string{}, decided: map[string]bool{}, unreadable: map[string]time.Time{}}
 
+// ciPollKey is what one waiting run's last reading is kept under. It names the
+// commit and the last answered conflict with the run, so a reading that decided
+// a wait is never taken for the wait on the head that followed it.
+func ciPollKey(state runstate.State) string {
+	key := state.RunID + " " + state.CIWait.Commit
+	if tried := state.CIWait.Conflict; tried != nil {
+		key += " " + tried.At.UTC().Format(time.RFC3339Nano)
+	}
+	return key
+}
+
 // Decided reads the forge for the commit the run's wait names, at most once a
-// minute for one run.
+// minute for one wait. A conflict decides it whatever the checks say.
 func (f *ForgeCIWaits) Decided(ctx context.Context, state runstate.State) (bool, string, error) {
 	wait := state.CIWait
 	if wait == nil {
@@ -761,14 +790,23 @@ func (f *ForgeCIWaits) Decided(ctx context.Context, state runstate.State) (bool,
 	if f.Forge == nil {
 		return wait.Overdue(now), "no forge is wired to read the checks", nil
 	}
+	poll := ciPollKey(state)
 	ciPolls.mu.Lock()
-	if at, ok := ciPolls.polled[state.RunID]; ok && now.Sub(at) < ciPollEvery && now.After(at) {
-		say, decided := ciPolls.lastSay[state.RunID], ciPolls.decided[state.RunID]
+	if at, ok := ciPolls.polled[poll]; ok && now.Sub(at) < ciPollEvery && now.After(at) {
+		say, decided := ciPolls.lastSay[poll], ciPolls.decided[poll]
 		ciPolls.mu.Unlock()
 		return decided, say, nil
 	}
-	ciPolls.polled[state.RunID] = now
+	ciPolls.polled[poll] = now
 	ciPolls.mu.Unlock()
+	if ciWaitConflicts(ctx, f.Forge, state) {
+		if decided, says, ordinary := ciConflictDecided(state, now); !ordinary {
+			ciPolls.mu.Lock()
+			ciPolls.lastSay[poll], ciPolls.decided[poll] = says, decided
+			ciPolls.mu.Unlock()
+			return decided, says, nil
+		}
+	}
 	reading, err := f.Forge.RequiredChecks(ctx, wait.Commit, wait.Required)
 	if err != nil {
 		ciPolls.mu.Lock()
@@ -789,7 +827,7 @@ func (f *ForgeCIWaits) Decided(ctx context.Context, state runstate.State) (bool,
 	decided, why := ciWaitDecided(*wait, reading, now)
 	ciPolls.mu.Lock()
 	delete(ciPolls.unreadable, state.RunID)
-	ciPolls.lastSay[state.RunID], ciPolls.decided[state.RunID] = why, decided
+	ciPolls.lastSay[poll], ciPolls.decided[poll] = why, decided
 	ciPolls.mu.Unlock()
 	return decided, why, nil
 }
