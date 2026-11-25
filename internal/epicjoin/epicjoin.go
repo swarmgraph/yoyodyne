@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 const (
@@ -386,7 +387,7 @@ func noAnswer(ctx context.Context, result backend.RunResult, err error) string {
 // outcomeOf reads the session's answer. One that cannot be read cannot tell.
 func outcomeOf(result backend.RunResult, err error) epicprogress.Outcome {
 	cannot := func(why string) epicprogress.Outcome {
-		return epicprogress.Outcome{Answer: epicprogress.AnswerCannotTell, Why: cut(why), Session: result.SessionID}
+		return epicprogress.Outcome{Answer: epicprogress.AnswerCannotTell, Why: oneline.Fold(why, maxWhyBytes), Session: result.SessionID}
 	}
 	if err != nil {
 		return cannot(fmt.Sprintf("the judging session failed: %v", err))
@@ -402,7 +403,7 @@ func outcomeOf(result backend.RunResult, err error) epicprogress.Outcome {
 	if from < 0 || to < from || json.Unmarshal([]byte(result.FinalText[from:to+1]), &said) != nil {
 		return cannot("the judging session's answer could not be read")
 	}
-	why := cut(strings.TrimSpace(said.Why))
+	why := oneline.Fold(said.Why, maxWhyBytes)
 	switch {
 	case why == "" || result.SessionID == "":
 		return cannot("the judging session gave no reason, or is not known")
@@ -410,13 +411,6 @@ func outcomeOf(result backend.RunResult, err error) epicprogress.Outcome {
 		return epicprogress.Outcome{Answer: said.Answer, Why: why, Session: result.SessionID}
 	}
 	return cannot("the judging session gave none of the three answers")
-}
-
-func cut(text string) string {
-	if len(text) > maxWhyBytes {
-		return strings.ToValidUTF8(text[:maxWhyBytes], "") + " [cut]"
-	}
-	return text
 }
 
 const system = `You judge whether one new piece of work is already asked for by an epic.
