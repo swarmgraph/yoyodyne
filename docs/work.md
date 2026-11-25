@@ -2091,7 +2091,8 @@ where it names a run no such entry stands for. A re-run recorded again about a
 stoppage whose one re-run was already claimed is attempted as well, and refused
 on the record — triage re-runs one docketed stoppage once — naming the item's
 latest stoppage as where the decision belongs. It runs under every gate those verbs
-already ask: your pause, your intake hold, the item's own triage budgets,
+already ask: your pause, your intake hold,
+[the epics you named](operations.md#which-epics-the-factory-works-on), the item's own triage budgets,
 developer capacity, and the preserved worktree being what a continued developer
 could be handed back. A refusal spends nothing and is never silent: it is
 written onto the item's triage record and the docket entry she reads comes back
@@ -2099,8 +2100,8 @@ carrying the decision and the gate, naming what would clear it. From then on the
 decision is hers rather than the harness's: the entry's next mover names her, and
 so does the item's held line, which says what was refused and what clears it,
 because a line naming the harness over a decision the harness cannot carry out
-is one nobody acts on. A decision waiting on your pause or your intake hold, or
-one no pass has attempted yet, stays the harness's. A repair counts as carried
+is one nobody acts on. A decision waiting on your pause, your intake hold or the
+epics you named, or one no pass has attempted yet, stays the harness's. A repair counts as carried
 out once its run records being handed back since the decision, however few of
 its granted rounds were judged, so a repaired run that stops again is hers to
 decide about too. A gate shut for
@@ -2145,6 +2146,13 @@ out: 1 refused, 1 unattempted* — because the two are fixed in different places
 A re-run held back because the item is parked is neither: it is written down at
 the next pass as waiting on the unparking, in place of any earlier wait, it is
 not put ahead of the walk, and `yoyo status` counts the item as parked work.
+A fresh run or a repair held back because its item is
+[outside the epics you named](operations.md#which-epics-the-factory-works-on) is
+neither as well: it is written down at the next pass as waiting on those epics,
+in place of any earlier wait, it is not put ahead of the walk, and `yoyo status`
+counts the item as waiting on them. No pass attempts it while they leave its item
+out, and the first pass after the item is added, or after epic mode is turned
+off, can carry it out.
 The re-runs recorded for yoyodyne-ifd.192 and .187 on 2026-09-19 sat in that
 third ending for a week with nothing anywhere saying so;
 [the diagnosis](diagnoses/yoyodyne-ifd-428-39-unattempted-carry-outs.md) is how.
@@ -2188,7 +2196,8 @@ every item the harness holds a run of, which are the items whose holds it reads,
 and a re-run is attempted even where a later decision about another of the
 item's runs, such as a wait, came after it, because the re-run still holds the
 item.
-Until the pass starts it, the item's hold says it waits on the harness; a re-run
+Until the pass starts it, the item's hold says it waits on the harness, or on
+the epics you named while they leave the item out; a re-run
 refused for a cause that will not clear, over a run that left no branch or
 worktree, releases the item and says so on it, as
 [a refused carry-out](run-stops.md#permanent-carry-out-refusals) does. A run of the item started since the

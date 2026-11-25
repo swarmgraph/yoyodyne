@@ -1848,6 +1848,15 @@ the one its latest revision names. A refused document stays confirmed and waitin
 with nothing counted against it, and the harness starts it once it is allowed; a
 document run already recorded carries on to its end.
 
+A fresh run or repair the development manager decided for an item outside them
+is written onto the item's triage record as waiting, with the command that adds
+the item, rather than as refused or as a decision nothing attempted. It is not
+critical on her list, is not counted under "decisions not carried out", and is
+said on the not-startable line as waiting on the epics you named. Nothing is
+spent and nobody decides it again: the first pass after the item is added, or
+after epic mode is turned off, carries it out. A decision that waits because the
+record of the named epics could not be read is recorded the same way, saying so.
+
 Other starts do not ask yet, so epic mode does not hold them out. Among them are
 carrying on a run already begun, resuming an approved change stopped at its
 landing, a role's pass, the review of unmet goals and the reading of outside
@@ -6436,7 +6445,9 @@ has the rule.
   people to go to. **Awaiting a decision** is a stoppage the development manager
   has still to settle. **Awaiting carry-out** is one she has settled into
   something the harness then has to do — a repair handed back, a re-run, a merge
-  re-armed — and has not yet acted on. The other three decisions she can make
+  re-armed — and has not yet acted on. While epic mode is on, one whose item is
+  [outside the epics you named](#which-epics-the-factory-works-on) is counted
+  apart from both, as waiting on those epics. The other three decisions she can make
   settle the stoppage and leave the harness nothing: an item told to wait, to be
   re-scoped, or escalated is held by what she decided rather than by anything
   outstanding, so it is not in the carry-out wait and nobody is watching for a

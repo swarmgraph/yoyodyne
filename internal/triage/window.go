@@ -264,7 +264,7 @@ func (e Entry) Critical() bool {
 	if e.CarryOut != nil && e.CarryOut.Cause != "" && !e.CarryOut.NoLongerApplies() {
 		return true
 	}
-	return e.CarryOutStopped() && !e.CarryOut.Waiting && !e.CarryOut.WaitsOnParking()
+	return e.CarryOutStopped() && !e.CarryOut.Waiting && !e.CarryOut.WaitsOnParking() && !e.CarryOut.WaitsOnNamedEpics()
 }
 
 // Window is what one pass is offered of the live docket, in the three parts a

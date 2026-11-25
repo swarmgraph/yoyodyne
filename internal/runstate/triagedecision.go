@@ -369,13 +369,14 @@ func (c TriageCounters) Standing(runID string) triage.Standing {
 	_, refused := c.RefusedCarryOut(runID)
 	_, settled := c.NoLongerApplies(runID)
 	return triage.Standing{
-		Decided:          decided && !decision.InFlight(),
-		Spends:           decision.Spends(),
-		Repair:           decision.Decision == TriageDecisionRepair,
-		GrantOutstanding: c.GrantOutstanding(),
-		Refused:          refused,
-		NoLongerApplies:  settled,
-		WaitsOnParking:   decided && c.waitsOnParking(runID, decision),
+		Decided:           decided && !decision.InFlight(),
+		Spends:            decision.Spends(),
+		Repair:            decision.Decision == TriageDecisionRepair,
+		GrantOutstanding:  c.GrantOutstanding(),
+		Refused:           refused,
+		NoLongerApplies:   settled,
+		WaitsOnParking:    decided && c.waitsOnParking(runID, decision),
+		WaitsOnNamedEpics: decided && c.waitsOnNamedEpics(runID, decision),
 	}
 }
 
@@ -385,6 +386,12 @@ func (c TriageCounters) Standing(runID string) triage.Standing {
 func (c TriageCounters) waitsOnParking(runID string, decision TriageDecision) bool {
 	finding, found := c.CarryOutOf(runID)
 	return found && finding.WaitsOnParking() && finding.AboutDecision(decision.Decision, decision.DecidedAt)
+}
+
+// waitsOnNamedEpics is waitsOnParking's question of the named epics.
+func (c TriageCounters) waitsOnNamedEpics(runID string, decision TriageDecision) bool {
+	finding, found := c.CarryOutOf(runID)
+	return found && finding.WaitsOnNamedEpics() && finding.AboutDecision(decision.Decision, decision.DecidedAt)
 }
 
 // StandingOf is Standing read with the stopped run's own record beside it, which

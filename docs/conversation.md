@@ -3316,7 +3316,9 @@ cannot be, and its refusal is shown on the item's entries, labelled with the
 run, naming the re-run that would apply instead.
 A decision no pass has attempted a poll interval after it
 was recorded is written there too, as unattempted with why, so none is ever
-silently passed over. Before that existed, thirty-three items stood decided and
+silently passed over. One whose item is parked, or is
+[outside the epics you named](operations.md#which-epics-the-factory-works-on),
+is written there at once as waiting on that instead. Before that existed, thirty-three items stood decided and
 unfired, some for days, because the only executor was somebody typing one of these
 two commands.
 

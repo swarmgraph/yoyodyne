@@ -169,6 +169,12 @@ func (w *waitGroups) add(entry backlog.Entry, kind backlog.HoldKind) {
 func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup {
 	switch kind {
 	case backlog.HeldForAPerson:
+		if entry.AwaitingNamedEpics {
+			return ownedGroup(WaitGroup{Kind: kind, Awaiting: HeldAwaitingNamedEpics,
+				WaitsOn: "wait on the epics the operator named letting the item start, with a decision already recorded",
+				Next:    "the harness carries the recorded decision out at the first pull after the item may start"},
+				ownership.KindHeldWork, ownership.Record{AwaitingCarryOut: true})
+		}
 		if _, carryOut := entry.Awaits(); carryOut {
 			return ownedGroup(WaitGroup{Kind: kind, Awaiting: HeldAwaitingCarryOut,
 				WaitsOn: "wait on the harness carrying out a decision already recorded",
