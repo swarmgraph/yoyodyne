@@ -508,16 +508,13 @@ type recurringFirings struct {
 	// found a pass of hers, or another turn, taking turns in her conversation and
 	// is waiting for it to end, or the decision on what may start refused it. It
 	// is made by summonWaiting at the first pull after that. A session that ends
-	// loses it, and the next one finds it on the hold; see restoreSummons.
+	// loses it.
 	summoning *waitingSummons
-	// holdRead is whether this session has read, once, the hold an earlier
-	// session may have left with its summons still owed.
-	holdRead bool
 }
 
 // waitingSummons is a summons of the development manager held back while her
-// own pass holds her conversation, or while it may not start: how the hold it is
-// for is revised, and how she is reached.
+// own pass holds her conversation, or while it may not start: how the hold it is for is revised, and how
+// she is reached.
 type waitingSummons struct {
 	brake   ScheduleBrake
 	summons ScheduleSummons
@@ -862,13 +859,12 @@ func (s Scheduler) collectFirings(schedule *Schedule, firings *recurringFirings,
 
 // summonWaiting makes the brake's summons that waited on the development
 // manager's conversation, once the turn holding it has ended, or that the
-// decision on what may start refused, at each pull until it may, and only while
-// the brake's hold it was for still stands and is still the harness's to work. A hold she or the
+// decision on what may start refused, at each pull until it may, and only while the brake's hold
+// it was for still stands and is still the harness's to work. A hold she or the
 // operator lifted in the meantime, or one escalated past her, has
 // nothing left to summon her over, so the waiting summons is dropped. A hold
 // that cannot be read is left for the next pull.
 func (s Scheduler) summonWaiting(ctx context.Context, schedule *Schedule, firings *recurringFirings, pull Pull) {
-	s.restoreSummons(firings, pull)
 	waiting := firings.summoning
 	if waiting == nil || pull.Intake == nil {
 		return
@@ -882,33 +878,4 @@ func (s Scheduler) summonWaiting(ctx context.Context, schedule *Schedule, firing
 		return
 	}
 	s.summon(ctx, schedule, firings, waiting.brake, waiting.summons, hold)
-}
-
-// restoreSummons puts back, at the first pull of a session that can read the
-// hold, the summons an earlier session ended without making: the hold is the
-// brake's, it records neither a summons nor why one failed, and nobody has
-// decided it. The hold is the only record read, so a refused summons comes round
-// after a restart even where epic mode was turned off in between. A product that
-// has named no epic has had none refused, and is left as it is.
-func (s Scheduler) restoreSummons(firings *recurringFirings, pull Pull) {
-	if firings.holdRead || pull.Intake == nil || pull.Brake == nil {
-		return
-	}
-	asking, asks := pull.Summons.(summonsAsking)
-	if !asks || !asking.EpicsNamed() {
-		return
-	}
-	hold, held, err := pull.Intake.Held()
-	if err != nil {
-		return
-	}
-	firings.holdRead = true
-	if firings.summonsPending() || !held || !hold.Braked() || hold.WaitsOnAPerson() {
-		return
-	}
-	trip := hold.Brake
-	if trip.SummonedAt != nil || trip.SummonProblem != "" || trip.Decision != "" || trip.Probing() {
-		return
-	}
-	firings.summoning = &waitingSummons{brake: pull.Brake, summons: pull.Summons}
 }

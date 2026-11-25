@@ -1871,8 +1871,8 @@ messages do not start at all. A refused pass changes nothing else: its schedule,
 events, requests, labels and reports wait as they were, it is not recorded as
 missed, and the pass after it in the order starts. An automatic hold is placed
 whatever the answer; the development manager's refused pass over it is tried again
-at each poll while the hold stands, and after a restart too. Your own conversation
-with a role always starts.
+at each poll while the hold stands, and is lost if the session restarts first. Your
+own conversation with a role always starts.
 
 Other starts do not ask yet, so epic mode does not hold them out. Among them are
 carrying on a run already begun and resuming an approved change stopped at its
