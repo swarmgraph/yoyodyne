@@ -1838,9 +1838,7 @@ check asks again:
   development manager as a stopped run, however long the merge has waited. A
   merge still queued lands by itself if its checks come to pass. A change whose
   merge GitHub dropped, or whose wait on its target's red check has ended, waits
-  the same way. `yoyo reconcile` says which and why. The list of unpublished pull
-  requests the development manager is shown still has one older than
-  `triage.stuck_merge_age`, as it has any other.
+  the same way. `yoyo reconcile` says which and why.
 - **Bringing a change that waits for a person's merge up to date.** The run goes
   on waiting, nothing is withdrawn and nothing is noted on the item. A merge or a
   closing by the person is still settled.
@@ -1848,6 +1846,16 @@ check asks again:
   harness's login.** The run stays stopped with its branch and checkout, its
   entry on the development manager's list stays open, the item is neither noted
   nor claimed, and no attempt is spent. The next stopped run is still looked at.
+
+While the named epics refuse either of the first two, the list of unpublished pull
+requests the development manager is shown leaves that change out, however old it
+is, and one listed earlier drops off; `yoyo status` still shows the refused start.
+A change is listed as usual where the record of the named epics could not be read,
+its pull request is closed, its merge failed for another cause (a wait on its
+target's red check is one), or the harness could not bring it up to date whatever
+the epics named. So is one returned to her because a decision of hers could not be
+carried out. Once its item is added, or epic mode is turned off, a change still
+unpublished past `triage.stuck_merge_age` is listed again.
 
 A document may be published where the work items it answers include a member of
 an open epic, or the open epic itself. It answers each item its owner listed and
