@@ -52,6 +52,8 @@ func escalatorFrom(parts components, configPath string, stderr io.Writer) *orche
 		// The same pause every run and every turn reads. A delivery is a provider
 		// invocation, so `yoyo pause` covers it exactly as it covers them.
 		Holds: parts.holds,
+		// Asked before a delivery claims or opens anything.
+		MayStart: parts.mayStart(),
 	}
 }
 

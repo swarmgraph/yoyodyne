@@ -135,7 +135,7 @@ func TestEveryRule(t *testing.T) {
 			documents, documentsOut = in, out
 		case startsPass:
 			passes = in
-		case startsGoalReview, startsMessageReading:
+		case startsGoalReview, startsMessageReading, startsUnruled:
 		default:
 			t.Fatalf("%s starts nothing this test knows", entry.Path)
 		}
@@ -231,6 +231,7 @@ func TestTheClosedListOfPaths(t *testing.T) {
 		ReadyWork, NamedRun, HoldTest, DecidedRerun, DecidedRepair, FinishMerge, ContinueRun, PickUpRun,
 		FeedbackRepair, PublishDocument, BringUpToDate, ResolveConflict, BringInFile,
 		UpdateQueued, UpdateForPerson, AfterLogin, RecurringPass, PromptedPass, UnmetGoalReview, MessagesForWork,
+		TeamUpdate, BranchReview,
 	}
 	wired := map[Path]bool{
 		ReadyWork: true, NamedRun: true, HoldTest: true, DecidedRerun: true, DecidedRepair: true, FeedbackRepair: true,

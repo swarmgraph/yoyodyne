@@ -29,7 +29,6 @@ type epicBench struct {
 	items     *listedItems
 	trackerIs error // why the tracker cannot be read, where it cannot
 	paths     []maystart.PathEntry
-	unchecked bool // the checks over every start path are not built
 }
 
 func newEpicBench(t *testing.T) *epicBench {
@@ -58,7 +57,7 @@ func newEpicBench(t *testing.T) *epicBench {
 func (b *epicBench) run(args ...string) (string, string, int) {
 	b.t.Helper()
 	var stdout, stderr bytes.Buffer
-	command := epicCommand{paths: b.paths, startsChecked: !b.unchecked, stdout: &stdout, stderr: &stderr,
+	command := epicCommand{paths: b.paths, stdout: &stdout, stderr: &stderr,
 		tracker: func(string) (itemLister, error) { return b.items, b.trackerIs }}
 	code := command.run(context.Background(), append(args, "--config", b.config))
 	return stdout.String(), stderr.String(), code
@@ -268,19 +267,23 @@ func TestEpicStartIsRefusedWhileAnyPathIsNotWired(t *testing.T) {
 	}
 }
 
-func TestEpicStartIsRefusedUntilTheStartPathsAreCheckedThoughEveryOneIsWired(t *testing.T) {
+// The command as it ships is refused only for the ways of starting work that no
+// rule covers yet, each named, and for nothing else.
+func TestEpicStartAsItShipsIsRefusedOnlyForTheWaysNoRuleCovers(t *testing.T) {
 	bench := newEpicBench(t)
-	bench.unchecked = true
-	bench.refuses([]string{"start", "yoyodyne-a"}, "the checks over every start path are not built yet")
-	if _, stderr, _ := bench.run("start", "yoyodyne-a"); strings.Contains(stderr, "without asking") {
-		t.Fatalf("the refusal names an unwired path, and every path is wired: %q", stderr)
-	}
-	// The command as it ships is refused the same way, whatever its list says.
-	if _, stderr, code := runCLI(t, "epic", "start", "yoyodyne-a", "--config", bench.config); code != 1 || !strings.Contains(stderr, "the checks over every start path are not built yet") {
+	_, stderr, code := runCLI(t, "epic", "start", "yoyodyne-a", "--config", bench.config)
+	if code != 1 {
 		t.Fatalf("exited %d: %s", code, stderr)
 	}
-	bench.unchecked = false
-	bench.does("start", "yoyodyne-a")
+	unruled := []maystart.Path{maystart.TeamUpdate, maystart.BranchReview}
+	for _, path := range maystart.Paths() {
+		if want := slices.Contains(unruled, path.Path); path.Wired == want || strings.Contains(stderr, path.Says) != want {
+			t.Errorf("%s: wired %t, refusal %q; want it named only where no rule covers it", path.Path, path.Wired, stderr)
+		}
+	}
+	if strings.Contains(stderr, "not built") {
+		t.Errorf("the refusal still says the checks are not built: %q", stderr)
+	}
 }
 
 func TestOnlyAPersonNamesEpics(t *testing.T) {
