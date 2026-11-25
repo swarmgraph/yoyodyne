@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -27,7 +28,7 @@ var writers = []struct {
 	{[]string{"epic-scope.json"}, "internal/epicscope", []string{"ForOperator", "Operator"},
 		[]string{"Add", "End", "Start", "TurnOff", "UnderLock", "change", "write"}, []string{"internal/cli/epic.go"}},
 	{[]string{progressName, begunName}, "internal/epicprogress", []string{"Open", "Store"},
-		[]string{"Begin", "Call", "Join", "Point", "change", "reserve", "settle", "write"}, nil},
+		[]string{"Begin", "Call", "Join", "Point", "ReserveRun", "change", "reserve", "settle", "write"}, []string{"internal/cli/run.go"}},
 }
 
 // TestEveryWriterOfTheThreeFilesIsListed reads every Go file of the module, tests
@@ -114,7 +115,20 @@ func holds(file *ast.File, text string) bool {
 func reaches(file *ast.File, pkg string, names ...string) bool {
 	for _, spec := range file.Imports {
 		if spec.Path.Value == `"github.com/mason-bryant/yoyodyne/`+pkg+`"` {
-			return spec.Name != nil && spec.Name.Name == "." || len(names) == 0 || uses(file, names...)
+			imported := path.Base(pkg)
+			if spec.Name != nil {
+				imported = spec.Name.Name
+			}
+			found := imported == "." || len(names) == 0
+			ast.Inspect(file, func(node ast.Node) bool {
+				used, ok := node.(*ast.SelectorExpr)
+				if ok && slices.Contains(names, used.Sel.Name) {
+					from, plain := used.X.(*ast.Ident)
+					found = found || plain && from.Name == imported
+				}
+				return !found
+			})
+			return found
 		}
 	}
 	return false

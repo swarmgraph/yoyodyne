@@ -18,14 +18,16 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // maxEpicReasonBytes bounds why a record could not be read, which names the file.
 const maxEpicReasonBytes = 512
 
-// EpicRecords is the two records the epic lines are read from.
+// EpicRecords is the records the epic lines are read from.
 type EpicRecords interface {
 	// Named is the epics the operator named; it names none where there is no
 	// record.
@@ -34,6 +36,15 @@ type EpicRecords interface {
 	NotStarted() (maystart.Refusals, error)
 	// MayStart is the one decision on a start, with nothing kept.
 	MayStart(start maystart.Start) maystart.Decision
+	// Progress is what is kept of the named epics' progress, beside a reading of
+	// the record of them, and where it is kept.
+	Progress(record epicscope.Record) (view epicprogress.View, files string, err error)
+}
+
+// itemRuns lists one item's runs. It is an optional capability of Runs, and
+// every store the harness wires satisfies it.
+type itemRuns interface {
+	Runs(workItemID string) ([]runstate.State, error)
 }
 
 type epicRecords struct {
@@ -56,6 +67,11 @@ func (e epicRecords) NotStarted() (maystart.Refusals, error) {
 
 func (e epicRecords) MayStart(start maystart.Start) maystart.Decision {
 	return maystart.Decide(e.stateRoot, e.product, start)
+}
+
+func (e epicRecords) Progress(record epicscope.Record) (epicprogress.View, string, error) {
+	view, err := epicprogress.Read(e.stateRoot, e.product, record)
+	return view, epicprogress.Files(e.stateRoot, e.product), err
 }
 
 // Epics is the mode and the named epics as of one reading.
@@ -190,8 +206,14 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	case listedErr != nil:
 		epics.ItemsProblem = joinProblems(epics.ItemsProblem, fmt.Sprintf("the tracker could not be listed: %v", listedErr))
 	}
+	view, files, progressErr := sources.Epics.Progress(record)
+	if progressErr != nil {
+		// Membership is then the record's alone, for showing only.
+		view = epicprogress.View{Record: record}
+	}
 	facts := epicFacts{
 		record:   record,
+		view:     view,
 		items:    make(map[string]beads.WorkItem, len(listed)),
 		readable: listedErr == nil,
 		running:  map[string]bool{},
@@ -246,6 +268,12 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 		epics.PassesNotStartedSince = earliest(epics.PassesNotStartedSince, passes.Since)
 	}
 
+	if progressErr != nil {
+		epics.Problems = append(epics.Problems, fmt.Sprintf("Every start that asks about the epics you named is refused: what is kept of their progress could not be read (%s).",
+			singleLine(progressErr.Error(), maxEpicReasonBytes)))
+	} else {
+		epics.Problems = append(epics.Problems, facts.progressProblems(sources.Runs, files)...)
+	}
 	stopped := map[string]bool{}
 	for _, runs := range [][]RunningRun{standing.Running, standing.PausedRuns} {
 		for _, run := range runs {
@@ -349,6 +377,7 @@ func (f epicFacts) refusedDocument(refused maystart.RefusedDocument, says map[ma
 // epicFacts is what the epic lines are worked out from.
 type epicFacts struct {
 	record   epicscope.Record
+	view     epicprogress.View
 	items    map[string]beads.WorkItem
 	readable bool
 	running  map[string]bool
@@ -356,8 +385,7 @@ type epicFacts struct {
 }
 
 func (f epicFacts) inside(id string) bool {
-	_, held := f.record.Holding(id)
-	return held
+	return len(f.view.Holders(id)) > 0
 }
 
 func (f epicFacts) isOpenEpic(id string) bool {
@@ -374,8 +402,8 @@ func (f epicFacts) gone(id string) bool {
 
 func (f epicFacts) count(epic epicscope.Epic) OpenEpic {
 	counted := OpenEpic{WorkItemID: epic.WorkItemID, Title: f.title(epic.WorkItemID, "")}
-	for _, member := range epic.Members {
-		switch id := member.WorkItemID; {
+	for _, id := range f.view.Items(epic) {
+		switch {
 		case f.done(id):
 			counted.Done++
 		case f.running[id]:
@@ -387,6 +415,79 @@ func (f epicFacts) count(epic epicscope.Epic) OpenEpic {
 		}
 	}
 	return counted
+}
+
+// progressProblems is what is wrong with the progress of the open epics: an epic
+// whose progress cannot be read or is missing, a call whose result cannot be
+// known, and an item in more than one epic.
+func (f epicFacts) progressProblems(runs Runs, files string) []string {
+	var says []string
+	shared := map[string]bool{}
+	for _, epic := range f.record.OpenEpics() {
+		id := epic.WorkItemID
+		for _, item := range f.view.Items(epic) {
+			holders := f.view.Holders(item)
+			if len(holders) < 2 || shared[item] {
+				continue
+			}
+			shared[item] = true
+			var names, ends []string
+			for _, holder := range holders {
+				names = append(names, f.name(holder.WorkItemID, ""))
+				ends = append(ends, "yoyo epic end "+holder.WorkItemID)
+			}
+			says = append(says, fmt.Sprintf("%s is in more than one open epic, so it does not start: %s. To settle it, end all but one: %s",
+				f.name(item, ""), strings.Join(names, ", "), strings.Join(ends, ", or ")))
+		}
+		if why := f.view.Unreadable(epicprogress.Of(epic)); why != "" {
+			says = append(says, fmt.Sprintf("Nothing starts in %s, because its progress cannot be read (%s; the files are %s). To begin it again: yoyo epic end %s, then yoyo epic start %s",
+				f.name(id, ""), why, files, id, id))
+			continue
+		}
+		for _, reserved := range f.view.UnknownResults(epicprogress.Of(epic)) {
+			says = append(says, fmt.Sprintf("In %s, the result of %s, written down at %s before it was made, cannot be known: %s. The development manager decides.",
+				f.name(id, ""), reserved.For, localMoment(reserved.At), singleLine(reserved.Result.Says, maxEpicReasonBytes)))
+		}
+		older, err := f.olderRuns(runs, epic)
+		switch {
+		case err != nil:
+			says = append(says, fmt.Sprintf("Whether the progress of %s is missing could not be told: %s", f.name(id, ""), singleLine(err.Error(), maxEpicReasonBytes)))
+		case older > 0:
+			says = append(says, fmt.Sprintf("The progress of %s is missing: %s of it %s older than anything kept in %s. The files were removed, or the runs are from while epic mode was off.",
+				f.name(id, ""), count(older, "run"), areOrIs(older), files))
+		}
+	}
+	return says
+}
+
+func areOrIs(count int) string {
+	if count == 1 {
+		return "is"
+	}
+	return "are"
+}
+
+// olderRuns counts the runs of the epic's items, made since each was in it, that
+// are older than anything kept of its progress. Which pieces joined an epic is
+// kept only there, so the members are what is asked about.
+func (f epicFacts) olderRuns(runs Runs, epic epicscope.Epic) (int, error) {
+	listing, can := runs.(itemRuns)
+	if !can {
+		return 0, nil
+	}
+	older := 0
+	for _, member := range epic.Members {
+		recorded, err := listing.Runs(member.WorkItemID)
+		if err != nil {
+			return 0, err
+		}
+		for _, run := range recorded {
+			if !run.StartedAt.Before(member.AddedAt) && f.view.Precedes(epicprogress.Of(epic), run.RunID, run.StartedAt) {
+				older++
+			}
+		}
+	}
+	return older, nil
 }
 
 // waitsOutside is each member that has not started and waits for an unfinished
@@ -403,8 +504,7 @@ func (f epicFacts) waitsOutside() []string {
 		if !epic.Open() {
 			continue
 		}
-		for _, member := range epic.Members {
-			id := member.WorkItemID
+		for _, id := range f.view.Items(epic) {
 			if f.done(id) || f.running[id] {
 				continue
 			}

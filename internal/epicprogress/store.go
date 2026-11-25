@@ -80,6 +80,64 @@ func (s *Store) Point(naming Naming, id, purpose, heldBy string) error {
 	return err
 }
 
+// ReserveRun reserves the start of a run in every epic the operator named that
+// it is for, before the run's record is made: the one that holds its item, or,
+// for a document, each that holds or is an item it answers. The run's record is
+// what holds the reservation, so the entry points to it. While epic mode is off
+// nothing is written. A run that is for no open epic is refused: one the decision
+// allowed may have been ended since. withdraw takes back what this reserved,
+// where the run's record was refused and so never made.
+func (s *Store) ReserveRun(runID string, items []string) (withdraw func() error, err error) {
+	record, err := epicscope.Read(s.stateRoot, s.product)
+	if err != nil {
+		return nil, err
+	}
+	if !record.On() {
+		return func() error { return nil }, nil
+	}
+	view, err := Read(s.stateRoot, s.product, record)
+	if err != nil {
+		return nil, err
+	}
+	var reserved []Naming
+	withdraw = func() error {
+		var problems []error
+		for _, naming := range reserved {
+			problems = append(problems, s.change(naming, func(entry *Entry) error {
+				entry.Reservations = slices.DeleteFunc(entry.Reservations, func(r Reservation) bool { return r.ID == runReservation(runID) })
+				return nil
+			}))
+		}
+		return errors.Join(problems...)
+	}
+	found := false
+	problem := errors.New("it is in no open epic the operator named")
+	for _, epic := range record.OpenEpics() {
+		if !slices.ContainsFunc(append(view.Items(epic), epic.WorkItemID), func(item string) bool { return slices.Contains(items, item) }) {
+			continue
+		}
+		// A document may answer a second epic whose progress can be read.
+		if why := view.Unreadable(Of(epic)); why != "" {
+			problem = fmt.Errorf("the progress of epic %s cannot be read: %s", epic.WorkItemID, why)
+			continue
+		}
+		_, made, err := s.reserve(Of(epic), Reservation{ID: runReservation(runID), For: "run " + runID, HeldBy: "the record of run " + runID})
+		if err != nil {
+			return nil, errors.Join(err, withdraw())
+		}
+		found = true
+		if made {
+			reserved = append(reserved, Of(epic))
+		}
+	}
+	if !found {
+		return nil, problem
+	}
+	return withdraw, nil
+}
+
+func runReservation(runID string) string { return "run:" + runID }
+
 // Looked is what looking up a reserved call found.
 type Looked int
 

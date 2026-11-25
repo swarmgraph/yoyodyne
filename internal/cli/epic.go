@@ -19,6 +19,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
@@ -121,6 +122,7 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	if err != nil {
 		return c.fail(err)
 	}
+	operator = operator.Knowing(epicprogress.Holding(stateRoot, c.product))
 	switch verb {
 	case "start":
 		return c.start(ctx, operator, named[0])
@@ -180,10 +182,17 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 	if err != nil {
 		return c.refused(titles, err, append(itemIDs(below), id)...)
 	}
+	// What joined is in an epic already. Where that cannot be read the act stands
+	// and the record alone says what is.
+	view, err := epicprogress.Read(c.stateRoot, c.product, started.Record)
+	if err != nil {
+		view = epicprogress.View{Record: started.Record}
+	}
+	entry, _ := view.Entry(epicprogress.Of(started.Epic))
 	output := epicOutput{Record: &started.Record, Named: started.Named, TurnedOn: started.TurnedOn}
 	if !started.Named {
 		for _, item := range below {
-			if !started.Epic.Has(item.ID) {
+			if !started.Epic.Has(item.ID) && !entry.Has(item.ID) {
 				output.NotMembers = append(output.NotMembers, item.ID)
 			}
 		}
@@ -208,15 +217,18 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 		}
 	}
 	// The members are printed from what was recorded, so the two cannot differ.
-	fmt.Fprintf(c.stdout, "%d member(s), the only items that may start in it:\n", len(started.Epic.Members))
+	fmt.Fprintf(c.stdout, "%d member(s), the only items that may start in it:\n", len(view.Items(started.Epic)))
 	for _, member := range started.Epic.Members {
 		fmt.Fprintf(c.stdout, "  %s\n", titles.Name(member.WorkItemID))
+	}
+	for _, piece := range entry.Joined {
+		fmt.Fprintf(c.stdout, "  %s, which joined it\n", titles.Name(piece.WorkItemID))
 	}
 	if len(output.NotMembers) > 0 {
 		fmt.Fprintln(c.stdout, "open items below it that are not members, and the command that adds each:")
 		for _, item := range output.NotMembers {
-			if holder, held := started.Record.Holding(item); held {
-				fmt.Fprintf(c.stdout, "  %s: in epic %s, and can be added once that has ended: yoyo epic add %s %s\n", titles.Name(item), titles.Name(holder.WorkItemID), id, item)
+			if holders := view.Holders(item); len(holders) > 0 {
+				fmt.Fprintf(c.stdout, "  %s: in epic %s, and can be added once that has ended: yoyo epic add %s %s\n", titles.Name(item), titles.Name(holders[0].WorkItemID), id, item)
 				continue
 			}
 			fmt.Fprintf(c.stdout, "  %s: yoyo epic add %s %s\n", titles.Name(item), id, item)
@@ -433,7 +445,8 @@ start, and the refusal names each one that does not yet.
   list               show the record
   off                return the factory to goal mode; no epic is ended
 
-"start" and "add" refuse an item another open epic has, and name that epic.
+"start" and "add" refuse an item another open epic has or that joined one, and
+name that epic.
 
 All but "list" are a person's. A process the harness launched for a role, or
 started itself, is refused them and told so.

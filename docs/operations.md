@@ -1769,7 +1769,8 @@ none, with why. It also fails on any other code that uses the review behind
 list. The members are that list and what you add: an item moved or created below
 the epic afterwards is not one until you add it, and the epic itself is not one.
 A member waits on a prerequisite outside the members, which is not started.
-`start` and `add` refuse an item that another open epic has, and name that epic.
+`start` and `add` refuse an item that another open epic has, or that joined one,
+and name that epic.
 
 `end` leaves epic mode on, the last epic included, and `off` ends no epic. While
 epic mode is off you can still add to an epic or end it. `start` on an epic you
@@ -1782,6 +1783,31 @@ worked on again, with the command that ends each.
 The record is `epic-scope.json` in the product's state directory. All but `list`
 are [refused from a process the harness launched](#where-a-finding-that-needs-your-hand-goes),
 for a role or on its own schedule.
+
+The harness keeps what it remembers about each epic in `epic-progress.json` beside
+that record, which your commands never write: the pieces that joined it, review
+comments acted on, checks of the whole epic, its delivery, and each start and paid
+call, written down before it is made. For now only the starts of runs are written
+there, each pointing to the run's own record. There is one entry for each time you
+named an epic, so an epic you ended and named again starts with an empty one and
+the old entry is kept. `epic-progress-begun.json` lists the namings whose entry was
+begun, which shows that an entry once existed. Neither file is made until the first
+run starts in an epic you named, and neither is read to decide a start while epic
+mode is off. While it is on:
+
+- Either file being there and not readable whole refuses every start that asks
+  about the epics, as a record of the named epics that cannot be read does. Your
+  own conversation goes on. `start` of a new naming and `add` are refused too.
+- An epic listed as begun with no entry, or with an entry that is not empty and is
+  not listed, starts nothing. Other open epics carry on. `yoyo epic end` and then
+  `yoyo epic start` begins it again.
+- Both files missing reads as nothing kept yet, and what they held is lost.
+  `yoyo status` says so where a run of the epic is older than anything kept of it.
+- An item found in two open epics, which only a file changed by hand can cause,
+  starts in neither until you end one of them.
+
+A run of a member is written down before it is reserved. One that is then refused
+is taken back out, and one that cannot be written down is not started.
 
 ## Holding landing on one branch
 
@@ -1966,11 +1992,15 @@ epic mode on it also says:
   since when;
 - whether the review of unmet goals and the reading of outside messages may
   start, and why not;
-- each problem: a run stopped before its next step because its item is outside,
-  an item that waits for one outside, and each item refused a start, with each
-  way it was refused, why, and when first and last. The last two give the `yoyo
-  epic add` command that adds the item, where an epic is open to add it to. Where
-  several are and the item is below none of them, the command for each is given.
+- each problem: an epic whose progress cannot be read, with the files; one whose
+  runs are older than anything kept of its progress, which says the progress is
+  missing (runs made while epic mode was off are not kept, so they count too); a call whose result cannot be known, which the development manager
+  decides; an item in two open epics, naming both; a run stopped before its next
+  step because its item is outside, an item that waits for one outside, and each
+  item refused a start, with each way it was refused, why, and when first and
+  last. The last two give the `yoyo epic add` command that adds the item, where an
+  epic is open to add it to. Where several are and the item is below none of them,
+  the command for each is given.
   Each refused document is there once too, with the items it answers and the
   commands that would add one of them, and each target branch whose update from
   the team's branch was refused, while no epic is open.
