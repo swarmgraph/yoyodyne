@@ -34,7 +34,7 @@ func epicJoinsFrom(parts components) orchestrator.ScheduleEpicJoins {
 
 // Owed answers no while the operator has paused what the harness spends.
 func (e epicJoins) Owed(ctx context.Context) (bool, error) {
-	if _, held, err := e.parts.holds.Held(); err != nil || held {
+	if paused, err := e.paused(); err != nil || paused {
 		return false, err
 	}
 	joiner, err := e.joiner(nil)
@@ -42,6 +42,11 @@ func (e epicJoins) Owed(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return joiner.Owed(ctx)
+}
+
+func (e epicJoins) paused() (bool, error) {
+	_, held, err := e.parts.holds.Held()
+	return held, err
 }
 
 func (e epicJoins) Judge(ctx context.Context) (cost float64, err error) {
@@ -76,7 +81,8 @@ func (e epicJoins) joiner(spent func(runstate.Spend)) (epicjoin.Joiner, error) {
 		Judge: func(ctx context.Context, request epicjoin.Request) (backend.RunResult, error) {
 			return e.judge(ctx, request, spent)
 		},
-		Now: time.Now,
+		Paused: e.paused,
+		Now:    time.Now,
 	}, nil
 }
 

@@ -262,8 +262,8 @@ const (
 // Call makes one paid call for an epic, once. It is reserved before send. A
 // reservation already there is never sent again without looking it up first: a
 // result kept, or found by lookUp, is the answer; one that was never sent is
-// sent; and one that cannot be told is kept as unknown and is ErrResultUnknown
-// from then on. A send that fails leaves the reservation to be looked up. The
+// sent; and one that cannot be told is kept as unknown, with what lookUp says of
+// it, and is ErrResultUnknown from then on. A send that fails leaves the reservation to be looked up. The
 // caller makes sure no other process makes the same call at once.
 func (s *Store) Call(naming Naming, id, purpose string, lookUp func() (string, Looked, error), send func() (string, error)) (string, error) {
 	reserved, made, err := s.reserve(naming, Reservation{ID: id, For: purpose})
@@ -288,7 +288,10 @@ func (s *Store) Call(naming Naming, id, purpose string, lookUp func() (string, L
 			return says, s.settle(naming, id, Result{Says: says})
 		}
 		if looked != NotSent {
-			return "", errors.Join(unknown, s.settle(naming, id, Result{Says: "nothing shows whether it was sent", Unknown: true}))
+			if says == "" {
+				says = "nothing shows whether it was sent"
+			}
+			return "", errors.Join(unknown, s.settle(naming, id, Result{Says: says, Unknown: true}))
 		}
 	}
 	says, err := send()

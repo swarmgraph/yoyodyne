@@ -27,10 +27,11 @@ import (
 )
 
 const (
-	// RetryAfter is how long a judgment the provider refused waits, and maxSends
-	// how often one is sent before it is a question about scope.
-	RetryAfter = 30 * time.Minute
-	maxSends   = 48
+	// RetryAfter is how long a judgment that nothing answered waits, and maxFailures
+	// how many sessions may end without answering it before the development manager
+	// decides. A call the provider refused costs nothing and is not one.
+	RetryAfter  = 30 * time.Minute
+	maxFailures = 6
 
 	maxWhyBytes = 2 << 10
 	source      = "harness.epic-join"
@@ -75,8 +76,13 @@ type Joiner struct {
 	NewID     func() (string, error)
 	// Judge makes the call in a session of its own, which is never resumed.
 	Judge func(ctx context.Context, request Request) (backend.RunResult, error)
-	Now   func() time.Time
+	// Paused is whether the operator has paused what the harness spends, read before
+	// each call. One that cannot be read is an error and makes no call.
+	Paused func() (bool, error)
+	Now    func() time.Time
 }
+
+var errPaused = errors.New("the operator has paused what the harness spends")
 
 // owed is one piece with a judgment owed.
 type owed struct {
@@ -109,7 +115,11 @@ func (j Joiner) Round(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return errors.Join(append(problems, ctx.Err())...)
 		}
-		if err := j.judge(ctx, one, items); err != nil {
+		err := j.judge(ctx, one, items)
+		if errors.Is(err, errPaused) {
+			break // what is left stays owed
+		}
+		if err != nil {
 			problems = append(problems, fmt.Errorf("%s, made from %s: %w", one.item.ID, one.piece.From, err))
 		}
 	}
@@ -195,7 +205,7 @@ func (j Joiner) due(entry epicprogress.Entry, piece epicprogress.Piece) bool {
 	}
 	events, err := j.Log.LoadEvents(piece.Judgment)
 	last := lastOf(events)
-	return err != nil || last.state != refused || !j.Now().Before(last.at.Add(RetryAfter))
+	return err != nil || last.state != unanswered || !j.Now().Before(last.at.Add(RetryAfter))
 }
 
 func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.WorkItem) error {
@@ -254,6 +264,8 @@ func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.Work
 type ending struct {
 	Outcome string `json:"outcome,omitempty"`
 	Refused string `json:"refused,omitempty"`
+	// Failed is that a session was started, so the call may have cost something.
+	Failed bool `json:"failed,omitempty"`
 }
 
 type sentState int
@@ -261,7 +273,7 @@ type sentState int
 const (
 	notSent sentState = iota
 	sent
-	refused
+	unanswered
 	answered
 )
 
@@ -269,7 +281,7 @@ type sending struct {
 	state    sentState
 	at       time.Time
 	outcome  string
-	sends    int
+	failures int
 	sequence uint64
 }
 
@@ -284,7 +296,6 @@ func lastOf(events []execution.Event) sending {
 		last.at = event.Timestamp
 		if event.Type == execution.EventReviewStarted {
 			last.state = sent
-			last.sends++
 			continue
 		}
 		var ended ending
@@ -293,7 +304,10 @@ func lastOf(events []execution.Event) sending {
 		}
 		last.state, last.outcome = answered, ended.Outcome
 		if ended.Outcome == "" {
-			last.state = refused
+			last.state = unanswered
+			if ended.Failed {
+				last.failures++
+			}
 		}
 	}
 	return last
@@ -306,14 +320,21 @@ func (j Joiner) lookUp(id string) (string, epicprogress.Looked, error) {
 	if err != nil {
 		return "", epicprogress.CannotTell, nil
 	}
-	switch last := lastOf(events); last.state {
-	case answered:
+	switch last := lastOf(events); {
+	case last.state == answered:
 		return last.outcome, epicprogress.Found, nil
-	case sent:
+	case last.state == sent:
 		return "", epicprogress.CannotTell, nil
+	case !last.permission().Granted():
+		return fmt.Sprintf("%d sessions ended without answering", last.failures), epicprogress.CannotTell, nil
 	default:
 		return "", epicprogress.NotSent, nil
 	}
+}
+
+// permission is the budget's leave to send a judgment again.
+func (s sending) permission() budget.Permission {
+	return budget.Decide(budget.Spent{Turns: s.failures}, budget.Limits{Turns: maxFailures}).Permission
 }
 
 // send makes the call. What it is and what came of it are written to its log
@@ -324,9 +345,14 @@ func (j Joiner) send(ctx context.Context, id, asked string) (string, error) {
 		return "", err
 	}
 	before := lastOf(events)
-	decision := budget.Decide(budget.Spent{Turns: before.sends}, budget.Limits{Turns: maxSends})
-	if !decision.Permission.Granted() {
-		return encode(epicprogress.Outcome{Answer: epicprogress.AnswerCannotTell, Why: fmt.Sprintf("the judging session was started %d times and none answered", before.sends)})
+	permission := before.permission()
+	if !permission.Granted() {
+		return "", errors.New("no further session may be started for it")
+	}
+	if paused, err := j.Paused(); err != nil {
+		return "", fmt.Errorf("read whether the operator has paused what the harness spends: %w", err)
+	} else if paused {
+		return "", errPaused
 	}
 	sequence := before.sequence
 	write := func(kind execution.EventType, payload any) error {
@@ -342,15 +368,15 @@ func (j Joiner) send(ctx context.Context, id, asked string) (string, error) {
 	if err := write(execution.EventReviewStarted, nil); err != nil {
 		return "", fmt.Errorf("record that the judgment is sent: %w", err)
 	}
-	result, err := j.Judge(ctx, Request{ID: id, System: system, Prompt: asked, LastSequence: sequence, Permission: decision.Permission,
+	result, err := j.Judge(ctx, Request{ID: id, System: system, Prompt: asked, LastSequence: sequence, Permission: permission,
 		Sink: func(event execution.Event) error {
 			sequence = max(sequence, event.Sequence)
 			return j.Log.AppendEvent(event)
 		}})
-	if why := noAnswer(ctx, result, err); why != "" {
-		return "", errors.Join(errors.New(why), write(execution.EventReviewCompleted, ending{Refused: why}))
+	if why, failed := noAnswer(ctx, result, err); why != "" {
+		return "", errors.Join(errors.New(why), write(execution.EventReviewCompleted, ending{Refused: why, Failed: failed}))
 	}
-	says, err := encode(outcomeOf(result, err))
+	says, err := encode(outcomeOf(result))
 	if err != nil {
 		return "", err
 	}
@@ -365,35 +391,30 @@ func encode(outcome epicprogress.Outcome) (string, error) {
 	return string(encoded), err
 }
 
-// noAnswer is why a call is known to have answered nothing, so that it may be made
-// again, and empty otherwise.
-func noAnswer(ctx context.Context, result backend.RunResult, err error) string {
-	if err == nil && !result.IsError {
-		return ""
-	}
+// noAnswer is why a session that failed answered nothing, and empty for one that
+// completed. failed is that it may have cost something.
+func noAnswer(ctx context.Context, result backend.RunResult, err error) (why string, failed bool) {
 	switch {
-	case ctx.Err() != nil:
-		return "the harness stopped while the judging session ran"
+	case err == nil && !result.IsError:
+		return "", false
 	case result.UsageLimit != nil:
-		return "the provider has no capacity left in its usage limit"
-	case result.ServerOverload != nil || result.TransientFailure != nil || result.ProviderOutage != nil:
-		return "the provider did not answer"
-	case err != nil && result.SessionID == "" && result.LastEvent == 0:
-		return fmt.Sprintf("the judging session could not be started: %v", err)
+		return "the provider has no capacity left in its usage limit", false
+	case result.ServerOverload != nil || result.ProviderOutage != nil:
+		return "the provider did not answer", false
+	case ctx.Err() != nil:
+		return "the harness stopped while the judging session ran", true
+	case err != nil:
+		return oneline.Fold(fmt.Sprintf("the judging session failed: %v", err), maxWhyBytes), result.SessionID != "" || result.LastEvent != 0
+	default:
+		return oneline.Fold("the judging session failed: "+result.DescribeFailure(), maxWhyBytes), true
 	}
-	return ""
 }
 
-// outcomeOf reads the session's answer. One that cannot be read cannot tell.
-func outcomeOf(result backend.RunResult, err error) epicprogress.Outcome {
+// outcomeOf reads what a session that completed answered. An answer that cannot be
+// read cannot tell.
+func outcomeOf(result backend.RunResult) epicprogress.Outcome {
 	cannot := func(why string) epicprogress.Outcome {
-		return epicprogress.Outcome{Answer: epicprogress.AnswerCannotTell, Why: oneline.Fold(why, maxWhyBytes), Session: result.SessionID}
-	}
-	if err != nil {
-		return cannot(fmt.Sprintf("the judging session failed: %v", err))
-	}
-	if result.IsError {
-		return cannot("the judging session failed: " + result.DescribeFailure())
+		return epicprogress.Outcome{Answer: epicprogress.AnswerCannotTell, Why: why, Session: result.SessionID}
 	}
 	var said struct {
 		Answer epicprogress.Answer `json:"answer"`

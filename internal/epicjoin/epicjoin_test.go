@@ -34,8 +34,10 @@ type bench struct {
 	root     string
 	items    []beads.WorkItem
 	answer   string
-	fail     error
-	limit    *backend.UsageLimit
+	failed   *backend.RunResult
+	err      error
+	paused   bool
+	unread   error
 	requests []Request
 	now      time.Time
 }
@@ -84,15 +86,15 @@ func (b *bench) joiner() Joiner {
 	log, err := runstate.NewBranchReviewStore(b.root, product)
 	b.must(err)
 	return Joiner{StateRoot: b.root, Product: product, Progress: store, Log: log, NewID: runstate.NewBranchReviewID,
-		SplitFrom: chat.SplitByDevelopmentManager, Now: func() time.Time { return b.now },
+		SplitFrom: chat.SplitByDevelopmentManager, Now: func() time.Time { return b.now }, Paused: func() (bool, error) { return b.paused, b.unread },
 		Items: func(context.Context) ([]beads.WorkItem, error) { return b.items, nil },
 		Judge: func(_ context.Context, request Request) (backend.RunResult, error) {
 			b.requests = append(b.requests, request)
 			// What a provider's own session writes to the same log changes nothing.
 			event, err := execution.NewEvent(request.ID, request.LastSequence+1, b.now, execution.EventReviewCompleted, "claude", nil)
 			b.must(errors.Join(err, request.Sink(event)))
-			if b.fail != nil || b.limit != nil {
-				return backend.RunResult{UsageLimit: b.limit, IsError: true, SessionID: "session-x"}, b.fail
+			if b.failed != nil {
+				return *b.failed, b.err
 			}
 			return backend.RunResult{FinalText: b.answer, SessionID: fmt.Sprintf("session-%d", len(b.requests))}, nil
 		}}
@@ -332,11 +334,11 @@ func TestACallTheProviderRefusedIsMadeAgainLater(t *testing.T) {
 	t.Parallel()
 	b := newBench(t)
 	b.split(piece, member)
-	b.limit = &backend.UsageLimit{}
+	b.failed = &backend.RunResult{UsageLimit: &backend.UsageLimit{}, IsError: true, SessionID: "session-x"}
 	if b.joiner().Round(context.Background()) == nil {
 		t.Fatal("the refusal was not said")
 	}
-	b.limit = nil
+	b.failed = nil
 	b.round()
 	if len(b.requests) != 1 {
 		t.Fatal("it was made again at once")
@@ -394,6 +396,101 @@ func TestTwoProcessesDoNotMakeTheSameCall(t *testing.T) {
 	}
 	b.must(joiner.Round(context.Background()))
 	if len(b.requests) != 1 {
+		t.Errorf("%d calls were made", len(b.requests))
+	}
+}
+
+// A session that did not complete answered nothing, so it is no question about
+// scope. After several the development manager decides.
+func TestASessionThatFailedIsNotAnAnswer(t *testing.T) {
+	t.Parallel()
+	ended := func(status execution.ProcessStatus) backend.RunResult {
+		return backend.RunResult{IsError: true, SessionID: "session-x", Process: execution.ProcessResult{Status: status}}
+	}
+	for name, test := range map[string]struct {
+		result backend.RunResult
+		err    error
+	}{
+		"stalled":           {result: ended(execution.ProcessStalled)},
+		"timed out":         {result: ended(execution.ProcessTimedOut)},
+		"model unavailable": {result: backend.RunResult{IsError: true, SessionID: "session-x", ModelUnavailable: &backend.ModelUnavailable{}}},
+		"process failed":    {result: backend.RunResult{SessionID: "session-x"}, err: errors.New("exit status 1")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := newBench(t)
+			b.split(piece, member)
+			b.failed, b.err = &test.result, test.err
+			if b.joiner().Round(context.Background()) == nil {
+				t.Fatal("the failure was not said")
+			}
+			if asked, _ := b.entry().Asked(piece); asked.Outcome != nil || b.starts(piece) {
+				t.Fatalf("it is kept as %+v", asked.Outcome)
+			}
+			again := *b
+			again.now, again.failed = b.now.Add(RetryAfter), nil
+			again.round()
+			again.wants(piece, epicprogress.AnswerInside, true)
+		})
+	}
+	b := newBench(t)
+	b.split(piece, member)
+	failed := ended(execution.ProcessStalled)
+	b.failed = &failed
+	for range maxFailures + 3 {
+		_ = b.joiner().Round(context.Background())
+		b.now = b.now.Add(RetryAfter)
+	}
+	asked, _ := b.entry().Asked(piece)
+	kept, _ := b.entry().Reservation(asked.Judgment)
+	if len(b.requests) != maxFailures || asked.Outcome != nil || kept.Result == nil || !kept.Result.Unknown || kept.Result.Says != "6 sessions ended without answering" {
+		t.Errorf("%d calls were made, the outcome is %+v and the reservation %+v", len(b.requests), asked.Outcome, kept.Result)
+	}
+	if owed, err := b.joiner().Owed(context.Background()); owed || err != nil {
+		t.Errorf("it is still owed: %t, %v", owed, err)
+	}
+}
+
+// A refusal costs nothing, so a long one never uses up what may fail.
+func TestARefusalIsNotCountedAsAFailure(t *testing.T) {
+	t.Parallel()
+	b := newBench(t)
+	b.split(piece, member)
+	b.failed = &backend.RunResult{UsageLimit: &backend.UsageLimit{}, IsError: true, SessionID: "session-x"}
+	for range maxFailures + 3 {
+		_ = b.joiner().Round(context.Background())
+		b.now = b.now.Add(RetryAfter)
+	}
+	b.failed = nil
+	b.round()
+	b.wants(piece, epicprogress.AnswerInside, true)
+}
+
+func TestAPausePlacedDuringARoundStopsTheRestOfIt(t *testing.T) {
+	t.Parallel()
+	b := newBench(t)
+	b.split(piece, member)
+	b.split("yoyodyne-ep.1.2", member)
+	joiner := b.joiner()
+	judge := joiner.Judge
+	joiner.Judge = func(ctx context.Context, request Request) (backend.RunResult, error) {
+		b.paused = true
+		return judge(ctx, request)
+	}
+	b.must(joiner.Round(context.Background()))
+	b.wants(piece, epicprogress.AnswerInside, true)
+	if len(b.requests) != 1 || b.starts("yoyodyne-ep.1.2") {
+		t.Fatalf("%d calls were made", len(b.requests))
+	}
+	// A pause that cannot be read makes no call either.
+	b.paused, b.unread = false, errors.New("cannot be read")
+	if b.joiner().Round(context.Background()) == nil || len(b.requests) != 1 {
+		t.Fatalf("%d calls were made", len(b.requests))
+	}
+	b.unread = nil
+	b.round()
+	b.wants("yoyodyne-ep.1.2", epicprogress.AnswerInside, true)
+	if len(b.requests) != 2 {
 		t.Errorf("%d calls were made", len(b.requests))
 	}
 }

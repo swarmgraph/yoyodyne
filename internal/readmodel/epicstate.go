@@ -831,7 +831,7 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 		case piece.Outcome != nil:
 			owner, says = MoverProductManager, "is a question about scope and does not start: "+scopeQuestion(*piece.Outcome)
 		case reserved.Result != nil && reserved.Result.Unknown:
-			owner, says = MoverDevelopmentManager, "was sent to be judged and the answer cannot be known: decide what becomes of it"
+			owner, says = MoverDevelopmentManager, "was sent to be judged and has no known answer ("+singleLine(reserved.Result.Says, maxEpicReasonBytes)+"): decide what becomes of it"
 		}
 		waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), s.name(piece.From, ""), says)})
 	}

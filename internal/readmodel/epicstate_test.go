@@ -568,8 +568,8 @@ func TestAPieceThatHasNotJoinedIsAStepOwed(t *testing.T) {
 	}{
 		"not judged": {func(*stateBench) {}, "has not been judged yet", EpicWorking},
 		"its result cannot be known": {func(b *stateBench) {
-			b.entry.Reservations = []epicprogress.Reservation{{ID: "review-1", For: "a judgment", At: hours(1), Result: &epicprogress.Result{At: hours(1), Unknown: true}}}
-		}, "the answer cannot be known", EpicWorking},
+			b.entry.Reservations = []epicprogress.Reservation{{ID: "review-1", For: "a judgment", At: hours(1), Result: &epicprogress.Result{At: hours(1), Says: "nothing shows it", Unknown: true}}}
+		}, "has no known answer (nothing shows it)", EpicWorking},
 		"outside": {func(b *stateBench) {
 			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
 		}, "is a question about scope and does not start: it asks for more than the epic's description (it adds a page)", EpicWorking},

@@ -1894,11 +1894,13 @@ took out still counts and cannot join again; an item you add yourself is not cou
 No other item joins: not one created under the epic itself, moved below it, made a
 prerequisite of a member, or created by another role.
 
-A watching scheduler makes the judgments beside its other work, and none while
-`yoyo pause` stands. Each is written down before it is sent. After a restart its record
+A watching scheduler makes the judgments beside its other work. The pause is read
+before each, so none is sent while `yoyo pause` stands. Each is written down before it is sent. After a restart its record
 is looked up first: one that was never sent is sent, one that answered is used, and one
 whose result nothing shows is not sent again, and the development manager decides. One
-the provider refused is tried again after half an hour. Its cost is in the cost log
+the provider refused, or whose session failed, stalled or ran out of time, is tried
+again after half an hour; after six sessions that ended without an answer the
+development manager decides. Its cost is in the cost log
 under its own `review-` identifier. Once a piece is recorded, a build older than this
 refuses the file and starts nothing while epic mode is on.
 
