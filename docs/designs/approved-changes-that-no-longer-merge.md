@@ -12,16 +12,27 @@ revisions:
       by: architect
       at: 2026-11-23T20:05:43.10317Z
       reason: 'yoyodyne-ifd.429.294: resends the design for getting a conflicting approved change back onto main, answering the review of run-107db6b2. It names the three rules on main it touches, says which document decides until each is revised and which build piece waits, records the approved and resolved heads apart, keeps a run that moved to the stronger model on it, and names every item by what it is. Estimates and the five pieces are otherwise unchanged.'
+    - action: amended
+      by: architect
+      at: 2026-11-25T21:47:08.965918Z
+      reason: 'yoyodyne-32of.2: answers the review of run-2c2f03f4. One returned change at a time holds a file, in the order handed back, so two never hold each other and no attempt starts on files another returned change holds; the hold begins before the wait for a candidate being worked, so that wait is not extended by new entries; an entry the change depends on is never held; a hold also ends when the change goes to the development manager or its run ends. Decision 1, 2, 3 and the reviewer list agree.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-23T20:05:43.10317Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3733, for document-3733.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-25T21:47:08.965918Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4072, for document-4072.1 under the automatic approval policy
 ---
 # Purpose
 
 This design answers how an approved change that no longer merges gets back onto main with less repair and review spending (yoyodyne-ifd.429.294). It serves the goal that spend follows the work, and keeps the goal that every change is reviewed, by a role that did not write it, before it is integrated. Every landed change keeps its checks and independent review on the exact revision that lands.
+
+It was revised for the operator's direction of November 25, 2026, given about 13:15 PST through the operator's assistant: 'Yes, I think once you rebase a change, I think it should get merged as soon as possible. What I really don't want to have to do is rebase things multiple times.' Decisions 1 and 2 are new in this revision. The architect had given an earlier answer to that direction in an exchange whose text no role could supply when this was written (exchange-79ee2db99ead45b1cc24deb362f4793e), so the rules below are decided afresh from the direction.
 
 It changes rules that three designs on main state: the order and the admission rule in [integration through a merge queue](integration-through-a-merge-queue.md), and the single attempt after a conflict in [stopped run recovery](stopped-run-recovery.md). It leaves the rule on moving to the stronger model in [reducing what the factory costs](reducing-what-the-factory-costs.md) as it is. Which document decides until each is revised, and which build piece waits, is stated in each decision and gathered under which document decides, below.
 
@@ -38,8 +49,8 @@ The architect read the tracker's records of four items handed back more than onc
 
 They show four causes of repeated spending:
 
-- **The one attempt is used early.** A run gets one attempt to bring its change up to date with main. In all four, that attempt was made between 03:39 and 04:49 PST, the change rejoined the queue, and it conflicted again about five to six hours later. The development manager then decided a new run from the kept branch, which costs a decision and a new developer session.
-- **A change is repaired while another that touches the same file is still ahead of it.** The first two of those items both conflict in `internal/readmodel/documentapprovals.go`.
+- **The change goes back to the end of the line.** In all four, the one attempt to bring the change up to date was made between 03:39 and 04:49 PST, the change rejoined the queue, and it conflicted again about five to six hours later. The development manager then decided a new run from the kept branch, which costs a decision and a new developer session.
+- **Other changes to the same files land while it is being brought up to date.** The first two of those items both conflict in `internal/readmodel/documentapprovals.go`.
 - **A change that rejoins is a new entry.** It gets a new place and a new admission time, so the rule that takes an entry waiting four hours first counts from zero.
 - **Two reviews follow each repair.** The run's change is reviewed before it rejoins the queue, and the queue then has the exact candidate reviewed.
 
@@ -49,23 +60,57 @@ The share of the $86 that conflicts caused is not established. The four items we
 
 # Decision
 
-## 1. The repair waits for entries ahead that touch the same files
+Decisions 1 and 2 are about code entries. A document whose publication conflicts goes back to the role that wrote it, as the document landing route says, and gets neither the next turn nor the hold. Below, a returned change is a code change handed back for a conflict, and only for a conflict, that has not yet landed. It stops being one when it is put to the development manager, when its run ends, or when its candidate fails a check or its review.
 
-The check of every waiting entry when main moves (yoyodyne-ifd.429.229) finds a conflict at once and hands the entry back. The attempt to bring that change up to date does not start until no waiting entry touching any of its conflicting files stands ahead of it. An entry is ahead when the queue's order would take it first, with the returned change placed by its age under decision 2 below once that is built, and by the order on main until then. Only an entry still waiting in the queue counts; one that was itself handed back does not, so two returned changes never wait for each other.
+## 1. A change brought up to date takes the queue's next turn
 
-The wait is at most two hours from the hand back. It holds no developer slot and no candidate, and spends nothing. The run's record and yoyo status name the files and the entries waited for, and when the wait ends at the latest. When it ends, the attempt goes ahead of fresh work, as work on a kept change does.
+A returned change takes the queue's next turn when it rejoins. It is chosen ahead of every other waiting entry: entries waiting four hours or more, priority 0 code, documents, and everything else. Where more than one waits in the queue, the one handed back earliest goes first, by its latest hand back for a conflict.
 
-The attempt then starts from main as it stands at that moment, never from main as it stood at the hand back. Where the change now merges without conflict, no developer session starts: it rejoins the queue with the same approved head, and this uses none of its attempts.
+Three rules of the queue stand whatever this says: a candidate already being checked or reviewed is never stopped for it; an entry whose work item depends on another admitted entry's item waits for that one; and the candidate's checks and its one independent review are earned on the exact revision that lands.
 
-## 2. A change that comes back for a conflict keeps its age
+It goes ahead of priority 0 code because it costs that code one landing, while going behind can cost another attempt, another review and another wait. Its priority does not matter because the reason is the work already paid for and not the item's urgency.
 
-An entry that rejoins after being handed back only for a conflict counts its wait from the run's first admission to the queue, so the four hour rule applies to it as if it had never left. Its new entry and admission time are recorded as before, with the first admission time beside them. A change handed back for a failing check or a refused review does not keep its age, because the change itself was at fault.
+The turn is kept through any repair made before the change rejoins, such as one after a failed check or a refused review of the resolved change. It is spent when the change's candidate is built. If that candidate conflicts, the hand back gives a new turn. If that candidate fails a check or its review, the change itself was at fault, and it rejoins under the ordinary order. A repair the development manager decides for a fourth conflict makes the change a returned change again from that decision, with the same turn and the same hold.
 
-This changes rule 1 of the order in the merge queue design. Until that design's own revision lands, its order decides, and the part of build piece 2 that does this waits for it.
+This changes the order in the merge queue design. Until that design's own revision lands, its order decides, and build piece 2 waits for it.
+
+## 2. Entries that change the same files are held while it is brought up to date
+
+**One returned change at a time holds a file.** A returned change's hold covers every file it changes. It begins when the change is handed back, except that it waits while either of these is so:
+
+- another returned change holds any of the same files;
+- another returned change that shares any of its files, and goes before it, is itself waiting for its hold.
+
+One returned change goes before another when the other's work item depends on its item, directly or through other items in the queue, and otherwise when it was handed back earlier. Where the dependencies go round in a circle, the time of the hand back decides. Because a later change waits for an earlier one even while that one is waiting, two returned changes never wait for each other. If a change that is holding files comes to depend on a returned change that shares any of them, its hold ends and it waits behind that one.
+
+A file that only the resolution adds is held from then on, unless another returned change holds it already.
+
+**What the hold does.** While it lasts, the queue does not choose another waiting entry that changes any of the held files. Entries that share no file with it go on landing, because Git merges them without help. Four kinds of entry are never held:
+
+- a returned change that has rejoined, the one the hold is for included;
+- an entry the held change's item depends on, directly or through other items in the queue, because the change cannot land before it;
+- priority 0 code, because the hold can last through a whole developer session and not just one landing;
+- an entry whose files cannot be read, and the record says so.
+
+An entry waiting four hours or more is held like any other, so one hold adds at most two hours to its wait.
+
+**When the hold ends.** It ends at the first of these: the change lands; it is handed back again, for any reason; it is put to the development manager; its run ends; or two hours have passed since the hold began. A change handed back again for a conflict waits for a new hold by the rules above. When two hours end it, the change keeps its next turn, but makes nothing else wait.
+
+**When the attempt starts.** It starts once the change's hold has begun, ahead of fresh work, as work on a kept change does. Within the hold it waits for two things only: a candidate already being built, checked or reviewed when the hold began, or an entry the hold does not stop and the queue has chosen since, that changes any of the same files; and a waiting entry its item depends on that changes any of the same files. Because the hold has already begun, no other entry on those files can be chosen meanwhile, so the wait does not grow. If the hold ends by its two hours first, the attempt starts then. A wait holds no developer slot and spends nothing. The run's record and yoyo status name what it waits for.
+
+So a later returned change on the same files is brought up to date only after the earlier one has landed or no longer holds them, and starts from a main that includes it if it landed. Two attempts on the same files can run together only where a hold ran out of its two hours, or where a resolution came to change a file another returned change holds.
+
+The attempt starts from main as it stands at that moment. Where the change now merges without conflict, no developer session starts: it rejoins with the same approved head and the next turn, its hold goes on, and this uses none of its attempts.
+
+**What is shown.** The files of an entry are the paths its change modifies, adds, deletes or renames, worked out by the harness from Git. The record of each choice, yoyo status and the dashboard name each held entry, the change it is held for, the shared files, and the latest time the hold ends.
+
+The hold is decided by the merge queue design once revised. Until then no entry is held, and the part of build piece 2 that does this waits for it. This decision replaces the earlier rule that an attempt waits up to two hours for entries ahead of it.
 
 ## 3. Up to three attempts, each in a fresh session
 
-Step 1 of stopped run recovery says an approved change that conflicts with the target branch when it lands gets exactly one attempt to bring it level, outside the repair attempts, and that a second conflict stops the run as about the work. This decision replaces that number: a run gets up to three such attempts, one for each hand back for a conflict, and a fourth conflict stops the run as about the work. The rest of that rule stays: an attempt is not charged as a repair attempt, it is recorded as a reconciliation, and a failing check or a refused review after it is about the work and goes on as it does today, through the remaining repair attempts and then the development manager. The limit of three is held in code, and a restart or a new build does not reset the count.
+Step 1 of stopped run recovery says an approved change that conflicts with the target branch when it lands gets exactly one attempt to bring it level, outside the repair attempts, and that a second conflict stops the run as about the work. This decision replaces that number: a run gets up to three such attempts, one for each hand back for a conflict, and a fourth conflict stops the run as about the work. With decisions 1 and 2 a second attempt should be rare, so the second and third are a backstop and not an ordinary path. The rest of that rule stays: an attempt is not charged as a repair attempt, it is recorded as a reconciliation, and a failing check or a refused review after it is about the work and goes on as it does today, through the remaining repair attempts and then the development manager. The limit of three is held in code, and a restart or a new build does not reset the count.
+
+Each attempt after the first records the commit on main it conflicted with, and why the hold did not prevent it: the hold had run out, the entry was priority 0, the change's item depends on the entry, the entry was another returned change, its files could not be read, it was already being worked when the hold began, the change landed outside the queue, or there was no hold. The development manager can read it.
 
 Until stopped run recovery's own revision lands, its one attempt decides, and the part of build piece 3 that allows the second and third waits for it. The fresh session below changes nothing that design says and does not wait.
 
@@ -115,12 +160,12 @@ In this repository the development manager tries it on 20 eligible attempts, alt
 
 | Rule | Where it is now | Until its revision lands | What waits for it |
 | --- | --- | --- | --- |
-| An entry's wait is counted from its own admission | merge queue design, rule 1 of the order | that design decides | the age part of build piece 2 |
+| The order the queue takes entries in, with no turn for a returned change and no entry held for one | merge queue design, the order | that design decides | build piece 2 |
 | One attempt after a conflict at landing | stopped run recovery, step 1 | that design decides | the second and third attempts in build piece 3 |
 | Only an approved head is admitted | merge queue design, durable admission and the harness's own queue | that design decides | build piece 4 |
 | A run moves once to the stronger model for the rest of its attempts | reducing what the factory costs, section 4 | that design decides, then and afterwards | nothing; decision 5 keeps to it |
 
-The architect writes the merge queue and stopped run recovery revisions once this design is on main.
+The architect writes the merge queue and stopped run recovery revisions next, in that order; the second does not wait for the first.
 
 # Expected saving
 
@@ -128,33 +173,50 @@ These are estimates from the figures above, they overlap, and none is a measurem
 
 | Change | What it should save | How it is measured |
 | --- | --- | --- |
-| Waiting for entries ahead, and keeping age | some of the six repeat hand backs among the ten; up to about a quarter of the conflict share, $18 | conflict hand backs for each landed code change, and how many runs have more than one |
+| The next turn, and the hold | most of the six repeat hand backs among the ten; up to about a quarter of the conflict share, $18 | conflict hand backs for each landed code change, how many runs have more than one, and the time from rejoining to landing |
 | Three attempts, fresh sessions | the development manager's decisions, the new runs, and part of the cost of writing the old session again | runs started by a decision after a conflict; median cost of one attempt |
 | One review in place of two | about half of the review cost after a confined resolution, perhaps $13 | reviews for each resolved conflict; how often the candidate's review refuses a confined resolution |
 | The cheaper model | not estimated; the trial says | cost and refusals for each side of the trial |
 
-The measure for the whole is the cost of conflicts for each landed code change, over one week before and one week after pieces 1 to 4 are on main. If it has not fallen by a third, the architect revises this design from what the records show.
+The measure for the whole is the cost of conflicts for each landed code change, over one week before and one week after pieces 1 to 4 are on main. If it has not fallen by a third, or if more than one returned change in ten needs a second attempt, the architect revises this design from what the records show.
 
 # Alternatives rejected
 
+- **Keeping the change's age instead of giving it the next turn.** The earlier form of this design did. A change handed back within four hours of its admission would still go behind others, which is the repeated work the operator directed against.
+- **Placing it behind priority 0 code.** It saves that code one landing and risks another attempt and another review.
+- **Stopping all landings while a change is brought up to date.** A developer session and its checks can take an hour or more, and only entries that change the same files can undo the work.
+- **Holding only entries that touch the conflicting files.** The next conflict can be in any file the change modifies.
+- **Holding priority 0 code as well.** A hold can last two hours, and urgent code is not kept waiting through a developer session.
+- **A hold with no limit.** One stuck session would keep other work on a shared file from landing at all.
+- **Starting the hold only when the attempt starts.** While the attempt waits for a candidate on the same files, the queue could choose another entry on them, and the wait could go on.
+- **Letting a later returned change start as soon as the earlier one rejoins.** It would be brought up to date without the earlier change, and each change's hold could stop the other.
+- **Waiting for every entry ahead before the attempt,** as the earlier form did. With the next turn nothing waiting stands ahead.
+- **Giving a change that fails its candidate's checks or review another next turn.** A faulty change could then stay at the head of the queue.
 - **Resolving conflicts by a tool.** Keeping both sides of a conflict by rule can build and still be wrong, in code and in a guide, and the queue already lets Git merge everything it can. No record read says how many of the 21 such a rule would have settled. Build piece 1 records the files and size of each conflict, so this can be weighed on evidence.
 - **Reviewing only the resolution and not the whole candidate.** What lands is the whole candidate on a main the change has not met, and a resolution can be right line by line and break the change's purpose. Dropping the review before admission saves as much and leaves the review that matters whole.
 - **Recording the resolved head as approved.** No reviewer has judged it, and a record that says one did would be false evidence.
 - **Letting a run that moved to the stronger model go back to the cheaper one for a conflict.** Its earlier failure is the evidence the cost design moves it on, and a small saving is not worth two designs disagreeing about one run.
 - **Refusing to start items that touch the same files at once.** The files an item will change are only a forecast, the shared files are in a large part of the work, and holding such items would leave developer slots idle with ready work waiting, which the internal week does not allow.
-- **Repairing a conflict the moment it is found.** With about twenty entries ahead, the next landing in the same file undoes it.
 - **Attempts without limit.** A change that keeps conflicting is a sign its files need splitting or its work ordering, which is the development manager's to decide.
 
 # Who owns the work, and restarts
 
-The harness owns a returned change from the hand back until it rejoins the queue or is put to the development manager. The wait, the count of attempts, the first admission time and the comparison are written to the run's record before the step they decide, so a restart reads them and goes on. Nothing is kept only in memory between passes of the queue. A wait whose record cannot be read ends and the attempt starts, because starting costs one attempt and never loses work. Changes already handed back and waiting on the development manager when this lands stay with the development manager's decisions; nothing is moved back automatically.
+The harness owns a returned change from the hand back until it lands, or is put to the development manager. The wait, the count of attempts, the times the hold and the attempt began, the turn and whether it is spent, and the comparison are written to the run's record before the step they decide, so a restart reads them and goes on. A hold is worked out from those records each time the queue chooses, never kept apart from them, so it cannot outlive the returned change it is for, and a restart does not lengthen it. A wait whose record cannot be read ends and the attempt starts, because starting costs one attempt and never loses work; a hold whose record cannot be read holds nothing and makes no other change wait. Changes already handed back and waiting on the development manager when this lands stay with the development manager's decisions; nothing is moved back automatically.
 
 # What a reviewer can check
 
-- A returned change whose conflicting file is touched by an entry ahead of it starts no attempt until that entry lands or is handed back, or two hours pass; two returned changes never wait for each other.
-- A returned change that merges again when its wait ends rejoins with no developer session and no attempt used.
-- An entry that rejoins after a conflict is taken by its first admission time; one handed back for a failing check is not.
-- The third conflict still gets an attempt and the fourth goes to the development manager; a restart does not reset the count.
+- A code change that rejoins after a conflict is chosen before an entry waiting four hours, before priority 0 code and before documents; two of them in the queue go in the order they were handed back.
+- A candidate already being checked is not stopped for it, and an entry its item depends on still goes first.
+- A change whose candidate fails a check or its review rejoins under the ordinary order; one whose candidate conflicts again takes the next turn again.
+- Two returned changes that share a file never hold at once: the later one's hold begins only when the earlier one has landed, been handed back again, been put to the development manager, ended its run, or had its two hours. It waits for the earlier one even while that one waits itself, and neither ever waits for the other.
+- With three returned changes, where the second shares one file with the first and a different one with the third, they hold in the order handed back.
+- A hold never stops a returned change that has rejoined, an entry the held change's item depends on, or priority 0 code; it stops any other entry that shares a file, and none that shares no file.
+- An entry on the same files that is chosen after the hold begins is one of those kinds; an attempt waiting for a candidate is not made to wait by any other.
+- A returned change whose item another returned change depends on goes before it, whichever was handed back first.
+- A hold ends when the change lands, is handed back, is put to the development manager or its run ends, and at the latest two hours after it began; a restart does not lengthen it.
+- A returned change that merges again when its attempt would start rejoins with no developer session, the next turn, and no attempt used.
+- Each held entry is named with the change, the files and the latest time, on status and the dashboard.
+- The third conflict still gets an attempt and the fourth goes to the development manager; a restart does not reset the count; each attempt after the first names the commit it conflicted with and why the hold did not prevent it.
 - An attempt starts a new session, and the reviewer of its candidate is none of the sessions recorded as authors.
 - A resolution that changes a file outside the conflicting ones is reviewed before it rejoins; a confined one is not, and its candidate is reviewed whole before it lands.
 - An entry for a confined resolution records the reviewed head as approved, the resolved head apart from it, and the comparison; no surface shows the resolved head as approved before its candidate is.
@@ -164,14 +226,16 @@ The harness owns a returned change from the hand back until it rejoins the queue
 
 # Build pieces, in order
 
-Each is sized to [the size of a work item](../decisions/work-item-size.md), 300 to 600 changed lines. The Lead Product Manager owns admission and order; this design creates no items.
+Each is sized to [the size of a work item](../decisions/work-item-size.md), 300 to 600 changed lines. The Lead Product Manager owns admission and order; this design creates no items. Where code for an earlier form of a piece is already on main, such as the wait for entries ahead, the piece changes that code rather than adding beside it.
 
 1. **Record what conflicts cost.** Each attempt and the reviews after it name the hand back that caused them; each hand back for a conflict records its files and conflicting lines; the weekly figures show the cost of conflicts for each landed code change and the files named most. Needs nothing first.
-2. **The wait, and the age kept.** Decisions 1 and 2. Needs the check of every waiting entry when main moves (yoyodyne-ifd.429.229); the age part also needs the merge queue design's revision.
-3. **Three attempts in fresh sessions.** Decision 3. The second and third attempts need stopped run recovery's revision; the fresh session does not. Does not need the check of every waiting entry when main moves (yoyodyne-ifd.429.229).
-4. **The comparison, and rejoining without the earlier review.** Decision 4. Needs piece 3 and the merge queue design's revision, and does not need the check of every waiting entry when main moves (yoyodyne-ifd.429.229).
+2. **The next turn and the hold.** Decisions 1 and 2, as two items: the turn first, then the hold with the start of the attempt. Both need the merge queue design's revision; the check of every waiting entry when main moves (yoyodyne-ifd.429.229) is needed by neither, and finds conflicts sooner where it is on main.
+3. **Three attempts in fresh sessions.** Decision 3. The second and third attempts (yoyodyne-ifd.429.298) need stopped run recovery's revision; the fresh session does not. The reason a hold did not prevent a conflict is recorded as there being no hold until piece 2 is on main.
+4. **The comparison, and rejoining without the earlier review.** Decision 4 (yoyodyne-ifd.429.300). Needs piece 3's fresh session and the merge queue design's revision.
 5. **The setting and its trial.** Decision 5. Needs pieces 1 and 3, and repairing on the stronger model a run that started on the cheaper one (yoyodyne-ifd.435.91).
 
 # What was read
 
-At commit 7e34c434dba6: the merge queue design whole, the cost design whole, the decision on central code, the invariant on evidence, and the first part of `internal/orchestrator/mergequeueworker.go`, which shows a conflict reported with no candidate built and the candidate's checks and review bound to its generation. At commit 6e93792dea31: stopped run recovery from its first step to its end except the opening lines of that step, whose single attempt is quoted from the reviewer's finding and agrees with what was read of the step, and the merge queue design from its decision to its end. The cost design was not read again there; its section 4 is taken from the reviewer's finding and the earlier reading. The code that starts an attempt to bring a change up to date, the code that admits an entry, and the spend record were not read; each build piece reads the code it changes first.
+For the first form of this design, at commit 7e34c434dba6: the merge queue design whole, the cost design whole, the decision on central code, the invariant on evidence, and the first part of `internal/orchestrator/mergequeueworker.go`, which shows a conflict reported with no candidate built and the candidate's checks and review bound to its generation. At commit 6e93792dea31: stopped run recovery from its first step to its end except the opening lines of that step, whose single attempt is quoted from the reviewer's finding and agrees with what was read of the step, and the merge queue design from its decision to its end. The cost design was not read again there; its section 4 is taken from the reviewer's finding and the earlier reading.
+
+For this revision, at commit 0f35eeff1e4a: this document and the merge queue design whole, stopped run recovery from part way through its step 1 to its end, and `internal/runstate/mergequeue.go` and `internal/orchestrator/mergequeueorder.go` whole. The second chooses the next entry, and already holds back an entry whose item waits on another admitted entry's item. The code that starts an attempt to bring a change up to date and the spend record were not read; each build piece reads the code it changes first.
