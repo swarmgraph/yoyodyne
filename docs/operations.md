@@ -1275,7 +1275,10 @@ Once it is switched on:
   each start; the server's log is there too.
 - Its process number, port, and start time are in
   `.beads/yoyodyne-writes/tracker-server.json`, beside the harness's locks, where
-  every harness process that reaches the store reads them.
+  every harness process that reaches the store reads them. A server is recorded
+  as stopped only once its process has ended, and the record keeps that process's
+  number so each command checks it. One that will not end is left recorded, and
+  no other is started beside it.
 - The harness opens the store directly only when that record says the server is
   stopped and its process is gone. Where it cannot tell, a command waits for the
   server up to its own limit and then counts as unanswered. `yoyo stop` settles a

@@ -203,6 +203,7 @@ type recordingSwitch struct {
 	starts   int
 	lockHeld []bool
 	stopErr  error
+	stillUp  bool
 }
 
 func (s *recordingSwitch) held() bool {
@@ -218,7 +219,7 @@ func (s *recordingSwitch) held() bool {
 func (s *recordingSwitch) StopHeld(context.Context, string) (bool, error) {
 	s.stops++
 	s.lockHeld = append(s.lockHeld, s.held())
-	return true, s.stopErr
+	return !s.stillUp, s.stopErr
 }
 
 func (s *recordingSwitch) StartHeld(context.Context) error {
@@ -231,18 +232,20 @@ func TestTheLiveRebuildStopsTheServerAfterItsCheckAndStartsItBeforeTheLockGoes(t
 	for name, test := range map[string]struct {
 		holders fixedHolders
 		stopErr error
+		stillUp bool
 		stops   int
 		starts  int
 	}{
-		"a rebuild that fails":       {fixedHolders{}, nil, 1, 1},
-		"a server that did not stop": {fixedHolders{}, errors.New("it did not stop"), 1, 1},
-		"an outside process":         {fixedHolders{holders: []StoreHolder{{PID: 777}}}, nil, 0, 0},
+		"a rebuild that fails":       {fixedHolders{}, nil, false, 1, 1},
+		"a server that did not stop": {fixedHolders{}, errors.New("it did not stop"), true, 1, 0},
+		"stopped, and not cleared":   {fixedHolders{}, errors.New("the local setting stayed"), false, 1, 1},
+		"an outside process":         {fixedHolders{holders: []StoreHolder{{PID: 777}}}, nil, false, 0, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			client, _, bd := servedStore(t)
 			bd.fail = "export"
 			client.Holders = test.holders
-			server := &recordingSwitch{client: client, stopErr: test.stopErr}
+			server := &recordingSwitch{client: client, stopErr: test.stopErr, stillUp: test.stillUp}
 			client.ServerSwitch = server
 			work, kept := pinnedDirectory(t), pinnedDirectory(t)
 			rebuild, _ := client.RebuildStore(t.Context(), work, kept, "old", func(StoreRebuild) error { return nil })
@@ -258,5 +261,45 @@ func TestTheLiveRebuildStopsTheServerAfterItsCheckAndStartsItBeforeTheLockGoes(t
 				t.Errorf("rebuild = %#v, want it not to go ahead", rebuild)
 			}
 		})
+	}
+}
+
+func TestARehearsalPassesOnAStoreHoldingTheServersLinkAndNoOther(t *testing.T) {
+	t.Parallel()
+	client, project := realStore(t)
+	store := filepath.Join(project, ".beads")
+	if err := os.Symlink(t.TempDir(), filepath.Join(store, serverLinkPath)); err != nil {
+		t.Fatal(err)
+	}
+	rebuild, err := client.RehearseRebuild(t.Context(), pinnedDirectory(t))
+	if err != nil || !rebuild.Passed() {
+		t.Fatalf("RehearseRebuild() = %+v, %v, want it passed", rebuild, err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(store, EmbeddedDatabase, "other")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.RehearseRebuild(t.Context(), pinnedDirectory(t)); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("RehearseRebuild() error = %v, want another link refused", err)
+	}
+}
+
+func TestAMeasurementIsNotHeldBackByTheServer(t *testing.T) {
+	t.Parallel()
+	project, store := liveStore(t)
+	bd := &fakeTracker{shrinkTo: map[string]int{"gc": 2048, "compact": 1024, "flatten": 512}}
+	server, person := StoreHolder{PID: 4242, Command: "dolt sql-server"}, StoreHolder{PID: 777, Command: "bd list"}
+	recordServer(t, store, ServerRecord{State: ServerRunning, PID: server.PID, Port: 1, Credentials: "/c"})
+	if err := os.Symlink(t.TempDir(), filepath.Join(store, serverLinkPath)); err != nil {
+		t.Fatal(err)
+	}
+	client := Client{Runner: bd, Dir: project, Holders: fixedHolders{holders: []StoreHolder{server}}}
+	measured, err := client.MeasureStore(t.Context(), pinnedDirectory(t))
+	if err != nil || len(measured.Busy) != 0 || len(measured.Stages) == 0 {
+		t.Fatalf("MeasureStore() = %+v, %v, want the store measured", measured, err)
+	}
+	client.Holders = fixedHolders{holders: []StoreHolder{server, person}}
+	measured, err = client.MeasureStore(t.Context(), pinnedDirectory(t))
+	if err != nil || len(measured.Busy) != 1 || measured.Busy[0].PID != person.PID {
+		t.Fatalf("MeasureStore() = %+v, %v, want only the person's bd named", measured, err)
 	}
 }

@@ -58,6 +58,10 @@ const (
 	trackerServerFirstWait = 5 * time.Second
 	trackerServerLastWait  = 5 * time.Minute
 
+	// processStartSlack is how far apart two readings of one process's start may
+	// be.
+	processStartSlack = 2 * time.Second
+
 	trackerServerLog  = "server.log"
 	trackerServerInfo = "local/sql-server.info"
 )
@@ -86,6 +90,12 @@ type TrackerServer struct {
 	Launch LaunchDetached
 	Now    func() time.Time
 	Log    func(format string, args ...any)
+
+	// readyLimit and stopLimit bound waiting for the server to take connections
+	// and for its process to end; zero takes the bounds above. They are set only
+	// by this package's tests.
+	readyLimit time.Duration
+	stopLimit  time.Duration
 
 	failures int
 	nextTry  time.Time
@@ -187,8 +197,11 @@ func (t *TrackerServer) StopIfRunning(ctx context.Context, why string) (string, 
 }
 
 // StopHeld is Stop with the store lock already held. It reports whether the
-// record said a server was running, and a server whose process cannot be ended
-// is not recorded as stopped.
+// record said a server was running and its process has ended. The server is
+// recorded as stopped once no process of it is left and not before, so a
+// process that cannot be ended, or cannot be told, leaves the record as it was.
+// What could not be cleared away afterwards is returned as the error and said
+// in the record.
 func (t *TrackerServer) StopHeld(ctx context.Context, why string) (bool, error) {
 	store, database := t.Tracker.LiveStore()
 	if store == "" {
@@ -197,41 +210,108 @@ func (t *TrackerServer) StopHeld(ctx context.Context, why string) (bool, error) 
 	// A record this cannot read is replaced once no server process is left.
 	record, found, readErr := beads.ReadServerRecord(store)
 	running := readErr != nil || (found && record.State != beads.ServerStopped)
-	pids := []int{record.PID}
+	last, started := record.PID, record.ProcessStarted
+	if err := t.end(ctx, last, started, database); err != nil {
+		return false, err
+	}
 	// A server started and not recorded, by a supervisor that died between the
 	// two, is named by the file dolt keeps while it runs.
-	if directory, err := t.directory(); err == nil {
-		if left := infoPID(filepath.Join(directory, trackerServerInfo)); left != record.PID {
-			pids = append(pids, left)
+	if left := t.leftPID(); left > 0 && left != last {
+		if err := t.end(ctx, left, time.Time{}, database); err != nil {
+			return false, err
+		}
+		last, started = left, time.Time{}
+	}
+	if running {
+		if err := t.noOtherServer(ctx, database); err != nil {
+			return false, err
 		}
 	}
-	for _, pid := range pids {
-		if err := t.end(ctx, pid, database); err != nil {
-			return running, err
-		}
+	cleared := errors.Join(beads.RemoveLocalSetting(store), unlinkLocal(database))
+	if cleared != nil {
+		why += "; " + cleared.Error()
 	}
-	err := errors.Join(beads.RemoveLocalSetting(store), unlinkLocal(database))
-	if err != nil {
-		return running, err
-	}
-	return running, beads.WriteServerRecord(store, beads.ServerRecord{State: beads.ServerStopped, StoppedAt: t.now().UTC(), Reason: why})
+	err := beads.WriteServerRecord(store, beads.ServerRecord{State: beads.ServerStopped, PID: last, ProcessStarted: started, StoppedAt: t.now().UTC(), Reason: why})
+	return running, errors.Join(cleared, err)
 }
 
-// end stops process pid where it is a server holding database, and waits for it
-// to be gone.
-func (t *TrackerServer) end(ctx context.Context, pid int, database string) error {
-	runs, err := t.Tracker.ServerProcessRuns(ctx, pid, database)
-	if err != nil || !runs {
+// leftPID is the process the file dolt keeps while it serves names.
+func (t *TrackerServer) leftPID() int {
+	directory, err := t.directory()
+	if err != nil {
+		return 0
+	}
+	return infoPID(filepath.Join(directory, trackerServerInfo))
+}
+
+// noOtherServer refuses a database some dolt server nobody recorded holds: one
+// launched by a supervisor that died before it could record it. It is named
+// rather than ended, since it may be a person's.
+func (t *TrackerServer) noOtherServer(ctx context.Context, database string) error {
+	holders, err := t.Tracker.StoreHolders(ctx, database)
+	if err != nil {
+		return fmt.Errorf("whether another server holds the tracker's store could not be told: %w", err)
+	}
+	for _, holder := range holders {
+		if strings.HasPrefix(holder.Command, "dolt sql-server") {
+			return fmt.Errorf("a server the record does not name holds the tracker's store: %s", holder.Says())
+		}
+	}
+	return nil
+}
+
+// running reports whether process pid is the server's. Where both the record
+// and the operating system say when it started, that decides it, whether or
+// not it holds the database yet; otherwise what holds the database does.
+func (t *TrackerServer) running(ctx context.Context, pid int, started time.Time, database string) (bool, error) {
+	if pid <= 0 {
+		return false, nil
+	}
+	look, err := lookProcess(pid)
+	if err != nil {
+		return false, fmt.Errorf("whether process %d still runs could not be told: %w", pid, err)
+	}
+	if !look.Running() {
+		return false, nil
+	}
+	if !started.IsZero() && !look.StartedAt.IsZero() {
+		return look.StartedAt.Sub(started).Abs() < processStartSlack, nil
+	}
+	return t.Tracker.ServerProcessRuns(ctx, pid, database)
+}
+
+// end stops process pid where it is the server's, and waits for it to be gone.
+func (t *TrackerServer) end(ctx context.Context, pid int, started time.Time, database string) error {
+	runs := func() (bool, error) { return t.running(ctx, pid, started, database) }
+	if running, err := runs(); err != nil || !running {
 		return err
+	}
+	return t.endProcess(pid, runs)
+}
+
+// endLaunched ends a process this one launched, whatever it holds and whatever
+// is known of when it started: its number is its own until this process
+// collects it.
+func (t *TrackerServer) endLaunched(pid int) error {
+	return t.endProcess(pid, func() (bool, error) {
+		look, err := lookProcess(pid)
+		return look.Running(), err
+	})
+}
+
+func (t *TrackerServer) endProcess(pid int, runs func() (bool, error)) error {
+	limit := t.stopLimit
+	if limit <= 0 {
+		limit = trackerServerStop
 	}
 	for _, ask := range []func(int) error{terminate, killTree} {
 		if err := ask(pid); err != nil && !strings.Contains(err.Error(), "not running") {
 			return fmt.Errorf("stop the tracker's server, process %d: %w", pid, err)
 		}
-		deadline := t.now().Add(trackerServerStop)
-		for t.now().Before(deadline) {
+		deadline := time.Now().Add(limit)
+		for time.Now().Before(deadline) {
 			collectExited(pid)
-			if runs, err := t.Tracker.ServerProcessRuns(ctx, pid, database); err == nil && !runs {
+			if running, err := runs(); err == nil && !running {
 				return nil
 			}
 			time.Sleep(stopInterval)
@@ -252,13 +332,32 @@ func (t *TrackerServer) StartHeld(ctx context.Context) (err error) {
 		return err
 	}
 	store, database := t.Tracker.LiveStore()
+	earlier, _, err := beads.ReadServerRecord(store)
+	if err != nil {
+		return err
+	}
+	// Refused before anything is changed, so the record and the folder stay the
+	// running server's.
+	if running, err := t.running(ctx, earlier.PID, earlier.ProcessStarted, database); err != nil {
+		return err
+	} else if running {
+		return fmt.Errorf("the tracker's server, process %d, is still running, so another is not started", earlier.PID)
+	}
 	if filepath.Base(database) != beads.EmbeddedDatabase {
 		// The live rebuild keeps the directory's name, so only a store changed by
 		// hand comes here.
 		return fmt.Errorf("the tracker's store has no %s directory to serve", beads.EmbeddedDatabase)
 	}
+	pid, recorded := 0, false
 	defer func() {
 		if err != nil {
+			if pid > 0 && !recorded {
+				// Nothing else knows this process.
+				if endErr := t.endLaunched(pid); endErr != nil {
+					err = errors.Join(err, endErr)
+					return
+				}
+			}
 			_, stopErr := t.StopHeld(context.WithoutCancel(ctx), "the server could not be started: "+err.Error())
 			err = errors.Join(err, stopErr)
 		}
@@ -266,7 +365,7 @@ func (t *TrackerServer) StartHeld(ctx context.Context) (err error) {
 	if err := t.settingKeptOutOfGit(ctx, store); err != nil {
 		return err
 	}
-	if err := beads.WriteServerRecord(store, beads.ServerRecord{State: beads.ServerStarting, Build: t.Build}); err != nil {
+	if err := beads.WriteServerRecord(store, beads.ServerRecord{State: beads.ServerStarting, PID: earlier.PID, ProcessStarted: earlier.ProcessStarted, Build: t.Build}); err != nil {
 		return err
 	}
 	port, err := freePort()
@@ -280,7 +379,7 @@ func (t *TrackerServer) StartHeld(ctx context.Context) (err error) {
 	if err := linkLocal(database, filepath.Join(directory, "local")); err != nil {
 		return err
 	}
-	pid, err := t.Launch(program, []string{"sql-server",
+	pid, err = t.Launch(program, []string{"sql-server",
 		"--data-dir", database, "--host", "127.0.0.1", "--port", strconv.Itoa(port),
 		"--doltcfg-dir", filepath.Join(directory, "cfg"),
 		"--privilege-file", filepath.Join(directory, "privileges.db"),
@@ -290,19 +389,32 @@ func (t *TrackerServer) StartHeld(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	record := beads.ServerRecord{State: beads.ServerRunning, PID: pid, Port: port, StartedAt: t.now().UTC(), Credentials: credentials, Build: t.Build}
+	record := beads.ServerRecord{State: beads.ServerStarting, PID: pid, Port: port, StartedAt: t.now().UTC(), Credentials: credentials, Build: t.Build}
+	look, _ := lookProcess(pid)
+	record.ProcessStarted = look.StartedAt
+	if err := beads.WriteServerRecord(store, record); err != nil {
+		return err
+	}
+	// Only a record with its start time lets a later stop end it before it holds
+	// the database.
+	recorded = !record.ProcessStarted.IsZero()
 	if err := t.ready(ctx, pid, port, database); err != nil {
 		return err
 	}
 	if err := beads.WriteLocalSetting(store, record); err != nil {
 		return err
 	}
+	record.State = beads.ServerRunning
 	return beads.WriteServerRecord(store, record)
 }
 
 // ready waits for the server to take connections while holding the database.
 func (t *TrackerServer) ready(ctx context.Context, pid, port int, database string) error {
-	deadline := t.now().Add(trackerServerReady)
+	limit := t.readyLimit
+	if limit <= 0 {
+		limit = trackerServerReady
+	}
+	deadline := time.Now().Add(limit)
 	for {
 		if beads.ServerAnswers(ctx, port) {
 			runs, err := t.Tracker.ServerProcessRuns(ctx, pid, database)
@@ -314,8 +426,8 @@ func (t *TrackerServer) ready(ctx context.Context, pid, port int, database strin
 			}
 			// Another program took the port first, or the server has just died.
 		}
-		if collectExited(pid) || ctx.Err() != nil || !t.now().Before(deadline) {
-			return fmt.Errorf("process %d ended, or did not take connections on port %d within %s; what it said is in %s in its folder under the services folder", pid, port, trackerServerReady, trackerServerLog)
+		if collectExited(pid) || ctx.Err() != nil || !time.Now().Before(deadline) {
+			return fmt.Errorf("process %d ended, or did not take connections on port %d within %s; what it said is in %s in its folder under the services folder", pid, port, limit, trackerServerLog)
 		}
 		time.Sleep(stopInterval)
 	}
@@ -404,22 +516,32 @@ func (t *TrackerServer) settingKeptOutOfGit(ctx context.Context, store string) e
 
 // linkLocal puts the link dolt writes its own secret through in database.
 func linkLocal(database, target string) error {
-	if err := unlinkLocal(database); err != nil {
-		return err
-	}
 	root, err := repowrite.OpenPinnedRoot(database)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
+	// Anything there but the harness's own link is where dolt would write its
+	// secret.
+	info, err := root.Lstat(beads.ServerLink)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return err
+	case info.Mode()&fs.ModeSymlink == 0:
+		return fmt.Errorf("%s is not the link the harness puts there, so dolt would keep its own secret beside the store; take it out by hand", filepath.Join(database, beads.ServerLink))
+	default:
+		if err := root.Remove(beads.ServerLink); err != nil {
+			return err
+		}
+	}
 	if err := root.Symlink(target, beads.ServerLink); err != nil {
 		return fmt.Errorf("keep dolt's own secret out of %s: %w", database, err)
 	}
 	return nil
 }
 
-// unlinkLocal takes that link out, and refuses anything else in its place: dolt
-// would write its secret there.
+// unlinkLocal takes that link out, and leaves anything else in its place.
 func unlinkLocal(database string) error {
 	root, err := repowrite.OpenPinnedRoot(database)
 	if err != nil {
@@ -430,11 +552,8 @@ func unlinkLocal(database string) error {
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	if err != nil {
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
 		return err
-	}
-	if info.Mode()&fs.ModeSymlink == 0 {
-		return fmt.Errorf("%s is not the link the harness puts there, so dolt would keep its own secret beside the store; take it out by hand", filepath.Join(database, beads.ServerLink))
 	}
 	return root.Remove(beads.ServerLink)
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // servingProcess is a stand-in for dolt: a process that only sleeps, and a
@@ -33,6 +34,9 @@ type servingProcess struct {
 	commands []execution.Command
 	ignored  bool
 	refuse   bool
+	// silent launches a process that never listens and never holds the database.
+	silent    bool
+	silentPID int
 }
 
 func (s *servingProcess) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
@@ -59,6 +63,13 @@ func (s *servingProcess) launch(_ string, args []string, _ string, environ []str
 	}
 	pid := process.Process.Pid
 	s.t.Cleanup(func() { _ = process.Process.Kill(); _ = process.Wait() })
+	if s.silent {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.launched = append(s.launched, args)
+		s.silentPID = pid
+		return pid, nil
+	}
 	port := args[slices.Index(args, "--port")+1]
 	listener, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
@@ -266,17 +277,123 @@ func TestAServerThatCannotBeStartedLeavesTheStoreOpenedDirectlyAndSaysWhy(t *tes
 		"a directory at .dolt": {func(s *TrackerServer, _ *servingProcess) {
 			_, database := s.Tracker.LiveStore()
 			_ = os.Mkdir(filepath.Join(database, beads.ServerLink), 0o700)
-		}, ""},
+		}, "is not the link"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			server, process, store := newTrackerServer(t)
 			test.arrange(server, process)
 			server.Look(t.Context(), time.Now())
-			if record := recordOf(t, store); record.State == beads.ServerRunning || !strings.Contains(record.Reason, test.want) || len(process.launched) != 0 {
+			if record := recordOf(t, store); record.State != beads.ServerStopped || !strings.Contains(record.Reason, test.want) || len(process.launched) != 0 {
 				t.Fatalf("record = %#v, launched %d", record, len(process.launched))
 			}
 		})
 	}
+}
+
+// A process that was launched and never became a server is ended before the
+// store is recorded as opened directly, though it holds nothing.
+func TestAServerThatNeverBecomesReadyIsEnded(t *testing.T) {
+	for name, unknownStart := range map[string]bool{"its start time known": false, "its start time not known": true} {
+		t.Run(name, func(t *testing.T) {
+			server, process, store := newTrackerServer(t)
+			process.silent, server.readyLimit = true, 100*time.Millisecond
+			if unknownStart {
+				lookedAt := lookProcess
+				lookProcess = func(pid int) (runstate.ProcessLook, error) {
+					look, err := lookedAt(pid)
+					look.StartedAt = time.Time{}
+					return look, err
+				}
+				t.Cleanup(func() { lookProcess = lookedAt })
+			}
+			server.Look(t.Context(), time.Now())
+			record := recordOf(t, store)
+			if record.State != beads.ServerStopped || record.PID != process.silentPID {
+				t.Fatalf("record = %#v, want stopped naming process %d", record, process.silentPID)
+			}
+			if look, err := lookProcess(process.silentPID); err != nil || look.Running() {
+				t.Fatalf("process %d still runs: %v", process.silentPID, err)
+			}
+		})
+	}
+}
+
+// A server whose process will not end is not recorded as stopped, nothing of
+// its is cleared away, and no other is started beside it.
+func TestAServerThatWillNotEndIsNeverRecordedStoppedOrStartedOver(t *testing.T) {
+	server, process, store := newTrackerServer(t)
+	server.Look(t.Context(), time.Now())
+	before := recordOf(t, store)
+	server.stopLimit = 50 * time.Millisecond
+	lookedAt := lookProcess
+	lookProcess = func(int) (runstate.ProcessLook, error) {
+		return runstate.ProcessLook{Exists: true, StartedAt: before.ProcessStarted}, nil
+	}
+	t.Cleanup(func() { lookProcess = lookedAt })
+	if ended, err := server.StopHeld(t.Context(), "the store is being rebuilt"); ended || err == nil {
+		t.Fatalf("StopHeld() = %v, %v, want an error and nothing ended", ended, err)
+	}
+	if err := server.StartHeld(t.Context()); err == nil || len(process.launched) != 1 {
+		t.Fatalf("StartHeld() = %v after %d launches, want it refused", err, len(process.launched))
+	}
+	if after := recordOf(t, store); after != before {
+		t.Errorf("the record became %#v", after)
+	}
+	for _, kept := range []string{before.Credentials, beads.LocalSettingPath(store)} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("the running server's %s is gone: %v", kept, err)
+		}
+	}
+}
+
+// The record a stop leaves names the process it stopped, so a call asks whether
+// that process is gone before it opens the store directly.
+func TestTheRecordAStopLeavesIsCheckedAgainstItsProcess(t *testing.T) {
+	server, process, store := newTrackerServer(t)
+	server.Look(t.Context(), time.Now())
+	pid := recordOf(t, store).PID
+	if _, err := server.Stop(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+	record := recordOf(t, store)
+	if record.State != beads.ServerStopped || record.PID != pid {
+		t.Fatalf("record = %#v, want stopped naming process %d", record, pid)
+	}
+	client := server.Tracker
+	client.Timeout = 300 * time.Millisecond
+	if reach, _ := client.Reach(t.Context()); reach.Waiting || reach.ThroughServer {
+		t.Fatalf("Reach() = %#v, want direct opening", reach)
+	}
+	// A stopped record whose process turns out to hold the store.
+	process.mu.Lock()
+	process.pids = []int{os.Getpid()}
+	process.mu.Unlock()
+	record.PID = os.Getpid()
+	if err := beads.WriteServerRecord(store, record); err != nil {
+		t.Fatal(err)
+	}
+	if reach, _ := client.Reach(t.Context()); !reach.Waiting {
+		t.Fatalf("Reach() = %#v, want calls to wait", reach)
+	}
+}
+
+// A dolt server nobody recorded, holding the store, is never recorded away.
+func TestAServerTheRecordDoesNotNameKeepsTheRecordFromSayingStopped(t *testing.T) {
+	server, process, store := newTrackerServer(t)
+	if err := beads.WriteServerRecord(store, beads.ServerRecord{State: beads.ServerStarting}); err != nil {
+		t.Fatal(err)
+	}
+	server.Tracker.Holders = namedHolder{}
+	server.Look(t.Context(), time.Now())
+	if record := recordOf(t, store); record.State != beads.ServerStarting || len(process.launched) != 0 {
+		t.Fatalf("record = %#v after %d launches", record, len(process.launched))
+	}
+}
+
+type namedHolder struct{}
+
+func (namedHolder) Holders(context.Context, string) ([]beads.StoreHolder, error) {
+	return []beads.StoreHolder{{PID: 1, Command: "dolt sql-server --data-dir x"}}, nil
 }
 
 // A server started by a supervisor that died before recording it is found

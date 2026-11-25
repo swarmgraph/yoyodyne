@@ -77,10 +77,15 @@ const (
 type ServerRecord struct {
 	State string `json:"state"`
 	// PID, Port and StartedAt are the server's process, the port it listens on
-	// at 127.0.0.1, and when it was started.
+	// at 127.0.0.1, and when it was started. A record that says stopped, or being
+	// started, keeps the number of the last process launched, so whether that
+	// process is gone can be asked.
 	PID       int       `json:"pid,omitempty"`
 	Port      int       `json:"port,omitempty"`
 	StartedAt time.Time `json:"started_at,omitzero"`
+	// ProcessStarted is when the operating system says process PID started, which
+	// tells it from a later process of the same number; zero where unknown.
+	ProcessStarted time.Time `json:"process_started,omitzero"`
 	// Credentials is the file bd reads the password from; the file's folder is
 	// one no developer run can read.
 	Credentials string `json:"credentials,omitempty"`
@@ -94,7 +99,9 @@ type ServerRecord struct {
 // StoreServerSwitch stops and starts the tracker's server for the live rebuild,
 // which already holds the store lock exclusive.
 type StoreServerSwitch interface {
-	// StopHeld stops the server and reports whether one was running.
+	// StopHeld stops the server and reports whether one was running and its
+	// process has ended, which can be true beside an error. False with an error
+	// is a process that may still be running.
 	StopHeld(ctx context.Context, why string) (bool, error)
 	StartHeld(ctx context.Context) error
 }
@@ -181,9 +188,7 @@ func (c Client) ServerProcessRuns(ctx context.Context, pid int, database string)
 	if !processExists(pid) {
 		return false, nil
 	}
-	lookup, cancel := context.WithTimeout(ctx, holderLookupTimeout)
-	defer cancel()
-	holders, err := c.holdersFinder().Holders(lookup, database)
+	holders, err := c.StoreHolders(ctx, database)
 	if err != nil {
 		return false, fmt.Errorf("whether process %d is the tracker's server could not be told: %w", pid, err)
 	}
@@ -193,6 +198,13 @@ func (c Client) ServerProcessRuns(ctx context.Context, pid int, database string)
 		}
 	}
 	return false, nil
+}
+
+// StoreHolders is every process that has database open.
+func (c Client) StoreHolders(ctx context.Context, database string) ([]StoreHolder, error) {
+	lookup, cancel := context.WithTimeout(ctx, holderLookupTimeout)
+	defer cancel()
+	return c.holdersFinder().Holders(lookup, database)
 }
 
 func processExists(pid int) bool {

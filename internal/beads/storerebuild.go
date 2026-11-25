@@ -279,7 +279,8 @@ func (c Client) RebuildStore(ctx context.Context, work, kept *repowrite.PinnedRo
 	}
 	if c.ServerSwitch != nil {
 		// Started again before the lock is let go, whichever way this ends, and
-		// whatever has become of the caller by then.
+		// whatever has become of the caller by then; but never after a stop that
+		// left the server's process running.
 		stopped, err := c.ServerSwitch.StopHeld(ctx, "the store is being rebuilt")
 		if stopped {
 			defer func() {
