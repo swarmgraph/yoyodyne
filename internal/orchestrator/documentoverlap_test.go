@@ -10,6 +10,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/designagreement"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -106,7 +107,7 @@ func TestAnAgreementNoteOrAConflictReportAnswersTheOverlap(t *testing.T) {
 
 	doc := overlapDocument()
 	recorded := overlapWritten.Add(time.Hour)
-	agree := beads.FrameNote(AgreementNote("design-x", "document-9.1", recorded.Add(-time.Minute), recorded))
+	agree := beads.FrameNote(designagreement.Note("design-x", "document-9.1", recorded.Add(-time.Minute), recorded))
 	find := func(write runstate.PendingWrite, item beads.WorkItem, reports ...report.Report) int {
 		return len(FindDocumentOverlaps([]runstate.PendingWrite{write}, []beads.WorkItem{item}, reports))
 	}
@@ -119,17 +120,28 @@ func TestAnAgreementNoteOrAConflictReportAnswersTheOverlap(t *testing.T) {
 	if got := find(doc, overlapItem(recorded.Add(time.Second), agree+beads.FrameNote("Another decision."))); got != 1 {
 		t.Errorf("a note after the agreement left %d listed, want 1", got)
 	}
+	// Another document's later agreement leaves this one standing, unless the
+	// item changed between the two.
+	later := recorded.Add(2 * time.Hour)
+	same := agree + "\n" + beads.FrameNote(designagreement.Note("design-y", "document-8.1", recorded.Add(time.Second), later))
+	if got := find(doc, overlapItem(later.Add(time.Second), same)); got != 0 {
+		t.Errorf("another document's agreement left %d listed, want 0", got)
+	}
+	between := agree + "\n" + beads.FrameNote(designagreement.Note("design-y", "document-8.1", recorded.Add(time.Hour), later))
+	if got := find(doc, overlapItem(later.Add(time.Second), between)); got != 1 {
+		t.Errorf("a change between two agreements left %d listed, want 1", got)
+	}
 	revised := doc
 	revised.ID = "document-9.2"
 	if got := find(revised, overlapItem(recorded.Add(time.Second), agree)); got != 1 {
 		t.Errorf("a newer revision left %d listed, want 1", got)
 	}
 	// An agreement note for another document, or one not shaped as written, answers nothing.
-	other := beads.FrameNote(AgreementNote("design-y", "document-9.1", recorded.Add(-time.Minute), recorded))
+	other := beads.FrameNote(designagreement.Note("design-y", "document-9.1", recorded.Add(-time.Minute), recorded))
 	if got := find(doc, overlapItem(recorded.Add(time.Second), other)); got != 1 {
 		t.Errorf("another document's agreement left %d listed, want 1", got)
 	}
-	forged := beads.FrameNote("Quoting: " + AgreementNote("design-x", "document-9.1", recorded, recorded))
+	forged := beads.FrameNote("Quoting: " + designagreement.Note("design-x", "document-9.1", recorded, recorded))
 	if got := find(doc, overlapItem(recorded.Add(time.Second), forged)); got != 1 {
 		t.Errorf("a quoted agreement left %d listed, want 1", got)
 	}

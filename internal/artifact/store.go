@@ -874,3 +874,19 @@ func trimmedList(values []string) []string {
 	}
 	return trimmed
 }
+
+// RevisionCount is how many revisions the document with this identifier has in
+// the repository, counting from the creation, and whether there is such a
+// document. A revision's number is its position in the log, counting from zero,
+// as an approval names one.
+func (s Store) RevisionCount(id string) (int, bool, error) {
+	set, err := s.Load()
+	if err != nil {
+		return 0, false, err
+	}
+	recorded, found := set.Find(id)
+	if !found {
+		return 0, false, nil
+	}
+	return len(recorded.Revisions), true, nil
+}
