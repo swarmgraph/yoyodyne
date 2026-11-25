@@ -198,6 +198,7 @@ mode="$(cat '` + f.mode + `' 2>/dev/null || echo green)"
 [ "$YOYODYNE_RELEASE_CUT" = "automatic" ] || { echo "cut-release: not run in the harness's mode" >&2; exit 9; }
 case "$mode" in
   preparation) echo "cut-release: docs/releases/$1.md does not carry a readiness result matching this reading" >&2; exit 3 ;;
+  printed) . '` + f.mode + `.printed' ;;
   red) echo "cut-release: make check is red, so $1 was not cut and nothing was written" >&2; exit 1 ;;
 esac
 grep -q "up to and including commit" "$YOYODYNE_RELEASE_NOTES" || { echo "cut-release: the harness handed over no notes from main" >&2; exit 9; }
@@ -1040,12 +1041,12 @@ func TestReleaseChecksThatTimeOutLeaveNoFolderAndSayWhatWasRemoved(t *testing.T)
 	step := f.cutter.Pass(context.Background())
 	path := filepath.Join(f.cutter.WorkRoot, "v0.6.0")
 	records := f.records(t)
-	if len(records) != 1 || !strings.Contains(records[0].Detail, "timed_out") ||
+	if len(records) != 1 || !strings.Contains(records[0].Detail, "they ran longer than the 2h0m0s they are given and were stopped") ||
 		!strings.Contains(records[0].Detail, "the harness removed the checkout "+path+", so the next pass starts clean") || !strings.Contains(step.Detail, records[0].Detail) {
 		t.Errorf("step = %+v, records = %+v, want the timeout and what was removed said", step, records)
 	}
-	if entries, _ := os.ReadDir(f.cutter.WorkRoot); len(entries) != 0 {
-		t.Errorf("release checks that timed out left %v behind", entries)
+	if entries, _ := os.ReadDir(f.cutter.WorkRoot); len(entries) != 1 || entries[0].Name() != outputName("v0.6.0") {
+		t.Errorf("release checks that timed out left %v behind, want only what they printed", entries)
 	}
 }
 

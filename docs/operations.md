@@ -899,10 +899,22 @@ What it will not do:
   release item parked, the step runs none of the release checks, writes no tag, finishes no cut
   recorded for it, and writes no note or report on it; the pass's own record
   says it is parked and why. Once she releases it, the next pass takes it up.
-- **Cut over a red gate.** A red walkthrough, `make check`, or build writes no
-  tag. It is noted on the release item, once for each distinct failure, and
-  that commit is not gated again. The next cut is tried once origin's default
-  branch has moved on.
+- **Cut after a failed check.** A failed walkthrough, `make check`, or release
+  build writes no tag. The refusal names the check and the failures it printed:
+  the walkthrough's `FAIL:` lines, or the tests and packages that failed. Where
+  the check named none, or did not finish, it quotes the last lines it printed.
+  All of what the checks printed is kept, up to its last 8 MiB, with secrets
+  masked, in `<version>.failed-output.txt` in the product's `release-cut`
+  folder, and the refusal says so. Each failed cut of a version replaces the
+  output of the one before. The harness reads this from what the script prints,
+  so it works for a named commit older than the harness running the cut.
+  The refusal is noted on the release item once for each distinct failure: the
+  same failure at another time, or with other temporary paths and durations, is
+  not noted again. The next cut is tried once origin's default branch has moved
+  past the commit it held. Every try, the repeated ones included, is the release
+  step of the maintenance pass that finds it finished, saying when it was tried
+  and what failed, and each pass that waits for the branch to move repeats the
+  latest; `yoyo sweeps` shows them.
 - **Cut while you have paused the harness.** `yoyo pause` stops the release
   step until you resume. The intake hold does not, because a cut chooses no
   work.

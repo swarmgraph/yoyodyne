@@ -19,7 +19,9 @@
 // older than the decision, naming no commit or one main does not hold, naming
 // a commit that could not publish them (publishesNotes), or carrying a stale
 // stamp refuse the cut and hand the release back to the Lead Product Manager,
-// once for each version of the notes. The release workflow publishes the page
+// once for each version of the notes. A check that fails refuses the cut with
+// the failures it named, and what the checks printed is kept (output.go). The
+// release workflow publishes the page
 // from the same notes on main (scripts/release-body.sh). A release item the
 // Lead Product Manager has parked is neither cut nor written on, and a cut
 // recorded for it waits until she releases it.
@@ -144,6 +146,9 @@ type Cutter struct {
 	WorkRoot string
 	// Environ is what the gates are run with.
 	Environ []string
+	// RedactValues are the secrets masked in what is kept and quoted of a
+	// failed cut's output, beside those recognized by their shape.
+	RedactValues []string
 	// CutBy says who cut, on the intent: the pass and its process.
 	CutBy  string
 	Runner execution.ProcessRunner
@@ -397,20 +402,27 @@ func (c *Cutter) cut(ctx context.Context, cuts []runstate.ReleaseCut, item beads
 		return c.handBack(ctx, cuts, refused, digest, fmt.Sprintf("%s on origin/%s names commit %s, but %s", notes, branch, short(commit), why))
 	}
 
-	result, cleared, err := c.gates(ctx, version, commit, text)
+	result, output, cleared, err := c.gates(ctx, version, commit, text)
 	if err != nil {
 		return failed(step, fmt.Sprintf("the gates for %s at %s could not be run: %v%s", version, short(commit), err, cleared.after("; ")))
 	}
-	said := lastWords(result)
 	switch {
-	case result.Status == execution.ProcessFailed && result.ExitCode == preparationExit:
-		return c.handBack(ctx, cuts, refused, digest, said+cleared.after("; "))
+	case preparation(result):
+		return c.handBack(ctx, cuts, refused, digest, output.mask.Redact(lastWords(result))+cleared.after("; "))
 	case result.Status != execution.ProcessSucceeded:
 		// What was cleared comes ahead of the first ": ", which sameRefusal
 		// compares after: what the checks said is the refusal, and the same red
 		// gate is the same one whatever had to be cleared around it.
-		around := strings.ReplaceAll(oneline.Fold(cleared.after("; "), maxDetailBytes), ": ", ", ")
-		refused.Detail = runstate.BoundReleaseCutText(fmt.Sprintf("the gates for %s at %s were red, so no tag was written%s: %s", version, short(commit), around, said))
+		// When it was tried and where the output is kept go ahead of it for the
+		// same reason.
+		around := oneline.Fold(cleared.after("; "), maxDetailBytes)
+		ahead := strings.ReplaceAll(fmt.Sprintf("the release checks for %s at %s did not pass when tried at %s, so no tag was written; %s%s",
+			version, short(commit), local(refused.RecordedAt), output.where, around), ": ", ", ")
+		said := refusal(result)
+		if said == "" {
+			said = ended(result)
+		}
+		refused.Detail = runstate.BoundReleaseCutText(ahead + ": " + oneline.Fold(output.mask.Redact(said), maxDetailBytes) + output.failure())
 		// A red gate goes on the release item, once for each thing it says, and
 		// not to the channel: it is the pass's to try again, not anybody's to act on.
 		refused.Reported = true
@@ -772,7 +784,7 @@ func (c *Cutter) note(cut runstate.ReleaseCut) string {
 		return fmt.Sprintf("The harness did not cut %s, because its preparation is not on main: %s. This release's reviewed run drafts and curates docs/releases/%s.md, stamps it with yoyo conformance --notes --from-export, and lands both through review; the harness then cuts it on its next maintenance pass. It is handed back to the Lead Product Manager for that run.",
 			cut.Version, cut.Detail, cut.Version)
 	default:
-		return fmt.Sprintf("The harness did not cut %s: %s. It tries again once main moves past %s.", cut.Version, cut.Detail, short(cut.Commit))
+		return fmt.Sprintf("The harness did not cut %s: %s. It tries again once main moves past %s.", cut.Version, cut.Detail, short(cut.ReadAtMain()))
 	}
 }
 
@@ -811,25 +823,27 @@ func (c *Cutter) report(cut runstate.ReleaseCut) error {
 // tree does not carry them. The notes are written beside the worktree rather
 // than in it, so its tree stays the commit's. Both are removed afterwards
 // however the gates ended, and what that cleared is returned beside how they
-// ended so a failed cut can say it.
-func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (result execution.ProcessResult, cleared clearing, err error) {
+// ended so a failed cut can say it. What checks that failed printed is kept
+// beside the worktree, and is not removed with it.
+func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (result execution.ProcessResult, output *cutOutput, cleared clearing, err error) {
+	output = &cutOutput{mask: execution.NewRedactor(c.RedactValues...).WithSecretShapes()}
 	if err := os.MkdirAll(c.WorkRoot, 0o700); err != nil {
-		return result, cleared, fmt.Errorf("create %s: %w", c.WorkRoot, err)
+		return result, output, cleared, fmt.Errorf("create %s: %w", c.WorkRoot, err)
 	}
 	// The directory is resolved once and then held, so the notes land in it
 	// whatever replaces the path afterwards.
 	resolved, err := filepath.EvalSymlinks(c.WorkRoot)
 	if err != nil {
-		return result, cleared, fmt.Errorf("resolve %s: %w", c.WorkRoot, err)
+		return result, output, cleared, fmt.Errorf("resolve %s: %w", c.WorkRoot, err)
 	}
 	root, err := repowrite.OpenPinnedRoot(resolved)
 	if err != nil {
-		return result, cleared, fmt.Errorf("open %s: %w", c.WorkRoot, err)
+		return result, output, cleared, fmt.Errorf("open %s: %w", c.WorkRoot, err)
 	}
 	defer root.Close()
 	notesName := version + ".notes.md"
 	if err := root.WriteFile(notesName, []byte(notes), 0o600, false); err != nil {
-		return result, cleared, fmt.Errorf("write the notes the gates read beside the cut's worktree: %w", err)
+		return result, output, cleared, fmt.Errorf("write the notes the gates read beside the cut's worktree: %w", err)
 	}
 	defer func() { _ = root.Remove(notesName) }()
 	path := filepath.Join(c.WorkRoot, version)
@@ -837,7 +851,7 @@ func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (resu
 	// this one is made; it holds nothing but a checkout of a commit and what the
 	// gates built.
 	if cleared = c.clearCheckout(ctx, root, version); cleared.err != nil {
-		return result, cleared, errors.New("no checkout was made")
+		return result, output, cleared, errors.New("no checkout was made")
 	}
 	// Making the checkout can fail or time out part way and leave a folder too,
 	// so the clearing covers it as well as the gates.
@@ -846,7 +860,7 @@ func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (resu
 		cleared = clearing{removed: append(cleared.removed, last.removed...), err: last.err}
 	}()
 	if _, err := c.git(ctx, c.Repository, gitTimeout, "worktree", "add", "--detach", path, commit); err != nil {
-		return result, cleared, err
+		return result, output, cleared, err
 	}
 	environ := execution.ForgeEnvironment(c.Environ)
 	environ = append(environ,
@@ -862,8 +876,14 @@ func (c *Cutter) gates(ctx context.Context, version, commit, notes string) (resu
 		Dir:     path,
 		Env:     environ,
 		Timeout: CutTimeout,
-	}, nil)
-	return result, cleared, err
+	}, output.observe)
+	if err == nil && result.Status != execution.ProcessSucceeded && !preparation(result) {
+		output.where = "what they printed is kept in " + filepath.Join(c.WorkRoot, outputName(version))
+		if err := output.keep(root, version, commit, c.now()); err != nil {
+			output.where = fmt.Sprintf("what they printed could not be kept, because %v", err)
+		}
+	}
+	return result, output, cleared, err
 }
 
 // clearing is what clearing a cut's checkout removed, and why its path is not
@@ -1168,11 +1188,11 @@ func notedBefore(cuts []runstate.ReleaseCut, version string, same func(runstate.
 }
 
 // sameRefusal compares two refusals by what they say after the commit, so the
-// same red gate at two commits is said once.
+// same failed check at two commits, or at two times, is said once.
 func sameRefusal(a, b string) bool {
 	_, afterA, _ := strings.Cut(a, ": ")
 	_, afterB, _ := strings.Cut(b, ": ")
-	return afterA == afterB
+	return comparableText(afterA) == comparableText(afterB)
 }
 
 func describe(result execution.ProcessResult) string {
@@ -1187,9 +1207,22 @@ func describe(result execution.ProcessResult) string {
 	return ended + ": " + oneline.Fold(said, maxDetailBytes)
 }
 
+// preparation reports a refusal over the release's notes or their stamp.
+func preparation(result execution.ProcessResult) bool {
+	return result.Status == execution.ProcessFailed && result.ExitCode == preparationExit
+}
+
 // lastWords is how the gates ended in a line: the script's own last refusal
 // where it made one, and otherwise the end of what it said.
 func lastWords(result execution.ProcessResult) string {
+	if said := refusal(result); said != "" {
+		return said
+	}
+	return describe(result)
+}
+
+// refusal is the script's own last refusal, or nothing where it made none.
+func refusal(result execution.ProcessResult) string {
 	for _, stream := range []string{result.Stderr, result.Stdout} {
 		lines := strings.Split(strings.TrimSpace(stream), "\n")
 		for index := len(lines) - 1; index >= 0; index-- {
@@ -1198,7 +1231,7 @@ func lastWords(result execution.ProcessResult) string {
 			}
 		}
 	}
-	return describe(result)
+	return ""
 }
 
 func failure(err error) string {
