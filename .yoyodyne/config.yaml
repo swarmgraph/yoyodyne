@@ -115,12 +115,11 @@ services:
     hide_summary: true
 
 execution:
-  # Two developer slots, at the operator's direction of 2026-11-23: "When its
-  # ready, open two dev slots for that work alone." That work is epic mode
-  # (yoyodyne-9k1y). The intake hold the operator placed the same evening stays
-  # on, so the harness chooses nothing; the epic's pieces are started by name,
-  # which the hold does not stop, and nothing else takes either slot.
-  max_concurrent_developers: 2
+  # Three developer slots, at the operator's direction of 2026-11-24: "If the
+  # epic work completes without more instructions please put a few dev slots to
+  # work on whatever you think is best". It takes effect once epic mode can be
+  # turned on: the epics named then are the only work the harness starts.
+  max_concurrent_developers: 3
   # The whole race check on main (main_checks below) runs once a day, not every
   # four hours, at the operator's direction of 2026-11-24 ("Yes, please do all of
   # those", to stretching it to once a day): GitHub's CI already runs build,
