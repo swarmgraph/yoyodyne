@@ -1356,7 +1356,10 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 	evidence.SessionID = result.SessionID
 	evidence.Model = result.RequestedModel
 	evidence.ResolvedModel = result.ResolvedModel
-	evidence.Summary = boundedEvidence(result.Verdict.Summary)
+	evidence.Summary = boundedReviewSummary(result.Verdict.Summary)
+	// Kept whole: a verdict is bounded as it is read, and a change sent back is
+	// handed every finding of it (mergequeuefindings.go).
+	evidence.Findings = durableFindings(result.Verdict.Findings)
 	if result.Decision.Valid() {
 		evidence.Decision = string(result.Decision)
 	}

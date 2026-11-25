@@ -1817,6 +1817,7 @@ func (a *activeRun) claim(ctx context.Context) error {
 	}
 	a.context = bundle.Text
 	a.state.ContextTruncation = recordedContextTruncation(bundle)
+	a.state.ItemAtStart = itemAtStart(item)
 	return nil
 }
 
@@ -2535,6 +2536,14 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			protectedpath.Protect(p.Config, p.Worktrees.CurrentExports()...), run.repairBudget())
 		if err != nil {
 			return run.fail(err, runstate.StatusFailed)
+		}
+		// The item was read as this run was taken up, so it is as it stands now. A
+		// continued attempt that had nothing handed back is given the whole item by
+		// its prompt, and is told only what was decided.
+		if handedBackRepair(state) {
+			prompt += run.repairContext("")
+		} else if decidedContinuation(state) != nil {
+			prompt += run.decisionSection()
 		}
 		// With no session to resume, the developer starts fresh and knows only what
 		// the prompt says, so it is handed the work item and the run's record too.
@@ -3789,7 +3798,7 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save the reconciliation attempt: %w", err)
 	}
-	return a.develop(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), conflict), a.state.ProviderSessionID)
+	return a.develop(ctx, a.handBackForRepair(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), conflict)), a.state.ProviderSessionID)
 }
 
 // moveOntoTargetForRepair puts the run's change onto the target with the
@@ -4323,7 +4332,7 @@ func (a *activeRun) repair(ctx context.Context, prompt string) error {
 		return fmt.Errorf("save repair attempt %d: %w", a.state.RepairAttempts, err)
 	}
 	a.repairBegunHere = a.state.RepairAttempts
-	return a.develop(ctx, prompt, a.state.ProviderSessionID)
+	return a.develop(ctx, a.handBackForRepair(ctx, prompt), a.state.ProviderSessionID)
 }
 
 // recordCheckFailure makes the failing check the run's outstanding repair input.
@@ -4385,8 +4394,13 @@ func (a *activeRun) reviewBeforeCheck() *runstate.ReviewBefore {
 			Findings:       slices.Clone(a.state.ReviewFindingDetails),
 		}
 	}
-	if a.state.CheckFailure != nil {
-		return a.state.CheckFailure.ReviewBefore
+	if failure := a.state.CheckFailure; failure != nil {
+		// A merge queue review that sent the change back is the one this check
+		// came after, rather than any before it.
+		if failure.QueueReview != nil && len(failure.QueueReview.Findings) > 0 {
+			return failure.QueueReview
+		}
+		return failure.ReviewBefore
 	}
 	return nil
 }
@@ -11440,6 +11454,10 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, lim
 	prompt.WriteString(developerContract(scratchDirectory, checks, limits))
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
+	if queued := failure.QueueReview; queued != nil {
+		writeQueueReview(&prompt, *queued, failure, attempt, limit)
+		return prompt.String()
+	}
 	prompt.WriteString("# Failing check: repair required\n\n")
 	if failure.ForgeHeadCommit != "" {
 		fmt.Fprintf(&prompt, "The forge checks failed on your change and the harness withdrew its queued merge. This is repair attempt %d of %d. Continue the preserved change in your worktree and fix the reported failure.\n\nForge check: %s\nChecked commit: %s\n\n", attempt, limit, failure.Command, failure.ForgeHeadCommit)
@@ -11451,6 +11469,9 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, lim
 		prompt.WriteString("Captured output:\n\n```\n")
 		prompt.WriteString(failure.Output)
 		prompt.WriteString("\n```\n\n")
+	}
+	if queueReviewWithoutFindings(failure) {
+		prompt.WriteString("What failed is the merge queue's review rather than a check. This hand-back was recorded before the queue kept its reviewer's findings, so only the summary above is here, cut at the queue's limit, and the findings themselves are left out.\n\n")
 	}
 	if before := failure.ReviewBefore; before != nil {
 		encoded, err := json.MarshalIndent(before.Findings, "", "  ")

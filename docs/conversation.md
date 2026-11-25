@@ -3434,7 +3434,8 @@ opposite case: the change is nearly
 right and the run ran out of attempts. It starts nothing over. The stopped run
 goes on — same branch, same worktree, the developer session that already holds
 the context, and the reviewer's findings handed back exactly as they were
-written — under the grant the development manager already recorded. Deciding
+written, with her decision and reason and what the item gained since
+([what a repair is given](work.md#what-a-repair-is-given)) — under the grant the development manager already recorded. Deciding
 `repair` is what takes that grant and sizes it; this reads that record for what
 it is worth and hands the run exactly that, so it can never give a run more
 attempts than the round cap let the item have. Like a re-run it takes no

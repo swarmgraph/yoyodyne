@@ -137,6 +137,8 @@ type MergeQueueFailure struct {
 	// Mover is who moves next.
 	Mover  ownership.Mover
 	Reason string
+	// Review is the candidate's review, where its verdict is what failed.
+	Review *runstate.ReviewBefore
 }
 
 // MergeQueueFailureEvidence is what a failed candidate is classified from.
@@ -298,6 +300,7 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 	}
 	failure.Reason = fmt.Sprintf("the independent reviewer decided %q on generation %d's candidate, %s at %s with %s merged onto it: %s",
 		verdict.Decision, generation.Number, generation.TargetBranch, generation.TargetBase, strings.Join(generation.Heads, ", "), nonEmpty(verdict.Summary, "no summary was given"))
+	failure.Review = &runstate.ReviewBefore{Decision: verdict.Decision, Summary: verdict.Summary, ReviewedCommit: generation.Candidate, Findings: verdict.Findings}
 	return defect(failure, generation, evidence.SuspectedHeads), true, nil
 }
 
@@ -806,7 +809,7 @@ func (p MergeQueuePromoter) targetRed(ctx context.Context, target string) func(s
 func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueHandback {
 	generation := failure.Generation
 	handback := &runstate.MergeQueueHandback{
-		At: q.now(), Class: failure.Class, Reason: oneline.Fold(failure.Reason, 1500),
+		At: q.now(), Class: failure.Class, Reason: oneline.Fold(failure.Reason, 1500), Review: failure.Review,
 		Generation: generation.Number, Binding: generation.Binding(), TargetBase: generation.TargetBase,
 		Heads: append([]string(nil), generation.Heads...), Candidate: generation.Candidate,
 		ApprovedHead: q.entry.ApprovedHead,
@@ -1218,7 +1221,7 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	if h.handedBack(state, marker) {
 		return h.noteAndDocket(ctx, entry, item, state, marker, notes)
 	}
-	command := "the merge queue candidate's review"
+	command := queueReviewCommand
 	if handback.Continuation == runstate.MergeQueueReleased {
 		command = "the merge queue's landing"
 	}
@@ -1245,7 +1248,7 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		// it was queued no longer are: a run's record never says both, and a
 		// repair earns its checks again, as a red queued merge's does
 		// (handBackRedMergeWithCheck).
-		state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes)}
+		state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes), QueueReview: handback.Review}
 		state.ChecksPassed = nil
 	}
 	state.Blocker = runstate.RecordBlocker(notes)

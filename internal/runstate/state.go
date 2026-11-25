@@ -410,7 +410,16 @@ type CheckFailure struct {
 	// reviewer asked for and a repair that cannot see them can undo them. Its
 	// place on the failure is the order: the review came first.
 	ReviewBefore *ReviewBefore `json:"review_before,omitempty"`
+	// QueueReview is the merge queue's review that sent the change back, with
+	// every finding as its reviewer wrote it, where that review rather than a
+	// check is what failed. Output holds only the hand-back's bounded reason.
+	QueueReview *ReviewBefore `json:"queue_review,omitempty"`
 }
+
+// MaxQueueReviewFindingBytes bounds each text of a finding in a QueueReview. It
+// is the size of a reviewer's whole verdict, so a finding that could be read is
+// kept whole.
+const MaxQueueReviewFindingBytes = 64 << 10
 
 // ReviewBefore is what a review that came before a failing check asked for.
 type ReviewBefore struct {
@@ -426,9 +435,6 @@ type ReviewBefore struct {
 // Validate reports every contract violation in the recorded review at once.
 func (r ReviewBefore) Validate() error {
 	var problems []error
-	if len(r.Findings) == 0 {
-		problems = append(problems, errors.New("findings are required"))
-	}
 	if r.Decision != "" && !slices.Contains(reviewDecisions, r.Decision) {
 		problems = append(problems, UnknownValueError{Field: "decision", Value: string(r.Decision)})
 	}
@@ -452,7 +458,15 @@ func (c CheckFailure) Validate() error {
 	if strings.TrimSpace(c.Command) == "" {
 		problems = append(problems, errors.New("command is required"))
 	}
+	if c.QueueReview != nil {
+		if err := c.QueueReview.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("queue_review: %w", err))
+		}
+	}
 	if c.ReviewBefore != nil {
+		if len(c.ReviewBefore.Findings) == 0 {
+			problems = append(problems, errors.New("review_before: findings are required"))
+		}
 		if err := c.ReviewBefore.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("review_before: %w", err))
 		}
@@ -2506,15 +2520,15 @@ func (s *State) recordedTexts() []recordedText {
 	s.Routing.recordedTexts(func(key, path string, text *string) { unstated(key, path, text, maxRoutingText) })
 	// The review a check failed after carries the reviewer's prose at the bounds
 	// the review fields beside the record's top level are held to.
-	reviewBefore := func(key, path string, before *ReviewBefore) {
+	reviewBefore := func(key, path string, before *ReviewBefore, limit int) {
 		if before == nil {
 			return
 		}
 		add(key+".summary", path+".summary", &before.Summary, MaxReviewSummaryBytes, reviewSummaryCutNote, true)
 		for index := range before.Findings {
 			finding := &before.Findings[index]
-			unstated(key+".findings[].message", at(path+".findings", index, "message"), &finding.Message, MaxRecordedTextBytes)
-			unstated(key+".findings[].file", at(path+".findings", index, "file"), &finding.File, MaxRecordedTextBytes)
+			unstated(key+".findings[].message", at(path+".findings", index, "message"), &finding.Message, limit)
+			unstated(key+".findings[].file", at(path+".findings", index, "file"), &finding.File, limit)
 		}
 	}
 	// A stop's evidence is cut to its bound as the stop is written (runstop.go),
@@ -2539,7 +2553,8 @@ func (s *State) recordedTexts() []recordedText {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
 		failingTestTexts(unstated, "check_failure.failing_tests", "check_failure.failing_tests", s.CheckFailure.FailingTests)
 		touchedTestTexts(unstated, "check_failure.touched_tests", "check_failure.touched_tests", s.CheckFailure.TouchedTests)
-		reviewBefore("check_failure.review_before", "check_failure.review_before", s.CheckFailure.ReviewBefore)
+		reviewBefore("check_failure.review_before", "check_failure.review_before", s.CheckFailure.ReviewBefore, MaxRecordedTextBytes)
+		reviewBefore("check_failure.queue_review", "check_failure.queue_review", s.CheckFailure.QueueReview, MaxQueueReviewFindingBytes)
 	}
 	// What people wrote on the forge, in their own words.
 	s.forgeFeedbackTexts(unstated)
@@ -2622,7 +2637,8 @@ func (s *State) recordedTexts() []recordedText {
 			nested("repair_continuations[].superseded_check_failure.output", at("repair_continuations", index, "superseded_check_failure.output"), &continuation.SupersededCheckFailure.Output, MaxCheckOutputBytes)
 			failingTestTexts(unstated, "repair_continuations[].superseded_check_failure.failing_tests", at("repair_continuations", index, "superseded_check_failure.failing_tests"), continuation.SupersededCheckFailure.FailingTests)
 			touchedTestTexts(unstated, "repair_continuations[].superseded_check_failure.touched_tests", at("repair_continuations", index, "superseded_check_failure.touched_tests"), continuation.SupersededCheckFailure.TouchedTests)
-			reviewBefore("repair_continuations[].superseded_check_failure.review_before", at("repair_continuations", index, "superseded_check_failure.review_before"), continuation.SupersededCheckFailure.ReviewBefore)
+			reviewBefore("repair_continuations[].superseded_check_failure.review_before", at("repair_continuations", index, "superseded_check_failure.review_before"), continuation.SupersededCheckFailure.ReviewBefore, MaxRecordedTextBytes)
+			reviewBefore("repair_continuations[].superseded_check_failure.queue_review", at("repair_continuations", index, "superseded_check_failure.queue_review"), continuation.SupersededCheckFailure.QueueReview, MaxQueueReviewFindingBytes)
 		}
 	}
 	environmental := func(key, path string, refusal *EnvironmentalRefusal) {
@@ -4331,6 +4347,8 @@ type State struct {
 	// on an item saying slightly less than the tracker holds. Absent is every run
 	// whose item fitted whole, which is nearly all of them.
 	ContextTruncation *ContextTruncation `json:"context_truncation,omitempty"`
+	// ItemAtStart is what the work item said when the run was started on it.
+	ItemAtStart *ItemAtStart `json:"item_at_start,omitempty"`
 	// StaleBlockClear is what became of the stale blocked status the claim
 	// cleared on its way to this run's item. Absent is every claim that met no
 	// stale status, which is nearly all of them; present on a run that died at
@@ -5336,6 +5354,11 @@ func (s State) Validate() error {
 	if s.ContextTruncation != nil {
 		if err := s.ContextTruncation.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("context_truncation: %w", err))
+		}
+	}
+	if s.ItemAtStart != nil {
+		if err := s.ItemAtStart.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("item_at_start: %w", err))
 		}
 	}
 	if s.StaleBlockClear != nil {
