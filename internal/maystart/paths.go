@@ -62,16 +62,16 @@ func Paths() []PathEntry {
 		{Path: PickUpRun, Says: "picking up a waiting or interrupted run", starts: startsRun},
 		{Path: FeedbackRepair, Says: "a repair from feedback on a pull request", Wired: true, starts: startsRun},
 		{Path: PublishDocument, Says: "publishing a document", Wired: true, starts: startsDocument},
-		{Path: BringUpToDate, Says: "the attempt to bring a handed back change up to date", starts: startsRun},
+		{Path: BringUpToDate, Says: "the attempt to bring a handed back change up to date", Wired: true, starts: startsRun},
 		{Path: ResolveConflict, Says: "the run that resolves a conflict with the team's branch", Wired: true, starts: startsRun},
 		{Path: BringInFile, Says: "the run that brings in a pinned outside file", Wired: true, starts: startsRun},
 		{Path: UpdateQueued, Says: "bringing a change queued to merge on GitHub up to date with its target branch", Wired: true, starts: startsRun},
 		{Path: UpdateForPerson, Says: "bringing a change that waits for a person to merge it up to date with its target branch", Wired: true, starts: startsRun},
 		{Path: AfterLogin, Says: "taking up the checks of a run that stopped because GitHub refused the harness's login", Wired: true, starts: startsRun},
-		{Path: RecurringPass, Says: "a role's recurring pass", starts: startsPass},
-		{Path: PromptedPass, Says: "a pass started by an event, a label or a request", starts: startsPass},
-		{Path: UnmetGoalReview, Says: "the review of unmet goals", starts: startsGoalReview},
-		{Path: MessagesForWork, Says: "reading outside messages for work", starts: startsMessageReading},
+		{Path: RecurringPass, Says: "a role's recurring pass", Wired: true, starts: startsPass},
+		{Path: PromptedPass, Says: "a pass started by an event, a label or a request", Wired: true, starts: startsPass},
+		{Path: UnmetGoalReview, Says: "the review of unmet goals", Wired: true, starts: startsGoalReview},
+		{Path: MessagesForWork, Says: "reading outside messages for work", Wired: true, starts: startsMessageReading},
 	}
 }
 

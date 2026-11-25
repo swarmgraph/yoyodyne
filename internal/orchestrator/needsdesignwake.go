@@ -51,6 +51,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -91,17 +92,17 @@ func (t Trigger) needsDesignWakeWired() bool {
 }
 
 // needsDesignWake considers the architect's needs-design pass at this pull, and
-// claims it where an item carries the label she has not been woken for, or
+// finds it due where an item carries the label she has not been woken for, or
 // where the backstop is due and any item carries it. An error is something that
 // stopped the wake being considered, said beside the pull.
-func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOutage, away bool) (claimedFiring, bool, error) {
+func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOutage, away bool) (passDue, error) {
 	labelled, err := t.NeedsDesign.Labelled(ctx)
 	if err != nil {
-		return claimedFiring{}, false, fmt.Errorf("read which work items carry the %s label, so the architect is not woken for them until it can be: %w", domain.NeedsDesignLabel, err)
+		return passDue{}, fmt.Errorf("read which work items carry the %s label, so the architect is not woken for them until it can be: %w", domain.NeedsDesignLabel, err)
 	}
 	record, _, err := t.NeedsDesignWakes.Load()
 	if err != nil {
-		return claimedFiring{}, false, fmt.Errorf("read which %s items the architect has been woken for, so she is not woken until it can be: %w", domain.NeedsDesignLabel, err)
+		return passDue{}, fmt.Errorf("read which %s items the architect has been woken for, so she is not woken until it can be: %w", domain.NeedsDesignLabel, err)
 	}
 	ids := make([]string, 0, len(labelled))
 	for _, item := range labelled {
@@ -122,7 +123,7 @@ func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOu
 		}
 	}
 	if len(labelled) == 0 {
-		return claimedFiring{}, false, errors.Join(problems...)
+		return passDue{}, errors.Join(problems...)
 	}
 	var fresh []NeedsDesignItem
 	for _, item := range labelled {
@@ -131,38 +132,92 @@ func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOu
 		}
 	}
 
-	var claimed runstate.SweepClaim
-	claimedNow := false
-	trigger := runstate.PassTriggerSchedule
 	// A provider answering nobody leaves the wake untaken, as it leaves a program
 	// manager's: a wake made into the outage asks nothing, and the backstop's
 	// claim is what records the wait.
+	start := maystart.Pass(maystart.PromptedPass, domain.RoleArchitect)
+	trigger := runstate.PassTriggerSchedule
 	if len(fresh) > 0 && !away {
 		last, fired, err := t.Claims.Find(NeedsDesignWakeTask)
 		if err != nil {
-			return claimedFiring{}, false, errors.Join(append(problems, fmt.Errorf("read when the architect was last woken for the %s label: %w", domain.NeedsDesignLabel, err))...)
+			return passDue{}, errors.Join(append(problems, fmt.Errorf("read when the architect was last woken for the %s label: %w", domain.NeedsDesignLabel, err))...)
 		}
 		// Not sooner than the recurring minimum after her last such pass, for the
 		// reason that minimum exists: every pass is a conversation turn, and a wake
 		// that failed would otherwise be retried every pull.
 		if !fired || !now.Before(last.FiredAt.Add(config.MinRecurringInterval)) {
-			claimed, err = t.Claims.Summon(ctx, NeedsDesignWakeTask, now)
-			if err != nil {
-				return claimedFiring{}, false, errors.Join(append(problems, fmt.Errorf("claim the architect's pass for the %s label: %w", domain.NeedsDesignLabel, err))...)
-			}
-			claimedNow = true
 			trigger = runstate.PassTriggerEvents
+			due, err := t.labelDue(fresh)
+			if err != nil {
+				problems = append(problems, err)
+			}
+			start = start.Due("label", due)
 		}
 	}
-	if !claimedNow {
-		claimed, err = t.Claims.Claim(ctx, NeedsDesignWakeTask, NeedsDesignBackstop, now)
-		switch {
-		case err == nil:
-		case errors.Is(err, runstate.ErrSweepNotDue):
-			return claimedFiring{}, false, errors.Join(problems...)
-		default:
-			return claimedFiring{}, false, errors.Join(append(problems, fmt.Errorf("claim the architect's daily pass over the %s label: %w", domain.NeedsDesignLabel, err))...)
+	if trigger == runstate.PassTriggerSchedule {
+		fell, owed, err := t.scheduleDue(NeedsDesignWakeTask, NeedsDesignBackstop)
+		if err != nil {
+			return passDue{}, errors.Join(append(problems, fmt.Errorf("claim the architect's daily pass over the %s label: %w", domain.NeedsDesignLabel, err))...)
 		}
+		if !owed {
+			return passDue{}, errors.Join(problems...)
+		}
+		start = start.Due(scheduleSource(NeedsDesignWakeTask), fell)
+	}
+	return passDue{start: start, unasked: away, claim: func(ctx context.Context) (claimedFiring, bool, error) {
+		return t.claimNeedsDesignWake(ctx, trigger, fresh, labelled, outage, away, now)
+	}}, errors.Join(problems...)
+}
+
+// labelDue names the label that has waited longest: its item, and the change
+// that added the label, known by when the item was first seen carrying it.
+func (t Trigger) labelDue(fresh []NeedsDesignItem) (string, error) {
+	var since map[string]time.Time
+	var problem error
+	if reader, readable := t.NeedsDesignLabelled.(NeedsDesignLabelledReader); readable {
+		record, _, err := reader.Load()
+		if err != nil {
+			problem = fmt.Errorf("read since when each work item has carried the %s label: %w", domain.NeedsDesignLabel, err)
+		} else {
+			since = make(map[string]time.Time, len(fresh))
+			for _, item := range fresh {
+				since[item.ID], _ = record.Since(item.ID)
+			}
+		}
+	}
+	oldest := fresh[0].ID
+	for _, item := range fresh[1:] {
+		if at, first := since[item.ID], since[oldest]; at.Before(first) || (at.Equal(first) && item.ID < oldest) {
+			oldest = item.ID
+		}
+	}
+	if at := since[oldest]; !at.IsZero() {
+		return oldest + "@" + at.UTC().Format(time.RFC3339Nano), problem
+	}
+	return oldest, problem
+}
+
+// claimNeedsDesignWake claims the pass found due, by the label or by the daily
+// backstop.
+func (t Trigger) claimNeedsDesignWake(ctx context.Context, trigger runstate.PassTrigger, fresh, labelled []NeedsDesignItem, outage runstate.ProviderOutage, away bool, now time.Time) (claimedFiring, bool, error) {
+	var claimed runstate.SweepClaim
+	var err error
+	if trigger == runstate.PassTriggerEvents {
+		if claimed, err = t.Claims.Summon(ctx, NeedsDesignWakeTask, now); err != nil {
+			return claimedFiring{}, false, fmt.Errorf("claim the architect's pass for the %s label: %w", domain.NeedsDesignLabel, err)
+		}
+	} else {
+		claimed, err = t.Claims.Claim(ctx, NeedsDesignWakeTask, NeedsDesignBackstop, now)
+		if errors.Is(err, runstate.ErrSweepNotDue) {
+			return claimedFiring{}, false, nil
+		}
+		if err != nil {
+			return claimedFiring{}, false, fmt.Errorf("claim the architect's daily pass over the %s label: %w", domain.NeedsDesignLabel, err)
+		}
+	}
+	ids := make([]string, 0, len(labelled))
+	for _, item := range labelled {
+		ids = append(ids, item.ID)
 	}
 
 	task := config.RecurringTask{
@@ -172,7 +227,7 @@ func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOu
 	}
 	if away {
 		fired := t.refuse(ctx, NeedsDesignWakeTask, task, outage)
-		return claimedFiring{settled: &fired}, true, errors.Join(problems...)
+		return claimedFiring{settled: &fired}, true, nil
 	}
 	return claimedFiring{take: func(ctx context.Context) Fired {
 		addressed := t.addressedTo(task)
@@ -195,7 +250,7 @@ func (t Trigger) needsDesignWake(ctx context.Context, outage runstate.ProviderOu
 				return ""
 			},
 		})
-	}}, true, errors.Join(problems...)
+	}}, true, nil
 }
 
 // needsDesignMessage is what the harness says when it wakes the architect over

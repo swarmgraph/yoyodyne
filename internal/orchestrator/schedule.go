@@ -2818,6 +2818,7 @@ pulling:
 		// itself before it spends anything. A session draining to restart starts
 		// none, and the session that comes back runs whatever fell due.
 		if pull.IntakeQueries != nil && !drain.active {
+			intakeRuns.mayStart = pull.MayStart
 			s.startIntakeRuns(&schedule, pull.IntakeQueries, intakeRuns)
 		}
 		// And a role whose tracker block the harness refused is woken here, last of
@@ -4952,11 +4953,25 @@ func (s Scheduler) summon(ctx context.Context, schedule *Schedule, firings *recu
 		firings.summoning = &waitingSummons{brake: brake, summons: summons}
 		return
 	}
+	// One that may not start takes no conversation and writes nothing on the
+	// hold; it waits, and summonWaiting makes it again at each pull while the
+	// hold stands.
+	if asking, asks := summons.(summonsAsking); asks && asking.MaySummon(BrakeSummons{Hold: held}) != nil {
+		firings.summoning = &waitingSummons{brake: brake, summons: summons}
+		return
+	}
 	firings.launchTurn(StartedFiring{Task: summonsTask, Role: domain.RoleDevelopmentManager, Conversation: conversation},
 		func(ctx context.Context) func(*Schedule) {
 			fired, err := summons.Summon(ctx, BrakeSummons{Hold: held})
 			at := s.now()
-			return func(schedule *Schedule) { s.summoned(schedule, brake, true, fired, err, at) }
+			return func(schedule *Schedule) {
+				// Refused between the two times it is asked.
+				if errors.Is(err, ErrSummonsOutsideNamedEpics) {
+					firings.summoning = &waitingSummons{brake: brake, summons: summons}
+					return
+				}
+				s.summoned(schedule, brake, true, fired, err, at)
+			}
 		}, s.now)
 }
 
@@ -5980,6 +5995,42 @@ type recurringWatch struct {
 	// turns, or every firing the session takes at once in flight. It is replaced
 	// at every such pull, so it says what is true now rather than what once was.
 	waiting map[string]recurringHold
+	// allowed is, for each pass the named epics held out, when a pull first found
+	// it allowed again, and zero while it is still held out.
+	allowed map[string]time.Time
+}
+
+// late is whether a due pass may be counted as late, with its due time moved on
+// to when it was first allowed where the decision on what may start refused it
+// earlier. A session that opened after the named epics last changed has not seen
+// that change allow the pass, so it counts from its own start.
+func (w *recurringWatch) late(cadence RecurringCadence, due *RecurringDue, now time.Time) bool {
+	asking, asks := cadence.(interface {
+		PassMayBeLate(due RecurringDue) (bool, time.Time)
+	})
+	if !asks || now.Before(due.At) {
+		return true
+	}
+	allowed, changed := asking.PassMayBeLate(*due)
+	if w.allowed == nil {
+		w.allowed = map[string]time.Time{}
+	}
+	if !allowed {
+		w.allowed[due.key()] = time.Time{}
+		return false
+	}
+	from, refused := w.allowed[due.key()]
+	if refused && from.IsZero() {
+		from = now
+		w.allowed[due.key()] = now
+	}
+	if !refused && due.At.Before(changed) && !changed.After(w.opened) {
+		from = w.opened
+	}
+	if from.After(due.At) {
+		due.At = from
+	}
+	return true
 }
 
 func (w *recurringWatch) hold(held recurringHold) {
@@ -6060,7 +6111,7 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 	now := s.now()
 	var problems []string
 	for _, due := range dues {
-		if due.At.IsZero() || due.Every <= 0 || now.Before(due.At.Add(due.Every)) {
+		if due.At.IsZero() || due.Every <= 0 || !watch.late(cadence, &due, now) || now.Before(due.At.Add(due.Every)) {
 			continue
 		}
 		if recorded, found := watch.missed[due.key()]; found && recorded.Equal(due.At) {

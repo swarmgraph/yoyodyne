@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
@@ -74,6 +76,27 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		maystart.UpdateForPerson: {reconcilerFrom(parts).MayStart},
 		maystart.AfterLogin:      {gitHubIdentityStopsFrom(parts).MayStart},
 	}
+	parts.config.RecurringTasks = map[string]config.RecurringTask{"look": {Role: domain.RoleArchitect, Every: config.Duration(time.Hour), Enabled: true, Prompt: "look", MaxTurns: 1}}
+	trigger := recurringTrigger(parts, configPath, io.Discard).(*orchestrator.Trigger)
+	corrections, err := correctorFrom(parts, configPath, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handback := mergeQueueDriverFrom(parts).Promoter.Repair.(orchestrator.MergeQueueRunHandback)
+	wiredTo[maystart.BringUpToDate] = []orchestrator.StartDecision{handback.MayStart}
+	wiredTo[maystart.RecurringPass] = []orchestrator.StartDecision{trigger.MayStart}
+	wiredTo[maystart.PromptedPass] = []orchestrator.StartDecision{trigger.MayStart, corrections.(*orchestrator.Corrector).MayStart}
+	wiredTo[maystart.UnmetGoalReview] = []orchestrator.StartDecision{trigger.MayStart}
+	wiredTo[maystart.MessagesForWork] = []orchestrator.StartDecision{pull.MayStart}
+	notRuns := map[maystart.Path]maystart.Start{
+		maystart.RecurringPass:   maystart.Pass(maystart.RecurringPass, domain.RoleProgramManager),
+		maystart.PromptedPass:    maystart.Pass(maystart.PromptedPass, domain.RoleProgramManager),
+		maystart.UnmetGoalReview: maystart.GoalReview(),
+		maystart.MessagesForWork: maystart.MessageReading(),
+	}
+	if trigger.WouldStart(notRuns[maystart.RecurringPass]).MayStart() || trigger.EpicsChanged().IsZero() {
+		t.Error("the check for missed passes does not read this product's named epics")
+	}
 	items := func() []maystart.RefusedItem {
 		t.Helper()
 		refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
@@ -91,6 +114,12 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 			t.Errorf("%s is marked wired, and no part here is known to start work that way", path.Path)
 		}
 		for part, asking := range wiredTo[path.Path] {
+			if start, other := notRuns[path.Path]; other {
+				if asking == nil || asking(start).MayStart() {
+					t.Errorf("%s, part %d does not read this product's named epics", path.Path, part)
+				}
+				continue
+			}
 			item := fmt.Sprintf("yoyodyne-other%d", part)
 			before, began := len(items()), time.Now().UTC()
 			refused := asking(maystart.Run(path.Path, item))

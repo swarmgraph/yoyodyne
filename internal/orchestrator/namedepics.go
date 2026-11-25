@@ -4,9 +4,13 @@ package orchestrator
 // checks each path already makes. It replaces none of them: a yes lifts no hold.
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -43,6 +47,11 @@ func (d StartDecision) refuseDocument(document runstate.DocumentPublication) *Ou
 		return nil
 	}
 	return &OutsideNamedEpicsError{Document: fmt.Sprintf("document %s (%s)", document.WriteID, written.Title), Decision: decision}
+}
+
+// allows is whether a start that is not a work item's run may go ahead.
+func (d StartDecision) allows(start maystart.Start) bool {
+	return d == nil || d(start).MayStart()
 }
 
 // OutsideNamedEpicsError is a start declined because the factory works only on
@@ -86,6 +95,99 @@ func (e *OutsideNamedEpicsError) Clears() string {
 		return "the operator names an epic holding it with `yoyo epic start`, or runs `yoyo epic off`"
 	}
 	return "the operator adds it with " + strings.Join(ways, " or ") + ", or runs `yoyo epic off`"
+}
+
+// passDue is a pass found due, ahead of anything being claimed for it.
+type passDue struct {
+	start maystart.Start
+	// claim claims it and is nil where nothing is due. The claim makes its own
+	// due check again, because another process may claim in between.
+	claim func(ctx context.Context) (claimedFiring, bool, error)
+	// unasked is a pass another check keeps from starting, whose claim only
+	// records that; the decision is asked of a start every other check allows.
+	unasked bool
+	// problem is what went wrong reading the pass that it can be taken despite. A
+	// pass that is claimed carries it in its own record; it is said beside the
+	// pull only where the pass is not taken.
+	problem error
+}
+
+// scheduleDue reads, changing nothing, whether a cadence has fallen due, with
+// the same check the claim makes, and the time it fell due. A task that has
+// never fired is due from no known time, so its refusal is counted once.
+func (t Trigger) scheduleDue(name string, every time.Duration) (string, bool, error) {
+	claim, found, err := t.Claims.Find(name)
+	if err != nil {
+		return "", false, err
+	}
+	if !found || claim.FiredAt.IsZero() {
+		return "never fired", true, nil
+	}
+	now := t.now()
+	if !claim.Due(every, now) {
+		return "", false, nil
+	}
+	due := claim.NextDue(every)
+	if now.Before(due) {
+		return "owed since " + claim.FiredAt.UTC().Format(time.RFC3339Nano), true, nil
+	}
+	// A refusal leaves the schedule where it is, so each whole interval since is
+	// another time the pass came due.
+	if every > 0 {
+		due = due.Add(now.Sub(due) / every * every)
+	}
+	return due.UTC().Format(time.RFC3339Nano), true, nil
+}
+
+// scheduleSource names one schedule among the things that can start a pass.
+func scheduleSource(task string) string { return "schedule:" + task }
+
+// eventDue names the oldest event outstanding.
+func eventDue(event PassEvent) string {
+	if event.Key != "" {
+		return event.Stream + ":" + event.Key
+	}
+	return event.Stream + ":" + event.Subject + "@" + event.At.UTC().Format(time.RFC3339Nano)
+}
+
+// PassMayBeLate is whether a pass that is due may start, so that one the
+// decision refuses is never recorded as missed, and when the operator last
+// changed the epics named, so that a pass may have been refused only before
+// then. It keeps nothing.
+func (t Trigger) PassMayBeLate(due RecurringDue) (bool, time.Time) {
+	path := maystart.RecurringPass
+	if due.Trigger == runstate.PassTriggerEvents {
+		path = maystart.PromptedPass
+	}
+	var changed time.Time
+	if t.EpicsChanged != nil {
+		changed = t.EpicsChanged()
+	}
+	return t.WouldStart.allows(maystart.Pass(path, due.Role)), changed
+}
+
+// ErrSummonsOutsideNamedEpics reports a summons declined by the decision on what
+// may start. Nothing was claimed, and it comes round again while its hold stands.
+var ErrSummonsOutsideNamedEpics = errors.New("the development manager may not be summoned yet, because of the epics the operator named")
+
+// MaySummon asks whether the summons after an automatic hold may start. It is
+// counted once for each hold.
+func (t Trigger) MaySummon(summons BrakeSummons) error {
+	if t.MayStart == nil {
+		return nil
+	}
+	decision := t.MayStart(maystart.Pass(maystart.PromptedPass, domain.RoleDevelopmentManager).
+		Due("hold", summons.Hold.HeldAt.UTC().Format(time.RFC3339Nano)))
+	if decision.MayStart() {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrSummonsOutsideNamedEpics, decision.Why)
+}
+
+// summonsAsking is a summons that can say, with nothing started, whether it may
+// be made. It is satisfied by Trigger.
+type summonsAsking interface {
+	MaySummon(summons BrakeSummons) error
 }
 
 // startPath is the path this pipeline's own start is on, read from who chose

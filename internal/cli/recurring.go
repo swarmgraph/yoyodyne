@@ -30,6 +30,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/factoryflow"
 	"github.com/mason-bryant/yoyodyne/internal/forgehygiene"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
@@ -66,6 +67,10 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		// however many sessions are polling.
 		Claims:       parts.store.Sweeps(),
 		Availability: machineAvailability(parts),
+		// Whether a pass may start under the epics the operator named.
+		MayStart:     parts.mayStart(),
+		WouldStart:   parts.wouldStart(),
+		EpicsChanged: func() time.Time { return epicscope.ChangedAt(parts.stateRoot, parts.config.Product.ID) },
 		// One reading of the tracker as each pass's account is recorded, so the
 		// work items the account names are kept beside it.
 		WorkItemTitles: func(ctx context.Context) *readmodel.WorkItemTitles {

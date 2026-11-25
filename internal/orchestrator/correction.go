@@ -79,6 +79,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -206,6 +207,9 @@ type Corrector struct {
 	// is what every provider invocation was before the switch existed.
 	Holds OperatorHolds
 	Clock execution.Clock
+	// MayStart is the decision on what may start under the named epics. See
+	// StartDecision.
+	MayStart StartDecision
 }
 
 // Correct wakes the role whose refusal has waited longest, and reports what came
@@ -297,6 +301,11 @@ func (c Corrector) Start(ctx context.Context, busy map[string]bool) (CorrectionS
 		if busy[key] {
 			continue
 		}
+		// Asked before the wakeup is claimed, so a refused one leaves the
+		// correction owed and the next pass asks again.
+		if !c.MayStart.allows(correctionStart(conversation)) {
+			continue
+		}
 		corrected, claimed, woken, err := c.claim(conversation)
 		if err != nil {
 			// A claim this pass could not make is this pass's one wakeup spent on
@@ -319,6 +328,18 @@ func (c Corrector) Start(ctx context.Context, busy map[string]bool) (CorrectionS
 		}}, nil
 	}
 	return CorrectionStart{}, nil
+}
+
+// correctionStart is the wakeup as the decision on what may start judges it: a
+// prompted pass, counted once for each refused block.
+func correctionStart(conversation runstate.Conversation) maystart.Start {
+	identity := conversation.Identity()
+	start := maystart.Pass(maystart.PromptedPass, identity.Role)
+	if identity.Role == domain.RoleProgramManager {
+		start = start.OfAgent(identity.Agent)
+	}
+	refused := conversation.RefusedBlock
+	return start.Due("refused block:"+conversation.ConversationID, fmt.Sprintf("turn %d at %s", refused.Turn, refused.RefusedAt.UTC().Format(time.RFC3339Nano)))
 }
 
 // awaitingCorrection is every conversation owed a wakeup, oldest refusal first.

@@ -238,6 +238,16 @@ func (e Epic) validate() error {
 	return errors.Join(problems...)
 }
 
+// ChangedAt is when an operator's act last changed a product's record, read from
+// the file, which nothing else writes. It is zero where there is no file.
+func ChangedAt(stateRoot string, product domain.ProductID) time.Time {
+	info, err := os.Lstat(filepath.Join(home.ProductDirectory(stateRoot, string(product)), fileName))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
 // Read reads a product's record. No file means epic mode is off and no epic was
 // ever named. A file that is there and cannot be read whole is an error, which
 // a caller starts nothing on, and is never read as no file.
