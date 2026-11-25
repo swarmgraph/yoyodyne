@@ -7749,7 +7749,10 @@ merged onto it. That candidate is what would land, so it is what is judged:
   ([the document checks](#the-document-checks));
 - an independent reviewer, under the run's account and charged to the run and
   its item as review spend, is asked whether the change combined with what the
-  target now carries still does what the item asks.
+  target now carries still does what the item asks. It is given the
+  developer's summaries recorded on the run and the summary of the review that
+  approved the change, or told that the record holds none. Those are claims for
+  it to weigh; its verdict on the candidate is its own.
 
 The approval the run earned admitted the change; it authorizes no landing, and
 evidence about one candidate never answers for another. The target moving while

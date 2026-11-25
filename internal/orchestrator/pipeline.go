@@ -10501,7 +10501,7 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		DeveloperSummaryContext: summaryContext,
 		// Every earlier attempt's account too, so a repair's summary that leans
 		// on what an earlier attempt said is read beside it.
-		EarlierDeveloperSummaries:        a.earlierDeveloperSummariesForReview(),
+		EarlierDeveloperSummaries:        recordedEarlierSummaries(a.state),
 		EarlierDeveloperSummariesDropped: a.state.EarlierDeveloperSummariesDropped,
 		WorktreePath:                     a.worktree.Path,
 		Changes:                          changes,
@@ -10681,20 +10681,6 @@ func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, stri
 		context += " " + cut
 	}
 	return summary.Text, context, nil
-}
-
-// earlierDeveloperSummariesForReview is the run's record of each earlier
-// attempt's account, as the review request carries it. A document landing has
-// no developer, so it has none.
-func (a *activeRun) earlierDeveloperSummariesForReview() []review.AttemptSummary {
-	if a.state.HarnessAuthored() {
-		return nil
-	}
-	var earlier []review.AttemptSummary
-	for _, summary := range a.state.EarlierDeveloperSummaries {
-		earlier = append(earlier, review.AttemptSummary{Attempt: summary.Attempt, Text: summary.Text, Cut: summary.CutStatement()})
-	}
-	return earlier
 }
 
 func (a *activeRun) clearReviewEvidence() {
