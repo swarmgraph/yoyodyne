@@ -120,6 +120,10 @@ type Hold struct {
 	// decision out once the item is released; while the item is parked, Order
 	// reads the wait as the parking's rather than as a carry-out the harness owes.
 	WaitsOnParking bool
+	// WaitsOnNamedEpics reports a decision already recorded that waits for the
+	// epics the operator named to let its item start. Decided stays true: the
+	// harness carries the decision out once they do, as the pass after it finds.
+	WaitsOnNamedEpics bool
 }
 
 // Holds is the admitted work somebody has to release before anything pulls it,
@@ -385,6 +389,10 @@ type Entry struct {
 	// item, not the harness. Once the item is unparked the decision is the
 	// harness's to carry out again, and AwaitingCarryOut says so instead.
 	AwaitingUnparking bool `json:"awaiting_unparking,omitempty"`
+	// AwaitingNamedEpics reports a held item whose recorded decision waits for
+	// the epics the operator named to let the item start (Hold.WaitsOnNamedEpics).
+	// AwaitingCarryOut is true beside it, because the harness still moves next.
+	AwaitingNamedEpics bool `json:"awaiting_named_epics,omitempty"`
 	// AwaitingWork is the work item the development manager decided to wait on
 	// for the stoppage holding this item, where her decision named one, and is
 	// empty otherwise. Like AwaitingCarryOut it is a fact about the wait. Whether
@@ -594,6 +602,7 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			// nothing is holding says nothing about why it is not being pulled, and
 			// carrying it here would put an item on the held count that no hold is on.
 			AwaitingCarryOut:     awaiting != "" && holding.Decided && !landing && !unparking,
+			AwaitingNamedEpics:   awaiting != "" && holding.Decided && holding.WaitsOnNamedEpics && !landing,
 			AwaitingUnparking:    awaiting != "" && unparking && !landing,
 			AwaitingWork:         awaitingWork(awaiting, holding, landing),
 			AwaitingLanding:      landing,

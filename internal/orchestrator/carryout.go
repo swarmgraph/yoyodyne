@@ -826,7 +826,7 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	}
 	for _, held := range candidates {
 		task := held.task
-		if (task.Decision == "repair" || task.Decision == "rerun") && held.gate != runstate.TriageGateParked && held.gate != runstate.TriageGateNamedEpics {
+		if (task.Decision == "repair" || task.Decision == "rerun") && !heldByItsItem(held.gate) {
 			if err := recordSchedulingWait(ctx, c.Notes, task.WorkItemID, runstate.PassedOverAwaitingCarryOut, carryOutWaitReason(ctx, c.Notes, held.why), now); err != nil {
 				problems = append(problems, err)
 			}
@@ -852,10 +852,10 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 			}
 			continue
 		}
-		// A decision held for its item's parking is written down at once rather
-		// than after the grace interval: until it is, every surface reads the
-		// decision as the harness's to carry out, which it is not.
-		if harnessOwnTask(task.Decision) || task.DecidedAt.IsZero() || (now.Sub(task.DecidedAt) < poll && held.gate != runstate.TriageGateParked) {
+		// A decision held for its item's parking, or for the named epics, is
+		// written down at once rather than after the grace interval: until it is,
+		// every surface reads the decision as one the next pull carries out.
+		if harnessOwnTask(task.Decision) || task.DecidedAt.IsZero() || (now.Sub(task.DecidedAt) < poll && !heldByItsItem(held.gate)) {
 			continue
 		}
 		record, seen := counters[task.WorkItemID]
@@ -868,12 +868,13 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 			counters[task.WorkItemID], record = read, read
 		}
 		if standing, found := record.CarryOutOf(task.RunID); found && !standing.RefusedAt.Before(task.DecidedAt) {
-			// An attempt already made is left to stand, except across a parking: a
-			// parked item is never attempted, so no later attempt replaces what an
-			// earlier one was told, and a released one held back for something else
-			// must stop naming whoever had parked it. A permanent refusal stands.
-			parking := standing.Cause == "" && (standing.WaitsOnParking() || held.gate == runstate.TriageGateParked)
-			if (!standing.Unattempted && !parking) || (standing.Gate == held.gate && standing.Refusal == strings.TrimSpace(held.why)) {
+			// An attempt already made is left to stand, except across a parking or
+			// the named epics: an item held by either is never attempted, so no later
+			// attempt replaces what an earlier one was told, and a released one held
+			// back for something else must stop naming what held it. A permanent
+			// refusal stands.
+			itemWait := standing.Cause == "" && (heldByItsItem(standing.Gate) || heldByItsItem(held.gate))
+			if (!standing.Unattempted && !itemWait) || (standing.Gate == held.gate && standing.Refusal == strings.TrimSpace(held.why)) {
 				continue
 			}
 		}
@@ -895,6 +896,10 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 			Problem: fmt.Sprintf("the %q the development manager decided about the stoppage of run %s at %s has not been attempted by any pass: %s. What clears it: %s",
 				task.Decision, task.RunID, task.DecidedAt.UTC().Format(time.RFC3339), strings.TrimSpace(held.why), strings.TrimSpace(held.clears)),
 		}
+		if held.gate == runstate.TriageGateNamedEpics {
+			account.Problem = fmt.Sprintf("the %q the development manager decided about the stoppage of run %s at %s waits because the epics the operator named do not let its item start: %s. What clears it: %s",
+				task.Decision, task.RunID, task.DecidedAt.UTC().Format(time.RFC3339), strings.TrimSpace(held.why), strings.TrimSpace(held.clears))
+		}
 		if err != nil {
 			account.RecordProblem = fmt.Sprintf(
 				"and that could not be written onto %s's triage record, so the docket the development manager reads does not carry it and this pass is the only thing that says it: %v",
@@ -903,6 +908,14 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 		written = append(written, account)
 	}
 	return written, errors.Join(problems...)
+}
+
+// heldByItsItem reports a reason that holds the decision's item rather than its
+// carry-out: the item is parked, or the named epics do not let it start. The
+// sweep offers no such decision, and the first sweep after the item is released
+// does.
+func heldByItsItem(gate string) bool {
+	return gate == runstate.TriageGateParked || gate == runstate.TriageGateNamedEpics
 }
 
 // outstandingItem is one work item's record as this sweep reads it: what has been
@@ -1805,7 +1818,7 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	// A parked item is passed over for its parking, which the item already says,
 	// rather than for a carry-out the harness owes.
 	// One outside the named epics keeps its item as it was.
-	if gate != runstate.TriageGateParked && gate != runstate.TriageGateNamedEpics {
+	if !heldByItsItem(gate) {
 		if err := recordSchedulingWait(ctx, c.Notes, task.WorkItemID, runstate.PassedOverAwaitingCarryOut, carryOutWaitReason(ctx, c.Notes, carried.Problem), c.now()); err != nil {
 			carried.RecordProblem = fmt.Sprintf("record the scheduling wait: %v", err)
 		}
