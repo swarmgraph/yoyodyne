@@ -80,6 +80,14 @@
     },
     "failure": "the developer could not start make build in this worktree: could not start /bin/sh: operation not permitted",
     "harness_commit": "\u003ccommit-2\u003e",
+    "item_at_start": {
+      "acceptance_criteria": "\u003ccommit-3\u003e",
+      "description": "\u003ccommit-3\u003e",
+      "design": "\u003ccommit-3\u003e",
+      "notes": "\u003ccommit-3\u003e",
+      "notes_bytes": 0,
+      "title": "\u003ccommit-4\u003e"
+    },
     "last_sequence": 0,
     "phase": "developing",
     "product_id": "yoyodyne",

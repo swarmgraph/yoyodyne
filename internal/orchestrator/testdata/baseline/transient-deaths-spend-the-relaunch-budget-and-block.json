@@ -60,6 +60,14 @@
     "config_revision": "\u003cconfig-revision\u003e",
     "effort_settled": true,
     "failure": "the provider ended this run without judging the work after 2 of 2 permitted relaunch(es): api_error: API Error: the provider ended this invocation and named no reason for it",
+    "item_at_start": {
+      "acceptance_criteria": "\u003ccommit-2\u003e",
+      "description": "\u003ccommit-2\u003e",
+      "design": "\u003ccommit-2\u003e",
+      "notes": "\u003ccommit-2\u003e",
+      "notes_bytes": 0,
+      "title": "\u003ccommit-3\u003e"
+    },
     "last_sequence": 0,
     "phase": "developing",
     "product_id": "yoyodyne",

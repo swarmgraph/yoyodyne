@@ -158,6 +158,14 @@
     "effort_settled": true,
     "failure": "independent review requires repair after 2 of 2 permitted attempt(s): the change misses the acceptance criteria",
     "harness_commit": "\u003ccommit-2\u003e",
+    "item_at_start": {
+      "acceptance_criteria": "\u003ccommit-3\u003e",
+      "description": "\u003ccommit-3\u003e",
+      "design": "\u003ccommit-3\u003e",
+      "notes": "\u003ccommit-3\u003e",
+      "notes_bytes": 0,
+      "title": "\u003ccommit-4\u003e"
+    },
     "last_sequence": 12,
     "phase": "reviewing",
     "product_id": "yoyodyne",

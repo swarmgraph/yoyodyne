@@ -1150,6 +1150,8 @@ var notAStep = map[string]string{
 	"landsThroughPullRequest":    "asks the forge whether the target is protected, which picks how candidate.integrate promotes",
 	"landedThroughPullRequest":   "reads whether a landing through the pull request reached the target, inside candidate.integrate",
 	"blockOnUnlandedPullRequest": "hands a landing the forge did not merge to a person, inside candidate.integrate",
+	"repairContext":              "words of a repair's prompt, which candidate.develop is given",
+	"decisionSection":            "words of a repair's prompt: the development manager's recorded decision, read and changed by nothing here",
 	"repair":                     "records one repair attempt and re-enters candidate.develop with the findings",
 	"bringPersonMergeUpToDate":   "replays the change of a pull request waiting for a person to merge it onto a target that moved past it, then re-enters the gate through verifyReviewAndFinish, whose steps are registered",
 	"publishUpdated":             "is candidate.publish for a head brought up to date: it reads the pull request immediately before the push and withholds the push over a merge a person has in progress",
