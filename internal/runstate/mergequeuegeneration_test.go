@@ -40,6 +40,7 @@ func TestEvidenceForOneGenerationNeverAuthorizesAChangedOne(t *testing.T) {
 		"candidate":           func(g *MergeQueueGeneration) { g.Candidate = strings.Repeat("9", 40) },
 		"content":             func(g *MergeQueueGeneration) { g.Content = strings.Repeat("8", 40) },
 		"author session":      func(g *MergeQueueGeneration) { g.AuthorSession = "session-other-author" },
+		"other authors":       func(g *MergeQueueGeneration) { g.OtherAuthors = []string{"session-writer"} },
 		"entry":               func(g *MergeQueueGeneration) { g.EntryID = "mqe-" + strings.Repeat("1", 32) },
 		"entry order":         func(g *MergeQueueGeneration) { g.EntryOrder++ },
 		"check configuration": func(g *MergeQueueGeneration) { g.Checks = NewMergeQueueCheckConfiguration([]string{"npm test"}) },
@@ -97,6 +98,11 @@ func TestTheGateGivesNoCreditForMissingOrIncompleteEvidence(t *testing.T) {
 		"no reviewer session": {func(g *MergeQueueGeneration) { g.Review.SessionID = "" }, "no session"},
 		"reviewer is the author": {func(g *MergeQueueGeneration) { g.Review.SessionID = g.AuthorSession },
 			"wrote the change"},
+		"reviewer is another author": {func(g *MergeQueueGeneration) {
+			g.OtherAuthors = []string{"session-writer"}
+			g.Review.SessionID = "session-writer"
+			g.Paths.Binding, g.CheckRun.Binding, g.Review.Binding = g.Binding(), g.Binding(), g.Binding()
+		}, "wrote the change"},
 		"invalidated": {func(g *MergeQueueGeneration) {
 			g.Invalidated = &MergeQueueInvalidation{Reason: MergeQueueTargetMoved, At: time.Now()}
 		}, "invalidated"},

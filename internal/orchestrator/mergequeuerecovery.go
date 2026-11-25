@@ -293,7 +293,7 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 		failure.Class = runstate.MergeQueueInfrastructureFailure
 		failure.Reason = fmt.Sprintf("generation %d's review reached no verdict (%s); it is asked again, and nothing is charged for it", generation.Number, verdict.Problem)
 		return failure, true, nil
-	case verdict.Decision == "" || strings.TrimSpace(verdict.SessionID) == "" || verdict.SessionID == generation.AuthorSession:
+	case verdict.Decision == "" || strings.TrimSpace(verdict.SessionID) == "" || generation.AuthoredBy(verdict.SessionID):
 		failure.Class = runstate.MergeQueueUnreadableEvidence
 		failure.Reason = fmt.Sprintf("generation %d's review is not an independent verdict a failure can be read from", generation.Number)
 		return failure, true, nil

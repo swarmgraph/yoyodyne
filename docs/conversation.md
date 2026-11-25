@@ -3772,7 +3772,7 @@ conflict* instead, written before the blocker about it is attempted on the
 tracker so it survives that write failing, and the record refuses the two
 together. The docket entry for such a run names the conflict and you as the
 next mover, names `yoyo triage repair` as the verb that hands the conflict back
-to the same developer session (yoyodyne-ifd.132), and says the resume is not the
+to the run's current developer session (yoyodyne-ifd.132), and says the resume is not the
 answer; asked anyway, the resume refuses in the same sentence.
 
 Everything you type as a command — `/status`, `/backlog`, `/show`, `/work`,

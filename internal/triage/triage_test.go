@@ -681,7 +681,7 @@ func TestAReplayConflictEntryNamesTheConflictAndTheRepairNotTheResume(t *testing
 	for _, want := range []string{
 		"run " + conflicted.RunID + "'s change is approved and its replay onto main conflicted",
 		"a person to settle the conflict",
-		"`yoyo triage repair " + conflicted.RunID + "`, which continues the developer that wrote it",
+		"`yoyo triage repair " + conflicted.RunID + "`, which continues the run's developer",
 		"Next mover: you — this change is approved and its replay conflicted",
 		"What the replay found",
 		"carries no blocker",

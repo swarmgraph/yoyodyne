@@ -65,7 +65,7 @@ import (
 // notes were ever truncated meant. The replay a moved target refused, handed
 // back to the developer to reconcile, is newer still and behaves the same way:
 // absent means no replay of this run was ever refused, which is what every run
-// written before a conflict went back to its author meant. A run's routing is
+// written before a conflict went back to a developer meant. A run's routing is
 // the newest and carries its own version inside it (RoutingVersion): absent
 // means the slot and switch history are unknown, and a build from before it
 // refuses to resume a run that has it, because its strict read does not know the
@@ -2663,6 +2663,9 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	if s.ReplayConflict != nil {
 		nested("replay_conflict.detail", "replay_conflict.detail", &s.ReplayConflict.Detail, MaxConflictDetailBytes)
+		if s.ReplayConflict.Approved != nil {
+			nested("replay_conflict.approved.summary", "replay_conflict.approved.summary", &s.ReplayConflict.Approved.Summary, MaxReviewSummaryBytes)
+		}
 	}
 	for index := range s.IntegrationResumptions {
 		resumption := &s.IntegrationResumptions[index]
@@ -4543,7 +4546,11 @@ type State struct {
 	// no longer merged, and ConflictSpending which of them the run's spending is
 	// being made for. See conflicthandback.go.
 	ConflictHandbacks []ConflictHandback `json:"conflict_handbacks,omitempty"`
-	ConflictSpending  *ConflictSpending  `json:"conflict_spending,omitempty"`
+	// AuthorSessions are the sessions that wrote the change before the current
+	// developer session, and each one that resolved a conflict. It is empty on a
+	// run one session wrote.
+	AuthorSessions   []AuthorSession   `json:"author_sessions,omitempty"`
+	ConflictSpending *ConflictSpending `json:"conflict_spending,omitempty"`
 	// ChargedReplays counts the replays that stopped on the change rather than on
 	// the target: the replay conflicted, or the replayed change was handed back
 	// for a failing check, a refused path, missing verification, or a repair
@@ -5469,6 +5476,7 @@ func (s State) Validate() error {
 	}
 	problems = append(problems, s.validateLandingAttempts()...)
 	problems = append(problems, s.validateConflictHandbacks()...)
+	problems = append(problems, s.validateAuthorSessions()...)
 	if s.TransientRelaunches < 0 {
 		problems = append(problems, errors.New("transient_relaunches cannot be negative"))
 	}
@@ -6410,6 +6418,8 @@ func (s State) validateIndependentInvocations() []error {
 		problems = append(problems, errors.New("integration requires recorded developer and reviewer session identifiers"))
 	} else if developer == reviewer {
 		problems = append(problems, errors.New("integration requires distinct developer and reviewer session identifiers"))
+	} else if s.AuthoredBy(reviewer) {
+		problems = append(problems, errors.New("integration requires a reviewer session that wrote no part of the change"))
 	}
 	if strings.TrimSpace(s.ProviderModel) == "" || strings.TrimSpace(s.ReviewModel) == "" {
 		problems = append(problems, errors.New("integration requires recorded developer and reviewer model selectors"))
