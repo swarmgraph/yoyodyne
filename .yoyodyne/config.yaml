@@ -121,6 +121,13 @@ execution:
   # on, so the harness chooses nothing; the epic's pieces are started by name,
   # which the hold does not stop, and nothing else takes either slot.
   max_concurrent_developers: 2
+  # The whole race check on main (main_checks below) runs once a day, not every
+  # four hours, at the operator's direction of 2026-11-24 ("Yes, please do all of
+  # those", to stretching it to once a day): GitHub's CI already runs build,
+  # test, race and vet on every push to main, so the local run mostly repeated it
+  # on this machine's CPU. It goes away once the harness reads GitHub's result for
+  # main's head instead.
+  main_check_interval: 24h
   repair_attempts_before_replan: 4
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
