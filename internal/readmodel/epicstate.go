@@ -131,7 +131,6 @@ type epicStandings struct {
 	// what was read.
 	conversations Conversations
 	asked         []operatorQuestion
-	askedErr      error
 	askedRead     bool
 	// needsProblem is why a question may be missing from needs, so that an epic is
 	// not shown as delivered.
@@ -320,9 +319,10 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 	return standing
 }
 
-// ended is where an epic the operator ended stands. It had been delivered where
+// ended is where an epic the operator ended stood when it was ended, which nothing
+// recorded later changes. It had been delivered where
 // its delivery still counted then, every member's change was landed or handed
-// over, and no question was open. Afterwards only merges move it.
+// over, and no question was open.
 func (s *epicStandings) ended(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) (EpicState, error) {
 	at := epic.Ended.At
 	counts := func(recorded time.Time) bool { return recorded.After(opened) && !recorded.After(at) }
@@ -350,10 +350,7 @@ func (s *epicStandings) ended(epic epicscope.Epic, entry epicprogress.Entry, ope
 		}
 	}
 	// The logs are long, so they are read only for what is otherwise delivered.
-	asked, err := s.operatorQuestions()
-	if err != nil {
-		return "", err
-	}
+	asked := s.operatorQuestions()
 	for _, id := range s.view.Items(epic) {
 		if slices.ContainsFunc(asked, func(question operatorQuestion) bool {
 			return namesItem(id, question.texts...) && question.openAt(at, delivered)
@@ -397,48 +394,33 @@ func (q operatorQuestion) openAt(at, delivered time.Time) bool {
 	return q.pending || q.raised.After(delivered)
 }
 
-// operatorQuestions is every question put to the operator, read once for a
-// reading. A log or a line of one that cannot be read is an error, because what
-// it held could have been open.
-func (s *epicStandings) operatorQuestions() ([]operatorQuestion, error) {
-	if s.askedRead {
-		return s.asked, s.askedErr
+// operatorQuestions is every question put to the operator whose time the logs
+// give, read once for a reading. What cannot be read is left out, because nothing
+// shows that it stood when an epic was ended.
+func (s *epicStandings) operatorQuestions() []operatorQuestion {
+	if !s.askedRead {
+		s.asked, s.askedRead = readOperatorQuestions(s.conversations), true
 	}
-	s.askedRead = true
-	s.asked, s.askedErr = readOperatorQuestions(s.conversations)
-	if s.askedErr != nil {
-		s.askedErr = fmt.Errorf("when the operator was asked could not be read: %w", s.askedErr)
-	}
-	return s.asked, s.askedErr
+	return s.asked
 }
 
-func readOperatorQuestions(conversations Conversations) ([]operatorQuestion, error) {
+func readOperatorQuestions(conversations Conversations) (asked []operatorQuestion) {
 	events, can := conversations.(ConcernEvents)
 	if !can {
-		return nil, errors.New("nothing was wired to read the conversations' event logs")
-	}
-	recorded, err := conversations.Recorded()
-	if err != nil {
-		return nil, err
+		return nil
 	}
 	pending := map[string]bool{}
+	recorded, _ := conversations.Recorded()
 	for _, conversation := range recorded {
 		for _, concern := range conversation.PendingConcerns {
 			pending[concernWaitID(conversation.ConversationID, concern.ID)] = true
 		}
 	}
-	logged, err := events.LoggedConversations()
-	if err != nil {
-		return nil, err
-	}
-	var asked []operatorQuestion
+	logged, _ := events.LoggedConversations()
 	for _, conversation := range logged {
-		found, skipped, err := events.EventsOfType(conversation, execution.EventConcernRaised, execution.EventConcernAnswered)
+		found, _, err := events.EventsOfType(conversation, execution.EventConcernRaised, execution.EventConcernAnswered)
 		if err != nil {
-			return nil, err
-		}
-		if len(skipped) > 0 {
-			return nil, fmt.Errorf("%s of the event log of %s could not be read", count(len(skipped), "line"), conversation)
+			continue
 		}
 		at := map[string]int{}
 		for _, event := range found {
@@ -452,7 +434,7 @@ func readOperatorQuestions(conversations Conversations) ([]operatorQuestion, err
 				} `json:"concern"`
 			}
 			if err := json.Unmarshal(event.Payload, &concern); err != nil || concern.ID == "" {
-				return nil, fmt.Errorf("an event about a question in %s could not be read", conversation)
+				continue
 			}
 			index, known := at[concern.ID]
 			switch {
@@ -466,12 +448,12 @@ func readOperatorQuestions(conversations Conversations) ([]operatorQuestion, err
 			}
 		}
 	}
-	return asked, nil
+	return asked
 }
 
 // doneAt is whether a member of an epic ended at a moment was done then, and
-// whether its change is not merged yet. Runs started later are not looked at,
-// other than one that took a pull request over.
+// whether its change was not merged yet. Runs started later are not looked at, and
+// what was recorded of the others later is not either.
 func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id string, at time.Time, seen map[string]bool) (done, handed bool, err error) {
 	runs, err := s.runsOf(id)
 	if err != nil {
@@ -480,24 +462,30 @@ func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id
 	if s.items[id].Landing != "" && !s.items[id].ClosedAt.After(at) {
 		return true, false, nil
 	}
+	runs = slices.DeleteFunc(slices.Clone(runs), func(run runstate.State) bool { return run.StartedAt.After(at) })
 	for _, run := range runs {
-		if run.StartedAt.After(at) || !run.Discharges() {
+		if !run.Discharges() {
 			continue
 		}
-		for steps := 0; run.PersonMerge != nil && run.PersonMerge.Superseded() && steps < len(runs); steps++ {
+		for steps := 0; run.PersonMerge != nil && run.PersonMerge.Superseded() && !run.PersonMerge.SupersededAt.After(at) && steps < len(runs); steps++ {
 			next := slices.IndexFunc(runs, func(other runstate.State) bool { return other.RunID == run.PersonMerge.SupersededBy })
 			if next < 0 {
 				break
 			}
 			run = runs[next]
 		}
+		if run.Retirement != nil && run.Retirement.At.After(at) {
+			run.Status, run.Retirement = run.Retirement.PriorStatus, nil
+		}
 		closed := closedUnmerged(run)
 		switch {
 		case closed != nil && !closed.After(at):
 			continue
+		case run.TeamMerge != nil && run.TeamMerge.PullRequest == nil && (run.TeamMerge.FoundAt == nil || run.TeamMerge.FoundAt.After(at)):
+			continue
 		case closed != nil, run.WaitingForPersonMerge(), run.BringingPersonMergeUpToDate(),
-			run.PersonMerge != nil && run.PersonMerge.Superseded(),
-			run.WaitingForTeamMerge() && run.TeamMerge.PullRequest != nil:
+			run.PersonMerge != nil && (run.PersonMerge.Superseded() || run.PersonMerge.Merged() && run.PersonMerge.MergedAt.After(at)),
+			run.TeamMerge != nil && (run.TeamMerge.FoundAt == nil || run.TeamMerge.FoundAt.After(at)):
 			done, handed = true, true
 		case landed(run), approvedSummary(run):
 			return true, false, nil
@@ -768,7 +756,8 @@ func landed(run runstate.State) bool {
 // summary the reviewer approved as the item's work.
 func approvedSummary(run runstate.State) bool {
 	return run.Status == runstate.StatusSucceeded && run.ReviewDecision == runstate.ReviewApprove && run.Discharges() &&
-		run.Integration == nil && run.PullRequest == nil && run.PersonMerge == nil && run.Retirement == nil
+		run.Integration == nil && run.PullRequest == nil && run.PersonMerge == nil && run.Retirement == nil &&
+		(run.Changes == nil || run.Changes.Files == "")
 }
 
 // replaced is a member that was closed with nothing landed. It counts as done

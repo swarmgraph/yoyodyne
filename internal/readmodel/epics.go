@@ -630,7 +630,7 @@ func (s Standing) RenderEpics() string {
 			rendered.WriteString("\n" + epic.render())
 		}
 		for _, epic := range e.Ended {
-			fmt.Fprintf(&rendered, "  Ended epic: %s (%s)\n%s", epic.Title, epic.WorkItemID, epic.render())
+			fmt.Fprintf(&rendered, "  Ended epic: %s (%s), as it stood when you ended it\n%s", epic.Title, epic.WorkItemID, epic.render())
 		}
 		if e.ItemsProblem == "" {
 			fmt.Fprintf(&rendered, "  Ready items held out: %d%s\n", e.ItemsHeldOut, sinceSaid(e.ItemsHeldOutSince))

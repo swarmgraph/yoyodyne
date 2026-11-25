@@ -314,6 +314,8 @@ func TestEachStateOfANamedEpic(t *testing.T) {
 			b.landed(stateOne, stateTwo)
 			b.check(epicprogress.FoundPersonsStep, hours(2))
 		}, EpicWaitsOnOperator, nil},
+		"blocked outside, and on the operator": {func(b *stateBench) { personsStep(b, stateOne); waitsOutside(b, stateTwo) }, EpicBlockedOutside,
+			[]string{"Waiting on the operator: Title " + stateOne, "Title " + stateTwo + " (" + stateTwo + ") waits for Title " + stateOther}},
 		"blocked outside": {func(b *stateBench) { b.landed(stateOne); waitsOutside(b, stateTwo) }, EpicBlockedOutside,
 			[]string{"Title " + stateTwo + " (" + stateTwo + ") waits for Title " + stateOther}},
 	} {
@@ -350,6 +352,27 @@ func TestAnEpicWithACancelledMemberOrAnOpenQuestionIsNeverDelivered(t *testing.T
 	asked.Question = "Is " + stateOne + " enough?"
 	b.sources.Exchanges = fakeExchanges{exchanges: []exchange.Exchange{asked}}
 	b.wants(EpicWorking, "Waiting on the architect: Title "+stateOne+" ("+stateOne+") has a question between roles that is not settled")
+}
+
+func TestAMemberIsJudgedByItsSummaryOnlyOnACompleteApprovedRunWithNoChange(t *testing.T) {
+	t.Parallel()
+	for name, change := range map[string]func(*runstate.State){
+		"it did not end complete":      func(run *runstate.State) { run.Status = runstate.StatusFailed },
+		"it was not approved":          func(run *runstate.State) { run.ReviewDecision = runstate.ReviewRepair },
+		"it was approved as evidence":  func(run *runstate.State) { run.ReviewApproves = runstate.ApprovesEvidence },
+		"it recorded a pull request":   func(run *runstate.State) { run.PullRequest = &runstate.PullRequest{Number: 7} },
+		"it recorded a change to land": func(run *runstate.State) { run.Changes = &runstate.Changes{Files: "M\tmain.go"} },
+	} {
+		b := newStateBench(t)
+		b.landed(stateOne)
+		b.status(stateTwo, "closed")
+		b.run(stateTwo, 1, func(*runstate.State) {})
+		b.check(epicprogress.FoundAllMet, hours(2))
+		b.wants(EpicIntegrated)
+		b.lastRun(stateTwo, change)
+		t.Log(name)
+		b.wants(EpicWorking, "Waiting on the Lead Product Manager: Title "+stateTwo+" ("+stateTwo+") was closed without its change having landed")
+	}
 }
 
 func TestAQuestionToTheOperatorKeepsAnOpenEpicFromDelivered(t *testing.T) {
@@ -536,7 +559,7 @@ func TestEachStepOwedIsNamed(t *testing.T) {
 	}
 }
 
-func TestAnEndedEpicMovesOnlyByMerges(t *testing.T) {
+func TestAnEndedEpicKeepsTheStateItHadWhenItWasEnded(t *testing.T) {
 	t.Parallel()
 	b := newStateBench(t)
 	b.landed(stateOne)
@@ -555,9 +578,30 @@ func TestAnEndedEpicMovesOnlyByMerges(t *testing.T) {
 	b.lastRun(stateTwo, func(run *runstate.State) {
 		run.PersonMerge.MergedAt, run.Integration = &merged, &runstate.Integration{ThroughPullRequest: true}
 	})
-	b.wants(EpicIntegrated)
+	b.wants(EpicHandedOver)
 	later()
+	b.wants(EpicHandedOver)
+	// Merged before it was ended, it is integrated.
+	merged = hours(2).Add(time.Minute)
 	b.wants(EpicIntegrated)
+
+	// So where a later run had taken the pull request over.
+	for over, want := range map[int]EpicState{2: EpicIntegrated, 4: EpicHandedOver} {
+		taken := newStateBench(t)
+		taken.landed(stateOne)
+		taken.handedOver(stateTwo)
+		taken.deliver(hours(2))
+		taken.end(hours(3))
+		taken.handedOver(stateTwo)
+		at, mergedAt := hours(over), hours(over).Add(time.Minute)
+		taken.lastRun(stateTwo, func(run *runstate.State) {
+			run.RunID, run.StartedAt = "run-taken", at
+			run.PersonMerge.MergedAt, run.Integration = &mergedAt, &runstate.Integration{ThroughPullRequest: true}
+		})
+		first := taken.runs[stateTwo][0].PersonMerge
+		first.SupersededBy, first.SupersededAt = "run-taken", &at
+		taken.wants(want)
+	}
 
 	closed := newStateBench(t)
 	closed.landed(stateOne)
@@ -583,13 +627,26 @@ func TestAnEndedEpicMovesOnlyByMerges(t *testing.T) {
 		unmoved(b)
 		t.Log(name)
 		b.wants(EpicIntegrated)
-		// With a line of a log unread, what was open cannot be told.
+		// What cannot be read is left out, and the state is kept.
 		unread := b.sources.Conversations.(loggedConversations)
 		unread.skipped = []runstate.SkippedLine{{}}
 		b.sources.Conversations = unread
-		b.wants("", "could not be worked out", "1 line of the event log of chat-1")
+		b.wants(EpicIntegrated)
 		b.sources.Conversations = unread.fakeConversations
-		b.wants("", "nothing was wired to read the conversations' event logs")
+		b.wants(EpicIntegrated)
+	}
+
+	untimed := newStateBench(t)
+	untimed.landed(stateOne, stateTwo)
+	untimed.deliver(hours(2))
+	untimed.end(hours(3))
+	untimed.askOperator(stateOne, hours(1))
+	asked := untimed.sources.Conversations.(loggedConversations)
+	for name, events := range map[string][]execution.Event{"no event": nil, "one that will not decode": {{Type: execution.EventConcernRaised, Timestamp: hours(1), Payload: json.RawMessage("7")}}} {
+		asked.events = events
+		untimed.sources.Conversations = asked
+		t.Log(name)
+		untimed.wants(EpicIntegrated)
 	}
 
 	for name, undelivered := range map[string]func(*stateBench){

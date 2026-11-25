@@ -2055,8 +2055,9 @@ A piece that joined before a pull request was closed does not stand for that req
 member. An epic you ended counts as delivered where its recorded delivery and passed
 check still counted then, every member was done, and no directive, question between
 roles or question to you that names one was open. When you were asked and answered is
-read from the conversations' event logs. Where one cannot be read, status says the state
-could not be worked out. Afterwards only a merge moves such an epic.
+read from the conversations' event logs, and a question whose time cannot be found is
+left out. An ended epic keeps the state it had when you ended it: a merge, a question or
+a run recorded later does not change it.
 
 A record of the named epics that cannot be read is said there with the reason and
 the starts refused. It is never taken for no record.

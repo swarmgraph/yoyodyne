@@ -97,7 +97,7 @@ func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
     Working
     Waiting on the Lead Product Manager: Keep the record (yoyodyne-ep.1) was closed without its change having landed: admit it again, have it replaced, or ask the operator to take it out (yoyo epic remove yoyodyne-ep yoyodyne-ep.1 --words <text>)
     Say the mode (yoyodyne-ep.4) waits for Read the file (yoyodyne-dep), which is not in this epic.
-  Ended epic: not in the tracker (yoyodyne-old)
+  Ended epic: not in the tracker (yoyodyne-old), as it stood when you ended it
     Cancelled: you ended it before it was delivered
   Ready items held out: 2, since %[1]s
   Items suggested during an open epic, which start nothing: 0
