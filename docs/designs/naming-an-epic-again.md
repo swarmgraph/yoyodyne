@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-11-25T07:47:45.114564Z
       reason: Replaces document-3919.1 whole, for yoyodyne-9k1y.7.1. Point 6 on role passes now says a refused summons after an automatic hold is kept only by the watching session and lost when it starts again. Adds the ruling that delivering a stopped run to the development manager is a prompted pass that asks first and stays outstanding when refused, built in yoyodyne-9k1y.7.2. The other rulings are unchanged; the checks are written afresh because the earlier closing sections could not be read.
+    - action: amended
+      by: architect
+      at: 2026-11-25T08:38:01.115992Z
+      reason: 'yoyodyne-9k1y: adds the rulings on the team branch update, yoyo review and repeated merge requests, checked against the code (reports 1308f3b6 and 97a88ba2); says a queued change is left off the list of unpublished pull requests only while an update is due and epic mode refuses it (report c4106115); replaces the out of date line on when yoyo epic start stops being refused. The other rulings are unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-25T07:47:45.114564Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3957, for document-3957.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-25T08:38:01.115992Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4008, for document-4008.1 under the automatic approval policy
 ---
 # Epic mode rulings: naming an epic again, turning epic mode back on, and how the remaining paths ask the one decision
 
@@ -28,6 +37,8 @@ The second question: the developer and the reviewer of the first half of the wir
 The third question: the developer of the first half of piece 6 (yoyodyne-9k1y.7.1) asked the same day what is kept of a refused document, a refused role pass, a refused review of unmet goals and a refused reading of messages, what clears it, when a role pass asks, and what the correction turn is.
 
 The fourth question: the reviewer of that piece reported the same day (report-cc5f60c215ffcec0befcbe165a503361) that delivering a stopped run to the development manager starts a turn and has no named path.
+
+The fifth question: the developer of the second half of piece 6 (yoyodyne-9k1y.7.2) reported the same day (report-4d2af4fbe59a343edd1f378897f6bd1a) that bringing the target branch up to date with the team's branch and `yoyo review` both start work and have no named path, and asked whether repeating a merge request does.
 
 ## Decision: naming an epic again
 
@@ -59,6 +70,7 @@ Each of these makes a run that had ended live again, takes a developer slot, and
 2. **Bringing a change that waits for a person's merge up to date.** `Reconciler.updatePersonMerge` in `internal/orchestrator/personmerge.go` asks after its refusal of a run that cannot be put back, and before its check of the hold on new work. A refusal, or a decision that could not be made, is one more reason the wait is kept as it stands: nothing is withdrawn, nothing is noted on the item, and the next check asks again. A merge or a closing by the person is still settled while the update is refused.
 3. **Taking up the checks of a run stopped because GitHub refused the harness's login.** `GitHubIdentityStops.takeUpPublishing` in `internal/orchestrator/githubidentity.go` asks beside its check of the hold on new work, before the item is noted or claimed. A refusal, or a decision that could not be made, leaves the run stopped, its entry on the development manager's list open, and its count of attempts as it was. It never ends the look: unlike the hold on new work or a full set of slots, it is about this one item, so the next run is still looked at.
 4. **The list of unpublished pull requests says the same.** While the decision refuses the update of point 1 or 2, `stuckPublication` in `internal/orchestrator/triage.go` does not list that change to the development manager as an unpublished pull request, however old it is. It reads the answer with `Decide`, which keeps nothing, never with `Ask`. A decision that could not be made lists the change as today. A change whose pull request is closed, or whose merge failed for a cause other than the update being refused, is listed as today. Status still shows the refused start.
+5. **A change is left off that list only while an update is due and the decision is what keeps it from being made.** A queued change for which no update is due, such as one whose head is level with its target and whose merge was not dropped, is stuck for another reason and is listed as today. So is one whose checks on GitHub could not be read, because the harness then cannot tell whether an update is due. Epic mode may hide only a wait that it causes.
 
 The look of point 3 also resumes an approved change stopped at its landing. That is finishing an interrupted merge, already on the list, and it asks where every resumption asks. A refusal there does not end the look either.
 
@@ -94,6 +106,18 @@ This is built inside the second half of piece 6 (yoyodyne-9k1y.7.2), not in the 
 
 A decision that could not be made is a refusal.
 
+## Decision: the team branch update, `yoyo review`, and repeated merge requests
+
+This was built by the last part of piece 6 (yoyodyne-9k1y.7.4). Both starts below are on the closed list in `internal/maystart/paths.go`.
+
+1. **Bringing the target branch up to date with the team's branch is a path of its own** (`TeamBranchUpdate`). It is for a target branch and for no work item, so it is not judged by membership. With epic mode off it starts as before. With epic mode on it starts if at least one named epic is open, and is refused if none is, because a member's change lands on that branch. A decision that could not be made is a refusal. Every other hold still applies.
+2. **It asks once an update is found due and before any work.** `teamBranchRun.update` in `internal/orchestrator/teambranchupdate.go` asks after it has found that the target does not carry the team's latest commit, and before it sets aside a waiting run, drops an earlier attempt, records a new one, builds, checks or reviews anything. Bringing the local copy of the target onto the remote's, earlier in that function, starts no work and is not asked about.
+3. **What carries on without asking.** Following a pull request already open for the update; landing a merge already checked and approved for the same two commits, while its commit is still held; and saying why a conflict or a refused merge still waits. None of these begins work. An approved merge whose commit is no longer held has to be built again, so it asks. A run that resolves a conflict asks under its own path.
+4. **A refusal changes nothing that was kept.** The update stays due, the earlier attempt stays as it was, and no attempt, failure, report or escalation is recorded. The outcome says it is still due, why it was not started, and what clears it.
+5. **A refused update is shown with the other refused starts**, counted once for each target branch however often it is tried. It is cleared when the update begins, when no update is due any more, or when epic mode is turned off. An entry for another target branch is cleared too.
+6. **`yoyo review` always starts.** It is a person's own command naming one branch, and it does not ask (`OperatorReview`, marked as always starting). It is on the closed list so that the check over the whole module knows of it, and nothing the harness starts by itself may use that path.
+7. **Asking GitHub again for a merge already approved starts no work** and has no path. The last part of piece 6 was given this to prove by a test.
+
 ## Decision: what is kept of a refused start
 
 The record stays in `internal/maystart/refusals.go`, with one writer. The new fields are optional and its schema version stays 1. A failed write is reported and never permits a start.
@@ -113,6 +137,9 @@ The list in the earlier text of this record could not be read when this one was 
 - **Saving a refused summons so that it survives a restart.** The hold it is about is already kept and shown, so a second lasting record would add a thing to keep in step for little gain.
 - **Letting a refused delivery of a stopped run spend an attempt.** Attempts are limited, so epic mode alone would use them up and leave the stop undelivered.
 - **Leaving an outside file run waiting once it has started.** It would keep every other record from starting, a member's among them.
+- **Refusing the team branch update whenever epic mode is on.** The members' own changes land on that branch, and it would fall behind the team's while they are worked on.
+- **Making `yoyo review` ask.** A person asking for one review has already decided it.
+- **Leaving off the list every queued change outside the named epics.** A change stuck for a reason epic mode did not cause would then be seen by nobody.
 
 ## What a reviewer can check
 
@@ -129,6 +156,7 @@ Paths that start a run:
 - each of the two more paths, and each of the three that put an ended run back to work, starts nothing for an item outside the members, spends nothing, and starts once it is allowed;
 - a refused outside file record does not stop a later one; an outside file run already started carries on, and a conflict run already started waits;
 - a refused update leaves the run, the item and the pull request unchanged, is not handed on as stuck, and is not listed as an unpublished pull request;
+- a queued change outside the members with no update due, or whose checks could not be read, is listed as today;
 - a refused login stop does not end the look at the others.
 
 Role passes, reviews and messages:
@@ -149,15 +177,27 @@ Delivering a stopped run:
 - with an epic open or the mode off it works as before, and a refused delivery does not stop a change in the merge queue;
 - a restart during a turn asks again, and a received reply is recorded without asking.
 
+The team branch update and `yoyo review`:
+
+- with epic mode on and no epic open, an update found due sets nothing aside, records no attempt and runs no check or review, and repeated checks count one for that target branch;
+- it starts once an epic is open or the mode is off, and its entry clears then or when no update is due;
+- an open pull request is followed, and an approved merge still held is landed, while a start would be refused; an approved merge no longer held is not built again while refused;
+- `yoyo review` starts with every named epic ended;
+- repeating a merge request for an approved change starts no run, check or provider call.
+
 Documents and the closed list:
 
 - a document answering no member stays confirmed and waiting with nothing counted against it, has one entry, appears once on status, and the next waiting document is still looked at;
-- `yoyo epic start` stays refused until the second half of piece 6 (yoyodyne-9k1y.7.2) lands.
+- `yoyo epic start` is refused while any path on the closed list is not wired. Every path on it was wired when this version was written.
 
 ## What this rests on
 
-Read at main 4b8bcdcd9132 for this version: `internal/orchestrator/escalate.go`, whole. The ruling on delivering a stopped run was first given without reading the code; that file agrees with it. `deliver` records an attempt with `Records.Attempt` before it calls `Judge`, so the question goes ahead of that. The tracker's text of the two halves of piece 6 and of its document part was read the same day.
+Read at main f29e37efdefc for this version: `internal/maystart/paths.go`, whole, and the first 49152 of the 58817 bytes of `internal/orchestrator/teambranchupdate.go`. The ruling on the team branch update was first given without reading that code. What was read agrees with it. The rest of that file, where the merge a conflict run leaves is asked about, was not read, and neither was the code that keeps the refused update or the code of `yoyo review`. Point 5 of that decision follows what was asked of the last part of piece 6 (yoyodyne-9k1y.7.4) and the calls that were read. The test on a repeated merge request was not read.
+
+Point 5 of the decision on an ended run was ruled from a reviewer's account (report-c41061159b8799db5861e37e440214fa). The code of the list as it landed (yoyodyne-9k1y.6.6) was not read, and by that account it leaves off more than the point allows.
+
+Read at main 4b8bcdcd9132 for an earlier version: `internal/orchestrator/escalate.go`, whole. The ruling on delivering a stopped run was first given without reading the code; that file agrees with it. `deliver` records an attempt with `Records.Attempt` before it calls `Judge`, so the question goes ahead of that.
 
 The earlier account of the ruling on role passes says it was made from `Trigger.Start` and what surrounds it, and did not read the rest of `recurring.go`, `schedule.go`, `triage.go` or the reader of messages.
 
-Not read for this version: `internal/cli/escalate.go`, the code of any other path named here, and the change of the first half of piece 6, which had not landed. Where the code differs from a ruling, the builder stops and says so for the architect.
+Not read: `internal/cli/escalate.go` and the code of any other path named here. Where the code differs from a ruling, the builder stops and says so for the architect.
