@@ -138,6 +138,27 @@ var launchNames = []string{
 // names and not types, so a new way of reserving a run is added to launchNames.
 func TestEveryLaunchOfADeveloperRunIsOnTheClosedList(t *testing.T) {
 	t.Parallel()
+	found := usesInModule(t, launchesIn)
+	for _, problem := range unlisted(found, launches) {
+		t.Error(problem)
+	}
+	listed := map[Path]bool{}
+	for _, place := range launches {
+		for _, path := range place.paths {
+			listed[path] = true
+		}
+	}
+	for _, entry := range Paths() {
+		if entry.starts == startsRun && !listed[entry.Path] {
+			t.Errorf("no place in the code is listed as starting %q", entry.Path)
+		}
+	}
+}
+
+// usesInModule is each use a finder sees in the module's Go files, tests and the
+// packages tests share aside.
+func usesInModule(t *testing.T, usesIn func(name string, source []byte) ([]string, error)) map[string]bool {
+	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +188,7 @@ func TestEveryLaunchOfADeveloperRunIsOnTheClosedList(t *testing.T) {
 			return err
 		}
 		read++
-		uses, err := launchesIn(filepath.ToSlash(relative), source)
+		uses, err := usesIn(filepath.ToSlash(relative), source)
 		for _, use := range uses {
 			found[use] = true
 		}
@@ -179,20 +200,7 @@ func TestEveryLaunchOfADeveloperRunIsOnTheClosedList(t *testing.T) {
 	if read < 100 {
 		t.Fatalf("only %d files were read, so this is looking in the wrong place", read)
 	}
-	for _, problem := range unlisted(found, launches) {
-		t.Error(problem)
-	}
-	listed := map[Path]bool{}
-	for _, place := range launches {
-		for _, path := range place.paths {
-			listed[path] = true
-		}
-	}
-	for _, entry := range Paths() {
-		if entry.starts == startsRun && !listed[entry.Path] {
-			t.Errorf("no place in the code is listed as starting %q", entry.Path)
-		}
-	}
+	return found
 }
 
 // unlisted is what is wrong between the places found and the places listed.
@@ -200,12 +208,12 @@ func unlisted(found map[string]bool, listed map[string]launch) []string {
 	var problems []string
 	for use := range found {
 		if _, ok := listed[use]; !ok {
-			problems = append(problems, fmt.Sprintf("%s can launch a developer run and is not listed: put the way it starts on the closed list (paths.go), unwired until the architect rules on it, and list it in launches", use))
+			problems = append(problems, fmt.Sprintf("%s can start work and is not listed: put the way it starts on the closed list (paths.go), unwired until the architect rules on it, and list it here", use))
 		}
 	}
 	for use, place := range listed {
 		if !found[use] {
-			problems = append(problems, use+" is listed and no longer there; take it off launches")
+			problems = append(problems, use+" is listed and no longer there; take it off the list")
 		}
 		if (len(place.paths) == 0) == (place.why == "") {
 			problems = append(problems, use+" needs either the paths it is or why it starts nothing")
@@ -259,6 +267,33 @@ func TestTheLaunchSweepSeesEachWayIn(t *testing.T) {
 // the file, the function it is in and what it uses, and by which use of it in
 // that function this is after the first.
 func launchesIn(name string, source []byte) ([]string, error) {
+	return usesIn(name, source, func(node ast.Node, add func(string)) {
+		switch node := node.(type) {
+		case *ast.SelectorExpr:
+			chosen := node.Sel.Name
+			if slices.Contains(launchNames, chosen) {
+				add(chosen)
+			}
+			if (chosen == "Run" || chosen == "Continue") && pipelineNamed(node.X) {
+				add("pipeline." + chosen)
+			}
+		case *ast.CallExpr:
+			if called, ok := node.Fun.(*ast.Ident); ok && slices.Contains(launchNames, called.Name) {
+				add(called.Name)
+			}
+		case *ast.CompositeLit:
+			switch made := lastName(node.Type); {
+			case made == "Pipeline":
+				add("Pipeline{}")
+			case made == "RunRequest" && asksForADeveloper(node):
+				add("developer session")
+			}
+		}
+	})
+}
+
+// usesIn is each use that look adds, named as launchesIn says.
+func usesIn(name string, source []byte, look func(node ast.Node, add func(what string))) ([]string, error) {
 	parsed, err := parser.ParseFile(token.NewFileSet(), name, source, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, err
@@ -284,29 +319,10 @@ func launchesIn(name string, source []byte) ([]string, error) {
 			uses = append(uses, use)
 		}
 		ast.Inspect(body, func(node ast.Node) bool {
-			switch node := node.(type) {
-			case *ast.InterfaceType:
+			if _, ok := node.(*ast.InterfaceType); ok {
 				return false // declares methods and calls none
-			case *ast.SelectorExpr:
-				chosen := node.Sel.Name
-				if slices.Contains(launchNames, chosen) {
-					add(chosen)
-				}
-				if (chosen == "Run" || chosen == "Continue") && pipelineNamed(node.X) {
-					add("pipeline." + chosen)
-				}
-			case *ast.CallExpr:
-				if called, ok := node.Fun.(*ast.Ident); ok && slices.Contains(launchNames, called.Name) {
-					add(called.Name)
-				}
-			case *ast.CompositeLit:
-				switch made := lastName(node.Type); {
-				case made == "Pipeline":
-					add("Pipeline{}")
-				case made == "RunRequest" && asksForADeveloper(node):
-					add("developer session")
-				}
 			}
+			look(node, add)
 			return true
 		})
 	}

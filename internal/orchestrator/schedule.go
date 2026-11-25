@@ -1356,6 +1356,10 @@ type Schedule struct {
 	// stopping it — but never left unsaid, because stopped work nobody was told
 	// about is exactly what the delivery exists to prevent.
 	EscalationProblem string `json:"escalation_problem,omitempty"`
+	// EscalationsWaiting is the stopped work the epics the operator named keep
+	// from her, as the latest sweep found it. Waiting is not a problem: each is
+	// put to her once it may be.
+	EscalationsWaiting []Escalated `json:"escalations_waiting,omitempty"`
 	// CarriedOut is the decisions of hers this pass fired. Each is a run as well,
 	// and appears among the started runs above like any other: this is the account
 	// of why that run exists, which the queue-level report cannot give because the
@@ -5826,6 +5830,7 @@ func (s Scheduler) escalate(ctx context.Context, schedule *Schedule, pull Pull) 
 		return
 	}
 	sweep, err := pull.Escalations.Escalate(ctx)
+	schedule.EscalationsWaiting = sweep.Waiting
 	var problems []string
 	if err != nil {
 		problems = append(problems, fmt.Sprintf("stopped work could not be put to the development manager, so it is waiting on somebody carrying it to her: %v", err))
@@ -9537,7 +9542,7 @@ func (s Schedule) Render() string {
 	// What the pass put in front of the development manager, said beside what it
 	// pulled: a run stopped hours ago reaching her now is the other half of what
 	// this session did with its time.
-	rendered.WriteString(EscalationSweep{Escalated: s.Escalated}.Render())
+	rendered.WriteString(EscalationSweep{Escalated: s.Escalated, Waiting: s.EscalationsWaiting}.Render())
 	if s.EscalationProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.EscalationProblem)
 	}

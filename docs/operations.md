@@ -1756,11 +1756,14 @@ nothing else. Naming an epic is your act alone:
 ./bin/yoyo epic off                                              # back to goal mode
 ```
 
-**Epic mode is still being built, and `start` is refused until it is.** Every way
-the harness starts work that is on its list now asks whether it may start under
-the epics you named, and `start` is refused, naming it, if any ever does not. It
-is also refused, and says so, until the checks that look for a way of starting
-work missing from that list are built, so it does not turn on yet.
+**`start` is refused for now.** It is refused, naming each, while any way the
+harness starts work does not ask whether it may start under the epics you named.
+Two do not, because no rule covers them yet: bringing the target branch up to
+date with the team's branch, which runs the checks and pays for a review of the
+merge, and a review of a branch that somebody asks for with `yoyo review`. Every
+other way asks. `make test` reads the whole program for calls that start a
+provider's session or take a run's lease, and fails on one that is on neither the
+list of ways work starts nor a list of calls that start none, with why.
 
 `start` records every open item below the epic as its members, and prints that
 list. The members are that list and what you add: an item moved or created below
@@ -1873,6 +1876,15 @@ missed, and the pass after it in the order starts. An automatic hold is placed
 whatever the answer; the development manager's refused pass over it is tried again
 at each poll while the hold stands, and is lost if the session restarts first. Your
 own conversation with a role always starts.
+
+Putting a stopped run to the development manager is a pass of hers started by an
+event, and asks before anything is claimed or sent. While it may not start, the
+run, its attempts and its kept change stay as they are, and nothing is recorded as
+failed. `yoyo work` says the delivery is still due and why. Each stopped run is
+counted once, after a restart too, and the delivery is made at the first pull that
+may make it. A change in the merge queue and everything else that needs no
+judgment of hers goes on meanwhile. A turn already started finishes and its reply
+is recorded; one a restart ended asks again first.
 
 A run already begun when epic mode is turned on finishes the step it is in. If its
 item is outside every open epic, it then waits before its next call to a provider,

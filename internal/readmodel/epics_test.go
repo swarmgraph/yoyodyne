@@ -93,7 +93,7 @@ func operatorOf(t *testing.T, root string) *epicscope.Operator {
 func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
 	t.Parallel()
 	_, sources := epicFixture(t)
-	want := fmt.Sprintf(`Mode: epic mode; only work in the epics you named starts
+	want := fmt.Sprintf(`Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and 2 ways of starting work do not ask yet
   Open epic: Epic mode (yoyodyne-ep) — 4 members: 1 done, 1 running, 1 ready, 1 waiting
   Ready items held out: 2, since %[1]s
   Role passes not started: 2, since %[1]s
@@ -103,8 +103,8 @@ func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
   Say the mode (yoyodyne-ep.4) waits for Read the file (yoyodyne-dep), which is not in an epic you named. To add it: yoyo epic add yoyodyne-ep yoyodyne-dep
   Not started: Tidy the log (yoyodyne-out), by the scheduler pulling ready work (refused since %[1]s, last at %[1]s: it is not in an open epic the operator named). To add it: yoyo epic add yoyodyne-ep yoyodyne-out
 `, localMoment(moment))
-	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 0 {
-		t.Fatalf("%d paths do not ask, and the words below say none", len(unwired))
+	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 2 {
+		t.Fatalf("%d paths do not ask, and the words above say two", len(unwired))
 	}
 	if got := ReadStanding(context.Background(), sources).RenderEpics(); got != want {
 		t.Fatalf("RenderEpics() =\n%s\nwant\n%s", got, want)
