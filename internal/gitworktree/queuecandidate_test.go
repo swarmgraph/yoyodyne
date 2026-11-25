@@ -148,6 +148,37 @@ func TestACandidateThatWillNotMergeLeavesNothingBehind(t *testing.T) {
 	}
 }
 
+func TestAMergeInMemoryNamesEveryConflictingFileAndNothingElse(t *testing.T) {
+	t.Parallel()
+
+	repository, clean := queueRepository(t)
+	runGit(t, repository, "switch", "-c", "conflicting", "main~1")
+	for _, name := range []string{"other.txt", "with a space.txt"} {
+		writeFile(t, repository, name, "a different "+name+"\n")
+	}
+	runGit(t, repository, "add", ".")
+	runGit(t, repository, "commit", "-m", "disagrees with main")
+	head := gitLine(t, repository, "rev-parse", "HEAD")
+	runGit(t, repository, "switch", "main")
+	writeFile(t, repository, "with a space.txt", "main's\n")
+	runGit(t, repository, "add", ".")
+	runGit(t, repository, "commit", "-m", "main's file")
+	base := gitLine(t, repository, "rev-parse", "HEAD")
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+
+	_, err := manager.MergeTree(context.Background(), base, head)
+	var conflict *QueueCandidateConflict
+	if !errors.As(err, &conflict) || strings.Join(conflict.Paths, "|") != "other.txt|with a space.txt" {
+		t.Fatalf("MergeTree() error = %v, want a conflict on exactly the two files", err)
+	}
+	if conflict.Lines.Lines == nil || *conflict.Lines.Lines != 4 {
+		t.Fatalf("conflict lines = %+v, want one line of each side of both files", conflict.Lines)
+	}
+	if tree, err := manager.MergeTree(context.Background(), base, clean); err != nil || !commitPattern.MatchString(tree) {
+		t.Fatalf("MergeTree(clean) = %q, %v; want a tree", tree, err)
+	}
+}
+
 func TestAHeadTheTargetAlreadyHoldsIsNoCandidate(t *testing.T) {
 	t.Parallel()
 

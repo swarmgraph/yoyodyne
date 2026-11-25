@@ -753,6 +753,10 @@ func buildPipeline(configPath string) (orchestrator.Pipeline, error) {
 // for the process, for a pass that cannot read the tracker to order by.
 var sessionQueueReadings = &orchestrator.QueueReadings{}
 
+// sessionMergeTests is which waiting merge queue entries merged cleanly onto
+// the target, kept once for the process for the same reason.
+var sessionMergeTests = &orchestrator.MergeQueueMergeTests{}
+
 func pipelineFrom(parts components) orchestrator.Pipeline {
 	cfg := parts.config
 	processRunner := parts.runner
@@ -1812,8 +1816,9 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			// run in its place.
 			Asker: forge, Reruns: parts.mergeQueues,
 		},
-		Promoter: promoter,
-		Queues:   parts.mergeQueues,
+		Promoter:   promoter,
+		Queues:     parts.mergeQueues,
+		MergeTests: sessionMergeTests,
 	}
 }
 

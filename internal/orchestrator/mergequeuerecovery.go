@@ -1033,16 +1033,22 @@ func (p MergeQueuePromoter) HandBackConflict(ctx context.Context, key runstate.M
 		return MergeQueueRecovery{}, err
 	}
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
-	recovered := MergeQueueRecovery{Entry: entry}
-	if landing.Handback != nil {
-		recovered.Handback = landing.Handback
-		return recovered, q.handBack(ctx)
+	err = q.handBackConflict(ctx, conflict)
+	return MergeQueueRecovery{Entry: entry, Handback: q.landing.Handback}, err
+}
+
+// handBackConflict is HandBackConflict for the promotion's entry, under the
+// worker lease it already holds.
+func (q *queuePromotion) handBackConflict(ctx context.Context, conflict gitworktree.QueueCandidateConflict) error {
+	entry, key := q.entry, q.key
+	if q.landing.Handback != nil {
+		return q.handBack(ctx)
 	}
-	if landing.Completion != nil {
-		return recovered, fmt.Errorf("merge queue entry %d has landed and is not handed back", entry.Order)
+	if q.landing.Completion != nil {
+		return fmt.Errorf("merge queue entry %d has landed and is not handed back", entry.Order)
 	}
-	if refusal := landing.HeadRewriteRefusal(); refusal != "" {
-		return recovered, fmt.Errorf("merge queue entry %d cannot be handed back: %s", entry.Order, refusal)
+	if refusal := q.landing.HeadRewriteRefusal(); refusal != "" {
+		return fmt.Errorf("merge queue entry %d cannot be handed back: %s", entry.Order, refusal)
 	}
 	paths, omitted := runstate.BoundConflictPaths(conflict.Paths)
 	failure := MergeQueueFailure{
@@ -1061,10 +1067,9 @@ func (p MergeQueuePromoter) HandBackConflict(ctx context.Context, key runstate.M
 	q.landing.Handback = handback
 	if err := q.save(); err != nil {
 		q.landing.Handback = nil
-		return recovered, err
+		return err
 	}
-	recovered.Handback = q.landing.Handback
-	return recovered, q.handBack(ctx)
+	return q.handBack(ctx)
 }
 
 // HandBackUnreadableReview hands back an entry whose candidate's reviewer
