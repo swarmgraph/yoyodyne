@@ -3774,12 +3774,12 @@ func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (
 }
 
 // reconcile records the run's one reconciliation attempt and hands the
-// conflict, already moved onto the target, to the developer that wrote the
-// change. It is repair without the count: recorded before the developer is
-// invoked, so an interrupted attempt is still the one the run had, and the same
-// session continues in the same worktree. The reconciled change earns nothing
-// on its way through; the caller re-enters the gate, so it is checked again and
-// reviewed again before it can land.
+// conflict, moved onto the target here where that is still owed, to the
+// developer that wrote the change. It is repair without the count: recorded
+// before the developer is invoked, so an interrupted attempt is still the one
+// the run had, and the same session continues in the same worktree. The
+// reconciled change earns nothing on its way through; the caller re-enters the
+// gate, so it is checked again and reviewed again before it can land.
 func (a *activeRun) reconcile(ctx context.Context) error {
 	conflict := *a.state.ReplayConflict
 	conflict.Reconciliation = true
@@ -3798,7 +3798,12 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save the reconciliation attempt: %w", err)
 	}
-	return a.develop(ctx, a.handBackForRepair(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), conflict)), a.state.ProviderSessionID)
+	if !a.state.ReplayConflict.Moved {
+		if err := a.moveOntoTargetForRepair(ctx); err != nil {
+			return err
+		}
+	}
+	return a.develop(ctx, a.handBackForRepair(ctx, replayConflictReconcilePrompt(a.deliveredInvariants().Text(), a.scratch, a.pipeline.Config.Checks, a.pipeline.reviewDiffLimits(), *a.state.ReplayConflict)), a.state.ProviderSessionID)
 }
 
 // moveOntoTargetForRepair puts the run's change onto the target with the
@@ -3853,8 +3858,14 @@ func (a *activeRun) moveOntoTargetForRepair(ctx context.Context) error {
 // reconcilingPublishedBranch reports a run whose published branch the next
 // attempt has to replace rather than extend: the change was moved onto the
 // target to be reconciled, so the branch the pull request carries is no longer
-// an ancestor of what the attempt committed.
+// an ancestor of what the attempt committed. A change brought onto the target
+// for a conflict found while it waited for the forge's checks is another, for as
+// long as the request still carries the head that conflicted
+// (replacingConflictedHead).
 func (a *activeRun) reconcilingPublishedBranch() bool {
+	if a.replacingConflictedHead() {
+		return true
+	}
 	return a.state.ReplayConflict != nil && a.state.ReplayConflict.Moved && a.outcome.PullRequest != nil && a.state.HarnessCommit != ""
 }
 
@@ -4037,6 +4048,16 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			return err
 		}
 		if err := a.checkRound(ctx); err != nil {
+			// A pull request that conflicts with its target while it waits for the
+			// forge's checks goes back to its developer, charged to no repair
+			// attempt (ciconflict.go).
+			var conflicting ciWaitConflict
+			if errors.As(err, &conflicting) {
+				if err := a.handCIWaitConflict(ctx, conflicting); err != nil {
+					return err
+				}
+				continue
+			}
 			// A change too large for the reviewer's copy is handed back to its
 			// developer once, for one repair attempt, because a change can often be
 			// made to fit. A second refusal on the same run, or one that finds the
@@ -11533,7 +11554,7 @@ func replayConflictRepairPrompt(invariants, scratchDirectory string, checks []st
 // not one of its repair attempts and will not be offered twice.
 func replayConflictReconcilePrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, conflict runstate.ReplayConflict) string {
 	return replayConflictPrompt(invariants, scratchDirectory, checks, limits, conflict, "# Integration conflict: bring the change level with the target\n\n",
-		"This is the run's one attempt to bring your approved change level with the target branch; it is not counted against your repair attempts, and a second conflict after it is not given another one of these.")
+		"This is the run's one attempt to bring your change level with the target branch; it is not counted against your repair attempts, and a second conflict after it is not given another one of these.")
 }
 
 func replayConflictPrompt(invariants, scratchDirectory string, checks []string, limits gitworktree.DiffLimits, conflict runstate.ReplayConflict, heading, attempt string) string {
@@ -11542,7 +11563,11 @@ func replayConflictPrompt(invariants, scratchDirectory string, checks []string, 
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString(heading)
-	fmt.Fprintf(&prompt, "Your change passed its checks and was approved, but the branch it is to be integrated into moved while you were working, and your change could not be replayed onto where it went. %s Your change has been moved onto the target for you, and the parts that would not merge are in your worktree between Git's conflict markers. Continue the change you already made instead of starting over, and settle every conflict.\n\n", attempt)
+	stood := "Your change passed its checks and was approved, but the branch it is to be integrated into moved while you were working"
+	if conflict.BeforeReview() {
+		stood = "Your change was pushed and was waiting for its required checks on GitHub, but the branch it is to be integrated into moved and GitHub runs no checks on a pull request that conflicts with it"
+	}
+	fmt.Fprintf(&prompt, "%s, and your change could not be replayed onto where it went. %s Your change has been moved onto the target for you, and the parts that would not merge are in your worktree between Git's conflict markers. Continue the change you already made instead of starting over, and settle every conflict.\n\n", stood, attempt)
 	fmt.Fprintf(&prompt, "Target branch: %s\n", conflict.TargetBranch)
 	if conflict.TargetCommit != "" {
 		fmt.Fprintf(&prompt, "Your worktree now sits on: %s\n", conflict.TargetCommit)

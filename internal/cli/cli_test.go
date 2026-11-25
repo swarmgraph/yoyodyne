@@ -1063,6 +1063,15 @@ func TestReportRunResultIsTruthfulAboutRemovedArtifacts(t *testing.T) {
 			reject:   []string{"cleanup incomplete", "remaining", "NOT removed"},
 		},
 		{
+			// A wait for GitHub's checks says what it waits for, and what came of
+			// the pull request conflicting with its target.
+			name: "waiting for GitHub's checks after a conflict",
+			outcome: orchestrator.Outcome{RunID: "run-1", WorkItemID: "item", Branch: "b", WorktreePath: "/wt", Paused: true,
+				PausedByCIWait: &runstate.CIWait{Commit: "afee21810000", Required: []string{"test"}, Follows: "GitHub reports that pull request #7 conflicts with main; it was brought in"}},
+			want:   []string{"waiting for the forge's checks (test) on commit afee21810000", "pull request #7 conflicts with main; it was brought in", "gave back its developer slot"},
+			reject: []string{"yoyo resume", "waiting out"},
+		},
+		{
 			// A failure must never describe deleted artifacts as preserved.
 			name:     "failure after the artifacts were removed",
 			outcome:  orchestrator.Outcome{RunID: "run-1", Branch: "b", WorktreePath: "/wt", Integration: integration, WorktreeRemoved: true, BranchRemoved: true},

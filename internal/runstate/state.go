@@ -2710,6 +2710,12 @@ func (s *State) recordedTexts() []recordedText {
 	if s.CIWait != nil && s.CIWait.Decided != nil {
 		unstated("ci_wait.decided.says", "ci_wait.decided.says", &s.CIWait.Decided.Says, MaxRecordedTextBytes)
 	}
+	if s.CIWait != nil {
+		unstated("ci_wait.follows", "ci_wait.follows", &s.CIWait.Follows, MaxRecordedTextBytes)
+		if s.CIWait.Conflict != nil {
+			unstated("ci_wait.conflict.says", "ci_wait.conflict.says", &s.CIWait.Conflict.Says, MaxRecordedTextBytes)
+		}
+	}
 	if s.CIWaitEnd != nil {
 		unstated("ci_wait_end.says", "ci_wait_end.says", &s.CIWaitEnd.Says, MaxRecordedTextBytes)
 		if s.CIWaitEnd.Late != nil {
@@ -3023,6 +3029,24 @@ type CIWait struct {
 	// still reads the forge for the commit when it is continued, and ends the
 	// wait (CIWaitEnd) from that reading.
 	Decided *CIWaitDecision `json:"decided,omitempty"`
+	// Follows is what ended the wait before this one, where that was the pull
+	// request conflicting with its target: what GitHub reported and what the run
+	// did about it.
+	Follows string `json:"follows,omitempty"`
+	// Conflict is the last conflict GitHub reported on this commit that left the
+	// run waiting on it.
+	Conflict *CIWaitConflict `json:"conflict,omitempty"`
+}
+
+// CIWaitConflict is a conflict with the target that GitHub reported on the
+// waited commit and the run went on waiting after: nothing was found to bring
+// in (NothingToBringIn), or the target could not be read yet and it is tried
+// again.
+type CIWaitConflict struct {
+	At               time.Time `json:"at"`
+	NothingToBringIn bool      `json:"nothing_to_bring_in,omitempty"`
+	// Says is what was found and done, in a sentence a person reads.
+	Says string `json:"says"`
 }
 
 // CIWaitDecision is the forge's decision on a waited commit, read without a
@@ -3070,7 +3094,14 @@ func (w CIWait) Summary() string {
 	if len(commit) > 12 {
 		commit = commit[:12]
 	}
-	return fmt.Sprintf("the forge's checks (%s) on commit %s", strings.Join(w.Required, ", "), commit)
+	says := fmt.Sprintf("the forge's checks (%s) on commit %s", strings.Join(w.Required, ", "), commit)
+	switch {
+	case w.Conflict != nil:
+		says += " (" + w.Conflict.Says + ")"
+	case w.Follows != "":
+		says += " (before this: " + w.Follows + ")"
+	}
+	return says
 }
 
 // Validate rejects a wait that cannot say which commit it waits on or for which
@@ -3098,6 +3129,9 @@ func (w CIWait) Validate() error {
 	if w.Decided != nil && (w.Decided.At.IsZero() || strings.TrimSpace(w.Decided.Says) == "") {
 		problems = append(problems, errors.New("a decision is recorded with when it was read and what it says"))
 	}
+	if w.Conflict != nil && (w.Conflict.At.IsZero() || strings.TrimSpace(w.Conflict.Says) == "") {
+		problems = append(problems, errors.New("a conflict is recorded with when it was read and what it says"))
+	}
 	return errors.Join(problems...)
 }
 
@@ -3107,8 +3141,11 @@ type CIWaitEnd struct {
 	Commit string    `json:"commit"`
 	At     time.Time `json:"at"`
 	// Passed is true where every required check passed on Commit and the run went
-	// on to review. Otherwise the run ran the full checks on this machine instead.
+	// on to review. Otherwise Says is what was done instead.
 	Passed bool `json:"passed"`
+	// Conflict is true where GitHub reported that the pull request conflicts with
+	// its target, so the target was brought into the change.
+	Conflict bool `json:"conflict,omitempty"`
 	// Says is what ended the wait, in a sentence a person reads.
 	Says string `json:"says"`
 	// Late is the forge's own answer for Commit, read after the wait ended

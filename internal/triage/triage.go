@@ -545,17 +545,26 @@ type ReplayConflict struct {
 	Detail       string `json:"detail,omitempty"`
 	// Phase is the phase the run stopped in.
 	Phase string `json:"phase,omitempty"`
+	// BeforeReview says the change was waiting for its checks and had not been
+	// approved.
+	BeforeReview bool `json:"before_review,omitempty"`
 }
 
 // ReplayConflictSays is the one sentence every surface says of an approved
-// change whose replay conflicted: that it is approved, what it conflicted with,
+// change whose replay conflicted: that it is approved (or, with beforeReview,
+// that it was still waiting for its checks), what it conflicted with,
 // and who moves next — the repair-continue, which hands the conflict back to
 // the developer that wrote the change (yoyodyne-ifd.132), or a person, and not
 // the resume verb, which replays onto the same target and meets the same
 // conflict. It is one sentence here for the reason
 // ResumeIntegrationSays is: a docket entry and a run record that say different
 // things about one conflict send the development manager to different verbs.
-func ReplayConflictSays(runID, targetBranch string) string {
+func ReplayConflictSays(runID, targetBranch string, beforeReview bool) string {
+	if beforeReview {
+		return fmt.Sprintf(
+			"run %s's change was waiting for its checks on GitHub, before any review, when its pull request conflicted with %s, and its replay onto that branch conflicted too, so what it needs is `yoyo triage repair %s`, which continues the developer that wrote it with the conflict to settle against the target, or a person to settle the conflict",
+			runID, nonEmpty(targetBranch, "its target branch"), runID)
+	}
 	return fmt.Sprintf(
 		"run %s's change is approved and its replay onto %s conflicted, so what it needs is `yoyo triage repair %s`, which continues the developer that wrote it with the conflict handed back to reconcile against the target, or a person to settle the conflict — and not `yoyo triage resume`, which would replay onto the same target and meet the same conflict",
 		runID, nonEmpty(targetBranch, "its target branch"), runID)
@@ -2548,7 +2557,7 @@ func (e Entry) renderReplayConflict() string {
 	}
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "      %s. The conflict is a decision about the change rather than the environment, and nothing was force-merged.\n",
-		ReplayConflictSays(e.RunID, conflicted.TargetBranch))
+		ReplayConflictSays(e.RunID, conflicted.TargetBranch, conflicted.BeforeReview))
 	if detail := strings.TrimSpace(conflicted.Detail); detail != "" {
 		rendered.WriteString(indented("What the replay found", detail))
 	}
@@ -2682,6 +2691,9 @@ func (e Entry) nextMover() string {
 		}
 		return fmt.Sprintf("      Next mover: you — nothing the harness has still to carry out is recorded about this stoppage, so what happens to it next is your decision; a repair (`yoyo triage repair %s`) continues it at %s, keeping its branch.\n",
 			e.RunID, step)
+	}
+	if e.ReplayConflict != nil && e.ReplayConflict.BeforeReview {
+		return fmt.Sprintf("      Next mover: you — this change conflicted with its target before any review, so it is waiting on your decision: a repair (`yoyo triage repair %s`) continues the developer that wrote it with the conflict to settle.\n", e.RunID)
 	}
 	if e.ReplayConflict != nil {
 		return fmt.Sprintf("      Next mover: you — this change is approved and its replay conflicted, so it is waiting on your decision: a repair (`yoyo triage repair %s`) continues the developer that wrote it with the conflict to reconcile, and `yoyo triage resume` is not the answer.\n", e.RunID)

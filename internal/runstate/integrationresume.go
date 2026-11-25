@@ -246,7 +246,9 @@ type ReplayConflict struct {
 	// Detail is Git's own account of the refusal, bounded. It is evidence for
 	// whoever reads the record rather than a second classification of it.
 	Detail string `json:"detail,omitempty"`
-	// Phase is the phase the run was in when the conflict was decided.
+	// Phase is the phase the run was in when the conflict was decided. The
+	// checking phase is a pull request found to conflict while the run waited
+	// for the forge's checks, before any review approved the change.
 	Phase      Phase     `json:"phase"`
 	RecordedAt time.Time `json:"recorded_at"`
 	// Moved says the change has already been put onto the target with the
@@ -292,8 +294,8 @@ func (c ReplayConflict) Validate() error {
 	if len(c.Detail) > MaxConflictDetailBytes {
 		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(c.Detail), MaxConflictDetailBytes))
 	}
-	if c.Phase != PhaseReviewing && c.Phase != PhaseIntegrating {
-		problems = append(problems, fmt.Errorf("phase %q is not one an approved change is replayed in", c.Phase))
+	if c.Phase != PhaseChecking && c.Phase != PhaseReviewing && c.Phase != PhaseIntegrating {
+		problems = append(problems, fmt.Errorf("phase %q is not one a change is replayed in", c.Phase))
 	}
 	if c.RecordedAt.IsZero() {
 		problems = append(problems, errors.New("recorded_at is required"))
@@ -303,15 +305,22 @@ func (c ReplayConflict) Validate() error {
 
 // Describe says what the stop was, the way a docket entry or a listing reads it.
 func (c ReplayConflict) Describe() string {
+	if c.BeforeReview() {
+		return fmt.Sprintf("stopped before review by a replay conflict onto %s", c.TargetBranch)
+	}
 	return fmt.Sprintf("approved, then stopped at the %s phase by a replay conflict onto %s", c.Phase, c.TargetBranch)
 }
 
-// Says is the one sentence every surface says of this conflict: that the run's
+// BeforeReview reports a conflict found while the run waited for the forge's
+// checks, so the change it is about was not approved.
+func (c ReplayConflict) BeforeReview() bool { return c.Phase == PhaseChecking }
+
+// Says is the one sentence every surface says of this conflict: whether the run's
 // change is approved, what it conflicted with, and that the repair-continue or a
 // person moves next rather than `yoyo triage resume`. It is the
 // docket's own wording, for the reason IntegrationStop.ResumeSays is.
 func (c ReplayConflict) Says(runID string) string {
-	return triage.ReplayConflictSays(runID, c.TargetBranch)
+	return triage.ReplayConflictSays(runID, c.TargetBranch, c.BeforeReview())
 }
 
 // IntegrationResumption is one continuation of this run's integration after an
