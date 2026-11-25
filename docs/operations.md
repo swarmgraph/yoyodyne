@@ -1823,8 +1823,10 @@ none, with why. It also fails on any other code that uses the review behind
 `yoyo review`, or that runs that command as a process.
 
 `start` records every open item below the epic as its members, and prints that
-list. The members are that list and what you add: an item moved or created below
-the epic afterwards is not one until you add it, and the epic itself is not one.
+list. The members are that list and what you add. An item moved below the epic
+afterwards, or created directly under it, may not start until you add it, and the
+epic itself is not a member. A piece made from a member may start without you once it
+is judged to ask only for what you named: see [what joins a named epic](#what-joins-a-named-epic).
 A member waits on a prerequisite outside the members, which is not started.
 `start` and `add` refuse an item that another open epic has, or that joined one,
 and name that epic.
@@ -1861,7 +1863,7 @@ with their judgments. There is one entry for each time you
 named an epic, so an epic you ended and named again starts with an empty one and
 the old entry is kept. `epic-progress-begun.json` lists the namings whose entry was
 begun, which shows that an entry once existed. Neither file is made until the first
-run starts in an epic you named, and neither is read to decide a start while epic
+run starts in an epic you named or the first piece is put to be judged, and neither is read to decide a start while epic
 mode is off. While it is on:
 
 - Either file being there and not readable whole refuses every start that asks
@@ -1932,7 +1934,8 @@ refused from a process the harness launched for a role.
 ## Which epics the factory works on
 
 The operator can name epics, and the factory then works only on the items
-recorded for each: that is epic mode. A product that has never named an epic is
+recorded for each and the pieces that [joined it](#what-joins-a-named-epic): that is
+epic mode. A product that has never named an epic is
 shown nothing about them.
 
 While epic mode is on, these starts ask about the named epics, beside every
@@ -1947,7 +1950,7 @@ ways an ended run is put back to work, below, finishing an interrupted merge,
 continuing a silent run or one whose checks ran out of time, and a new run that
 publishes a document. A run already begun is asked too, below. A refused item is
 free to start, subject to every other check, once it is added to
-an open epic or epic mode is turned off.
+an open epic, [joins one](#what-joins-a-named-epic), or epic mode is turned off.
 
 A refusal of one of the three ways an ended run is put back to work, or a
 decision that could not be made, leaves everything as it stands, and the next
@@ -1975,7 +1978,7 @@ A change is listed as usual where the record of the named epics could not be rea
 its pull request is closed, its merge failed for another cause (a wait on its
 target's red check is one), or the harness could not bring it up to date whatever
 the epics named. So is one returned to her because a decision of hers could not be
-carried out. Once its item is added, or epic mode is turned off, a change still
+carried out. Once its item is added or joins, or epic mode is turned off, a change still
 unpublished past `triage.stuck_merge_age` is listed again.
 
 A document may be published where the work items it answers include a member of
@@ -1989,7 +1992,7 @@ is written onto the item's triage record as waiting, with the command that adds
 the item, rather than as refused or as a decision nothing attempted. It is not
 critical on her list, is not counted under "decisions not carried out", and is
 said on the not-startable line as waiting on the epics you named. Nothing is
-spent and nobody decides it again: the first pass after the item is added, or
+spent and nobody decides it again: the first pass after the item is added or joins, or
 after epic mode is turned off, carries it out. A decision that waits because the
 record of the named epics could not be read is recorded the same way, saying so.
 
@@ -2043,7 +2046,7 @@ keeps its claim, branch and checkout. Picking up a run that was already waiting,
 or that a restart interrupted, asks first, so such a run waits the same way, and
 so does one put back to be brought up to date with its target branch. A watching
 `yoyo work` session, or whatever was carrying the run, goes on with the same run
-once its item is added or epic mode is turned off, when a developer slot is free.
+once its item is added or joins, or epic mode is turned off, when a developer slot is free.
 
 - A run that resolves a conflict with the team's branch waits the same way. The
   update asks about it at each check, and no further round is spent. If either
@@ -2064,7 +2067,7 @@ starting it, in `not-started.json` in the product's state directory: the reason,
 when it was first refused, and when it was last refused, which is brought up to
 date at most every ten minutes while the reason stays the same. Recording one
 spends nothing, and it is not a report. An entry is taken away when the item
-starts, when it may start because you added it, when epic mode is turned off,
+starts, when it may start because you added it or it joined, when epic mode is turned off,
 and, after the item closes, by the next [`yoyo reconcile`](#recovering-interrupted-runs).
 A refused document has one entry of its own, whatever it answers, which a newer
 revision updates. It is taken away when a run of the document starts or may
