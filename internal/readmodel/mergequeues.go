@@ -239,6 +239,9 @@ type QueueEntryStanding struct {
 	// Overdue is set where the entry is a problem: its step has run past the
 	// bound, or GitHub will not make its merge by itself.
 	Overdue *QueueEntryOverdue `json:"overdue,omitempty"`
+	// returned says the entry's change was handed back for a conflict and not
+	// yet given to its run, whose record may say what it waits for.
+	returned bool
 
 	// What the steps around this entry are read from, and never shown: when
 	// it left the queue, when its newest candidate was built, and the rule that
@@ -396,6 +399,38 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey, now time.Tim
 	return standing, strings.Join(problems, "; ")
 }
 
+// sayReturnedWaits adds to each change handed back for a conflict what its run
+// records it waiting for before it is brought up to date, and until when.
+func sayReturnedWaits(queues []MergeQueueStanding, runs Runs) {
+	records, ok := runs.(interface {
+		Read(runID string) (runstate.State, error)
+	})
+	if !ok {
+		return
+	}
+	for q := range queues {
+		for e := range queues[q].Entries {
+			entry := &queues[q].Entries[e]
+			if !entry.returned {
+				continue
+			}
+			if run, err := records.Read(entry.RunID); err == nil {
+				entry.Why += returnedWaitSays(run, entry.EntryID)
+			}
+		}
+	}
+}
+
+// returnedWaitSays is what a run's returned change waits for, as a clause to
+// add to a sentence, and empty where it waits for nothing.
+func returnedWaitSays(run runstate.State, entryID string) string {
+	wait, recorded := run.ConflictWaitFor(entryID)
+	if !recorded || wait.Says() == "" {
+		return ""
+	}
+	return "; " + wait.Says()
+}
+
 // inChosenOrder is the open entries in the order the queue's rules last chose,
 // and after them, in the order they are worked, any the choice did not rank,
 // such as one that joined since.
@@ -496,6 +531,7 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 			}
 			return true
 		}
+		read.returned = handback.Conflict != nil && handback.HandedBackAt == nil && !handback.IsSetAside()
 		read.State, read.Why = QueueEntryHandedBack, fmt.Sprintf("%s; the next move is %s: %s", handbackWords(handback.Continuation), handback.Mover.Possessive(), handback.Reason)
 		return true
 	}

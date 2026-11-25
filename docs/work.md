@@ -3019,7 +3019,23 @@ What can happen to a queued change instead:
   attempt to catch up: the run is put back to work by itself, a new developer session reconciles the
   conflict on top of the target, and the
   change is checked and reviewed again and rejoins the queue. The item is told,
-  not blocked, and no repair attempt or fresh run is spent. If the run already
+  not blocked, and no repair attempt or fresh run is spent.
+
+  That attempt first waits while a change the queue would take before this one,
+  and has not finished with, touches any of the conflicting files. The wait is at
+  most two hours from the hand-back, holds no developer slot and no candidate,
+  and spends nothing; a change that was itself handed back is never waited for,
+  and neither is one the records cannot show. `yoyo status` names the files, the
+  changes waited for, and when the wait ends at the latest, read from
+  `conflict_wait` on the run's record, which a restart goes on from; a wait that
+  cannot be read ends and the attempt starts. When it ends, the change is
+  first merged onto the target as it then stands: where it merges again, it goes
+  back into the queue with the same approved head, no developer session starts,
+  and the attempt is not used. Otherwise the attempt starts from that target, and
+  if every developer slot is taken the next one to free is left for it ahead of
+  fresh work.
+
+  If the run already
   used that attempt, it is handed back as a replay conflict is, with the item
   saying why, so a repair moves it onto the target and asks its developer to
   reconcile it.

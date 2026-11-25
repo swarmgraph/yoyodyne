@@ -408,3 +408,37 @@ func TestAQueueWaitingForGitHubSaysSoAndWhenItNextTries(t *testing.T) {
 		}
 	}
 }
+
+type returnedRuns struct {
+	Runs
+	run runstate.State
+}
+
+func (r returnedRuns) Read(string) (runstate.State, error) { return r.run, nil }
+
+// A change handed back for a conflict says what it waits for, on the queue's
+// line and on its item's hold.
+func TestAReturnedChangeSaysWhatItWaitsForAndUntilWhen(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 25, 18, 0, 0, 0, time.UTC)
+	entry := "mqe-" + strings.Repeat("a", 32)
+	run := runstate.State{RunID: "run-1", MergeQueue: &runstate.MergeQueueAdmissionRecord{EntryID: entry, TargetBranch: "main", Order: 3}}
+	run.ConflictWait = &runstate.ConflictWait{EntryID: entry, Since: at, Until: at.Add(runstate.MaxConflictWait), Ahead: []runstate.ConflictWaitEntry{{
+		Order: 2, WorkItemID: "yoyodyne-1", Title: "Another change", Paths: []string{"a.go"},
+	}}}
+	read := QueueEntryStanding{EntryID: entry, RunID: run.RunID}
+	landing := runstate.MergeQueueLanding{Handback: &runstate.MergeQueueHandback{Continuation: runstate.MergeQueueContinueRepair, Conflict: &runstate.MergeQueueConflict{}}}
+	if !placedByLanding(&read, landing) {
+		t.Fatal("a handed-back entry was not placed")
+	}
+	queues := []MergeQueueStanding{{TargetBranch: "main", Entries: []QueueEntryStanding{read}}}
+	sayReturnedWaits(queues, returnedRuns{run: run})
+	rendered := Standing{MergeQueues: queues}.RenderMergeQueues()
+	until := at.Add(2 * time.Hour).Local().Format("2006-01-02 15:04 MST")
+	for _, said := range []string{"Another change (yoyodyne-1)", "a.go", until} {
+		if !strings.Contains(rendered, said) || !strings.Contains(queuedChange(run), said) {
+			t.Fatalf("%q is not said in\n%s\nor\n%s", said, rendered, queuedChange(run))
+		}
+	}
+}

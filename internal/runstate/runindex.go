@@ -59,8 +59,8 @@ const (
 	// 3 added the TeamMerge flag: an older index never flagged the runs waiting
 	// for the team's merge, so it would name none of them. Format 4 added the
 	// KeptCheckout flag for the same reason, format 5 the CheaperFirst flag,
-	// and format 6 ConflictAt.
-	runIndexVersion = 6
+	// format 6 ConflictAt, and format 7 SlotAskedAt.
+	runIndexVersion = 7
 	runIndexName    = ".run-index.json"
 	runIndexLock    = ".run-index.lock"
 	// maxEncodedRunIndexBytes bounds what reading the index will take in. An
@@ -103,6 +103,9 @@ type runIndexEntry struct {
 	// (State.ConflictHandbacks), which only moves forward. Format 5 did not
 	// hold it.
 	ConflictAt time.Time `json:"conflict_at,omitzero"`
+	// SlotAskedAt is when a change handed back for a conflict last asked for a
+	// developer slot (conflictSlotAsked). Format 6 did not hold it.
+	SlotAskedAt time.Time `json:"slot_asked_at,omitzero"`
 }
 
 func runIndexEntryOf(state State) runIndexEntry {
@@ -119,6 +122,7 @@ func runIndexEntryOf(state State) runIndexEntry {
 		Document:     documentOf(state),
 		CheaperFirst: state.CheaperFirst != nil,
 		ConflictAt:   lastConflictHandback(state),
+		SlotAskedAt:  conflictSlotAsked(state),
 	}
 }
 
@@ -142,7 +146,8 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 		(e.TeamMerge || !next.TeamMerge) &&
 		(e.KeptCheckout || !next.KeptCheckout) &&
 		(e.CheaperFirst || !next.CheaperFirst) &&
-		!e.ConflictAt.Before(next.ConflictAt)
+		!e.ConflictAt.Before(next.ConflictAt) &&
+		!e.SlotAskedAt.Before(next.SlotAskedAt)
 }
 
 // widened is next, still naming the run for every question e did.
@@ -155,6 +160,9 @@ func (e runIndexEntry) widened(next runIndexEntry) runIndexEntry {
 	next.CheaperFirst = next.CheaperFirst || e.CheaperFirst
 	if next.ConflictAt.Before(e.ConflictAt) {
 		next.ConflictAt = e.ConflictAt
+	}
+	if next.SlotAskedAt.Before(e.SlotAskedAt) {
+		next.SlotAskedAt = e.SlotAskedAt
 	}
 	return next
 }

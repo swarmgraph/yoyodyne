@@ -1540,6 +1540,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	needs = append(needs, laneHumanBlockAttention(standing.ProgramManagers)...)
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueuesAt(sources.MergeQueues, now, sources.MergeQueueStepOverdueAfter)
+	sayReturnedWaits(standing.MergeQueues, sources.Runs)
 	standing.LandingHolds, standing.LandingHoldsProblem = ReadLandingHolds(sources.LandingHolds, sources.now())
 	standing.Epics = readEpics(sources, standing, listed, listedErr)
 	markOutside(standing.DocumentsWaitingForSlot, standing.Epics)
