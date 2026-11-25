@@ -204,10 +204,12 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 // checks — a claim given back here is a fresh run that redoes the development.
 //
 // A run that ended cancelled holding its item is a fifth: the development
-// manager decides it, and it is on her list and held whatever it left
-// (runstate's CancelledHoldingItem), so its claim stands until she has.
+// manager decides it (runstate's CancelledHoldingItem). One that kept nothing is
+// held until she has, but by the pull's hold alone and not by its claim: the
+// hold ends with her decision, and a claim that stood past it would leave the
+// item out of every pull with nobody told.
 //
-// The first four ask whether the change survived, and none of them holds a claim
+// All five ask whether the change survived, and none of them holds a claim
 // without it: a stoppage whose branch is gone leaves nothing for a fresh run to
 // strand, and an integration stop whose branch is gone is one nothing can resume
 // at all. It is asked of the repository, as the pull's hold asks it, and a look
@@ -219,16 +221,14 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 // leaving both standing on a process that is gone is the failure the audit
 // exists for.
 func stillHeld(run runstate.State, found triage.Found) bool {
-	if run.CancelledHoldingItem(found.Holds()) {
-		return true
-	}
 	if !run.Status.Terminal() || !found.Holds() {
 		return false
 	}
 	return run.IntegrationStop != nil ||
 		strings.TrimSpace(run.Blocker) != "" ||
 		run.DiedInItsOwnProcess() ||
-		run.StoppedUnfinishedAtChecks()
+		run.StoppedUnfinishedAtChecks() ||
+		run.CancelledHoldingItem(true)
 }
 
 // readClaim reads one item's runs: the most recent of them, the last moment that

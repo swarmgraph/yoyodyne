@@ -7558,8 +7558,8 @@ which is what the sweep does from the promotion the record holds.
 **And an item whose latest run ended holding its change is left alone, whatever
 the claim says.** A claim there is not a claim nothing is working on: it is the
 one thing saying an item whose change is sitting on a branch is spoken for, and
-giving it back buys a fresh run started over the top of that change. Four
-endings are in the class, and they are the same four the pull's own
+giving it back buys a fresh run started over the top of that change. Five
+endings are in the class, and they are the same five the pull's own
 [hold](work.md#letting-the-harness-choose-the-work) reads, so the two cannot
 disagree about one run:
 
@@ -7577,6 +7577,10 @@ disagree about one run:
   its finished change on the branch. The harness
   [continues it at its checks](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs)
   once the load allows, and the audit leaves it for that.
+- **A run that ended cancelled while it held its item**, with its branch or
+  worktree still there, which is on the development manager's list of stopped
+  runs. One that kept nothing is on her list and held too, but its claim is given
+  back, so the item is free to be pulled as soon as she has decided.
 
 The death inside a run's own process is what this rule was written for. On 2026-09-22 run-b0b6d18d's
 change on yoyodyne-ifd.436.4 was approved and then stopped at the promotion by a
@@ -7587,11 +7591,11 @@ working on it and gave it back, the next pull started a run from scratch, and
 that run spent a developer and a reviewer re-deriving the change that was
 already on the branch and integrated it a second time.
 
-A run whose process was killed is none of these, and is a dead claim exactly as
-it was however much of its half-finished change is on disk: nothing ended it and
-nothing owes it a move, which is the whole failure the audit exists for. What
-tells them apart is the ending on the record rather than what is in the
-worktree.
+A run whose process was killed has no ending on its record, so the audit ends it
+and gives its claim back however much of its half-finished change is on disk.
+What is on disk decides what comes next: where the branch or worktree is there,
+the run is on the development manager's list and the item is held until she
+decides; where neither is, the item is pulled again.
 
 Whether the change is still there is asked of the repository as the audit reads
 the claim — the run's branch and its checkout, looked for — and never of the
@@ -7601,12 +7605,16 @@ look found, because "nothing was working on it" is a sentence about processes
 and was read as one about the change: on 2026-09-23 the development manager
 crossed yoyodyne-ifd.432.10's re-run cap reasoning that run-838ffc48 had left no
 preserved change, from a release that said nothing either way, while the run's
-branch held the approved change. A release now reads:
+branch held the approved change. A release whose item is held for the
+development manager reads:
 
 ```text
-The harness gave this item back to the queue at 2026-09-23T01:43:04Z: its run run-838ffc48… ended cancelled at 2026-09-23T01:01:32Z and the claim outlived it. Nothing was working on it, so it was released to be pulled again.
+The harness released the claim on this item at 2026-09-23T01:43:04Z: its run run-838ffc48… was recorded as still in flight and last wrote to its own record at 2026-09-23T01:01:32Z, so the process holding it is gone. Nothing was working on it. Its run ended cancelled while it held the item, so what happens to it is the development manager's to decide, and nothing pulls the item until she has.
 What the run left: branch yoyodyne/yoyodyne-ifd-432-10/838ffc48 (checked and there at 2026-09-23T01:43:04Z); worktree …/yoyodyne-ifd-432-10-838ffc48 (checked and NOT there at 2026-09-23T01:43:04Z). That change is still there; a run started for this item should pick it up rather than derive it again.
 ```
+
+Any other release says instead that nothing was working on the item, "so it was
+released to be pulled again".
 
 A release written before the audit looked says none of that, so
 [the convergence sweep](#recovering-interrupted-runs) corrects it: where a
@@ -7618,7 +7626,8 @@ told once. `yoyo reconcile` prints the branch as kept with its item corrected.
 Each release is
 [sent to the operators once](reporting.md#reporting-into-slack), in the item's
 own thread, as the degraded harness it is. It is said once and never repeated:
-what follows a release is the item being pulled again, which says so itself.
+what follows is the item being pulled again, or the development manager deciding
+about a run the release says is hers, and each says so itself.
 
 The two deaths are worded apart because they are two different histories and a
 reader acts on the difference: a run that ended left the claim behind by

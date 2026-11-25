@@ -2323,8 +2323,10 @@ behind two of them reads as a drained queue rather than as a stall. A claim with
 no run alive behind it for half an hour is given back with the reason on its
 notes, the run's record is ended as cancelled under its own lease — which a live
 process holds and the operating system drops when it dies, so a lease the audit
-can take is a process that is gone — and the item is pulled again on the same
-pass. It runs before the intake hold and the capacity check, because a held or
+can take is a process that is gone. Where neither the run's branch nor its
+worktree is there, the item is pulled again on the same pass; where either is, the
+run is on the development manager's list of stopped runs and the item is held
+until she decides. The audit runs before the intake hold and the capacity check, because a held or
 full session is exactly where a dead claim hides, and it asks no provider
 anything. Each release is on the pass and
 [reaches the operators once](operations.md#claims-with-nothing-working-on-them).

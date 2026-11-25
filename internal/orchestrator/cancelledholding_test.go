@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 func TestACancelledDeveloperRunReachesTheListTheHealthCheckAgreesWith(t *testing.T) {
@@ -167,18 +168,100 @@ func gone(state *runstate.State) {
 	state.RepairAttempts = 0
 }
 
-// A claim whose process died is released saying the run is on her list, and
+// A claim whose process died is released saying the run is hers to decide, and
 // nothing pulls the item, only where something of the run was kept.
 func TestADeadClaimsReleaseSaysWhoMovesNext(t *testing.T) {
 	t.Parallel()
 
 	released := runstate.ReleasedClaim{Because: "its process is gone", ReleasedAt: docketedNow}
-	if note := releaseNotes(released, true); !strings.Contains(note, "list of stopped runs") || strings.Contains(note, "pulled again") {
+	if note := releaseNotes(released, true); !strings.Contains(note, "development manager's to decide") || strings.Contains(note, "pulled again") {
 		t.Fatalf("note = %q, want it on her list and not pulled again", note)
 	}
 	claimed := docketedNow
 	run := runstate.State{Status: runstate.StatusRunning, WorkItemID: docketedItem, WorkItemClaimedAt: &claimed}
 	if !run.HoldsItemOnceDeadClaim(true) || run.HoldsItemOnceDeadClaim(false) {
 		t.Fatal("a dead claim's run is hers exactly where something of it was kept")
+	}
+}
+
+// A cancelled run that kept nothing never strands its item: the claim is given
+// back whatever has been decided, and the hold alone says when it may be pulled.
+func TestACancelledRunThatKeptNothingNeverStrandsItsItem(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	for name, test := range map[string]struct {
+		decide func(*testing.T, *runstate.Store, runstate.State)
+		held   bool
+	}{
+		"nothing decided": {decide: func(*testing.T, *runstate.Store, runstate.State) {}, held: true},
+		"a re-scope decided": {decide: func(t *testing.T, store *runstate.Store, state runstate.State) {
+			if _, err := store.Triage().RecordDecision(ctx, state.WorkItemID, triageDecided(runstate.TriageDecisionRescope, state.RunID), docketedNow); err != nil {
+				t.Fatalf("RecordDecision() error = %v", err)
+			}
+		}},
+		"a re-run refused for good": {decide: func(t *testing.T, store *runstate.Store, state runstate.State) {
+			recordRerunDecision(t, store, state.WorkItemID, state.RunID)
+			if _, err := store.Triage().RecordCarryOutRefusal(ctx, state.WorkItemID, runstate.TriageCarryOut{
+				RunID: state.RunID, Decision: runstate.TriageDecisionRerun, DecidedAt: docketedNow,
+				Cause: triage.CarryOutBranchGone, Gate: runstate.TriageGatePreservedWork,
+				Refusal: "nothing of the run is left", Clears: "the development manager decides again",
+			}, docketedNow.Add(time.Minute)); err != nil {
+				t.Fatalf("RecordCarryOutRefusal() error = %v", err)
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := newFlaggedFixture(t)
+			state := fixture.flaggedRun(t, "yoyodyne-flagged.5", 5, runstate.StatusCancelled)
+			runPipelineGit(t, fixture.repository, "branch", "-D", state.Branch)
+			test.decide(t, fixture.store, state)
+
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: state.WorkItemID, Title: "Cancelled", Status: "in_progress"}}
+			auditor := ClaimAuditor{
+				Tracker: tracker, Runs: fixture.store, Releases: fixture.releases, ProductID: "yoyodyne",
+				Remains: fixture.worktrees, Clock: fixedClock{at: fixture.now},
+			}
+			sweep, err := auditor.Audit(ctx, []beads.WorkItem{tracker.Item})
+			if err != nil || len(sweep.Released) != 1 {
+				t.Fatalf("Audit() = %#v, %v; want the claim given back", sweep, err)
+			}
+			if !strings.Contains(tracker.ReleaseReason, "nothing pulls the item until she has") {
+				t.Fatalf("release note = %q, want it to say whose decision the item waits on", tracker.ReleaseReason)
+			}
+			holds, err := readmodel.HeldForAPerson(ctx, fixture.store, fixture.store.Triage(), fixture.worktrees, nil)
+			if err != nil {
+				t.Fatalf("HeldForAPerson() error = %v", err)
+			}
+			if reason, held := holds.Reason(state.WorkItemID); held != test.held {
+				t.Fatalf("held = %t (%q), want %t", held, reason, test.held)
+			}
+		})
+	}
+}
+
+// With its branch still there, a cancelled run keeps its claim and its hold.
+func TestACancelledRunHoldingItsChangeKeepsItsClaim(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	fixture := newFlaggedFixture(t)
+	state := fixture.flaggedRun(t, "yoyodyne-flagged.6", 6, runstate.StatusCancelled)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: state.WorkItemID, Title: "Cancelled", Status: "in_progress"}}
+	sweep, err := ClaimAuditor{
+		Tracker: tracker, Runs: fixture.store, Releases: fixture.releases, ProductID: "yoyodyne",
+		Remains: fixture.worktrees, Clock: fixedClock{at: fixture.now},
+	}.Audit(ctx, []beads.WorkItem{tracker.Item})
+	if err != nil || len(sweep.Released) != 0 {
+		t.Fatalf("Audit() = %#v, %v; want the claim kept", sweep, err)
+	}
+	holds, err := readmodel.HeldForAPerson(ctx, fixture.store, fixture.store.Triage(), fixture.worktrees, nil)
+	if err != nil {
+		t.Fatalf("HeldForAPerson() error = %v", err)
+	}
+	if _, held := holds.Reason(state.WorkItemID); !held {
+		t.Fatal("the item is not held, want the cancelled run's change held for the development manager")
 	}
 }

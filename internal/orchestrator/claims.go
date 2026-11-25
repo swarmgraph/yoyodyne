@@ -251,12 +251,13 @@ func (a ClaimAuditor) Audit(ctx context.Context, claimed []beads.WorkItem) (Clai
 			// is left exactly where it is and nothing is said about it.
 			continue
 		}
-		listed := ended && recorded[dead.RunID].HoldsItemOnceDeadClaim(dead.Found.Holds())
+		run := recorded[dead.RunID]
+		listed := run.CancelledHoldingItem(dead.Found.Holds()) || (ended && run.HoldsItemOnceDeadClaim(dead.Found.Holds()))
 		note := releaseNotes(released, listed)
 		if listed {
 			// The record is what the message about the release is written from, and
 			// that message otherwise reads as an item free to be pulled.
-			released.Because += "; what its run left is kept and the run is on the development manager's list of stopped runs, so nothing pulls the item until she decides"
+			released.Because += "; what happens to the run is the development manager's to decide, and nothing pulls the item until she has"
 		}
 		if _, err := a.Tracker.Release(ctx, dead.WorkItemID, note); err != nil {
 			sweep.Problems = append(sweep.Problems, fmt.Sprintf(
@@ -404,13 +405,13 @@ func saidAlready(released []runstate.ReleasedClaim, dead readmodel.DeadClaim) bo
 // preserved change, from a release that said nothing either way while the run's
 // branch held the approved change.
 //
-// listed is the run being on the development manager's list of stopped runs,
-// which holds the item until she decides.
+// listed is the run being one the development manager's list of stopped runs
+// takes in, which holds the item until she decides.
 func releaseNotes(released runstate.ReleasedClaim, listed bool) string {
 	note := fmt.Sprintf("The harness gave this item back to the queue at %s: %s. Nothing was working on it, so it was released to be pulled again.",
 		released.ReleasedAt.UTC().Format(time.RFC3339), released.Because)
 	if listed {
-		note = fmt.Sprintf("The harness released the claim on this item at %s: %s. Nothing was working on it. Its run is on the development manager's list of stopped runs, and nothing pulls the item until she has decided what happens to what the run left.",
+		note = fmt.Sprintf("The harness released the claim on this item at %s: %s. Nothing was working on it. Its run ended cancelled while it held the item, so what happens to it is the development manager's to decide, and nothing pulls the item until she has.",
 			released.ReleasedAt.UTC().Format(time.RFC3339), released.Because)
 	}
 	if released.Found == nil {
