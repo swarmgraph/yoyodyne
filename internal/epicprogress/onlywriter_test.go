@@ -27,7 +27,7 @@ var writers = []struct {
 	{[]string{"epic-scope.json"}, "internal/epicscope", []string{"ForOperator", "Operator"},
 		[]string{"Add", "End", "Start", "TurnOff", "UnderLock", "change", "write"}, []string{"internal/cli/epic.go"}},
 	{[]string{progressName, begunName}, "internal/epicprogress", []string{"Open", "Store"},
-		[]string{"Begin", "Join", "change", "reserve", "settle", "write"}, nil},
+		[]string{"Begin", "Call", "Join", "Point", "change", "reserve", "settle", "write"}, nil},
 }
 
 // TestEveryWriterOfTheThreeFilesIsListed reads every Go file of the module, tests
@@ -134,7 +134,7 @@ func uses(node ast.Node, names ...string) bool {
 func writing(file *ast.File) []string {
 	var found []string
 	for _, declared := range file.Decls {
-		if function, ok := declared.(*ast.FuncDecl); ok && uses(function.Body, "WriteFile", "FileWriter", "write", "change") {
+		if function, ok := declared.(*ast.FuncDecl); ok && uses(function.Body, "WriteFile", "FileWriter", "write", "change", "reserve", "settle") {
 			found = append(found, function.Name.Name)
 		}
 	}

@@ -20,9 +20,9 @@ const (
 	cutOffAfter = "EPICPROGRESS_TEST_CUT_OFF_AFTER"
 )
 
-// beginCutOff begins epic B in a process that may write no file longer than the
+// joinCutOff joins a piece to epic B in a process that may write no file longer than the
 // limit, so the write of a longer one fails after its first bytes.
-func beginCutOff(t *testing.T, root string, limit int) {
+func joinCutOff(t *testing.T, root string, limit int) {
 	t.Helper()
 	command := exec.Command(os.Args[0], "-test.run=^TestCutOffWriter$")
 	command.Env = append(os.Environ(), cutOffRoot+"="+root, cutOffAfter+"="+strconv.Itoa(limit))
@@ -32,7 +32,7 @@ func beginCutOff(t *testing.T, root string, limit int) {
 	}
 }
 
-// TestCutOffWriter is the process beginCutOff starts.
+// TestCutOffWriter is the process joinCutOff starts.
 func TestCutOffWriter(t *testing.T) {
 	root := os.Getenv(cutOffRoot)
 	if root == "" {
@@ -41,12 +41,12 @@ func TestCutOffWriter(t *testing.T) {
 	after, err := strconv.ParseUint(os.Getenv(cutOffAfter), 10, 64)
 	must(t, err)
 	must(t, syscall.Setrlimit(syscall.RLIMIT_FSIZE, &syscall.Rlimit{Cur: after, Max: after}))
-	must(t, storeAt(t, root).Begin(Naming{WorkItemID: epicB, NamedAt: namedAt}))
+	must(t, storeAt(t, root).Join(epicB, joins(piece)))
 }
 
 // Where the limit cuts off the entries, nothing changes. The list is longer than
-// the second limit and the entries are not, so there the entry is written and the
-// list is cut off: a real stop between the two writes.
+// the second limit and the entries are not, so there the entry is written, still
+// empty, and the list is cut off before the join: a stop between the two writes.
 func TestAWriteCutOffPartwayLeavesTheOldFileWhole(t *testing.T) {
 	t.Parallel()
 	root, a, b := twoNamed(t)
@@ -60,12 +60,12 @@ func TestAWriteCutOffPartwayLeavesTheOldFileWhole(t *testing.T) {
 	defer pinned.Close()
 	must(t, write(pinned, begunName, list, func(b Begun) error { return b.validate(product) }))
 	entries, listed := contents(t, root, progressName), contents(t, root, begunName)
-	beginCutOff(t, root, 200)
+	joinCutOff(t, root, 200)
 	if contents(t, root, progressName) != entries || contents(t, root, begunName) != listed {
 		t.Fatal("a file was changed")
 	}
 	assertNotBegun(t, root, b)
-	beginCutOff(t, root, 1000)
+	joinCutOff(t, root, 1000)
 	read := view(t, root)
 	if found, kept := read.Entry(b); !kept || !found.empty() || read.Unreadable(b) != "" || contents(t, root, begunName) != listed {
 		t.Fatalf("entry %+v, kept %t, want an empty entry that can be read and the list as it was", found, kept)
