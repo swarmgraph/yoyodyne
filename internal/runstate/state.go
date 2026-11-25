@@ -2856,6 +2856,13 @@ func (s *State) recordedTexts() []recordedText {
 	own("kept_checkout", &s.KeptCheckout, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("preserved_work_note_undeliverable", &s.PreservedWorkNoteUndeliverable, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	if wait := s.ConflictWait; wait != nil {
+		nested("conflict_wait.ended", "conflict_wait.ended", &wait.Ended, MaxConflictWaitTextBytes)
+		nested("conflict_wait.unreadable", "conflict_wait.unreadable", &wait.Unreadable, MaxConflictWaitTextBytes)
+		for index := range wait.Ahead {
+			nested("conflict_wait.ahead[].title", at("conflict_wait.ahead", index, "title"), &wait.Ahead[index].Title, MaxConflictWaitTextBytes)
+		}
+	}
 	for index := range s.ConflictHandbacks {
 		nested("conflict_handbacks[].lines_unknown", at("conflict_handbacks", index, "lines_unknown"), &s.ConflictHandbacks[index].LinesUnknown, MaxConflictLinesUnknownBytes)
 	}
@@ -4546,6 +4553,9 @@ type State struct {
 	// no longer merged, and ConflictSpending which of them the run's spending is
 	// being made for. See conflicthandback.go.
 	ConflictHandbacks []ConflictHandback `json:"conflict_handbacks,omitempty"`
+	// ConflictWait is this run's returned change waiting for the merge queue
+	// entries ahead of it that touch its conflicting files. See conflictwait.go.
+	ConflictWait *ConflictWait `json:"conflict_wait,omitempty"`
 	// AuthorSessions are the sessions that wrote the change before the current
 	// developer session, and each one that resolved a conflict. It is empty on a
 	// run one session wrote.
@@ -5476,6 +5486,11 @@ func (s State) Validate() error {
 	}
 	problems = append(problems, s.validateLandingAttempts()...)
 	problems = append(problems, s.validateConflictHandbacks()...)
+	if s.ConflictWait != nil {
+		if err := s.ConflictWait.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("conflict_wait: %w", err))
+		}
+	}
 	problems = append(problems, s.validateAuthorSessions()...)
 	if s.TransientRelaunches < 0 {
 		problems = append(problems, errors.New("transient_relaunches cannot be negative"))

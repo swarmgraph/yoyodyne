@@ -4031,6 +4031,15 @@ pulling:
 		if len(freeSlots) > free {
 			freeSlots = freeSlots[:free]
 		}
+		// A change the merge queue handed back, its wait over, is work already
+		// written: the next free slots are left for it ahead of the queue
+		// (mergequeueconflictwait.go). A test of a hold is not fresh work to leave
+		// out, so it keeps its slot.
+		leftForReturned := 0
+		if !probing && !checksProbing {
+			leftForReturned = min(slotsOwedToReturned(pull.Runs, s.now()), len(freeSlots))
+			freeSlots = freeSlots[:len(freeSlots)-leftForReturned]
+		}
 		// sequenced names the items this pull has held back for a conflict so
 		// far, in the order the product manager set. An item started after one of
 		// them was pulled ahead of it, and its recorded reason says so.
@@ -4433,7 +4442,11 @@ pulling:
 		// account that arrived an hour into the wait would arrive after the watchdog
 		// had already woken somebody over the silence.
 		passed := poll.passedOver(queue)
-		pullSlots.say(walkAccount(slotNumbers(freeSlots), queue, poll.passed, whyPassed, refused, heldProvider))
+		if leftForReturned > 0 && len(freeSlots) == 0 {
+			pullSlots.say(pullSlots.ruleAccount("each free slot is left for a change the merge queue handed back, which is brought up to date ahead of fresh work"))
+		} else {
+			pullSlots.say(walkAccount(slotNumbers(freeSlots), queue, poll.passed, whyPassed, refused, heldProvider))
+		}
 		said := account{
 			reason:     readmodel.IdleLine(passed, len(occupied)),
 			running:    len(occupied),

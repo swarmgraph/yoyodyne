@@ -1788,6 +1788,16 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			MayStart:  parts.mayStart(),
 		},
 	}
+	// A change handed back for a conflict waits for the entries ahead that touch
+	// its conflicting files, and rejoins by itself where it merges again.
+	returns := &orchestrator.MergeQueueReturns{Pipeline: &pipeline, Queue: parts.mergeQueues, Git: parts.worktrees, Harness: promoter.Harness}
+	if parts.config.Approvals.Publishing == domain.ApprovalAutomatic {
+		returns.Forge = forge
+	}
+	if repair, ok := promoter.Repair.(orchestrator.MergeQueueRunHandback); ok {
+		repair.Returns = returns
+		promoter.Repair = repair
+	}
 	// What takes up the changes the queue held because the target required the
 	// forge's own merge queue: resumed at their promotion, through the same
 	// action `yoyo triage resume` is, once the condition clears or the switch

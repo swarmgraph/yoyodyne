@@ -124,6 +124,9 @@ func (r Reconciler) settleMergeQueueWait(ctx context.Context, state runstate.Sta
 				result := reconciliationOf(state, ActionQueued)
 				result.Detail = fmt.Sprintf("%s, and the queue has handed the change back (%s) but not yet given that to this run; the queue gives it on a later pass, so the run is left for it",
 					waiting, handback.Reason)
+				if wait, recorded := state.ConflictWaitFor(listed.EntryID); recorded && wait.Says() != "" {
+					result.Detail += "; " + wait.Says()
+				}
 				return result, true, nil
 			}
 			if handback.Continuation == runstate.MergeQueueReleased && handback.TransferTo != "" {

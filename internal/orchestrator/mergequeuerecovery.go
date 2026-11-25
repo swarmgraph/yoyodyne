@@ -1154,6 +1154,10 @@ type MergeQueueRunHandback struct {
 	// change waited, so the catch-up is still given; nil gives such a run the
 	// stop instead.
 	Checkouts MergeQueueCatchUpCheckouts
+	// Returns is the queue as a returned change asks about it before its
+	// attempt (mergequeueconflictwait.go); nil waits for nothing and never
+	// rejoins a change that merges again.
+	Returns *MergeQueueReturns
 	// MayStart is the decision on what may start under the named epics, asked
 	// before a catch-up is made. See StartDecision.
 	MayStart StartDecision

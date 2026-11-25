@@ -491,7 +491,8 @@ of either side conflict. A count that could not be made, such as where one side
 deleted the file, says why instead. The attempt to bring the change up to date
 and every review after it, the merge queue's review of the candidate included,
 name that entry on their lines of the cost log, as `conflict: handback` and
-`conflict_handback`. The weekly figures add up those lines and divide them by
+`conflict_handback`. A change that merges again by itself keeps its entry, and
+nothing is charged to it. The weekly figures add up those lines and divide them by
 the code changes landed. A management role's turn deciding about a conflict
 names no entry and is not in the figure.
 
