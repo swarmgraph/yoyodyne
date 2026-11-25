@@ -57,7 +57,7 @@ func (a *activeRun) watchForStop(ctx context.Context, step string) (context.Cont
 	// holds — the whole pass over the merge candidate after narrowed checks —
 	// is never cut short: any stop it would find arrived late, and the caller
 	// records it as late once the step is done (honorStop).
-	_, keepsChange := checksPassedOnHeldChange(a.state)
+	_, keepsChange := a.state.ChecksPassedOnHeldChange()
 	watched, cancel := context.WithCancelCause(ctx)
 	done := make(chan struct{})
 	finished := make(chan struct{})
@@ -110,13 +110,19 @@ func (a *activeRun) watchForStop(ctx context.Context, step string) (context.Cont
 // recorded on the run as having arrived late, and nothing is cancelled. A
 // repair the review hands back is a new attempt, so a stop still recorded then
 // is carried out at that attempt's boundary in develop.
+//
+// A run taken up from its wait for the forge's checks is asked afresh: its checks
+// are not finished, so a stop an earlier process called late counts there.
 func (a *activeRun) honorStop() error {
 	err := a.stopRequested()
+	if a.state.CIWait != nil {
+		err = a.stopRequestedAtNewAttempt()
+	}
 	var stopped operatorStop
 	if !errors.As(err, &stopped) {
 		return err
 	}
-	passed, kept := checksPassedOnHeldChange(a.state)
+	passed, kept := a.state.ChecksPassedOnHeldChange()
 	if !kept {
 		return err
 	}
@@ -138,17 +144,6 @@ func (a *activeRun) honorStop() error {
 	return nil
 }
 
-// checksPassedOnHeldChange reports the checks having passed on the attempt the
-// run holds now, which is what makes a stop found after them a late one. A
-// repair handed back since is a new attempt and does not count.
-func checksPassedOnHeldChange(state runstate.State) (*runstate.ChecksPassed, bool) {
-	passed := state.ChecksPassed
-	if passed == nil || passed.Attempt != state.RepairAttempts {
-		return nil, false
-	}
-	return passed, true
-}
-
 // recordLateStopOnUnheldRun is the sweep's half of honorStop, for a run no
 // process holds whose checks have passed on the change it holds: the stop is
 // recorded as having arrived late, and the run is left for the rest of the
@@ -156,7 +151,7 @@ func checksPassedOnHeldChange(state runstate.State) (*runstate.ChecksPassed, boo
 // to its review rather than the sweep cancelling a change that has just earned
 // its checks. It reports whether the stop was such a stop.
 func (r Reconciler) recordLateStopOnUnheldRun(ctx context.Context, state runstate.State, request runstate.StopRequest) (runstate.State, bool, error) {
-	passed, kept := checksPassedOnHeldChange(state)
+	passed, kept := state.ChecksPassedOnHeldChange()
 	if !kept {
 		return state, false, nil
 	}

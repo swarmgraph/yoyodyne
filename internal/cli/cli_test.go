@@ -1009,6 +1009,7 @@ func TestReportRunResultIsTruthfulAboutRemovedArtifacts(t *testing.T) {
 	t.Parallel()
 
 	integration := &gitworktree.Integration{TargetBranch: "main", SourceCommit: "abc123", TargetCommit: "abc123"}
+	limitLifts := time.Now().Add(time.Hour)
 	for _, test := range []struct {
 		name     string
 		outcome  orchestrator.Outcome
@@ -1070,6 +1071,32 @@ func TestReportRunResultIsTruthfulAboutRemovedArtifacts(t *testing.T) {
 				PausedByCIWait: &runstate.CIWait{Commit: "afee21810000", Required: []string{"test"}, Follows: "GitHub reports that pull request #7 conflicts with main; it was brought in"}},
 			want:   []string{"waiting for the forge's checks (test) on commit afee21810000", "pull request #7 conflicts with main; it was brought in", "gave back its developer slot"},
 			reject: []string{"yoyo resume", "waiting out"},
+		},
+		{
+			name: "waiting for GitHub's checks is said even where an earlier limit's name is still on the run",
+			outcome: orchestrator.Outcome{RunID: "run-1", Paused: true, UsageLimitKind: "five-hour",
+				PausedByCIWait: &runstate.CIWait{Commit: "afee21810000", Required: []string{"test"}}},
+			want:   []string{"waiting for the forge's checks (test)"},
+			reject: []string{"usage limit"},
+		},
+		{
+			name: "waiting out a usage limit the run recorded",
+			outcome: orchestrator.Outcome{RunID: "run-1", Paused: true, PauseCause: runstate.PauseUsageLimit, UsageLimitKind: "five-hour",
+				UsageLimitResetsAt: &limitLifts},
+			want:   []string{"waiting out an exhausted five-hour usage limit", "yoyo resume"},
+			reject: []string{"GitHub", "the forge's checks"},
+		},
+		{
+			name:    "stopped by its session to restart, not by a usage limit",
+			outcome: orchestrator.Outcome{RunID: "run-1", Paused: true, RedeployStop: &runstate.RedeployStop{}},
+			want:    []string{"restart on a newly deployed build"},
+			reject:  []string{"usage limit", "yoyo resume"},
+		},
+		{
+			name:    "a pause that names no cause is not called a usage limit",
+			outcome: orchestrator.Outcome{RunID: "run-1", Paused: true},
+			want:    []string{"does not say what it waits for"},
+			reject:  []string{"usage limit", "yoyo resume"},
 		},
 		{
 			// A failure must never describe deleted artifacts as preserved.

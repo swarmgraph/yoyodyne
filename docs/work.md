@@ -73,6 +73,10 @@ work is all closed is continued in its own worktree and developer session,
 against a developer slot and under a session's `--limit` exactly as a recorded
 repair is fired, and under the same two switches: your pause and a held intake
 both leave it paused, and the first pull after either lifts continues it.
+A run you started by name that waits for GitHub's checks is the one exception:
+a held intake is over what the harness chooses, so once GitHub has decided the
+next pull continues such a run while the hold stands, and the run's record says
+so (`continued_under_hold`). Your pause still stops it.
 **Paused runs, runs whose GitHub checks have passed, and recorded repairs or
 continuations of a kept change are all work a run has already written, and a
 freed slot takes them in one order: the item's priority first, then the longest
@@ -107,7 +111,8 @@ passed over naming what it waits on, and the sweep leaves it alone however long
 that lasts, rather than settling it after half an hour as it does a park
 nothing continues. A stop recorded on such a run is honoured before any
 continuation: the pull does not pick it up, and the next `yoyo reconcile` ends
-it as the stop asked.
+it as the stop asked. One waiting for GitHub's checks is ended by the next pull
+instead, under a hold or a pause too, with its branch and worktree kept.
 **A run paused this way gives its developer slot back
 as it records the pause.** A paused run has no process and spends nothing, so a
 slot it held would stand empty for as long as the wait lasts — on 2026-09-27
@@ -2264,7 +2269,8 @@ way are let finish only until ten minutes after the stop was asked for, and
 are cut short then, with what the developer had written committed to the run's
 branch first. A run whose checks have already passed on its change when the
 stop reaches it is not cancelled: the change goes on to its review, and the run
-records and says that the stop arrived late. A run with no process behind it —
+records and says that the stop arrived late. The short local check does not count
+as that: a run still waiting for GitHub's checks is stopped. A run with no process behind it —
 parked on a dependency, say, with the process that parked it long gone —
 reaches no step, so the next
 [`yoyo reconcile`](operations.md#recovering-interrupted-runs) honours the stop

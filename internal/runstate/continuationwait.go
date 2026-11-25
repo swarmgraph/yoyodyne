@@ -45,6 +45,14 @@ func (u ContinuationPassedOver) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// ContinuedUnderHold is why a run that waited for the forge's checks was taken
+// up again while new work was held: the operator had started it by name, which
+// is the exception to that hold.
+type ContinuedUnderHold struct {
+	Why string    `json:"why"`
+	At  time.Time `json:"at"`
+}
+
 // AwaitsContinuation reports a run paused until the scheduler continues it:
 // waiting on work its item depends on, waiting for its epic, or waiting for the
 // forge's checks without having taken its developer slot back yet.

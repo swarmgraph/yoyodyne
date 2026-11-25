@@ -2691,6 +2691,9 @@ func (s *State) recordedTexts() []recordedText {
 	if s.ContinuationWait != nil {
 		unstated("continuation_wait.why", "continuation_wait.why", &s.ContinuationWait.Why, MaxRecordedTextBytes)
 	}
+	if s.ContinuedUnderHold != nil {
+		unstated("continued_under_hold.why", "continued_under_hold.why", &s.ContinuedUnderHold.Why, MaxRecordedTextBytes)
+	}
 	for index := range s.CheckStageContinuations {
 		continuation := &s.CheckStageContinuations[index]
 		nested("check_stage_continuations[].reason", at("check_stage_continuations", index, "reason"), &continuation.Reason, MaxSelectionReasonBytes)
@@ -4725,6 +4728,9 @@ type State struct {
 	// while it was paused under DependencyPause or CIWait (continuationwait.go).
 	// It is cleared as the run takes its developer slot back.
 	ContinuationWait *ContinuationWait `json:"continuation_wait,omitempty"`
+	// ContinuedUnderHold is why the run was last taken up from such a wait while
+	// new work was held, and absent where it never was.
+	ContinuedUnderHold *ContinuedUnderHold `json:"continued_under_hold,omitempty"`
 	// CIWaitEnd is how the last wait ended.
 	CIWaitEnd *CIWaitEnd `json:"ci_wait_end,omitempty"`
 	// TrackerPause records that the tracker would not answer the read this run

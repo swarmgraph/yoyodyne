@@ -1086,7 +1086,8 @@ development manager as a docket entry rather than through you;
 the harness *choosing* new work, and lets everything already running finish. It
 is what you reach for when the queue looks wrong but nothing is on fire. It holds
 nothing you name yourself — `/work <beads-id>` still runs an item under it, since
-you placed the hold and naming something is you deciding it is the exception —
+you placed the hold and naming something is you deciding it is the exception,
+and a run you named goes on once GitHub's checks have decided —
 and `/release` lets the harness choose again — as does `yoyo release` at a
 terminal, which lifts the same record, for when no conversation is open. A hold
 the failure-storm brake placed overnight does not need either: the brake
