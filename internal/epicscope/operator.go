@@ -214,6 +214,23 @@ func (o *Operator) change(apply func(*Record) error) (Record, error) {
 	return record, nil
 }
 
+// UnderLock holds the lock every act takes and gives a reading of the record, so
+// that no act of the operator comes between what is read and what is done. It
+// writes nothing, because what it makes is never a change.
+func UnderLock(stateRoot string, product domain.ProductID, do func(Record) error) error {
+	reader, err := ForOperator(stateRoot, product)
+	if err != nil {
+		return err
+	}
+	_, err = reader.change(func(record *Record) error {
+		if err := do(*record); err != nil {
+			return err
+		}
+		return errUnchanged
+	})
+	return err
+}
+
 // write replaces the file whole: the confined writer puts the content in a
 // temporary file beside it and renames that over it, so a reader sees the old
 // record or the new one. The bytes are read back as a record first, so nothing
