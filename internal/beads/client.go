@@ -569,6 +569,10 @@ type Client struct {
 	// listens, and whether the developer sandbox reaches it (storeserver.go). Nil
 	// asks the operating system.
 	Server ServerProbe
+	// ServerSwitch stops and starts the tracker's server around the live rebuild
+	// (RebuildStore). Nil is a client that rebuilds nothing, or a store with no
+	// server.
+	ServerSwitch StoreServerSwitch
 	// storeCopied is called once a measurement has copied the store and before
 	// it looks at the store again. It is set only by this package's tests, which
 	// write to the store at that moment to show a copy made while the store
@@ -606,24 +610,27 @@ func (c Client) beadsDirVariable() string {
 }
 
 // environment is what bd is run with: this process's environment, with
-// BEADS_DIR replaced where the client is pinned to a store. A client in server
-// mode also has every variable that could point bd's server at another data
-// directory, port, or a server shared between projects taken out, and server
-// mode turned on, so the server it starts serves the copy and nothing else.
+// BEADS_DIR replaced where the client is pinned to a store. A pinned client also
+// has every variable that could point bd at a server taken out, and server mode
+// turned off, so that nothing sends a call meant for a copy to the live store's
+// server; or, in server mode, turned on, so the server it starts serves the copy
+// and nothing else.
 func (c Client) environment() []string {
 	environment := os.Environ()
 	if c.beadsDir == "" {
 		return environment
 	}
 	pinned := make([]string, 0, len(environment)+3)
-	for _, entry := range environment {
-		if strings.HasPrefix(entry, "BEADS_DIR=") || (c.serverMode && strings.HasPrefix(entry, "BEADS_DOLT_")) {
+	for _, entry := range withoutServerSettings(environment) {
+		if strings.HasPrefix(entry, "BEADS_DIR=") {
 			continue
 		}
 		pinned = append(pinned, entry)
 	}
 	if c.serverMode {
 		pinned = append(pinned, "BEADS_DOLT_SERVER_MODE=1", "BEADS_DOLT_SHARED_SERVER=0")
+	} else {
+		pinned = append(pinned, "BEADS_DOLT_SERVER_MODE=0")
 	}
 	return append(pinned, "BEADS_DIR="+c.beadsDir)
 }
@@ -2245,27 +2252,19 @@ func (c Client) runWithInput(ctx context.Context, limit time.Duration, input io.
 		binary = "bd"
 	}
 	asked := waitingSince(ctx)
-	unlockStore, err := c.lockStore(ctx, true)
+	environment, leave, err := c.enterStore(ctx)
 	if err != nil {
 		if errors.Is(err, ErrUnanswered) {
 			c.logUnmade(ctx, args, asked)
 		}
 		return nil, err
 	}
-	defer unlockStore()
-	endTurn, err := c.takeTurn(ctx)
-	if err != nil {
-		if errors.Is(err, ErrUnanswered) {
-			c.logUnmade(ctx, args, asked)
-		}
-		return nil, err
-	}
-	defer endTurn()
+	defer leave()
 	command := execution.Command{
 		Name:           binary,
 		Args:           args,
 		Dir:            c.Dir,
-		Env:            inUTC(withoutAutoExport(c.environment())),
+		Env:            inUTC(withoutAutoExport(environment)),
 		Stdin:          input,
 		Timeout:        limit,
 		MaxOutputBytes: maxBDOutputBytes,

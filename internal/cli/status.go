@@ -531,6 +531,7 @@ func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *read
 		fmt.Fprint(stdout, standing.RenderIntakeQueries())
 		fmt.Fprint(stdout, standing.RenderMainChecks())
 		fmt.Fprint(stdout, standing.RenderServices())
+		fmt.Fprint(stdout, standing.RenderTrackerReach())
 		fmt.Fprintln(stdout)
 	}
 }

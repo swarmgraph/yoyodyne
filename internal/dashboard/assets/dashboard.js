@@ -70,6 +70,7 @@ var standingWarningAgeSeconds = 5 * 60;
   var page = document.getElementById("page");
   var observedAt = document.getElementById("observed-at");
   var freshness = document.getElementById("freshness");
+  var trackerReach = null;
   var problem = document.getElementById("problem");
   var remedy = document.getElementById("remedy");
   var stale = document.getElementById("stale");
@@ -552,8 +553,23 @@ var standingWarningAgeSeconds = 5 * 60;
     return "The tracker's latest listing of open and ready work failed at " + clock(listing.failed_at) + " — " + listing.failure + " — so the open and ready work shown is the tracker's last good listing, taken at " + clock(listing.taken_at) + ".";
   }
 
+  // renderTrackerReach says how the tracker's store is reached, through its
+  // server or opened directly and why, in the sentence yoyo status prints. The
+  // element is made the first time a standing says it.
+  function renderTrackerReach(standing) {
+    var reach = standing && standing.tracker_reach;
+    if (!trackerReach && reach) {
+      trackerReach = el("p", "tracker-reach");
+      freshness.parentNode.parentNode.appendChild(trackerReach);
+    }
+    if (trackerReach) {
+      trackerReach.textContent = reach ? reach.said : "";
+    }
+  }
+
   function renderHeader() {
     var standing = model.standing;
+    renderTrackerReach(standing);
     if (standing) {
       observedAt.textContent = clock(standing.observed_at);
       observedAt.setAttribute("datetime", standing.observed_at || "");

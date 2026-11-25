@@ -215,6 +215,9 @@ func (c Client) MeasureStore(ctx context.Context, work *repowrite.PinnedRoot) (m
 	lookup, cancel := context.WithTimeout(ctx, holderLookupTimeout)
 	holders, holdersErr := c.holdersFinder().Holders(lookup, databaseDirectory(store))
 	cancel()
+	// The tracker's server always has it open; a write it makes while the store
+	// is copied is found by the fingerprints below.
+	holders = c.withoutServer(holders)
 	if holdersErr == nil && len(holders) > 0 {
 		measurement.Busy = holders
 		return measurement, nil
@@ -457,7 +460,8 @@ type storeFile struct {
 
 // storeFingerprint is every regular file under the store with its size and
 // modification time. A symbolic link anywhere under it is refused, because bd
-// run on a copy that carried it could write through it into the live store.
+// run on a copy that carried it could write through it into the live store; the
+// one the tracker's server keeps is left out, as copyStore leaves it out.
 func storeFingerprint(store string) (map[string]storeFile, error) {
 	files := map[string]storeFile{}
 	err := filepath.WalkDir(store, func(path string, entry fs.DirEntry, err error) error {
@@ -469,6 +473,9 @@ func storeFingerprint(store string) (map[string]storeFile, error) {
 			return err
 		}
 		if entry.Type()&fs.ModeSymlink != 0 {
+			if relative == serverLinkPath {
+				return nil
+			}
 			return fmt.Errorf("the tracker's store holds a symbolic link, %s, so it is not copied: bd run on the copy could write through it into the live store", relative)
 		}
 		if !entry.Type().IsRegular() {
@@ -535,6 +542,11 @@ func copyStore(store string, work *repowrite.PinnedRoot, name string) error {
 		}
 		target := filepath.ToSlash(filepath.Join(".beads", relative))
 		switch {
+		// What belongs to the live store's server stays out of a copy: the local
+		// setting, which would send bd on the copy to that server, and the link
+		// to the server's own folder.
+		case relative == localSettingName, entry.Type()&fs.ModeSymlink != 0 && relative == serverLinkPath:
+			return nil
 		case entry.IsDir():
 			return project.MakeDirectory(target, 0o700)
 		case entry.Type()&fs.ModeSymlink != 0:

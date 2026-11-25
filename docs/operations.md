@@ -1264,6 +1264,50 @@ does not start `dolt` and does not look at one on your `PATH`. Until the copy is
 installed the tracker's store is opened directly, as it always was, and no run
 stops.
 
+### The tracker's server
+
+bd opens the tracker's store afresh for every command. The supervisor can
+instead run one server that keeps the store open (`dolt sql-server`, from the
+harness's own dolt), and every tracker command the harness makes is then answered
+through it. **It is built and not switched on.** dolt always opens a network port
+on this machine, so the server has to be reached with a password, and a role
+other than a developer can still read the folder the password is kept in until
+sessions on both Claude Code and Codex are refused it (yoyodyne-ifd.435.98 is the
+Codex half); a real install of dolt 2.7.6 by the harness's setup has
+also to be recorded as checked. Until both are done this build starts no server,
+and no configuration key turns it on.
+
+Once it is switched on:
+
+- The supervisor starts the server, starts it again if it dies, and moves it onto
+  each new build. `yoyo stop` stops it after every other part. It is started and
+  stopped only once the harness's own tracker commands in progress have finished.
+- It listens on 127.0.0.1 only, on a port picked each time it starts, and refuses
+  a connection without its password. Everything that lets a program in is in
+  `services/tracker-server-<product>` under the state directory, made again at
+  each start; the server's log is there too.
+- Its process number, port, and start time are in
+  `.beads/yoyodyne-writes/tracker-server.json`, beside the harness's locks, where
+  every harness process that reaches the store reads them. A server is recorded
+  as stopped only once its process has ended, and the record keeps that process's
+  number so each command checks it. One that will not end is left recorded, and
+  no other is started beside it.
+- The harness opens the store directly only when that record says the server is
+  stopped and its process is gone. Where it cannot tell, a command waits for the
+  server up to its own limit and then counts as unanswered. `yoyo stop` settles a
+  record left by a supervisor that is not coming back.
+- Any other `bd` on this machine is sent through the server by lines the
+  supervisor keeps in `.beads/.env`, which bd reads and Git ignores. The server is
+  not started where Git does not ignore that file, or where it already says how to
+  reach a server. The lines are taken out when the server stops.
+- The maintenance rebuild of the store stops the server once it has checked for
+  outside processes, and starts it again before letting other commands in.
+
+`yoyo status` (the `Tracker:` line) and the dashboard's header say how the store is
+reached: through its server and since when, opened directly and why, or waiting
+for the server. `yoyo doctor` reports under `tracker-store`, as a warning, any
+process outside the harness that has the store's files open directly.
+
 A healthy installation says so in as many words, because an empty list of
 complaints and a check that never ran read the same. It exits 1 when something
 would stop work running and 0 otherwise.
