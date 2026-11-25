@@ -184,10 +184,18 @@ func (t Trigger) MaySummon(summons BrakeSummons) error {
 	return fmt.Errorf("%w: %s", ErrSummonsOutsideNamedEpics, decision.Why)
 }
 
+// EpicsNamed is whether the operator has ever named an epic for this product,
+// which is the only way a summons of it can have been refused.
+func (t Trigger) EpicsNamed() bool {
+	return t.EpicsChanged != nil && !t.EpicsChanged().IsZero()
+}
+
 // summonsAsking is a summons that can say, with nothing started, whether it may
 // be made. It is satisfied by Trigger.
 type summonsAsking interface {
 	MaySummon(summons BrakeSummons) error
+	// EpicsNamed is whether the operator has ever named an epic.
+	EpicsNamed() bool
 }
 
 // startPath is the path this pipeline's own start is on, read from who chose
