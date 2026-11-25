@@ -596,6 +596,17 @@ func (a *activeRun) observeCheckEnded(ctx context.Context, err error, unrepaired
 		a.observe(ctx, deliveryCheck, "refused")
 		return
 	}
+	// A change that conflicts with its target while it waits for the forge's
+	// checks is refused by the same state, before its checks have run.
+	var conflicting ciWaitConflict
+	if errors.As(err, &conflicting) {
+		if unrepaired {
+			a.observe(ctx, deliveryCheck, "refused-unrepaired")
+			return
+		}
+		a.observe(ctx, deliveryCheck, "refused")
+		return
+	}
 	var failing checkFailure
 	if errors.As(err, &failing) {
 		if unrepaired {

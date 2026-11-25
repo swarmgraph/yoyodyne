@@ -3916,6 +3916,24 @@ when one has ended any other way, when the forge has stayed unreadable for about
 five minutes, or when `wait_limit` has passed since the push. Review starts only after every required check passed on that commit. Until the forge's results are themselves integration evidence (a later build), the full checks also run on this machine over the approved candidate before it is promoted, as they do for any change checked in part. A
 restart during the wait pushes nothing and carries on with the same wait.
 
+Each look also asks GitHub whether the pull request conflicts with its target,
+because GitHub starts no checks on one that does. A conflict ends the wait at
+that look, whatever the checks say; an answer GitHub has not worked out yet, or
+could not give, is not a conflict. The run takes a developer slot like any
+continuation, brings the local target level with the remote's, and replays its
+change onto it. Where nothing conflicts, the short local check runs, the new head
+is pushed, and the wait starts again on it; a short check that fails there goes
+back to the developer as any failing check does, and the repaired head is the one
+that replaces the old head. Where something does, the change goes
+back to the same run's developer as the run's one attempt to bring its change up
+to date, the attempt a conflict in the merge queue gets; a run that has already
+used it stops for the development manager. Neither spends a repair attempt or a
+review round, and neither the full local checks nor a review runs on the
+conflicting head. Where GitHub cannot be reached while the target is being read,
+the run gives its slot back and tries again five minutes later. The run's record,
+`yoyo status` and what `yoyo run` prints say that the pull request conflicted and
+what was done.
+
 A required check that failed on the forge goes back to the developer as a
 failed check. The harness reads the forge's log, because a developer's sandbox
 has no network, and records on the run the failing checks, the failing tests

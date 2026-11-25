@@ -158,7 +158,7 @@ func (r Reconciliation) Says() string {
 	if len(r.Paths) > 0 {
 		paths = fmt.Sprintf(" on %d path(s)", len(r.Paths)+r.Omitted)
 	}
-	return fmt.Sprintf("Reconciliation attempt: used. The approved change conflicted with %s%s%s, and its developer was asked once to bring it level with %s; that attempt was not counted against the repair attempts.",
+	return fmt.Sprintf("Reconciliation attempt: used. The change conflicted with %s%s%s, and its developer was asked once to bring it level with %s; that attempt was not counted against the repair attempts.",
 		r.TargetBranch, on, paths, r.TargetBranch)
 }
 

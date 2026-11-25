@@ -1347,6 +1347,11 @@ func reportRunResult(stdout, stderr io.Writer, jsonOutput bool, outcome orchestr
 			if err != nil {
 				fmt.Fprintf(stderr, "the park is recorded, but reporting it failed: %v\n", err)
 			}
+		} else if outcome.PausedByCIWait != nil {
+			reportCIWaitPause(stdout, outcome)
+			if err != nil {
+				fmt.Fprintf(stderr, "the wait is recorded, but reporting it failed: %v\n", err)
+			}
 		} else {
 			reportRunPause(stdout, stderr, outcome, err)
 		}
@@ -1511,6 +1516,17 @@ func reportRunPause(stdout, stderr io.Writer, outcome orchestrator.Outcome, err 
 	if err != nil {
 		fmt.Fprintf(stderr, "the pause is recorded, but reporting it failed: %v\n", err)
 	}
+}
+
+// reportCIWaitPause describes a run waiting for the forge's checks on the
+// commit it pushed, with what came of its pull request conflicting with its
+// target where it did (runstate.CIWait.Summary).
+func reportCIWaitPause(stdout io.Writer, outcome orchestrator.Outcome) {
+	fmt.Fprintf(stdout, "run paused: %s\n", outcome.RunID)
+	fmt.Fprintf(stdout, "waiting for %s\n", outcome.PausedByCIWait.Summary())
+	fmt.Fprintf(stdout, "branch: %s\n", outcome.Branch)
+	fmt.Fprintf(stdout, "worktree: %s\n", outcome.WorktreePath)
+	fmt.Fprintln(stdout, "it gave back its developer slot; a watching `yoyo work` session continues it once GitHub has answered or the wait limit has passed")
 }
 
 // reportDirectivePause describes work held up by an unresolved user directive.
