@@ -236,6 +236,7 @@ func TestTheClosedListOfPaths(t *testing.T) {
 		ReadyWork: true, NamedRun: true, HoldTest: true, DecidedRerun: true, DecidedRepair: true, FeedbackRepair: true,
 		ResolveConflict: true, BringInFile: true, PublishDocument: true,
 		UpdateQueued: true, UpdateForPerson: true, AfterLogin: true,
+		FinishMerge: true, ContinueRun: true, PickUpRun: true,
 	}
 
 	got := Paths()

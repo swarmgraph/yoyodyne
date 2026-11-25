@@ -164,6 +164,8 @@ func holdsNoSlotBecause(state runstate.State) string {
 		return "its approved change is in the merge queue"
 	case state.CIWait.Waiting():
 		return "it is waiting on GitHub's checks"
+	case state.EpicWait != nil:
+		return "it waits for its epic"
 	case state.DependencyPause != nil:
 		return "it is paused on work its item waits on"
 	case state.ForgeWait != nil:

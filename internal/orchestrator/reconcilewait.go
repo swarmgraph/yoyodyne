@@ -72,7 +72,8 @@ const sweepContinuationEntry = time.Minute
 // pause's cause rather than left to the deadline field: an outage wait and an
 // operator's park are excluded there, whatever the record says beside them.
 func exitedWait(state runstate.State, now time.Time) bool {
-	if !pausedForUsageLimit(state) || !exitsOnInProcessBound(state) {
+	// One waiting for its epic is continued by the pull, once it may go on.
+	if !pausedForUsageLimit(state) || !exitsOnInProcessBound(state) || state.EpicWait != nil {
 		return false
 	}
 	return !state.UsageLimitResetsAt.After(now)
@@ -232,6 +233,13 @@ func (r Reconciler) takeUpWait(ctx context.Context, recorded runstate.State) (Wa
 		}
 		if retirementErr != nil {
 			result.Failure = retirementErr.Error()
+		}
+		return result, false
+	}
+	if refused, err := r.waitForEpic(ctx, state); refused != nil {
+		result.Detail = refused.Error()
+		if err != nil {
+			result.Failure = err.Error()
 		}
 		return result, false
 	}

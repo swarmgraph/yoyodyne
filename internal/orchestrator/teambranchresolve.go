@@ -74,6 +74,13 @@ type teamConflictPassing struct{ error }
 
 func (e teamConflictPassing) Unwrap() error { return e.error }
 
+// teamConflictWaiting is a run that was started and waits with its work kept: for
+// its epic, or, once it may go on, for what a run taken up again needs, such as a
+// free developer slot. The update asks again at its next check.
+type teamConflictWaiting struct{ error }
+
+func (e teamConflictWaiting) Unwrap() error { return e.error }
+
 // errTeamConflictGone says the merge the run was to resolve applied cleanly
 // when it was started, so there was nothing to resolve.
 var errTeamConflictGone = errors.New("the merge of the team's branch no longer conflicts, so there is nothing for a run to resolve")
@@ -245,9 +252,21 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 		_, failure := run.fail(err, failureStatus(ctx, err))
 		return result, failure
 	}
+	return run.resolveTeamConflict(ctx, request, result, paths)
+}
+
+// resolveTeamConflict has the developer resolve the merge open in the run's
+// worktree, in the session the run recorded where it has one, and ends the run on
+// the merge.
+func (run *activeRun) resolveTeamConflict(ctx context.Context, request TeamBranchConflictRequest, result TeamBranchConflictResult, paths []string) (TeamBranchConflictResult, error) {
+	p, worktree := run.pipeline, run.worktree
 	prompt := withInstallSection(teamConflictPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), run.context, run.scratch, p.Config.Checks, p.reviewDiffLimits(), request, worktree.BaseCommit, paths), p.Config.Install)
-	if err := run.develop(ctx, prompt, ""); err != nil {
+	if err := run.develop(ctx, prompt, run.state.ProviderSessionID); err != nil {
 		_, failure := run.stop(ctx, err)
+		var forEpic epicPause
+		if failure == nil && errors.As(err, &forEpic) {
+			failure = teamConflictWaiting{forEpic}
+		}
 		return result, failure
 	}
 	merge := run.state.HarnessCommit
@@ -259,12 +278,133 @@ func (p Pipeline) ResolveTeamBranchConflict(ctx context.Context, request TeamBra
 	// The run ends here, made terminal before anything else reads it. Its branch
 	// and worktree stay: the merge commit is kept by the branch until the update
 	// has landed it or dropped it.
-	finished, err := p.Store.Update(ctx, runID, runstate.TeamConflictMerged{Merge: merge, At: p.clock().Now()})
+	finished, err := p.Store.Update(ctx, run.state.RunID, runstate.TeamConflictMerged{Merge: merge, At: p.clock().Now()})
 	if err != nil {
-		return result, fmt.Errorf("save the finished run %s: %w", runID, err)
+		return result, fmt.Errorf("save the finished run %s: %w", run.state.RunID, err)
 	}
 	run.state = finished
 	return result, nil
+}
+
+// continueTeamBranchConflict takes up the request's own run where it waits for its
+// epic. found is false where no run of it waits, which is one whose process ended.
+func (p Pipeline) continueTeamBranchConflict(ctx context.Context, request TeamBranchConflictRequest) (_ TeamBranchConflictResult, found bool, _ error) {
+	itemID := request.Item.ID
+	ctx = beads.OnBehalfOf(ctx, runTrackerCaller("", itemID))
+	state, lease, err := p.Store.AdoptWithin(p.withSlotPairs(ctx), itemID, p.Config.Execution.MaxConcurrentDevelopers)
+	var held runstate.ExistingWorkItemError
+	switch {
+	case errors.Is(err, runstate.ErrNoRunInFlight), errors.As(err, &held) && !waitingTeamConflict(held.State, request):
+		return TeamBranchConflictResult{}, false, nil
+	case errors.As(err, &held):
+		return TeamBranchConflictResult{RunID: held.State.RunID}, true, teamConflictWaiting{err}
+	case err != nil:
+		return TeamBranchConflictResult{}, false, fmt.Errorf("read the run that resolves the conflict: %w", err)
+	}
+	defer lease.Release()
+	if !waitingTeamConflict(state, request) {
+		return TeamBranchConflictResult{}, false, nil
+	}
+	result := TeamBranchConflictResult{RunID: state.RunID, Base: state.BaseCommit}
+	waits := func(err error) (TeamBranchConflictResult, bool, error) {
+		return result, true, teamConflictWaiting{err}
+	}
+	if err := p.validateDispatch(); err != nil {
+		return waits(err)
+	}
+	if hold, paused, err := p.operatorHold(); err != nil {
+		return waits(err)
+	} else if paused {
+		return waits(fmt.Errorf("the operator has paused harness activity since %s", hold.HeldAt.Local().Format("2006-01-02 15:04 MST")))
+	}
+	if refused := p.MayStart.refuseContinuing(state); refused != nil {
+		return waits(refused)
+	}
+	item, err := p.readWorkItem(ctx, itemID)
+	if err != nil {
+		return waits(fmt.Errorf("load work item: %w", err))
+	}
+	invariants, err := p.loadInvariants()
+	if err != nil {
+		return waits(err)
+	}
+	bundle, err := contextbundle.Assemble(p.contextRequest(item))
+	if err != nil {
+		return waits(fmt.Errorf("assemble the work item context: %w", err))
+	}
+	provider, named, err := p.developerBackendFor(state)
+	if err != nil {
+		return waits(err)
+	}
+	if err := p.requireBackendReady(ctx, itemID, provider, named); err != nil {
+		return waits(err)
+	}
+	if err := p.requireLaunchSettings(ctx, "the run that resolves a conflict for "+itemID, provider, named); err != nil {
+		return waits(err)
+	}
+	if state, err = p.reclaimSlot(ctx, state); err != nil {
+		return waits(err)
+	}
+	run := &activeRun{
+		pipeline: p, state: state, item: item, invariants: invariants, context: bundle.Text,
+		outcome: Outcome{RunID: state.RunID, WorkItemID: itemID, Status: state.Status, Phase: state.Phase, Branch: state.Branch, WorktreePath: state.WorktreePath, BaseCommit: state.BaseCommit},
+		worktree: gitworktree.Worktree{
+			RunID: state.RunID, WorkItemID: itemID, Path: state.WorktreePath, Branch: state.Branch, BaseCommit: state.BaseCommit,
+			TargetBranch: state.TargetBranch, HarnessCommit: state.HarnessCommit, MergedCommit: request.TeamCommit,
+		},
+	}
+	if err := run.prepareScratch(); err != nil {
+		_, failure := run.fail(err, runstate.StatusFailed)
+		return result, true, failure
+	}
+	result, err = run.resolveTeamConflict(ctx, request, result, request.Paths)
+	return result, true, err
+}
+
+// waitingTeamConflict reports a run that waits for its epic and is the request's.
+func waitingTeamConflict(state runstate.State, request TeamBranchConflictRequest) bool {
+	conflict := state.TeamConflict
+	return conflict != nil && pausedForEpic(state) && conflict.TargetBranch == request.TargetBranch &&
+		conflict.TeamCommit == request.TeamCommit && conflict.Round == request.Round
+}
+
+// endWaitingTeamConflict ends the run of the decision that waits for its epic, and
+// reports whether there was one. It is for a wait a branch moved under: the merge
+// open in the run's checkout is one nobody would land now.
+func (p Pipeline) endWaitingTeamConflict(ctx context.Context, decision runstate.TeamBranchConflictDecision, target string) (bool, error) {
+	state, lease, err := p.Store.AdoptWithin(p.withSlotPairs(ctx), decision.Item.ID, p.Config.Execution.MaxConcurrentDevelopers)
+	var held runstate.ExistingWorkItemError
+	switch {
+	case errors.Is(err, runstate.ErrNoRunInFlight), errors.As(err, &held):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("read the run that resolves the conflict: %w", err)
+	}
+	defer lease.Release()
+	if conflict := state.TeamConflict; conflict == nil || !pausedForEpic(state) || conflict.TargetBranch != target || conflict.Round != decision.Round {
+		return false, nil
+	}
+	if _, err := p.Store.Update(ctx, state.RunID, runstate.TeamConflictDropped{
+		Why: "a branch moved while the run waited for its epic, so the merge it was to resolve is not one to land; the decision stands, and a fresh run carries it out once the item may start",
+		At:  p.clock().Now(),
+	}); err != nil {
+		return false, fmt.Errorf("end run %s, which a branch moved under: %w", state.RunID, err)
+	}
+	return true, nil
+}
+
+// setAsideWaitingRun ends the decision's run where it waits for its epic. The
+// decision is as it was before the run started, with no round spent.
+func (r *teamBranchRun) setAsideWaitingRun(ctx context.Context) error {
+	d := r.record.Decision
+	if d == nil || !d.Started() || d.Merge != "" {
+		return nil
+	}
+	ended, err := r.p.endWaitingTeamConflict(ctx, *d, r.target)
+	if ended {
+		d.StartedAt, d.RunID = nil, ""
+	}
+	return err
 }
 
 // teamConflictPrompt is what the developer is told: the open merge, the files
@@ -298,7 +438,18 @@ func teamConflictPrompt(persona, invariants, bundle, scratchDirectory string, ch
 // no merge says the process died with the run, which is a round spent.
 func (r *teamBranchRun) resolve(ctx context.Context) error {
 	pending, d := r.pending(), r.record.Decision
+	request := TeamBranchConflictRequest{
+		TargetBranch: r.target, UpstreamBranch: r.upstream, TeamCommit: pending.TeamCommit,
+		Item: d.Item, Reason: d.Reason, DecidedBy: d.DecidedBy, Round: d.Round, Paths: pending.Conflict.Paths,
+	}
 	if d.Started() {
+		result, found, err := r.p.continueTeamBranchConflict(ctx, request)
+		if found {
+			return r.resolved(ctx, result, err)
+		}
+		if err != nil {
+			return err
+		}
 		r.record.GiveUpConflictRun()
 		return r.resolutionFailed(fmt.Sprintf("the run of %s that was to resolve the conflict (round %d of %d) did not finish: the process running it ended first", d.Item.Name(), d.Round, runstate.MaxTeamBranchConflictRounds))
 	}
@@ -307,12 +458,20 @@ func (r *teamBranchRun) resolve(ctx context.Context) error {
 	if err := r.save(); err != nil {
 		return err
 	}
-	result, err := r.p.ResolveTeamBranchConflict(ctx, TeamBranchConflictRequest{
-		TargetBranch: r.target, UpstreamBranch: r.upstream, TeamCommit: pending.TeamCommit,
-		Item: d.Item, Reason: d.Reason, DecidedBy: d.DecidedBy, Round: d.Round, Paths: pending.Conflict.Paths,
-	})
+	result, err := r.p.ResolveTeamBranchConflict(ctx, request)
+	return r.resolved(ctx, result, err)
+}
+
+// resolved takes what became of the decision's run, whether it was started just
+// now or taken up again after a wait.
+func (r *teamBranchRun) resolved(ctx context.Context, result TeamBranchConflictResult, err error) error {
+	pending, d := r.pending(), r.record.Decision
 	d.RunID = result.RunID
+	var waiting teamConflictWaiting
 	switch {
+	case errors.As(err, &waiting):
+		r.wait("the run of %s that resolves the conflict waits with its work kept: %v; it is asked about again at the next check", d.Item.Name(), err)
+		return r.save()
 	case errors.Is(err, errTeamConflictGone):
 		// Nothing was resolved and nothing was spent: the merge goes in cleanly
 		// and the next build makes it.

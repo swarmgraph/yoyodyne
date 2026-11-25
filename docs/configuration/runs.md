@@ -893,7 +893,8 @@ asked for on a pull request is left for the next check, a run decided on to
 resolve a conflict with the team's branch waits with its round unspent, a pinned
 outside file is passed over, a change queued to merge or waiting for a person's merge is
 not brought up to date, a run stopped because GitHub refused the harness's login
-stays stopped, and a run you name is refused with the command that
+stays stopped, a run already begun waits before its next call to a provider with
+its slot given back, and a run you name is refused with the command that
 adds the item to an open epic. Adding the item, or turning epic mode off, lets
 the same start go ahead. Being in a named epic lifts
 no other check: a member held for its design still waits for it. Other starts do

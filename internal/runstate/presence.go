@@ -299,6 +299,8 @@ func DeadRunRemedy(state State, grace time.Duration) string {
 	switch {
 	case state.OperatorHeldSince != nil:
 		return fmt.Sprintf("it is parked on the operator's pause, which the sweep leaves alone while it stands: `yoyo run %s` continues it, and once the pause is lifted `yoyo reconcile` settles it if nothing has continued it within %s", item, grace)
+	case state.EpicWait != nil:
+		return fmt.Sprintf("it waits for its epic: it is picked up once %s is added to an epic the operator named, or `yoyo epic off` turns epic mode off, and the sweep leaves it until then", item)
 	case state.DependencyPause != nil:
 		return fmt.Sprintf("it is paused because %s waits on unfinished work (%s): a watching `yoyo work` session continues it at the first pull after that work closes, and the sweep leaves it until then", item, state.DependencyPause.Summary())
 	case state.CIWait.Waiting():

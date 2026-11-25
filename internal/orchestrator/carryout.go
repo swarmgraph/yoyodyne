@@ -613,7 +613,8 @@ func (c CarryOut) read() (carryOutReading, error) {
 				problems = append(problems, fmt.Errorf("read whether pending repair run %s has a live holder: %w", task.RunID, err))
 				return
 			}
-			if held {
+			// One waiting for its epic is the pull's to continue.
+			if held || inFlightStates[entry.WorkItemID].EpicWait != nil {
 				return
 			}
 		}
@@ -1371,8 +1372,8 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 		return c.stopped(ctx, task, carried, runstate.TriageGateIntakeHold, true,
 			fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)),
 			"`yoyo release` lifting the hold; nothing was spent, so the item keeps its grant"), Outcome{}, nil
-	case result.OutsideNamedEpics != nil:
-		return c.outsideEpics(ctx, task, carried, result.OutsideNamedEpics), Outcome{}, nil
+	case outsideNamedEpics(result.OutsideNamedEpics, runErr) != nil:
+		return c.outsideEpics(ctx, task, carried, outsideNamedEpics(result.OutsideNamedEpics, runErr)), Outcome{}, nil
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
@@ -1399,14 +1400,18 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 	return carried, result.Outcome, runErr
 }
 
-// carriedOutOn is the path a decision's carry-out begins a run by, and empty for
-// what carries on a run already begun.
+// carriedOutOn is the path a task begins or resumes a run by, and empty for one
+// that does neither.
 func carriedOutOn(task CarryOutTask) maystart.Path {
 	switch task.Decision {
 	case runstate.TriageDecisionRerun:
 		return maystart.DecidedRerun
 	case runstate.TriageDecisionRepair:
 		return maystart.DecidedRepair
+	case DecisionContinueChecks, DecisionContinueStall:
+		return maystart.ContinueRun
+	case DecisionFinishMerge, DecisionResumeIntegration:
+		return maystart.FinishMerge
 	default:
 		return ""
 	}
@@ -1414,8 +1419,8 @@ func carriedOutOn(task CarryOutTask) maystart.Path {
 
 const namedEpicsKeepDecision = "; nothing was spent and the decision stands, so the first pass after that carries it out"
 
-// outsideNamedEpics is the refusal a re-run met, before its claim or, where the
-// record changed in between, where its run would have begun.
+// outsideNamedEpics is the refusal a decision's carry-out met, before it spent
+// anything or where its run would have begun or gone on.
 func outsideNamedEpics(refused *OutsideNamedEpicsError, runErr error) *OutsideNamedEpicsError {
 	if refused == nil {
 		errors.As(runErr, &refused)
@@ -1486,6 +1491,8 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	switch {
 	case result.IntakeHeld != nil:
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
+	case result.OutsideNamedEpics != nil:
+		return waiting(runstate.TriageGateNamedEpics, result.OutsideNamedEpics.Error())
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))
@@ -1541,6 +1548,8 @@ func (c CarryOut) continueStall(ctx context.Context, task CarryOutTask, carried 
 	switch {
 	case result.IntakeHeld != nil:
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
+	case result.OutsideNamedEpics != nil:
+		return waiting(runstate.TriageGateNamedEpics, result.OutsideNamedEpics.Error())
 	case result.CapacityFull != nil:
 		carried.WaitsForSlot = result.CapacityFull.Slot
 		return waiting(runstate.TriageGateCapacity, capacityWaitSays(*result.CapacityFull))

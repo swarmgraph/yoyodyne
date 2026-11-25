@@ -1924,7 +1924,10 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, []
 		run.documentLanding = state.HoldsDocumentLanding()
 		if !state.HoldsDeveloperSlot() && !run.documentLanding {
 			run.PausedSince = state.UpdatedAt
-			if state.DependencyPause != nil {
+			if state.EpicWait != nil {
+				run.WaitingOn = state.EpicWait.Summary()
+				run.PausedSince = state.EpicWait.Since
+			} else if state.DependencyPause != nil {
 				run.WaitingOn = state.DependencyPause.Summary()
 			} else if state.CIWait.Waiting() {
 				run.WaitingOn = state.CIWait.Summary()

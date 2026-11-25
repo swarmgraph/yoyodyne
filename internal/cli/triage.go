@@ -352,9 +352,10 @@ func buildIntegrationResumer(configPath string) (orchestrator.IntegrationResumer
 // which is how the merge queue takes up the changes it held.
 func integrationResumerFrom(parts components) orchestrator.IntegrationResumer {
 	return orchestrator.IntegrationResumer{
-		Docket: parts.docket,
-		Runs:   parts.store,
-		Intake: parts.intake,
+		Docket:   parts.docket,
+		Runs:     parts.store,
+		Intake:   parts.intake,
+		MayStart: parts.mayStart(),
 		// The item the stopped run holds, and the checkout and worktree a promotion
 		// is made from. All three are read before anything is written: the item
 		// because a closed one is not one a run may be resumed on, and the checkout
@@ -389,6 +390,7 @@ func checkStageContinuerFrom(parts components) orchestrator.CheckStageContinuer 
 		Redocket:  docketerFrom(parts),
 		Runs:      parts.store,
 		Intake:    parts.intake,
+		MayStart:  parts.mayStart(),
 		Items:     parts.tracker(),
 		Worktrees: parts.worktrees,
 		// Supplied for compatibility; continuations, like fresh work, do not
@@ -416,6 +418,7 @@ func stallContinuerFrom(parts components) orchestrator.StallContinuer {
 		Redocket:  docketerFrom(parts),
 		Runs:      parts.store,
 		Intake:    parts.intake,
+		MayStart:  parts.mayStart(),
 		Items:     parts.tracker(),
 		Worktrees: parts.worktrees,
 		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
@@ -450,7 +453,7 @@ func reportResume(stdout, stderr io.Writer, jsonOutput bool, result orchestrator
 		return 0
 	}
 	if !result.Resumed {
-		if result.IntakeHeld != nil || result.CapacityFull != nil {
+		if result.IntakeHeld != nil || result.OutsideNamedEpics != nil || result.CapacityFull != nil {
 			fmt.Fprint(stdout, result.Render())
 			return 0
 		}

@@ -6454,8 +6454,8 @@ func (s Status) InFlight() bool {
 
 // HoldsDeveloperSlot reports a run counted against
 // execution.max_concurrent_developers: one in flight, not paused on work its
-// item waits on, and not waiting for the forge's checks on a pushed commit
-// (CIWait, which gives its slot back for the same reason). A dependency pause is recorded as the run exits, so the run
+// item waits on, and not waiting for its epic (EpicWait) or for the forge's checks
+// on a pushed commit (CIWait), which give its slot back for the same reason. A dependency pause is recorded as the run exits, so the run
 // behind it has no process and spends nothing until that work closes, and a slot
 // it went on holding would be throughput lost for as long as the wait lasts — on
 // 2026-09-27 that was nineteen hours beside a ready queue. It keeps its claim,
@@ -6480,7 +6480,7 @@ func (s Status) InFlight() bool {
 // waiting for a slot would only hold back a change that is ready to land; the
 // scheduler counts it again from then until the run ends.
 func (s State) HoldsDeveloperSlot() bool {
-	return s.Status.InFlight() && s.DependencyPause == nil && !s.CIWait.Waiting() && s.ForgeWait == nil && !s.HarnessAuthored()
+	return s.Status.InFlight() && !s.AwaitsContinuation() && s.ForgeWait == nil && !s.HarnessAuthored()
 }
 
 // HoldsDocumentLanding reports a run counted against

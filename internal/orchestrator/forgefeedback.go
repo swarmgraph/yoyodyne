@@ -654,6 +654,11 @@ func (r Reconciler) ContinueFeedbackRepairs(ctx context.Context) ([]FeedbackCont
 					result.Detail = "a live process holds this run, so it is answering the feedback itself"
 					return
 				}
+				if leftWaiting(err) {
+					result.Continued = false
+					result.Detail = err.Error()
+					return
+				}
 				result.Failure = err.Error()
 			}
 		}(&results[index])
