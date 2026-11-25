@@ -19,6 +19,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
+	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // epicBench runs `yoyo epic` as it will run once every path is wired, against a
@@ -293,7 +295,7 @@ func TestOnlyAPersonNamesEpics(t *testing.T) {
 		execution.StartedByVariable: "the scheduler",
 	} {
 		t.Setenv(variable, value)
-		for _, act := range [][]string{{"start", "yoyodyne-b"}, {"add", "yoyodyne-a", "yoyodyne-loose"}, {"end", "yoyodyne-a"}, {"off"}} {
+		for _, act := range [][]string{{"start", "yoyodyne-b"}, {"add", "yoyodyne-a", "yoyodyne-loose"}, {"remove", "yoyodyne-a", "yoyodyne-a.2", "--words", "no"}, {"end", "yoyodyne-a"}, {"off"}} {
 			bench.refuses(act, "refused from a process the harness", "a person names the epics")
 		}
 		bench.does("list")
@@ -391,4 +393,124 @@ func TestEpicStartAndAddRefuseAnItemThatJoinedAnotherOpenEpic(t *testing.T) {
 	says(t, bench.does("start", "yoyodyne-a"), "3 member(s)", "(P0) Other (yoyodyne-b.1), which joined it")
 	bench.does("end", "yoyodyne-a")
 	bench.does("add", "yoyodyne-loose", "yoyodyne-b.1")
+}
+
+func TestEpicRemoveTakesOneItemOut(t *testing.T) {
+	bench := newEpicBench(t)
+	bench.does("start", "yoyodyne-a")
+	store, err := epicprogress.Open(bench.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	join := func(epic, item, from string) error {
+		return store.Join(epic, epicprogress.Joined{WorkItemID: item, From: from, Judgment: "inside", Session: "session-1", At: time.Now()})
+	}
+	for item, from := range map[string]string{"yoyodyne-b.1": "yoyodyne-a.2", "yoyodyne-loose": "check-1"} {
+		if err := join("yoyodyne-a", item, from); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(home.ProductDirectory(bench.stateRoot, "yoyodyne"), "epic-progress.json")
+	progress := func() string {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+	mayStart := func(item string, want bool) {
+		t.Helper()
+		if got := maystart.Decide(bench.stateRoot, "yoyodyne", maystart.Run(maystart.ReadyWork, item)).MayStart(); got != want {
+			t.Errorf("%s may start: %t, want %t", item, got, want)
+		}
+	}
+	before := progress()
+	bench.refuses([]string{"remove", "yoyodyne-a", "yoyodyne-a.2"}, "needs your words")
+	bench.refuses([]string{"remove", "yoyodyne-a", "yoyodyne-a.1", "--words", "no"}, "yoyodyne-a.1 (P0: Done) is not in epic yoyodyne-a")
+	bench.refuses([]string{"remove", "yoyodyne-b", "yoyodyne-b.1", "--words", "no"}, "never named")
+	says(t, bench.does("remove", "yoyodyne-a", "yoyodyne-a.2", "--words", "not needed"), "took (P0) Linked (yoyodyne-a.2) out of epic (P0) Epic A",
+		"(P0) Other (yoyodyne-b.1): yoyo epic remove yoyodyne-a yoyodyne-b.1 --words <text>")
+	bench.does("remove", "yoyodyne-a", "yoyodyne-b.1", "--words", "nor this")
+	for _, item := range []string{"yoyodyne-a.2", "yoyodyne-b.1"} {
+		mayStart(item, false)
+		if err := join("yoyodyne-a", item, "check-1"); err == nil || !strings.Contains(err.Error(), "cannot join it again") {
+			t.Errorf("%s joined again: %v", item, err)
+		}
+	}
+	if after := progress(); after != before {
+		t.Errorf("the progress file became\n%s", after)
+	}
+	epic := bench.record().Epics[0]
+	if len(epic.Removed) != 2 || epic.Removed[0].Act != epicscope.ActStart || epic.Removed[0].AddedAt == nil || epic.Removed[1].AddedAt != nil || epic.Removed[1].Words != "nor this" {
+		t.Errorf("removed = %+v", epic.Removed)
+	}
+	says(t, bench.does("list"), "Linked (yoyodyne-a.2), taken out at", "not needed")
+	bench.refuses([]string{"remove", "yoyodyne-a", "yoyodyne-a.2", "--words", "no"}, "is not in epic")
+
+	// It can be put back, and what is out can be taken by another epic.
+	bench.does("add", "yoyodyne-a", "yoyodyne-a.2")
+	mayStart("yoyodyne-a.2", true)
+	if len(bench.record().Epics[0].Removed) != 2 {
+		t.Error("putting it back took its removal out of the record")
+	}
+	bench.does("start", "yoyodyne-b")
+	mayStart("yoyodyne-b.1", true)
+
+	// A progress that cannot be read stops only what may have joined.
+	for _, name := range []string{"epic-progress-begun.json", "epic-progress.json"} {
+		if name == "epic-progress.json" {
+			if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.Remove(filepath.Join(filepath.Dir(path), name)); err != nil {
+			t.Fatal(err)
+		}
+		bench.refuses([]string{"remove", "yoyodyne-a", "yoyodyne-loose", "--words", "no"}, "whether work item yoyodyne-loose", "cannot be known", name)
+	}
+	says(t, bench.does("remove", "yoyodyne-a", "yoyodyne-a.2", "--words", "again"), "which pieces came from it could not be read")
+	bench.does("end", "yoyodyne-a")
+	bench.refuses([]string{"remove", "yoyodyne-a", "yoyodyne-a.1.1", "--words", "no"}, "already ended")
+}
+
+func TestAReportAboutAMemberNamesItsEpic(t *testing.T) {
+	bench := newEpicBench(t)
+	store, err := runstate.NewReportStore(bench.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := components{reports: store}
+	parts.stateRoot, parts.config.Product.ID = bench.stateRoot, "yoyodyne"
+	reports := parts.epicReports()
+	// Filing a report of a design conflict asks what was already filed.
+	lister, lists := reports.(interface {
+		List() ([]report.Report, error)
+	})
+	if !lists {
+		t.Fatal("the reports wired to a run cannot be listed")
+	}
+	file := func(item, want string) {
+		t.Helper()
+		collected, err := report.Collect([]report.Entry{{Severity: report.SeverityNote, Message: "noticed"}}, report.Attribution{
+			Role: domain.RoleDeveloper, RunID: "run-0123456789abcdef0123456789abcdef", WorkItemID: item, ProductID: "yoyodyne", RepositoryID: "yoyodyne"}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reports.Append(collected[0]); err != nil {
+			t.Fatal(err)
+		}
+		listed, err := lister.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := slices.IndexFunc(listed, func(r report.Report) bool { return r.ID == collected[0].ID })
+		if at < 0 || listed[at].DuringEpic != want {
+			t.Errorf("the reports are %+v, want the one about %q to name epic %q", listed, item, want)
+		}
+	}
+	file("yoyodyne-a.2", "")
+	bench.does("start", "yoyodyne-a")
+	file("yoyodyne-a.2", "yoyodyne-a")
+	file("yoyodyne-loose", "")
+	bench.does("end", "yoyodyne-a")
+	file("yoyodyne-a.2", "")
 }

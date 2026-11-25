@@ -75,7 +75,7 @@ func epicFixture(t *testing.T) (string, Sources) {
 	}
 	stopped := run("run-2", "yoyodyne-stop")
 	stopped.EpicWait = &runstate.EpicWait{Since: moment}
-	sources.Runs = fakeRuns{incomplete: []runstate.State{run("run-1", "yoyodyne-ep.2"), stopped}}
+	sources.Runs = runsOfItems{fakeRuns: fakeRuns{incomplete: []runstate.State{run("run-1", "yoyodyne-ep.2"), stopped}}}
 	sources.Epics = NewEpicRecords(root, "yoyodyne")
 	return root, sources
 }
@@ -94,7 +94,13 @@ func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
 	_, sources := epicFixture(t)
 	want := fmt.Sprintf(`Mode: epic mode; only work in the epics you named starts
   Open epic: Epic mode (yoyodyne-ep) — 4 members: 1 done, 1 running, 1 ready, 1 waiting
+    Working
+    Waiting on the Lead Product Manager: Keep the record (yoyodyne-ep.1) was closed without its change having landed: admit it again, have it replaced, or ask the operator to take it out (yoyo epic remove yoyodyne-ep yoyodyne-ep.1 --words <text>)
+    Say the mode (yoyodyne-ep.4) waits for Read the file (yoyodyne-dep), which is not in this epic.
+  Ended epic: not in the tracker (yoyodyne-old), as it stood when you ended it
+    Cancelled: you ended it before it was delivered
   Ready items held out: 2, since %[1]s
+  Items suggested during an open epic, which start nothing: 0
   Role passes not started: 2, since %[1]s
   The review of unmet goals: may not start; the review of unmet goals does not start while the factory works only on the epics the operator named
   Reading outside messages for work: may not start; outside messages are not read for work while the factory works only on the epics the operator named
@@ -223,7 +229,7 @@ func TestStatusListsEachWayAnItemWasRefused(t *testing.T) {
 func TestStatusSaysEachRefusedDocumentOnce(t *testing.T) {
 	t.Parallel()
 	root, sources := epicFixture(t)
-	runs := documentWaitRuns{fakeRuns: sources.Runs.(fakeRuns)}
+	runs := documentWaitRuns{fakeRuns: sources.Runs.(runsOfItems).fakeRuns}
 	refuse := func(id, title, write string, answers ...string) {
 		maystart.Ask(root, "yoyodyne", maystart.DocumentRun(maystart.PublishDocument, answers...).Of(maystart.Document{ID: id, Title: title, WriteID: write}), moment)
 		runs.waits = append(runs.waits, runstate.DocumentWait{Since: moment, Document: runstate.DocumentPublication{WriteID: write, Candidate: artifact.ConfirmedDocument{Artifact: artifact.Artifact{ID: id, Title: title}}}})

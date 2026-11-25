@@ -281,7 +281,8 @@ func inEpics(view epicprogress.View, item string) (Decision, bool) {
 			ends = append(ends, "`yoyo epic end "+epic.WorkItemID+"`")
 		}
 		decision := mayNot("%s is in more than one open epic (%s), and may be in one only", item, strings.Join(ids, " and "))
-		decision.Clears = "the operator ends all but one of those epics: " + strings.Join(ends, " or ")
+		decision.Clears = "the operator ends all but one of those epics: " + strings.Join(ends, " or ") +
+			", or takes it out of all but one with `yoyo epic remove`"
 		return decision, true
 	}
 }
