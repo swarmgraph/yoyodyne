@@ -25,6 +25,8 @@ const (
 	PromptedPass    Path = "prompted-pass"
 	UnmetGoalReview Path = "unmet-goal-review"
 	MessagesForWork Path = "messages-for-work"
+	TeamUpdate      Path = "team-update"
+	BranchReview    Path = "branch-review"
 )
 
 // PathEntry is one path on the closed list.
@@ -47,6 +49,9 @@ const (
 	startsPass
 	startsGoalReview
 	startsMessageReading
+	// startsUnruled is a path no rule covers yet: nothing that starts by it may be
+	// judged, and it stays unwired until the architect rules on it.
+	startsUnruled
 )
 
 // Paths is the closed list. Each call returns its own copy.
@@ -72,6 +77,8 @@ func Paths() []PathEntry {
 		{Path: PromptedPass, Says: "a pass started by an event, a label or a request", Wired: true, starts: startsPass},
 		{Path: UnmetGoalReview, Says: "the review of unmet goals", Wired: true, starts: startsGoalReview},
 		{Path: MessagesForWork, Says: "reading outside messages for work", Wired: true, starts: startsMessageReading},
+		{Path: TeamUpdate, Says: "bringing the target branch up to date with the team's branch, which runs the checks and pays for a review of the merge", starts: startsUnruled},
+		{Path: BranchReview, Says: "a review of a branch that somebody asks for with yoyo review", starts: startsUnruled},
 	}
 }
 

@@ -28,11 +28,8 @@ import (
 // epicCommand is one `yoyo epic` command. The list of paths and the tracker are
 // its own so that a test can answer for both.
 type epicCommand struct {
-	paths []maystart.PathEntry
-	// startsChecked is whether the checks over every start path are built. The
-	// list of paths can be complete before they are, so it is asked by itself.
-	startsChecked bool
-	tracker       func(configPath string) (itemLister, error)
+	paths   []maystart.PathEntry
+	tracker func(configPath string) (itemLister, error)
 
 	stdout, stderr io.Writer
 	configPath     string
@@ -104,7 +101,7 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	}
 	// Before anything is read, because it holds whatever the record says.
 	if verb == "start" {
-		if err := errors.Join(refusedUntilWired(c.paths), refusedUntilChecked(c.startsChecked)); err != nil {
+		if err := refusedUntilWired(c.paths); err != nil {
 			return c.fail(err)
 		}
 	}
@@ -162,15 +159,6 @@ func refusedUntilWired(paths []maystart.PathEntry) error {
 		return nil
 	}
 	return errors.New("epic mode cannot be turned on yet: work could still start outside the epics you name, because each of these starts work without asking whether it may:" + strings.Join(unwired, ""))
-}
-
-// refusedUntilChecked refuses epic mode until the checks that find a start path
-// nobody listed are built, however complete the list is.
-func refusedUntilChecked(checked bool) error {
-	if checked {
-		return nil
-	}
-	return errors.New("epic mode cannot be turned on yet: the checks over every start path are not built yet, so nothing shows that the list of ways work starts is complete")
 }
 
 func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id string) int {

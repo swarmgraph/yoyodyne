@@ -91,7 +91,7 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 	handback := mergeQueueDriverFrom(parts).Promoter.Repair.(orchestrator.MergeQueueRunHandback)
 	wiredTo[maystart.BringUpToDate] = []orchestrator.StartDecision{handback.MayStart}
 	wiredTo[maystart.RecurringPass] = []orchestrator.StartDecision{trigger.MayStart}
-	wiredTo[maystart.PromptedPass] = []orchestrator.StartDecision{trigger.MayStart, corrections.(*orchestrator.Corrector).MayStart}
+	wiredTo[maystart.PromptedPass] = []orchestrator.StartDecision{trigger.MayStart, corrections.(*orchestrator.Corrector).MayStart, escalatorFrom(parts, configPath, io.Discard).MayStart}
 	wiredTo[maystart.UnmetGoalReview] = []orchestrator.StartDecision{trigger.MayStart}
 	wiredTo[maystart.MessagesForWork] = []orchestrator.StartDecision{pull.MayStart}
 	notRuns := map[maystart.Path]maystart.Start{

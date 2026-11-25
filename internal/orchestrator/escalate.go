@@ -75,6 +75,12 @@ package orchestrator
 // stoppage it settled is delivered again after that — which is what waiting asked
 // for.
 //
+// # The named epics
+//
+// A delivery is a prompted pass of the development manager's, so it starts only
+// while the epics the operator named let one (maystart). A refused one is an
+// ordinary result, kept apart from a delivery that failed; see deliver.
+//
 // # Why the spending pause and not the intake hold
 //
 // A delivery is a provider invocation, so the operator's pause covers it exactly
@@ -97,7 +103,9 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -352,7 +360,10 @@ type Escalator struct {
 	// Optional, and an escalator wired without one is one nothing can pause,
 	// which is what every provider invocation was before the switch existed.
 	Holds OperatorHolds
-	Clock execution.Clock
+	// MayStart is the decision on what may start under the epics the operator
+	// named, asked before a delivery claims anything; see deliver.
+	MayStart StartDecision
+	Clock    execution.Clock
 }
 
 // Escalated is one stoppage this pass put in front of the development manager,
@@ -381,12 +392,18 @@ type Escalated struct {
 	// Problem is what stopped a delivery, and says whether the stoppage will be
 	// tried again.
 	Problem string `json:"problem,omitempty"`
+	// Waits is why the delivery may not start under the epics the operator named.
+	// Nothing was claimed or sent, and a later pass asks again.
+	Waits string `json:"waits,omitempty"`
 }
 
 // EscalationSweep is what one pass did. A pass that found nothing to deliver
 // reports nothing, which is every pass on a harness whose work is landing.
 type EscalationSweep struct {
 	Escalated []Escalated `json:"escalated,omitempty"`
+	// Waiting is each stoppage still due that the epics the operator named keep
+	// from being put to her yet.
+	Waiting []Escalated `json:"waiting,omitempty"`
 	// Paused is the operator's pause, when one is what stopped this. Nothing was
 	// claimed and the stoppage keeps its delivery.
 	Paused *runstate.OperatorHold `json:"paused,omitempty"`
@@ -471,6 +488,11 @@ func (e Escalator) Escalate(ctx context.Context) (EscalationSweep, error) {
 			if err != nil {
 				problems = append(problems, err)
 				delivering = false
+				continue
+			}
+			if escalated.Waits != "" {
+				// It stays due, and the next stopped run is asked about.
+				sweep.Waiting = append(sweep.Waiting, escalated)
 				continue
 			}
 			if !attempted {
@@ -783,12 +805,26 @@ func reviewRepairStoppage(state runstate.State) bool {
 // claimed between the reading and the claim leaves this pass looking at the next
 // one rather than reporting a delivery nobody made.
 //
+// What may start under the named epics is asked first, as a prompted pass counted
+// once for each stopped run. A refusal claims and writes nothing, so the stoppage
+// is as due as it was: the docket entry no delivery is recorded against is what
+// the next pass finds, after a restart too. A turn a restart ended is asked about
+// again when its delivery next falls due.
+//
 // The delivery is recorded against one entry and put to her as the whole run:
 // run is the run's live entry with every other open docketing of it folded
 // beneath, which is what she is asked to decide, and one decision settles all
 // of it.
 func (e Escalator) deliver(ctx context.Context, entry, run triage.Entry) (Escalated, bool, error) {
 	escalated := Escalated{WorkItemID: entry.WorkItemID, RunID: entry.RunID, DocketKey: entry.Key, Class: entry.Class}
+	if e.MayStart != nil {
+		decision := e.MayStart(maystart.Pass(maystart.PromptedPass, domain.RoleDevelopmentManager).
+			Due("stopped run:"+entry.RunID, entry.RunID))
+		if !decision.MayStart() {
+			escalated.Waits = decision.Why
+			return escalated, false, nil
+		}
+	}
 	attempted, err := e.Records.Attempt(ctx, runstate.Escalation{
 		DocketKey:  entry.Key,
 		RunID:      entry.RunID,
@@ -903,12 +939,21 @@ func (e Escalator) now() time.Time {
 	return e.Clock.Now().UTC()
 }
 
+// waitsSays is a delivery the named epics refused, in words.
+func (e Escalated) waitsSays() string {
+	return fmt.Sprintf("%s of %s has not been put to the development manager yet and is still due: %s; it goes to her at the first pass that may",
+		putToHer(triage.Entry{Class: e.Class, RunID: e.RunID}), e.WorkItemID, e.Waits)
+}
+
 // Render describes what one pass did, for whoever asked for it.
 func (s EscalationSweep) Render() string {
 	var rendered strings.Builder
 	if s.Paused != nil {
 		fmt.Fprintf(&rendered, "PAUSED: no stopped work was put to the development manager, since %s\n",
 			s.Paused.HeldAt.UTC().Format(time.RFC3339))
+	}
+	for _, waiting := range s.Waiting {
+		fmt.Fprintf(&rendered, "%s\n", waiting.waitsSays())
 	}
 	for _, escalated := range s.Escalated {
 		if escalated.Delivered {
