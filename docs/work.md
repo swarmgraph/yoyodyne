@@ -797,9 +797,9 @@ repair's prompt carries two things:
   within the same limits.
 
 A repair of a change the merge queue's reviewer sent back is given every finding
-of that review whole. The queue's own records of the hand-back hold only a cut
-summary; the findings are kept with the candidate and on the run's record under
-`check_failure.queue_review`. A change sent back before they were kept is given
+of that review whole. The hand-back's reason holds only a cut summary; every
+finding is kept with the candidate, on the hand-back, and on the run's record
+under `check_failure.queue_review`. A change sent back before they were kept is given
 the summary, and is told that the findings are left out.
 
 ## What an item may ask of a run
