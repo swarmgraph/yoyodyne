@@ -255,6 +255,13 @@ func sayNotKept(err error) {
 	}
 }
 
+// wouldStart is the same decision with nothing kept, for what only reads it.
+func (c components) wouldStart() orchestrator.StartDecision {
+	return func(start maystart.Start) maystart.Decision {
+		return maystart.Decide(c.stateRoot, c.config.Product.ID, start)
+	}
+}
+
 // saidNotKept is each failure this process has said, since every poll meets the
 // same one again.
 var saidNotKept sync.Map
@@ -1746,6 +1753,7 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			SlotPairs: orchestrator.SlotPairsFor(parts.config),
 			Checkout:  parts.worktrees,
 			Checkouts: parts.worktrees,
+			MayStart:  parts.mayStart(),
 		},
 	}
 	// What takes up the changes the queue held because the target required the

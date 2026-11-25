@@ -93,16 +93,18 @@ func operatorOf(t *testing.T, root string) *epicscope.Operator {
 func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
 	t.Parallel()
 	_, sources := epicFixture(t)
-	want := fmt.Sprintf(`Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and 8 ways of starting work do not ask yet
+	want := fmt.Sprintf(`Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and 3 ways of starting work do not ask yet
   Open epic: Epic mode (yoyodyne-ep) — 4 members: 1 done, 1 running, 1 ready, 1 waiting
   Ready items held out: 2, since %[1]s
   Role passes not started: 2, since %[1]s
+  The review of unmet goals: may not start; the review of unmet goals does not start while the factory works only on the epics the operator named
+  Reading outside messages for work: may not start; outside messages are not read for work while the factory works only on the epics the operator named
   Rename the flag (yoyodyne-stop) has stopped before its next step because it is not in an epic you named. Its work is kept.
   Say the mode (yoyodyne-ep.4) waits for Read the file (yoyodyne-dep), which is not in an epic you named. To add it: yoyo epic add yoyodyne-ep yoyodyne-dep
   Not started: Tidy the log (yoyodyne-out), by the scheduler pulling ready work (refused since %[1]s, last at %[1]s: it is not in an open epic the operator named). To add it: yoyo epic add yoyodyne-ep yoyodyne-out
 `, localMoment(moment))
-	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 8 {
-		t.Fatalf("%d paths do not ask, and the words below say 8", len(unwired))
+	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 3 {
+		t.Fatalf("%d paths do not ask, and the words below say 3", len(unwired))
 	}
 	if got := ReadStanding(context.Background(), sources).RenderEpics(); got != want {
 		t.Fatalf("RenderEpics() =\n%s\nwant\n%s", got, want)

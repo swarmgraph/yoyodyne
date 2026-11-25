@@ -32,6 +32,8 @@ type EpicRecords interface {
 	Named() (epicscope.Record, error)
 	// NotStarted is what was refused a start.
 	NotStarted() (maystart.Refusals, error)
+	// MayStart is the one decision on a start, with nothing kept.
+	MayStart(start maystart.Start) maystart.Decision
 }
 
 type epicRecords struct {
@@ -50,6 +52,10 @@ func (e epicRecords) Named() (epicscope.Record, error) {
 
 func (e epicRecords) NotStarted() (maystart.Refusals, error) {
 	return maystart.ReadRefusals(e.stateRoot, e.product)
+}
+
+func (e epicRecords) MayStart(start maystart.Start) maystart.Decision {
+	return maystart.Decide(e.stateRoot, e.product, start)
 }
 
 // Epics is the mode and the named epics as of one reading.
@@ -77,10 +83,50 @@ type Epics struct {
 	// Problems is each problem in full, one line each: the runs that stopped,
 	// then the members that wait, then the starts that were refused.
 	Problems []string `json:"problems,omitempty"`
+	// FactoryWide is whether each kind of work that is allowed or not for the
+	// whole factory may start now.
+	FactoryWide []FactoryWideStart `json:"factory_wide,omitempty"`
 	// ItemsProblem is why the items could not be counted, and NotStartedProblem
 	// why what was refused could not be read.
 	ItemsProblem      string `json:"items_problem,omitempty"`
 	NotStartedProblem string `json:"not_started_problem,omitempty"`
+}
+
+// FactoryWideStart is whether one kind of work may start, and why not.
+type FactoryWideStart struct {
+	Path     maystart.Path `json:"path"`
+	MayStart bool          `json:"may_start"`
+	Why      string        `json:"why,omitempty"`
+}
+
+// factoryWide asks the one decision about what nothing else is kept of.
+func factoryWide(records EpicRecords) []FactoryWideStart {
+	var starts []FactoryWideStart
+	for _, start := range []maystart.Start{maystart.GoalReview(), maystart.MessageReading()} {
+		decision := records.MayStart(start)
+		starts = append(starts, FactoryWideStart{Path: start.Path(), MayStart: decision.MayStart(), Why: singleLine(decision.Why, maxEpicReasonBytes)})
+	}
+	return starts
+}
+
+// renderFactoryWide says each in its own line.
+func (e Epics) renderFactoryWide() string {
+	var rendered strings.Builder
+	for _, start := range e.FactoryWide {
+		says := string(start.Path)
+		switch start.Path {
+		case maystart.UnmetGoalReview:
+			says = "The review of unmet goals"
+		case maystart.MessagesForWork:
+			says = "Reading outside messages for work"
+		}
+		if start.MayStart {
+			fmt.Fprintf(&rendered, "  %s: may start\n", says)
+		} else {
+			fmt.Fprintf(&rendered, "  %s: may not start; %s\n", says, start.Why)
+		}
+	}
+	return rendered.String()
 }
 
 // OpenEpic is one epic that has not ended. Every member is counted once.
@@ -103,6 +149,7 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	if err != nil {
 		epics := &Epics{Problems: []string{fmt.Sprintf("Every start that asks about the epics you named is refused: the record of them could not be read (%s).",
 			singleLine(err.Error(), maxEpicReasonBytes))}}
+		epics.FactoryWide = factoryWide(sources.Epics)
 		facts := epicFacts{items: make(map[string]beads.WorkItem, len(listed)), readable: sources.Tracker != nil && listedErr == nil, running: map[string]bool{}}
 		for _, item := range listed {
 			facts.items[item.ID] = item
@@ -124,6 +171,7 @@ func readEpics(sources Sources, standing Standing, listed []beads.WorkItem, list
 	if !record.On() {
 		return epics
 	}
+	epics.FactoryWide = factoryWide(sources.Epics)
 	for _, path := range maystart.Paths() {
 		if !path.Wired {
 			epics.WaysNotAsking++
@@ -459,6 +507,9 @@ func (s Standing) RenderEpics() string {
 		} else {
 			fmt.Fprintf(&rendered, "%swhat was not started could not be read: %s\n", partialRead, e.NotStartedProblem)
 		}
+	}
+	if e.Mode == epicscope.ModeEpic {
+		rendered.WriteString(e.renderFactoryWide())
 	}
 	listed, further := bound(len(e.Problems))
 	if e.Mode == "" && e.NotStartedProblem != "" {
