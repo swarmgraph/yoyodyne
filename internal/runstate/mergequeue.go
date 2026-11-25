@@ -66,6 +66,15 @@ const MergeQueueSchemaVersion = 1
 // identities and one-line names, so a value past this is not one of them.
 const MaxMergeQueueTextBytes = 2 << 10
 
+// maxEncodedMergeQueueBytes bounds a queue's record, queue.json, where it is
+// written and where it is read. The record keeps every entry ever admitted to
+// its queue, so it outgrows the bound every other state record shares
+// (maxEncodedStateBytes) in a way a run record never does; it has a bound of
+// its own so a queue that has seen many admissions can still take the next one.
+// An entry's generations and landing records are separate files and keep the
+// shared bound.
+const maxEncodedMergeQueueBytes = 16 << 20
+
 const (
 	mergeQueuesDirectory  = "merge-queues"
 	mergeQueueRecordName  = "queue.json"
@@ -541,8 +550,8 @@ func (s *MergeQueueStore) append(queueRoot *repowrite.PinnedRoot, key MergeQueue
 	if err != nil {
 		return MergeQueueEntry{}, false, err
 	}
-	if len(encoded) > maxEncodedStateBytes {
-		return MergeQueueEntry{}, false, StopError{Class: StopStateBound, Cause: fmt.Errorf("the merge queue for %s would be %d bytes, limit is %d", key.TargetBranch, len(encoded), maxEncodedStateBytes)}
+	if len(encoded) > maxEncodedMergeQueueBytes {
+		return MergeQueueEntry{}, false, StopError{Class: StopStateBound, Cause: fmt.Errorf("the merge queue for %s would be %d bytes, limit is %d", key.TargetBranch, len(encoded), maxEncodedMergeQueueBytes)}
 	}
 	saveErr := s.save(queueRoot, encoded)
 	if saveErr == nil {
@@ -769,8 +778,8 @@ func readQueue(queueRoot *repowrite.PinnedRoot) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(encoded) > maxEncodedStateBytes {
-		return nil, fmt.Errorf("the merge queue record is %d bytes, which exceeds the %d byte bound", len(encoded), maxEncodedStateBytes)
+	if len(encoded) > maxEncodedMergeQueueBytes {
+		return nil, fmt.Errorf("the merge queue record is %d bytes, which exceeds the %d byte bound", len(encoded), maxEncodedMergeQueueBytes)
 	}
 	return encoded, nil
 }
