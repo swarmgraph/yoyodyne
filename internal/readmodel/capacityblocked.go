@@ -52,8 +52,8 @@ const (
 	// CapacityStateBlocked is a run the provider refused and the harness would not
 	// wait for, and a conversation whose turn the provider refused with nothing
 	// serving it while that refusal still stands. A run stopped by a usage window
-	// resetting past the configured maximum pause gave its item back to the queue
-	// and is pulled again once the window resets; one refused on a reset that
+	// resetting past the configured maximum pause is on the development manager's
+	// list of stopped runs; one refused on a reset that
 	// was not in the future, or on an overload that outlasted the budget, handed
 	// its item to a person. None of them carries on by itself.
 	CapacityStateBlocked CapacityState = "capacity-blocked"
@@ -152,10 +152,11 @@ func (c CapacityBlocked) Held() bool {
 // somebody looking for what to fix, and an entry with no remedy reads as an
 // entry nobody wrote one for.
 const (
-	waitingRunRemedy  = "nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe"
-	blockedRunRemedy  = "the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan"
-	windowRunRemedy   = "nothing needs doing: the run stopped without anything being judged and gave its item back to the queue, and a watching session pulls it again once the window resets; more provider capacity or a longer execution.usage_limit_max_pause is what would have let it wait instead"
-	refusedTurnRemedy = "nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then"
+	cancelledRunRemedy = "the run stopped without anything being judged and is on the development manager's list of stopped runs; she decides what happens to it, and more provider capacity or a longer execution.usage_limit_max_pause is what would have let it wait instead"
+	waitingRunRemedy   = "nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe"
+	blockedRunRemedy   = "the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan"
+	windowRunRemedy    = "nothing needs doing: the run stopped without anything being judged and gave its item back to the queue, and a watching session pulls it again once the window resets; more provider capacity or a longer execution.usage_limit_max_pause is what would have let it wait instead"
+	refusedTurnRemedy  = "nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then"
 )
 
 // ReadCapacityBlocked derives the capacity-blocked state from records already
@@ -327,6 +328,9 @@ func usageWindowRun(run runstate.State, refused runstate.EnvironmentalRefusal) C
 		WaitedSeconds: run.UsageLimitPausedSeconds,
 		Preserved:     run.Artifacts().Preserved(),
 		Remedy:        windowRunRemedy,
+	}
+	if run.CancelledHoldingItem(run.Artifacts().Preserved()) {
+		entry.Remedy = cancelledRunRemedy
 	}
 	if run.CompletedAt != nil {
 		entry.Since = run.CompletedAt.UTC()

@@ -2361,13 +2361,12 @@ discipline, whether or not a deadline was quoted. A reset that is not in the
 future is one the harness genuinely cannot wait for, so it stops the run and
 records a blocker rather than guessing a wait. A reset that no longer fits the
 run's remaining budget is different: the wait is well defined, only longer than
-the harness will take, so nobody has anything to decide. The run ends cancelled,
+the harness will take, so no blocker is recorded. The run ends cancelled,
 recorded as ended by something outside the work (cause `usage-window`) and
 naming the reset; it gives its
-claim back, and keeps its branch and worktree. It spends nothing — no brake
-count, no review round, repair grant, or re-run — and a watching session holds
-the item under "waiting on the provider's usage limit" until the reset passes,
-then pulls it again by itself. An exhausted limit is not the only thing a run waits out:
+claim back, keeps its branch and worktree, and goes on the development manager's
+list of stopped runs, which holds the item until she decides. It spends nothing — no brake
+count, no review round, repair grant, or re-run. An exhausted limit is not the only thing a run waits out:
 [an overloaded provider](#waiting-out-an-overloaded-provider) below takes the
 same machinery on a much shorter clock.
 
@@ -7239,8 +7238,8 @@ is each thing the provider has stopped on its own. `runs` lists each work item's
 latest run that is either `waiting` — in flight and asleep on a recorded
 deadline, still counted on the running line — or `capacity-blocked`, which is a
 run the provider refused and the harness would not wait for. One stopped by a
-usage window resetting past the maximum pause gave its item back to the queue
-and names the reset it is pulled again after. A usage-limit stop is listed too:
+usage window resetting past the maximum pause is on the development manager's
+list of stopped runs and names the reset it refused to wait for. A usage-limit stop is listed too:
 a run the provider refused on a usage limit naming a reset that is not in the
 future, or on an overload that outlasted the pause budget, stopped with a
 blocker on its item and its stop cause `usage-pause`, and its record keeps
@@ -7493,8 +7492,13 @@ only test of liveness that is not a guess, because a lease belongs to a live
 process and the operating system drops it when that process dies, so a lease the
 audit can take is a process that is gone. The ending is recorded as **cancelled**:
 nothing here judged the change, and the branch and worktree the killed run left
-are untouched, exactly where they were. The item is then pulled again on the same
-pass, with nobody having typed anything.
+are untouched, exactly where they were. Where neither is there, the item is pulled
+again on the same pass, with nobody having typed anything. Where either is, the
+run is on the development manager's list of stopped runs, and the item is held
+until she decides what happens to what it left. Every run that ends cancelled
+while it holds its item is on that list, with how it ended and who or what
+cancelled it, unless she stopped it herself, until she decides or a later run of
+the item starts; the health check names the same runs.
 
 This settles a much narrower set than [`yoyo reconcile`](#recovering-interrupted-runs)
 does and never overlaps it: it moves no refs, removes nothing, closes nothing,
@@ -8761,9 +8765,8 @@ slowly or not at all`.
    carries the same runs whole), each conversation the provider is still
    refusing, and a provider usage limit past
    `execution.usage_window_degraded_percent` are each a degraded entry. A run
-   asleep on a reset and a run the usage window gave back to the queue are
-   the harness's; a run the refusal stopped with its item handed back is the
-   development manager's to decide; a refused conversation and a limit past
+   asleep on a reset is the harness's; a run the usage window or the refusal
+   stopped is the development manager's to decide; a refused conversation and a limit past
    its threshold are nobody's, because they lift on the provider's clock.
    None of them is the operator's. A failing product pass is one broken entry
    with how many times in a row it has failed, since when, its latest error,

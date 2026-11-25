@@ -191,9 +191,9 @@ func TestAReleaseSaysTheBranchItsRunLeftStanding(t *testing.T) {
 	t.Parallel()
 
 	fixture := newFlaggedFixture(t)
-	// A cancelled run hands nobody a decision, so its claim is given back — with
-	// its branch still standing, which is exactly what the note has to say.
-	state := fixture.flaggedRun(t, "yoyodyne-flagged.2", 2, runstate.StatusCancelled)
+	// A run stopped at a time limit outside its checks hands nobody a decision, so
+	// its claim is given back, with its branch still standing for the note to say.
+	state := fixture.flaggedRun(t, "yoyodyne-flagged.2", 2, runstate.StatusTimedOut)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: state.WorkItemID, Title: "Flagged", Status: "in_progress"}}
 	auditor := ClaimAuditor{
 		Tracker:   tracker,
@@ -208,7 +208,7 @@ func TestAReleaseSaysTheBranchItsRunLeftStanding(t *testing.T) {
 		t.Fatalf("Audit() error = %v", err)
 	}
 	if len(sweep.Released) != 1 {
-		t.Fatalf("sweep = %#v, want the claim of a cancelled run given back", sweep)
+		t.Fatalf("sweep = %#v, want the claim of a timed-out run given back", sweep)
 	}
 	for _, want := range []string{"What the run left: branch " + state.Branch + " (checked and there at", "That change is still there"} {
 		if !strings.Contains(tracker.ReleaseReason, want) {

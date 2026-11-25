@@ -125,7 +125,7 @@ const (
 	// execution.usage_limit_max_pause. The harness will not take that wait, and
 	// that is a decision about the wait rather than a verdict on anything: the
 	// window lifts on the provider's clock, and the run ends with its claim given
-	// back so the item is pulled again once it has.
+	// back and what it left for the development manager to decide.
 	//
 	// Twelve runs ended failed that way between 06:50 and 09:35 UTC on
 	// 2026-09-23 on one seven-day window resetting four days out, three of them

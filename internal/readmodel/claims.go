@@ -192,7 +192,7 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 // by a fresh pull that spent a developer run and a review to reach the change
 // that was already sitting on the branch.
 //
-// Four endings qualify, and the first is the one that had no other marker at
+// Five endings qualify, and the first is the one that had no other marker at
 // all. An integration stop is an approved change the environment stopped short
 // of the target branch, which `yoyo triage resume` carries the rest of the way.
 // A recorded blocker is the harness having handed the item to somebody — a
@@ -203,7 +203,11 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 // with its finished change on the branch, and the harness continues it at its
 // checks — a claim given back here is a fresh run that redoes the development.
 //
-// All four ask whether the change survived, and none of them holds a claim
+// A run that ended cancelled holding its item is a fifth: the development
+// manager decides it, and it is on her list and held whatever it left
+// (runstate's CancelledHoldingItem), so its claim stands until she has.
+//
+// The first four ask whether the change survived, and none of them holds a claim
 // without it: a stoppage whose branch is gone leaves nothing for a fresh run to
 // strand, and an integration stop whose branch is gone is one nothing can resume
 // at all. It is asked of the repository, as the pull's hold asks it, and a look
@@ -215,6 +219,9 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 // leaving both standing on a process that is gone is the failure the audit
 // exists for.
 func stillHeld(run runstate.State, found triage.Found) bool {
+	if run.CancelledHoldingItem(found.Holds()) {
+		return true
+	}
 	if !run.Status.Terminal() || !found.Holds() {
 		return false
 	}

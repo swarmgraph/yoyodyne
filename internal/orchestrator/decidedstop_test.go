@@ -319,9 +319,9 @@ func TestAStopTheRunNeverReachedLeavesItsLaterStoppageUndecided(t *testing.T) {
 	}
 }
 
-// The operator's own stop is unchanged by any of this: it names the operator and
-// leaves nothing on the docket, since it hands nobody a decision.
-func TestAnOperatorStopIsStillDocketedNowhere(t *testing.T) {
+// The operator's own stop names the operator and is docketed undecided, for the
+// development manager to decide what becomes of the run.
+func TestAnOperatorStopIsDocketedForTheDevelopmentManager(t *testing.T) {
 	t.Parallel()
 
 	repository, worktreeRoot, store := restartableFixture(t)
@@ -350,8 +350,8 @@ func TestAnOperatorStopIsStillDocketedNowhere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("docket = %#v, want an operator's stop docketed nowhere", entries)
+	if len(entries) != 1 || entries[0].Closed != nil || !strings.Contains(entries[0].Cancelled, "cancelled by the operator") {
+		t.Fatalf("docket = %#v, want the operator's stop docketed undecided, naming who cancelled it", entries)
 	}
 }
 

@@ -712,8 +712,8 @@ func (r Rerunner) entry(priorRunID string) (triage.Entry, error) {
 
 // undocketedEntry is the entry a re-run of a run the docket never held is
 // claimed under: the stopped-run key the docket would have given it, so the
-// once-per-stoppage claim holds for it exactly as for a docketed one. A run the
-// harness cancelled on its way out is never docketed, and a decision about one
+// once-per-stoppage claim holds for it exactly as for a docketed one. A run
+// cancelled before it claimed its item is never docketed, and a decision about one
 // used to be refused at every pass for want of an entry — yoyodyne-ifd.187's
 // re-run of run-04e578ce, thirty-nine times — although what the development
 // manager decided is plain: start the item again (yoyodyne-ifd.428.52). A run

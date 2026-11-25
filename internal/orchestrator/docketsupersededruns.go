@@ -17,7 +17,9 @@ package orchestrator
 // integrated is left alone, because its entry is about its own landing, unless
 // its publication was handed back for a fresh run. An earlier run with no later
 // approved or landed run stays exactly as it is, whatever its kept change holds:
-// a later run still being worked on has not yet replaced anything.
+// a later run still being worked on has not yet replaced anything. The one
+// exception is an earlier run that ended cancelled, which judged nothing: any
+// later run of its item settles it.
 
 import (
 	"errors"
@@ -67,7 +69,14 @@ func (d Docketer) settleSupersededRuns(recorded []runstate.State, now time.Time)
 			continue
 		}
 		later, found := laterApprovedRun(earlier, recorded)
-		if !found {
+		reason := ""
+		if found {
+			reason = supersededRunReason(earlier, later)
+		} else if later, found = laterRunOf(earlier, recorded); found && earlier.CancelledHoldingItem(true) {
+			// The hold names a cancelled run only while it is its item's latest, so
+			// the docket does too.
+			reason = fmt.Sprintf("a later run of %s, %s, started after run %s was cancelled, so what happens to the item is decided from that later run", earlier.WorkItemID, later.RunID, earlier.RunID)
+		} else {
 			continue
 		}
 		closedAt := now.UTC()
@@ -81,7 +90,7 @@ func (d Docketer) settleSupersededRuns(recorded []runstate.State, now time.Time)
 			RunID:         entry.RunID,
 			WorkItemID:    entry.WorkItemID,
 			Decision:      triage.SupersededByLaterRunDecision,
-			Reason:        supersededRunReason(earlier, later),
+			Reason:        reason,
 			DecidedBy:     "the harness, reading the run records",
 			ClosedAt:      closedAt,
 		})
@@ -94,6 +103,18 @@ func (d Docketer) settleSupersededRuns(recorded []runstate.State, now time.Time)
 		}
 	}
 	return closed, errors.Join(problems...)
+}
+
+// laterRunOf is the latest run of the earlier run's item where one started after
+// it.
+func laterRunOf(earlier runstate.State, recorded []runstate.State) (runstate.State, bool) {
+	var later runstate.State
+	for _, candidate := range recorded {
+		if candidate.WorkItemID == earlier.WorkItemID && candidate.StartedAt.After(earlier.StartedAt) && candidate.StartedAt.After(later.StartedAt) {
+			later = candidate
+		}
+	}
+	return later, later.RunID != ""
 }
 
 // waitingClosure reports a decision to wait, timed or on named work: the one

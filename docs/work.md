@@ -2186,8 +2186,8 @@ This holds whatever became of the docket entry for the decision's run. A
 decision about a run whose entry an earlier decision closed — a re-run recorded
 after a repair settled the same stoppage — is attempted at the next pull like
 any other, because the entry is still there to act on. A re-run of a run the
-docket holds **no** stoppage of — a re-run the harness cancelled on its way out,
-say, which is never docketed — is carried out too. The item is started again
+docket holds **no** stoppage of — a re-run the harness cancelled before it took
+its item, say — is carried out too. The item is started again
 from the target branch, claimed under the key the docket would have given the
 run, so that run is re-run once like any stoppage. Every gate a re-run asks
 still applies, and the run only has to have ended. It is carried out whether or
@@ -2248,8 +2248,8 @@ Until the sweep honoured a dead run's stop (yoyodyne-ifd.428.49), nothing did: o
 stood unread for most of a day over a run that had been dead since the evening
 before. The run's record, its ending on the item's notes, and the triage
 note her decision leaves all say who stopped it and why. What differs from your
-stop is the docket: yours hands nobody a decision and is docketed nowhere, while
-hers is docketed as the stopped run it is and closed by her decision in the same
+stop is the docket: yours is docketed for the development manager to decide what
+becomes of the run, while hers is docketed as the stopped run it is and closed by her decision in the same
 write, so it reads as a stoppage already decided rather than one waiting on her.
 The stop spends no budget and starts nothing, so none of the carry-out gates
 above apply to it; what it is refused for is a run that has already ended, whose
