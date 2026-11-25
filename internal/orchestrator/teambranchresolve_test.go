@@ -344,13 +344,18 @@ func TestARunOutsideTheNamedEpicsIsNotStartedOnAConflict(t *testing.T) {
 	if record := f.record(); record.Landed[0].ResolvedBy == "" {
 		t.Fatalf("record = %#v, want a run's resolution landed", record)
 	}
-	for _, start := range asked {
+	// The update asks for itself only before it checks and reviews the run's merge.
+	last := len(asked) - 1
+	if !reflect.DeepEqual(asked[last], maystart.UpdateFromTeam("staging")) {
+		t.Fatalf("last asked about %+v, want the update", asked[last])
+	}
+	for _, start := range asked[:last] {
 		if !reflect.DeepEqual(start, maystart.Run(maystart.ResolveConflict, "yoyodyne-task")) {
 			t.Fatalf("asked about %+v, want the item the development manager named", start)
 		}
 	}
-	if len(asked) != 4 {
-		t.Fatalf("asked %d times, want once for each start and once before the developer", len(asked))
+	if len(asked) != 5 {
+		t.Fatalf("asked %d times, want once for each start, once before the developer and once for the update", len(asked))
 	}
 }
 

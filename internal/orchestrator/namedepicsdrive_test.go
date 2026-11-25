@@ -27,26 +27,27 @@ type drive func(t *testing.T, decide StartDecision) int
 
 // drivenBy is every path that asks, each with what drives it.
 var drivenBy = map[maystart.Path][]drive{
-	maystart.ReadyWork:       {drivePipeline(runstate.Selection{By: runstate.SelectedByScheduler, Reason: "the highest-priority ready item", At: baseTime}), driveScheduler},
-	maystart.NamedRun:        {drivePipeline(runstate.OperatorSelection("named", baseTime))},
-	maystart.HoldTest:        {drivePipeline(runstate.Selection{By: runstate.SelectedByBrake, Reason: "the test run", At: baseTime})},
-	maystart.DecidedRerun:    {drivePipeline(runstate.Selection{By: runstate.SelectedByDevelopmentManager, Reason: "decided", At: baseTime}), driveRerun},
-	maystart.DecidedRepair:   {driveRepair},
-	maystart.FeedbackRepair:  {driveFeedbackRepair, driveFeedbackRound},
-	maystart.FinishMerge:     {driveFinishMerge},
-	maystart.ContinueRun:     {driveContinue},
-	maystart.PickUpRun:       {drivePickUp},
-	maystart.PublishDocument: {driveDocument},
-	maystart.BringUpToDate:   {driveBringUpToDate},
-	maystart.ResolveConflict: {driveConflict},
-	maystart.BringInFile:     {driveOutsideFile},
-	maystart.UpdateQueued:    {driveQueuedUpdate},
-	maystart.UpdateForPerson: {drivePersonUpdate},
-	maystart.AfterLogin:      {driveAfterLogin},
-	maystart.RecurringPass:   {driveRecurring},
-	maystart.PromptedPass:    {driveCorrection, driveDelivery, driveSummons},
-	maystart.UnmetGoalReview: {driveGoalReview},
-	maystart.MessagesForWork: {driveMessages},
+	maystart.ReadyWork:        {drivePipeline(runstate.Selection{By: runstate.SelectedByScheduler, Reason: "the highest-priority ready item", At: baseTime}), driveScheduler},
+	maystart.NamedRun:         {drivePipeline(runstate.OperatorSelection("named", baseTime))},
+	maystart.HoldTest:         {drivePipeline(runstate.Selection{By: runstate.SelectedByBrake, Reason: "the test run", At: baseTime})},
+	maystart.DecidedRerun:     {drivePipeline(runstate.Selection{By: runstate.SelectedByDevelopmentManager, Reason: "decided", At: baseTime}), driveRerun},
+	maystart.DecidedRepair:    {driveRepair},
+	maystart.FeedbackRepair:   {driveFeedbackRepair, driveFeedbackRound},
+	maystart.FinishMerge:      {driveFinishMerge},
+	maystart.ContinueRun:      {driveContinue},
+	maystart.PickUpRun:        {drivePickUp},
+	maystart.PublishDocument:  {driveDocument},
+	maystart.BringUpToDate:    {driveBringUpToDate},
+	maystart.ResolveConflict:  {driveConflict},
+	maystart.BringInFile:      {driveOutsideFile},
+	maystart.UpdateQueued:     {driveQueuedUpdate},
+	maystart.UpdateForPerson:  {drivePersonUpdate},
+	maystart.AfterLogin:       {driveAfterLogin},
+	maystart.RecurringPass:    {driveRecurring},
+	maystart.PromptedPass:     {driveCorrection, driveDelivery, driveSummons},
+	maystart.UnmetGoalReview:  {driveGoalReview},
+	maystart.MessagesForWork:  {driveMessages},
+	maystart.TeamBranchUpdate: {driveTeamBranchUpdate},
 }
 
 // Every path on the closed list that asks is driven with an item outside the
@@ -63,6 +64,9 @@ func TestEveryPathOnTheClosedListStartsNothingOutsideTheNamedEpics(t *testing.T)
 				t.Errorf("%s is driven here and not marked wired", entry.Path)
 			}
 			continue
+		}
+		if entry.AlwaysStarts {
+			continue // a person's own command, which does not ask
 		}
 		wired++
 		if len(drivenBy[entry.Path]) == 0 {
@@ -395,4 +399,12 @@ func driveMessages(t *testing.T, decide StartDecision) int {
 	Scheduler{}.startIntakeRuns(&schedule, intake, runs)
 	collectIntakeRuns(&schedule, runs, true)
 	return schedule.IntakeRuns
+}
+
+func driveTeamBranchUpdate(t *testing.T, decide StartDecision) int {
+	f := newTeamUpdateFixture(t)
+	f.teamMerges("team.txt", "the team's work\n", "the team's change")
+	f.pipeline.MayStart = decide
+	f.update()
+	return f.checks.calls() + f.reviewer.calls()
 }

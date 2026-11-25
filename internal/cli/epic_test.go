@@ -267,22 +267,20 @@ func TestEpicStartIsRefusedWhileAnyPathIsNotWired(t *testing.T) {
 	}
 }
 
-// The command as it ships is refused only for the ways of starting work that no
-// rule covers yet, each named, and for nothing else.
-func TestEpicStartAsItShipsIsRefusedOnlyForTheWaysNoRuleCovers(t *testing.T) {
+// The command as it ships is accepted: every way of starting work is wired.
+func TestEpicStartAsItShipsIsAccepted(t *testing.T) {
 	bench := newEpicBench(t)
-	_, stderr, code := runCLI(t, "epic", "start", "yoyodyne-a", "--config", bench.config)
-	if code != 1 {
-		t.Fatalf("exited %d: %s", code, stderr)
+	if err := refusedUntilWired(maystart.Paths()); err != nil {
+		t.Fatal(err)
 	}
-	unruled := []maystart.Path{maystart.TeamUpdate, maystart.BranchReview}
-	for _, path := range maystart.Paths() {
-		if want := slices.Contains(unruled, path.Path); path.Wired == want || strings.Contains(stderr, path.Says) != want {
-			t.Errorf("%s: wired %t, refusal %q; want it named only where no rule covers it", path.Path, path.Wired, stderr)
-		}
+	// The list it ships, with nothing marked wired here, against a tracker.
+	bench.paths = maystart.Paths()
+	bench.does("start", "yoyodyne-a")
+	if !bench.record().On() {
+		t.Fatal("epic mode is not on")
 	}
-	if strings.Contains(stderr, "not built") {
-		t.Errorf("the refusal still says the checks are not built: %q", stderr)
+	if _, stderr, _ := runCLI(t, "epic", "start", "yoyodyne-a", "--config", bench.config); strings.Contains(stderr, "cannot be turned on yet") {
+		t.Fatalf("the command as it ships refuses: %s", stderr)
 	}
 }
 

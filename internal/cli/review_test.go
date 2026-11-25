@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 )
@@ -212,6 +217,50 @@ func TestReviewRefusesAModelChosenForAGatingReview(t *testing.T) {
 		}
 		if !strings.Contains(stderr.String(), "reads the recorded reviews and makes none") {
 			t.Fatalf("Run(%v) stderr = %q", arguments, stderr.String())
+		}
+	}
+}
+
+// `yoyo review` is a person's own command: with epic mode on and every epic
+// ended it starts its reviewer as it does with epic mode never turned on, and
+// nothing is kept as refused.
+func TestReviewStartsWithEpicModeOnAndNoEpicOpen(t *testing.T) {
+	// Not parallel: the state root and the PATH are set here.
+	t.Setenv(execution.AgentRoleVariable, "")
+	for _, epicMode := range []bool{false, true} {
+		stateRoot, project, bin := t.TempDir(), t.TempDir(), t.TempDir()
+		t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+		configPath := managedWorktreeProject(t, project)
+		withReviewer := validConfig + "  reviewer:\n    role: reviewer\n    backend: claude-code\n    model: opus\n"
+		if err := os.WriteFile(configPath, []byte(withReviewer), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		git(t, project, "branch", "base", "main~1")
+		started := filepath.Join(bin, "started")
+		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + started + "'\nexit 3\n"
+		if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if epicMode {
+			operator, err := epicscope.ForOperator(stateRoot, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := operator.Start(epicscope.Naming{Epic: "yoyodyne-ab1", From: "terminal"}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := operator.End("yoyodyne-ab1", "", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, stderr, _ := runCLI(t, "review", "--base", "base", "--config", configPath)
+		calls, err := os.ReadFile(started)
+		if err != nil || !strings.Contains(string(calls), "--name yoyodyne-review-") {
+			t.Errorf("epic mode %t: the reviewer was started with %q (%v); stderr %q", epicMode, calls, err, stderr)
+		}
+		if _, err := os.Stat(filepath.Join(stateRoot, "projects", "yoyodyne", "not-started.json")); !os.IsNotExist(err) {
+			t.Errorf("epic mode %t: something was kept as refused: %v", epicMode, err)
 		}
 	}
 }

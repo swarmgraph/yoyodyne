@@ -45,6 +45,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -105,6 +106,10 @@ type TeamBranchUpdater struct {
 	Reviewer BranchReviewer
 	// Reports is the development manager's list.
 	Reports ReportCollector
+	// KeepRefused takes away every update kept as refused by the named epics but
+	// the named target branch's, and all of them where it is empty. Nil keeps no
+	// such record.
+	KeepRefused func(target string)
 	// Events receives the checks' event stream. Nil discards it.
 	Events func(execution.Event) error
 }
@@ -174,6 +179,7 @@ func (u TeamBranchUpdater) Update(ctx context.Context) (TeamBranchUpdateOutcome,
 	}
 	upstream := upstreamBranchFor(configured, target)
 	if upstream == "" {
+		u.keepRefused("")
 		return TeamBranchUpdateOutcome{}, nil
 	}
 	outcome := TeamBranchUpdateOutcome{TargetBranch: target, UpstreamBranch: upstream}
@@ -194,6 +200,12 @@ func (u TeamBranchUpdater) Update(ctx context.Context) (TeamBranchUpdateOutcome,
 	run.branch = runstate.MergeQueueCandidateBranch(run.entry)
 	err = run.update(ctx)
 	return run.out, err
+}
+
+func (u TeamBranchUpdater) keepRefused(target string) {
+	if u.KeepRefused != nil {
+		u.KeepRefused(target)
+	}
 }
 
 func configuredUpstream(p *Pipeline) string {
@@ -286,6 +298,7 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 		return err
 	}
 	if carried {
+		r.u.keepRefused("")
 		if err := r.setAsideWaitingRun(ctx); err != nil {
 			return err
 		}
@@ -304,6 +317,16 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 	base, err := r.u.Git.TargetCommit(ctx, r.target)
 	if err != nil {
 		return fmt.Errorf("read where %s stands: %w", r.target, err)
+	}
+	// An update is due. The decision is asked before anything an earlier check
+	// left is set aside and before anything is recorded or built.
+	r.u.keepRefused(r.target)
+	starts, err := r.startsWork(ctx, tip, base)
+	if err != nil {
+		return err
+	}
+	if starts && !r.mayStart() {
+		return nil
 	}
 	if pending := r.pending(); pending != nil && (pending.TeamCommit != tip || pending.TargetBase != base) {
 		// Either branch moved, so what was built, checked or waiting is about a
@@ -331,6 +354,47 @@ func (r *teamBranchRun) update(ctx context.Context) error {
 		return r.stillWaiting()
 	}
 	return r.settle(r.work(ctx))
+}
+
+// startsWork is whether this check would begin work rather than carry on with
+// what an earlier one left: it lands a merge already checked and approved for
+// these two tips whose commit is still held, and says why a conflict or a
+// refusal still waits, neither of which begins anything. A run that resolves a
+// conflict asks under its own path, and what it leaves is asked about in resolved.
+func (r *teamBranchRun) startsWork(ctx context.Context, tip, base string) (bool, error) {
+	pending := r.pending()
+	if pending == nil || pending.TeamCommit != tip || pending.TargetBase != base {
+		return true, nil
+	}
+	if pending.Conflict != nil || pending.Refused != "" {
+		return false, nil
+	}
+	if pending.Candidate == "" || !teamBranchChecksPassed(*pending, len(r.p.Config.Checks)) || !pending.Approved() {
+		return true, nil
+	}
+	held, err := r.u.Git.HoldsCommit(ctx, pending.Candidate)
+	if err != nil {
+		return false, fmt.Errorf("read whether the merge %s is still kept: %w", pending.Candidate, err)
+	}
+	return !held, nil
+}
+
+// mayStart asks the one decision on what may start. A refusal says why the
+// update waits and changes nothing it kept.
+func (r *teamBranchRun) mayStart() bool {
+	if r.p.MayStart == nil {
+		return true
+	}
+	decision := r.p.MayStart(maystart.UpdateFromTeam(r.target))
+	if decision.MayStart() {
+		return true
+	}
+	clears := "an epic the operator named is open, or epic mode is off"
+	if decision.Answer != maystart.MayNot {
+		clears = "the record of the named epics can be read again"
+	}
+	r.wait("it is still due and was not started: %s; it starts at the first check after %s", decision.Why, clears)
+	return false
 }
 
 // dropPending abandons the update in progress, because a branch moved under it

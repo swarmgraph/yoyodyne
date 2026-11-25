@@ -522,6 +522,11 @@ func (r *teamBranchRun) resolved(ctx context.Context, result TeamBranchConflictR
 	if err := r.save(); err != nil {
 		return err
 	}
+	// The run asked under its own path; the checks and review of its merge are the
+	// update's.
+	if !r.mayStart() {
+		return nil
+	}
 	return r.work(ctx)
 }
 

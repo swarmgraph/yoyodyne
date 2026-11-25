@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -93,7 +92,7 @@ func operatorOf(t *testing.T, root string) *epicscope.Operator {
 func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
 	t.Parallel()
 	_, sources := epicFixture(t)
-	want := fmt.Sprintf(`Mode: epic mode; a start that asks about the epics you named goes ahead only for work in them, and 2 ways of starting work do not ask yet
+	want := fmt.Sprintf(`Mode: epic mode; only work in the epics you named starts
   Open epic: Epic mode (yoyodyne-ep) — 4 members: 1 done, 1 running, 1 ready, 1 waiting
   Ready items held out: 2, since %[1]s
   Role passes not started: 2, since %[1]s
@@ -103,9 +102,6 @@ func TestStatusSaysTheModeTheEpicsAndEachProblem(t *testing.T) {
   Say the mode (yoyodyne-ep.4) waits for Read the file (yoyodyne-dep), which is not in an epic you named. To add it: yoyo epic add yoyodyne-ep yoyodyne-dep
   Not started: Tidy the log (yoyodyne-out), by the scheduler pulling ready work (refused since %[1]s, last at %[1]s: it is not in an open epic the operator named). To add it: yoyo epic add yoyodyne-ep yoyodyne-out
 `, localMoment(moment))
-	if unwired := slices.DeleteFunc(maystart.Paths(), func(path maystart.PathEntry) bool { return path.Wired }); len(unwired) != 2 {
-		t.Fatalf("%d paths do not ask, and the words above say two", len(unwired))
-	}
 	if got := ReadStanding(context.Background(), sources).RenderEpics(); got != want {
 		t.Fatalf("RenderEpics() =\n%s\nwant\n%s", got, want)
 	}
@@ -288,5 +284,31 @@ func TestWhatTheEpicLinesCouldNotReadIsSaid(t *testing.T) {
 	}
 	if strings.Contains(says, "held out: 0") || strings.Contains(says, "not started: 0") {
 		t.Errorf("RenderEpics() = %q, which says none of what was not read", says)
+	}
+}
+
+// A refused update is one line for its target branch, until an open epic lets it
+// start.
+func TestARefusedUpdateFromTheTeamsBranchIsAProblem(t *testing.T) {
+	t.Parallel()
+	root, sources := epicFixture(t)
+	if _, err := operatorOf(t, root).End("yoyodyne-ep", "", moment); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if maystart.Ask(root, "yoyodyne", maystart.UpdateFromTeam("staging"), moment).MayStart() {
+			t.Fatal("the update started with every epic ended")
+		}
+	}
+	want := fmt.Sprintf("  Not started: bringing the target branch up to date with the team's branch, for staging (refused since %[1]s, last at %[1]s: every epic the operator named has ended).\n", localMoment(moment))
+	standing := ReadStanding(context.Background(), sources)
+	if says := standing.RenderEpics(); strings.Count(says, want) != 1 || len(standing.Epics.RefusedUpdates) != 1 {
+		t.Fatalf("RenderEpics() = %q and %+v, want %q once", says, standing.Epics.RefusedUpdates, want)
+	}
+	if _, err := operatorOf(t, root).Start(epicscope.Naming{Epic: "yoyodyne-two", From: "terminal"}, moment); err != nil {
+		t.Fatal(err)
+	}
+	if says := ReadStanding(context.Background(), sources).RenderEpics(); strings.Contains(says, "for staging") {
+		t.Fatalf("RenderEpics() = %q, want no refused update once it may start", says)
 	}
 }
