@@ -111,6 +111,12 @@ type StoreRebuild struct {
 	KeptAt   time.Time `json:"kept_at"`
 	Swapped  bool      `json:"swapped,omitempty"`
 	Restored bool      `json:"restored,omitempty"`
+	// ServerKept is why the tracker's server could not be stopped, so nothing was
+	// built or moved.
+	ServerKept string `json:"server_kept,omitempty"`
+	// ServerDown is why the tracker's server, stopped for the rebuild, could not
+	// be started again; the supervisor tries again at its next look.
+	ServerDown string `json:"server_down,omitempty"`
 }
 
 // Passed reports a build whose two exports held every record the same.
@@ -227,6 +233,10 @@ func lockWaited(err error) (string, bool) {
 // The two directories have to be on the volume the store is on, since a move
 // that would have to copy is refused rather than made.
 //
+// Where the store is reached through its server, the server is stopped once no
+// outside process is found and started again before the lock is let go, so the
+// time it was stopped is part of HeldFor.
+//
 // The store lock not being had in time, or a process outside the harness having
 // the store open once it is held, is not an error: nothing is built or moved,
 // the rebuild says why and names the process, and the caller records it. A rebuild whose exports differ
@@ -266,6 +276,23 @@ func (c Client) RebuildStore(ctx context.Context, work, kept *repowrite.PinnedRo
 	// the harness, and moving the database away under it would lose its write.
 	if rebuild.Busy, rebuild.Unknown = c.storeHolders(ctx, database); len(rebuild.Busy) > 0 || rebuild.Unknown != "" {
 		return rebuild, nil
+	}
+	if c.ServerSwitch != nil {
+		// Started again before the lock is let go, whichever way this ends, and
+		// whatever has become of the caller by then; but never after a stop that
+		// left the server's process running.
+		stopped, err := c.ServerSwitch.StopHeld(ctx, "the store is being rebuilt")
+		if stopped {
+			defer func() {
+				if err := c.ServerSwitch.StartHeld(context.WithoutCancel(ctx)); err != nil {
+					rebuild.ServerDown = oneline.Fold(err.Error(), maxMeasureSaid)
+				}
+			}()
+		}
+		if err != nil {
+			rebuild.ServerKept = oneline.Fold(err.Error(), maxMeasureSaid)
+			return rebuild, nil
+		}
 	}
 	rebuild.StartedAt = held
 	if size, err := directorySize(database); err == nil {
@@ -455,7 +482,8 @@ func issuePrefix(records map[string]string) (string, error) {
 	return prefix, nil
 }
 
-// storeHolders is who other than this process has the store open, and why
+// storeHolders is who other than this process and the tracker's server has the
+// store open, and why
 // that could not be told where it could not.
 func (c Client) storeHolders(ctx context.Context, database string) ([]StoreHolder, string) {
 	lookup, cancel := context.WithTimeout(ctx, holderLookupTimeout)
@@ -467,7 +495,7 @@ func (c Client) storeHolders(ctx context.Context, database string) ([]StoreHolde
 	// This process never opens the database itself, since every call is a bd of
 	// its own, so it is not counted where a finder names it.
 	others := holders[:0]
-	for _, holder := range holders {
+	for _, holder := range c.withoutServer(holders) {
 		if holder.PID != os.Getpid() {
 			others = append(others, holder)
 		}

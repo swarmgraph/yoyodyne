@@ -877,6 +877,9 @@ type Standing struct {
 	// failed and the last good one was used. It is absent where the standing
 	// did not read from the shared listing.
 	TrackerListing *TrackerListingAge `json:"tracker_listing,omitempty"`
+	// TrackerReach is how the tracker's store is reached, and absent where that
+	// was not asked.
+	TrackerReach *TrackerReach `json:"tracker_reach,omitempty"`
 
 	// UsageWindows is each account's usage windows as the provider last
 	// reported them: the share of the week used, each model's own week beside
@@ -1262,6 +1265,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	sources = sources.oneRunReading()
 	// The tracker is asked twice in all, both at once, starting now
 	// (sharedlisting.go).
+	reach := readTrackerReach(ctx, sources)
 	sources, shared := sources.sharing()
 	shared.start(ctx)
 	defer shared.finish()
@@ -1787,6 +1791,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)
 	}
 	standing.TrackerListing = shared.listingAge()
+	standing.TrackerReach = reach
 	return standing
 }
 

@@ -44,6 +44,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
+	"github.com/mason-bryant/yoyodyne/internal/dolttool"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/forgecheck"
@@ -709,6 +710,16 @@ func (p *product) stop(ctx context.Context, stdout, stderr io.Writer, jsonOutput
 			code = 1
 		}
 	}
+	// After every part that reads the tracker.
+	if p.runner != nil {
+		server := p.trackerServer(doctor.RepositoryPath(config.ProjectDirectory(p.resolved.Path), p.resolved.Config.Product.Repository), log)
+		if said, err := server.StopIfRunning(ctx, "the product was stopped"); err != nil {
+			report.Problem = joinProblem(report.Problem, fmt.Sprintf("stop the tracker's server: %v", err))
+			code = 1
+		} else if said != "" {
+			log("%s", said)
+		}
+	}
 	if jsonOutput {
 		if written := writeJSON(stdout, stderr, report); written != 0 {
 			return written
@@ -802,6 +813,11 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	}
 	if mainCheck != nil {
 		residents = append(residents, mainCheck)
+	}
+	var server *supervise.TrackerServer
+	if p.runner != nil {
+		server = p.trackerServer(repository, log)
+		residents = append(residents, server)
 	}
 	maintenance := p.resolved.Config.Services.Maintenance
 	productID := p.resolved.Config.Product.ID
@@ -907,13 +923,42 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		if err != nil {
 			return nil, nil, err
 		}
-		pass.Rebuilder = beads.Client{Runner: p.runner, Dir: repository}
+		pass.Rebuilder = beads.Client{Runner: p.runner, Dir: repository, ServerSwitch: server}
 		pass.Rebuilds = rebuilds
 		pass.Reports = reports
 		pass.RepositoryID = string(p.resolved.Config.Product.RepositoryID)
 		pass.Build = buildinfo.Commit()
 	}
 	return append(residents, pass), pass, nil
+}
+
+// trackerServer is the tracker's server, as the supervisor runs it and `yoyo
+// stop` stops it.
+func (p *product) trackerServer(repository string, log func(format string, args ...any)) *supervise.TrackerServer {
+	return &supervise.TrackerServer{
+		Tracker:    beads.Client{Runner: p.runner, Dir: repository, Timeout: supervise.TrackerServerLockWait},
+		Repository: repository,
+		StateRoot:  p.stateRoot,
+		Product:    p.resolved.Config.Product.ID,
+		Program: func() (string, error) {
+			found, err := dolttool.Inspect(p.stateRoot)
+			if err != nil {
+				return "", fmt.Errorf("the harness's dolt could not be read: %w", err)
+			}
+			if found.State != dolttool.Installed {
+				return "", fmt.Errorf("the harness's dolt %s is not installed (%s); `yoyo setup` installs it", dolttool.Version, found.State)
+			}
+			return dolttool.Path(p.stateRoot), nil
+		},
+		Hold:   beads.ServerHold,
+		Build:  p.build(),
+		Runner: p.runner,
+		Launch: func(program string, args []string, dir string, environ []string, logRoot, log string) (int, error) {
+			return slack.DetachedLauncher{}.Launch(slack.Launch{Program: program, Args: args, Dir: dir, Env: environ, LogRoot: logRoot, Log: log})
+		},
+		Now: p.now,
+		Log: log,
+	}
 }
 
 // forgeCheck is the check of the forge the supervisor runs on a schedule of its
