@@ -121,6 +121,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readiness"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -239,6 +240,10 @@ type Docketer struct {
 	// to the next pull, which reads them again anyway, and a hold whose words
 	// are gone then stands until a pull is made.
 	Unready DocketUnready
+	// WouldStart is the decision on what may start under the named epics, with
+	// nothing kept, read for the publications it keeps from being brought up to
+	// date (updateRefused). Nil refuses nothing.
+	WouldStart StartDecision
 }
 
 // DocketUnready reads again the items the docket holds as unready. It is given
@@ -441,6 +446,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	problems = append(problems, d.joinDecisions(listable, docketedRunsOf(entries), publicationsOf(recorded), byID)...)
 	listable, awaited := withoutAwaitedPublications(listable, now)
 	unlisted += awaited
+	listable = d.withoutRefusedUpdates(listable, byID, now)
 	open, closed := openDocket(listable, now)
 	// One live entry per stopped run. The repeats are folded here, where every
 	// docket anybody reads is built, rather than rewritten on the log — so the
@@ -1771,7 +1777,7 @@ func (d Docketer) entriesFor(state runstate.State, now time.Time, already standi
 	if publicationDocketed(state, already) {
 		return entries, errors.Join(problems...)
 	}
-	if stuckPublication(state, now, d.Triage.StuckMergeAge.Duration()) && !d.carryOutAwaited(state) {
+	if stuckPublication(state, now, d.Triage.StuckMergeAge.Duration()) && !d.carryOutAwaited(state) && !d.updateRefused(state) {
 		entry, err := d.publicationEntry(state, now)
 		if err != nil {
 			problems = append(problems, err)
@@ -1823,6 +1829,53 @@ func withoutAwaitedPublications(entries []triage.Entry, now time.Time) ([]triage
 		kept = append(kept, entry)
 	}
 	return kept, left
+}
+
+// updateRefused reports a publication the decision on what may start keeps from
+// being brought up to date: a merge queued on GitHub (Reconciler.updateQueuedHead)
+// or a request waiting for a person's merge (Reconciler.updatePersonMerge). There
+// is nothing in one for the development manager to decide: it moves once the
+// operator adds its item or ends epic mode. Status shows the refused start.
+//
+// A decision that could not be made hides nothing, and neither does one about a
+// publication that is stuck for another reason: closed, its merge failed, or one
+// the harness could not bring up to date whatever the decision said. A merge
+// GitHub dropped still reads as queued while its update is refused, so the
+// record's check reading, which may be from before the drop, is not consulted.
+func (d Docketer) updateRefused(state runstate.State) bool {
+	if d.WouldStart == nil || state.PullRequest == nil || !state.Status.Terminal() ||
+		state.PublishFailure != "" || state.MergeDisagreement != nil || state.PullRequest.Closed() {
+		return false
+	}
+	var path maystart.Path
+	switch {
+	case state.WaitingForPersonMerge():
+		if state.PersonMerge.RepairInFlight() || cannotUpdatePersonMerge(state) != "" {
+			return false
+		}
+		path = maystart.UpdateForPerson
+	case state.Integration != nil && state.PullRequest.MergeQueued && unreplayable(state) == "":
+		path = maystart.UpdateQueued
+	default:
+		return false
+	}
+	return d.WouldStart(maystart.Run(path, state.WorkItemID)).Answer == maystart.MayNot
+}
+
+// withoutRefusedUpdates is updateRefused applied to an open publication entry
+// docketed before the decision refused. It is not counted among the entries left
+// out as settled, because nobody has decided it. An entry that is back because a
+// decision of hers could not be carried out stays.
+func (d Docketer) withoutRefusedUpdates(entries []triage.Entry, runs map[string]runstate.State, now time.Time) []triage.Entry {
+	kept := make([]triage.Entry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Class == triage.ClassPublication && entry.Undecided(now) &&
+			!entry.CarryOutStopped() && !entry.SpentClaim.Stranded() && d.updateRefused(runs[entry.RunID]) {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
 }
 
 // publicationDocketed reports this run's publication already being on the

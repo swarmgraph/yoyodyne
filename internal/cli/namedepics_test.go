@@ -108,6 +108,10 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 	if trigger.WouldStart(notRuns[maystart.RecurringPass]).MayStart() || trigger.EpicsChanged().IsZero() {
 		t.Error("the check for missed passes does not read this product's named epics")
 	}
+	listing := docketerFrom(parts).WouldStart
+	if listing == nil || listing(maystart.Run(maystart.UpdateQueued, "yoyodyne-outside")).MayStart() || !listing(maystart.Run(maystart.UpdateQueued, "yoyodyne-9k1y.1")).MayStart() {
+		t.Error("the list of unpublished pull requests does not read this product's named epics")
+	}
 	items := func() []maystart.RefusedItem {
 		t.Helper()
 		refusals, err := maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
