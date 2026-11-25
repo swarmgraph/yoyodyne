@@ -399,6 +399,7 @@ DOCUMENT_TESTS = $(DOCCHECK_TESTS) \
 	./internal/contextbundle='^(TestTheHarnessRecognizesThisRepository)$$' \
 	./internal/directive='^(TestEveryReadOfADirectiveDispositionIsAudited)$$' \
 	./internal/doctor='^(TestThisRepositoryIsAskedAboutTheNodeItsDashboardNeeds)$$' \
+	./internal/epicprogress='^(TestEveryWriterOfTheThreeFilesIsListed)$$' \
 	./internal/epicscope='^(TestOnlyAnOperatorsCommandWritesTheRecord)$$' \
 	./internal/followup/checkrun='^(TestNothingOutsideTheCheckRunnerRunsAHoldsCheck)$$' \
 	./internal/goal='^(TestGoalStatementsAgreeWithTheGoalsPackage)$$' \
