@@ -6322,13 +6322,20 @@ Summary, today, since 00:00 PDT on Sunday October 25 (read at 20:00 PDT):
   your hand to carry out. Nothing else is put to you here. A document waiting
   for your approval, a proposed change to a document, and a question a role
   stopped to ask you are each a line of their own, never a count, with
-  [what you decide from](#what-each-decision-says) printed under it.
+  [what you decide from](#what-each-decision-says) printed under it. A step
+  only you can take is a line of its own too, naming the item it is about (or
+  the report that records it, where it names no item), what its record asks
+  you to do, command included, as its next step, and the reason recorded for
+  that step: an epic add you owe under your own hold and a credential step on
+  another item are two lines, each in its own reason. Two such steps are one
+  line, with a count, only where they ask the same thing about the same item.
 - **Cost** is what the period cost, as `yoyo status --spend` and the
   dashboard's spend box price it, with "at least" where some records could not
   be read.
 
 The same thing seen several times — the same kind of thing, waiting on the
-same role or part, ended by the same step — is one line with its count and its
+same role or part, ended by the same step, and for a step only you can take
+also about the same item for the same reason — is one line with its count and its
 latest time, and so is every run that stopped for the same cause. Every time is
 in this machine's local zone, with the zone named.
 

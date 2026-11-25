@@ -25,8 +25,10 @@ package readmodel
 // the summary and the sections under it cannot disagree. A stop cause is said
 // in the words runstate.StopSays owns for it, as every surface says one. What it adds is
 // wording and grouping: an entry that recurs — the same kind of thing, owned by
-// the same mover, ended by the same step — is one line with its count and its
-// latest time, and a run identifier, a stop cause's code, or a configuration
+// the same mover, ended by the same step, and for a step only the owner can
+// take also asking the same act on the same item for the same reason
+// (groupAttention) — is one line with its count and its latest time, and a run
+// identifier, a stop cause's code, or a configuration
 // key is never in a line. Those are kept on each entry as its detail, which the
 // dashboard opens on a click and `yoyo status --detail` prints.
 
@@ -599,8 +601,8 @@ func summarizeWaiting(in SummaryInputs, now time.Time, names summaryNames) (Summ
 		}
 		decisions.Entries = append(decisions.Entries, decisionEntry(waiting, account, now))
 	}
-	decisions.Entries = append(decisions.Entries, groupAttention(grouped, now, names)...)
-	blocked.Entries = append(blocked.Entries, groupAttention(theirs, now, names)...)
+	decisions.Entries = append(decisions.Entries, groupAttention(grouped, now, names, true)...)
+	blocked.Entries = append(blocked.Entries, groupAttention(theirs, now, names, false)...)
 	if groupsRead {
 		for _, group := range standing.NotStartableGroups {
 			entry := SummaryEntry{
@@ -713,19 +715,43 @@ func withStartsStopped(decisions SummaryAnswer, stop SummaryEntry, standing *Sta
 // mover, one next step — into one line with how many there are and the newest
 // of them, and keeps each entry's own sentence as the line's detail, since that
 // sentence names runs and records the line does not.
-func groupAttention(entries []Attention, now time.Time, names summaryNames) []SummaryEntry {
+//
+// A step only the owner can take (own) is folded more narrowly: only with one
+// that asks the same act, for the same reason, on the same item. The kind, the
+// mover, and the registry's remedy are the same for every finding that needs
+// his hand ("do what the finding asks"), so folding on those alone put an epic
+// add he owed under his own hold on one line with a credential step on another
+// item, said in the credential's reason. Each such line names its item and, as
+// its next step, the act its record asks for (ownStepAct).
+func groupAttention(entries []Attention, now time.Time, names summaryNames, own bool) []SummaryEntry {
 	type key struct {
-		label string
-		mover Mover
-		next  string
+		label  string
+		mover  Mover
+		next   string
+		reason string
+		item   string
 	}
 	grouped := map[key]*SummaryEntry{}
+	subjects := map[key]string{}
 	var order []key
 	for _, waiting := range entries {
-		k := key{label: waiting.Label(), mover: waiting.Mover, next: waiting.Ownership.Remedy}
+		next := waiting.Ownership.Remedy
+		k := key{label: waiting.Label(), mover: waiting.Mover}
+		if own {
+			if act := ownStepAct(waiting); act != "" {
+				next = act
+			} else {
+				// Nothing on the record says the act in words of its own, so the
+				// entry's own sentence tells two of them apart.
+				k.item = waiting.What()
+			}
+			k.reason = string(waiting.Ownership.Reason) + "\x00" + waiting.Ownership.ReasonDetail
+			k.item = ownStepItem(waiting) + "\x00" + k.item
+		}
+		k.next = next
 		entry, seen := grouped[k]
 		if !seen {
-			entry = &SummaryEntry{WaitingOn: waitingOn(waiting.Mover), Next: waiting.Ownership.Remedy}
+			entry = &SummaryEntry{WaitingOn: waitingOn(waiting.Mover), Next: next}
 			if waiting.Ownership.NeedsHand() {
 				entry.WaitingOn = "you, to carry out " + waiting.Mover.Possessive() + " decision"
 			}
@@ -734,6 +760,9 @@ func groupAttention(entries []Attention, now time.Time, names summaryNames) []Su
 			}
 			grouped[k] = entry
 			order = append(order, k)
+			if own && waiting.OperatorAction != nil && waiting.OperatorAction.ReportID != "" {
+				subjects[k] = "report " + waiting.OperatorAction.ReportID
+			}
 		}
 		entry.Count++
 		if since := waiting.Since(); since.After(entry.Latest) {
@@ -761,6 +790,10 @@ func groupAttention(entries []Attention, now time.Time, names summaryNames) []Su
 		entry := grouped[k]
 		says := capitalized(k.label)
 		switch {
+		case own && entry.WorkItemID == "" && subjects[k] != "" && entry.Count > 1:
+			says += ", " + count(entry.Count, "time") + ", on " + subjects[k]
+		case own && entry.WorkItemID == "" && subjects[k] != "":
+			says += ": " + subjects[k]
 		case entry.Count > 1 && entry.WorkItemID != "":
 			says += ", " + count(entry.Count, "time") + ", on " + names.name(entry.WorkItemID, "")
 		case entry.Count > 1:
@@ -773,6 +806,36 @@ func groupAttention(entries []Attention, now time.Time, names summaryNames) []Su
 		lines = append(lines, *entry)
 	}
 	return lines
+}
+
+// ownStepItem is what a step only the owner can take is about, for telling two
+// such steps apart: its work item, and the record's own identifier where it
+// names no item.
+func ownStepItem(waiting Attention) string {
+	if waiting.WorkItemID != "" {
+		return waiting.WorkItemID
+	}
+	return waiting.ID
+}
+
+// ownStepAct is the act a step only the owner can take asks of him, in the
+// words its record holds — a finding's handling or escalation, a program
+// manager's entry, the step an item reserves for a person — and empty on a kind
+// whose record says no act of its own beyond the registry's remedy.
+func ownStepAct(waiting Attention) string {
+	switch {
+	case waiting.Kind == AttentionOperatorAction && waiting.OperatorAction != nil:
+		return singleLine(waiting.OperatorAction.Asks(), maxRefusalBytes)
+	case waiting.Kind == AttentionLaneHumanBlock && waiting.LaneHumanBlock != nil:
+		return singleLine(waiting.LaneHumanBlock.Entry.What, maxRefusalBytes)
+	case waiting.Kind == AttentionHumanGate && waiting.HumanGate != nil && waiting.HumanGate.Unreadable == "" && waiting.HumanGate.Gate != "":
+		act := fmt.Sprintf("record it with `yoyo gate record %s --for %s`", waiting.HumanGate.Gate, waiting.WorkItemID)
+		if statement := singleLine(waiting.HumanGate.Statement, maxRefusalBytes); statement != "" {
+			act = statement + "; then " + act
+		}
+		return act
+	}
+	return ""
 }
 
 // decisionEntry is one decision of the owner's as the summary lists it: what
