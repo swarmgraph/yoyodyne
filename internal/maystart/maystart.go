@@ -14,6 +14,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epiccost"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 )
@@ -37,6 +38,9 @@ type Decision struct {
 	// Clears is what lets the same start go ahead, in words, where it is neither
 	// adding the item nor a file being mended.
 	Clears string
+	// ByBudget is a refusal by the epic's budget. It is not kept in the record of
+	// refused starts: the epic's own line in status says it.
+	ByBudget bool `json:"by_budget,omitempty"`
 	// NotKept is why Ask could not keep the answer in the record of refused
 	// starts. The answer stands either way.
 	NotKept error `json:"-"`
@@ -164,6 +168,13 @@ func RoleQuestion() Start { return Start{what: roleQuestion} }
 // Decide says whether the start may go ahead for the product whose record is
 // under the state root.
 func Decide(stateRoot string, product domain.ProductID, start Start) Decision {
+	return decideWith(stateRoot, product, start, epiccost.Read)
+}
+
+// costReader is what an epic has cost beside its limit (epiccost.Read).
+type costReader func(stateRoot string, product domain.ProductID, view epicprogress.View, epic epicscope.Epic) (epiccost.Standing, error)
+
+func decideWith(stateRoot string, product domain.ProductID, start Start, cost costReader) Decision {
 	// These may start whatever the record says, so a record that cannot be read
 	// does not stop the operator talking to a role about it.
 	if start.what == operatorConversation || start.what == roleQuestion {
@@ -173,7 +184,41 @@ func Decide(stateRoot string, product domain.ProductID, start Start) Decision {
 	if err != nil {
 		return couldNotTell("%v", err)
 	}
-	return decide(view, start)
+	decision := decide(view, start)
+	if decision.MayStart() && view.Record.On() && start.what == workItemRun && newStarts[start.path] {
+		return byBudget(view, start.items[0], func(epic epicscope.Epic) (epiccost.Standing, error) {
+			return cost(stateRoot, product, view, epic)
+		})
+	}
+	return decision
+}
+
+// newStarts is each path that starts an item's work afresh. An epic's budget
+// refuses only these: a run already under way finishes its repairs, its review
+// and its landing whatever the epic has spent.
+var newStarts = map[Path]bool{ReadyWork: true, NamedRun: true, HoldTest: true, DecidedRerun: true}
+
+// byBudget is the answer for a new start that everything else allows: refused
+// where the epic holding the item has spent its limit.
+func byBudget(view epicprogress.View, item string, cost func(epicscope.Epic) (epiccost.Standing, error)) Decision {
+	holders := view.Holders(item)
+	if len(holders) != 1 || holders[0].Budget == nil {
+		return Decision{Answer: May}
+	}
+	epic := holders[0]
+	standing, err := cost(epic)
+	if err != nil {
+		decision := couldNotTell("what epic %s has spent, beside its budget, could not be read (%v)", epic.WorkItemID, err)
+		decision.Clears = "the run records can be read again"
+		return decision
+	}
+	if !standing.Refuses() {
+		return Decision{Answer: May}
+	}
+	decision := mayNot("epic %s has %s, so nothing new starts in it", epic.WorkItemID, standing.Why())
+	decision.ByBudget = true
+	decision.Clears = fmt.Sprintf("the operator raises its limit with `yoyo epic budget %s <dollars>`", epic.WorkItemID)
+	return decision
 }
 
 // read reads what a decision rests on: the record of named epics and, while epic

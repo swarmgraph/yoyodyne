@@ -187,6 +187,22 @@ func (o *Operator) joinedIt(record Record, epic Epic, item string) error {
 	return fmt.Errorf("work item %s is not in epic %s", item, epic.WorkItemID)
 }
 
+// SetBudget sets the limit on what an open epic may spend before it starts
+// nothing new, replacing any it had. It is the only way a budget is written.
+func (o *Operator) SetBudget(epic string, limitUSD float64, at time.Time) (Record, error) {
+	if err := ValidBudget(limitUSD); err != nil {
+		return Record{}, err
+	}
+	return o.change(func(record *Record) error {
+		index, err := record.open(epic)
+		if err != nil {
+			return err
+		}
+		record.Epics[index].Budget = &Budget{LimitUSD: limitUSD, SetAt: at.UTC()}
+		return nil
+	})
+}
+
 // End ends an open epic and keeps its entry. Epic mode stays on, the last epic
 // included, so ending one starts nothing unrelated.
 func (o *Operator) End(epic, words string, at time.Time) (Record, error) {

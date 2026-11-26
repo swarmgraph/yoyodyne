@@ -26,7 +26,7 @@ var writers = []struct {
 	outside   []string
 }{
 	{[]string{"epic-scope.json"}, "internal/epicscope", []string{"ForOperator", "Operator"},
-		[]string{"Add", "End", "Remove", "Start", "TurnOff", "UnderLock", "change", "write"}, []string{"internal/cli/epic.go"}},
+		[]string{"Add", "End", "Remove", "SetBudget", "Start", "TurnOff", "UnderLock", "change", "write"}, []string{"internal/cli/epic.go"}},
 	{[]string{progressName, begunName}, "internal/epicprogress", []string{"Open", "Store"},
 		[]string{"Ask", "Begin", "Call", "Join", "Judged", "Point", "ReserveRun", "change", "reserve", "settle", "write"}, []string{"internal/cli/run.go"}},
 }

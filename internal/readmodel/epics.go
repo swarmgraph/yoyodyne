@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epiccost"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
@@ -78,6 +79,10 @@ func (e epicRecords) MayStart(start maystart.Start) maystart.Decision {
 func (e epicRecords) Progress(record epicscope.Record) (epicprogress.View, string, error) {
 	view, err := epicprogress.Read(e.stateRoot, e.product, record)
 	return view, epicprogress.Files(e.stateRoot, e.product), err
+}
+
+func (e epicRecords) Cost(view epicprogress.View, epic epicscope.Epic) (epiccost.Standing, error) {
+	return epiccost.Read(e.stateRoot, e.product, view, epic)
 }
 
 // Epics is the mode and the named epics as of one reading.
