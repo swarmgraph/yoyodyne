@@ -290,6 +290,13 @@ const (
 	WorkItemUnlink Capability = "work-item.unlink"
 	// WorkItemReparent is moving a lane item under a lane parent.
 	WorkItemReparent Capability = "work-item.reparent"
+	// WorkItemAgreementNote is having the harness add one note to a work item
+	// saying the architect checked a named revision of a named document against
+	// the item as it stood at a named time and found they agree
+	// (docs/designs/unpublished-designs-and-admitted-work.md, section 5). It
+	// writes that one note and nothing else on the item, notes are only added to,
+	// and only the harness writes it, from the architect's action.
+	WorkItemAgreementNote Capability = "work-item.agreement-note"
 	// ReadModelRead is being handed the one read model's queries: the standing,
 	// the throughput windows, the capacity state, the docket and the reports pile
 	// as counts, and the other instances' status lines. It reads the record the
@@ -404,6 +411,7 @@ var declared = []Capability{
 	WorkItemLink,
 	WorkItemUnlink,
 	WorkItemReparent,
+	WorkItemAgreementNote,
 	ReadModelRead,
 	LaneReportWrite,
 	StopCauseRecord,

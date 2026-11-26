@@ -128,9 +128,9 @@ var expresses = map[string]expression{
 			capability.WorkItemAdmit, capability.WorkItemAttribute, capability.WorkItemUpdate,
 			capability.WorkItemLabel, capability.WorkItemReprioritize, capability.WorkItemPark,
 			capability.WorkItemUnpark, capability.WorkItemLink, capability.WorkItemUnlink,
-			capability.WorkItemReparent,
+			capability.WorkItemReparent, capability.WorkItemAgreementNote,
 		},
-		gap: "which of the sixteen named tracker actions falls under which capability is a mapping this registry does not carry; the conversion wrote it down where the actions are, as `trackerCapabilities`",
+		gap: "which named tracker action falls under which capability is a mapping this registry does not carry; the conversion wrote it down where the actions are, as `trackerCapabilities`",
 	},
 	"conversation.repair-is-stale": {
 		question: "none: whether a state is stale is read off the records rather than off any role",
