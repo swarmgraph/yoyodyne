@@ -31,6 +31,10 @@ revisions:
       by: architect
       at: 2026-11-26T16:09:49.149605Z
       reason: 'yoyodyne-9k1y.12.3: two developer reports (report-2db8e2cca12b151d744c55a1c21cb574, report-ef627770dde2315ea4f97f96e3124f3b) say the design never says what records the Lead Product Manager''s answer naming missing evidence. It is her recorded handling of a report the harness files, as for scope; a handling naming the operator''s reason waits on him. The rest of the section is copied unchanged from main add5a7c11521.'
+    - action: amended
+      by: architect
+      at: 2026-11-26T17:19:49.569983Z
+      reason: 'yoyodyne-9k1y.22: rules how a member counts as landed: a change recorded for it and contained in the target branch, however it was merged, and a closed parent whose children are all done, children never becoming members. Also rules a check of the whole epic that owes both an operator step and the Lead Product Manager''s question (report-168c3c902cb061995371714dbf92a03f). The rest is copied unchanged from main d9568699c97a, read whole.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -62,6 +66,11 @@ approvals:
       by: harness
       at: 2026-11-26T16:09:49.149605Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4140, for document-4140.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-11-26T17:19:49.569983Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4145, for document-4145.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -138,7 +147,23 @@ The read model works out one state from the records each time. The first that fi
 
 While it is Working, status names each step owed and the role that owes it. Here and below, a member is an item in the epic, whether the operator named it or it joined.
 
-Only the two delivered states and cancelled finish an epic. A member closed without a landed change counts as done only where its item is judged by its summary and the reviewer approved it. Nothing in the tracker marks such an item. It is read from the item's run: the run ended complete, the reviewer approved it as that item's work, and it recorded no change and no pull request. A member closed with no such run is not done on that ground. An item the operator took out is no longer a member and is not waited for. A member cancelled or given up by a role, or with an unanswered question, leaves the epic open and is named. It is never shown as delivered.
+A check of the whole epic whose answers include both a step the description reserves for a person and a plain cannot be told owes both: the operator's step, and the Lead Product Manager's question about the missing evidence. Neither replaces the other. The epic is Working, because she owes a step, and status names the operator's step beside hers. Ruled on November 26, 2026, from the reviewer's note on piece 10c (yoyodyne-9k1y.12.3).
+
+### When a member is done
+
+Ruled on November 26, 2026, for yoyodyne-9k1y.22. Only the two delivered states and cancelled finish an epic. A member is done in one of three ways, read from the records each time.
+
+1. **Its change is on the target branch,** however it got there: through the merge queue, merged on the forge outside the queue, or merged by hand. What shows it is a commit the harness recorded for that member, contained in the target branch at the commit the read model reads: the approved head of the member's run, or the merge commit of its pull request as the harness recorded it when it confirmed the merge. The forge reporting a merge is not enough on its own, and neither is a commit on the branch that no record ties to the member. A member whose pull request the harness has not yet confirmed as merged is shown as waiting for that confirmation, not as closed without a change. The read model asks the forge nothing itself.
+2. **Its item is judged by its summary and the reviewer approved it.** Nothing in the tracker marks such an item. It is read from the item's run: the run ended complete, the reviewer approved it as that item's work, and it recorded no change and no pull request.
+3. **It is closed and every child it holds is done.** A member with child items in the tracker counts as done where it is closed, holds at least one child, and every child counts as done by these same three ways, at any depth. The children are not members because of this. They start nothing, join nothing, do not count toward the twelve, and membership is still never worked out from parent links: this rule says only when a member's own work is finished, never what may start. The check of the whole epic is given each child's landed change as part of that member's.
+
+A member closed with none of these is not done, and status names it, with any child that is not done, as closed without a landed change. A member still open whose child is open is not done either. That child is outside the members and does not start, so status names it as the wait, as for a prerequisite outside the members, and the operator may add it.
+
+An item the operator took out is no longer a member and is not waited for. A member cancelled or given up by a role, or with an unanswered question, leaves the epic open and is named. It is never shown as delivered.
+
+The code in the read model that works out where an epic stands was not read for this ruling. A builder who finds that the harness records no merge commit for a pull request merged outside the queue stops and asks the architect.
+
+Rejected: counting a parent done only through children that are members or joined pieces, because children made before the naming could then count only once the operator added them, and the operator would be asked to act on finished work; counting a closed parent done because it was closed, because a role's act of closing would then finish what the operator named; reading a merge from the words of a commit message, because anyone who can write a commit could then finish a member.
 
 **A cancelled or given up member is the Lead Product Manager's to decide**, and so is one whose pull request a person closed. That role admits the item again, or has the development manager write a piece in its place, which joins by the joining rule as a split of that member. Such a member counts as done when that piece is. Where the epic should be delivered without the item, only the operator can take it out, because the operator named the epic and it holds everything else back until it ends. The operator is then asked, for the reason of lifting a hold the operator placed, with the command that does it.
 
@@ -173,6 +198,8 @@ A suggestion found during an epic is filed and admitted as today. It starts noth
 ### What else a reviewer checks in piece 8
 
 Beside the list for piece 8 at the end of this document: an epic with one wait on the operator and one outside is blocked outside the factory and both waits are named; a member closed with no landed change is done where its approved, complete run recorded no change and no pull request, and not otherwise; an ended epic keeps the state it had when it was ended, and a question whose time cannot be found does not change it.
+
+For the ruling on when a member is done: a member whose pull request was merged on the forge outside the queue, with its merge commit recorded and on the target branch, is done; one whose merge the harness has not confirmed is shown as waiting for that confirmation and not as closed without a change; a closed parent whose children all landed, none of them members, is done, and its children start nothing and do not count toward the twelve; a closed parent with one child closed and nothing landed is not done and names that child; a member closed with no landed change, no approved run and no children is still named. A check whose answers include an operator's step and a plain cannot be told keeps both, and status names both.
 
 ## What may join an epic: piece 9 (yoyodyne-9k1y.11)
 
