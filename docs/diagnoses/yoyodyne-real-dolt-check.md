@@ -3,7 +3,12 @@
 Checking the tracker server's launch against a real dolt install
 (yoyodyne-ifd.428.126.4.42) is one of the things switching the server on
 (yoyodyne-ifd.428.126.4.41) waits for. This is its record. All four checks
-passed. The hold that keeps the server off (`beads.ServerHold`) is unchanged.
+passed. The hold that kept the server off (`beads.ServerHold`) was left as it
+was by this check and emptied by switching the server on
+(yoyodyne-ifd.428.126.4.41). The hold asked for the copy `yoyo setup` installs;
+the Lead Product Manager decided on November 26, 2026 that this record, made on
+Homebrew's copy of the same version, meets it, because what was checked depends
+on dolt's version and not on where it was installed from.
 
 ## What was run
 

@@ -126,6 +126,14 @@ func TestAWaitingCallLetsTheServerStartAndThenGoesThroughIt(t *testing.T) {
 	}
 }
 
+// The server is switched on: nothing holds it off, so the supervisor starts it
+// wherever the harness's own dolt is installed.
+func TestTheTrackerServerIsSwitchedOn(t *testing.T) {
+	if ServerHold != "" {
+		t.Fatalf("ServerHold = %q, want empty: the tracker's server is switched on", ServerHold)
+	}
+}
+
 func TestAStoreNoServerWasEverRunForIsReachedAsItAlwaysWas(t *testing.T) {
 	client, _, bd := servedStore(t)
 	t.Setenv("BEADS_DOLT_SERVER_PORT", "3307")
@@ -135,7 +143,7 @@ func TestAStoreNoServerWasEverRunForIsReachedAsItAlwaysWas(t *testing.T) {
 	if got := environmentValue(bd.commands[0].Env, "BEADS_DOLT_SERVER_PORT"); got != "3307" {
 		t.Fatalf("the environment was changed: port = %q", got)
 	}
-	if reach, _ := client.Reach(t.Context()); !strings.Contains(reach.Says(), "opened directly: its server is not switched on") {
+	if reach, _ := client.Reach(t.Context()); !strings.Contains(reach.Says(), "opened directly: the supervisor has not started its server") {
 		t.Errorf("Reach() says %q", reach.Says())
 	}
 }
