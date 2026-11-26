@@ -137,17 +137,25 @@ automatic=0
 # exit status is how the harness tells it from a red gate.
 refuse_preparation() { printf '\ncut-release: %s\n' "$*" >&2; exit 3; }
 
+# The notes the harness's cut hands over; see the header.
+handed_notes="${YOYODYNE_RELEASE_NOTES:-}"
 # The harness's cut names the live tracker here, for the readiness check alone.
-# It is taken out of the environment so nothing else this starts inherits it.
 readiness_beads_dir="${YOYODYNE_RELEASE_BEADS_DIR:-}"
-unset YOYODYNE_RELEASE_BEADS_DIR
+# Every YOYODYNE_RELEASE_ setting has been read, so all of them are taken out of
+# the environment and nothing this starts inherits one: the walkthrough and
+# make check run this script's own suite, whose practice cuts would otherwise
+# run in the harness's mode, read its notes, and write no tag.
+unset ${!YOYODYNE_RELEASE_@}
 
 # without_tracker runs a command with every tracker setting this was started
 # with taken out, so it cannot be pointed at a live tracker. Everything that
 # builds, walks or tests goes through it; only the readiness check, which reads
-# the work items, does not.
+# the work items, does not. It also takes out the two settings the harness
+# narrows its own checks with -- the packages a change touched, and the tests
+# a repair reruns -- because make check reads them and a release is checked
+# whole.
 without_tracker() (
-  unset ${!BEADS_@} ${!BD_@}
+  unset ${!BEADS_@} ${!BD_@} YOYODYNE_CHANGED_GO_PACKAGES YOYODYNE_FAILING_TESTS
   "$@"
 )
 
@@ -339,10 +347,10 @@ step "gate: this release's notes"
 notes_file="$notes_home/$tag.md"
 # The harness hands over the notes as origin's default branch holds them,
 # because the commit it cuts at is the one they name, which they landed after.
-if [ "$automatic" = "1" ] && [ -n "${YOYODYNE_RELEASE_NOTES:-}" ]; then
-  [ -f "$YOYODYNE_RELEASE_NOTES" ] ||
-    refuse "the notes the harness handed over, $YOYODYNE_RELEASE_NOTES, are not there, so $tag was not cut"
-  notes_file="$YOYODYNE_RELEASE_NOTES"
+if [ "$automatic" = "1" ] && [ -n "$handed_notes" ]; then
+  [ -f "$handed_notes" ] ||
+    refuse "the notes the harness handed over, $handed_notes, are not there, so $tag was not cut"
+  notes_file="$handed_notes"
   printf "docs/releases/%s.md is read as origin/%s holds it, handed over by the harness\n" "$tag" "$default_branch"
 fi
 if [ ! -f "$notes_file" ] && [ "$automatic" = "1" ]; then
