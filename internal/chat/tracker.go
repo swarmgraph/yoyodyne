@@ -428,6 +428,15 @@ var laneCapabilities = map[string]capability.Capability{
 	actionUnlink:       capability.WorkItemUnlink,
 }
 
+// addressedCapabilities is the name each operation has when it is held only over
+// reports addressed to the role by name. Handling is the one such operation: a
+// role holding ReportHandleAddressed and not BacklogAdmit may record what became
+// of a report whose "for" names its own role, and of no other, which
+// recordReportHandling checks against the report as it is read.
+var addressedCapabilities = map[string]capability.Capability{
+	actionHandle: capability.ReportHandleAddressed,
+}
+
 // trackerActionNames lists the operations in the order the contract states them,
 // so a refusal names exactly what was available.
 var trackerActionNames = []string{

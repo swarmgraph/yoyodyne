@@ -13,7 +13,8 @@ package cli
 // So this reads the same durable store the conversation reads and nothing else.
 // It is read-only: a report is written once and never revised, and nothing here
 // retires one, handles one, or decides anything about the pile. What it does
-// show is what somebody else decided — the product manager records what became
+// show is what somebody else decided — the product manager, or the role a report
+// is addressed to where that role may handle it, records what became
 // of a report beside the pile, and a listing that could not tell a report
 // somebody dealt with from one nobody has read would send an operator looking
 // for work that is already done.
@@ -301,8 +302,9 @@ and a pile nothing is draining looks identical to it in any single reading.
 
 A report decides nothing and nothing waits on it, so this is read-only: it
 retires nothing, handles nothing, and changes no work. Deciding what becomes of
-a report is the Lead Product Manager's, in a conversation, and the unhandled
-ones are carried into that conversation without anybody having to fetch them,
+a report is the Lead Product Manager's, in a conversation, or the architect's or
+the development manager's for a report addressed to that role, and the unhandled
+ones are carried into her conversation without anybody having to fetch them,
 oldest first with anything critical ahead of them, resuming where the last turn
 stopped.
 
