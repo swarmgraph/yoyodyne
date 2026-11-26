@@ -438,7 +438,7 @@ func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey
 	if len(waiting) == 0 {
 		return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, nil
 	}
-	order := queueOrder{pipeline: p.Pipeline, paths: p.Lander.CandidatePaths, now: p.Pipeline.clock().Now().UTC(), lastLandedDocument: lastLandingWasDocument(p.Queue, key, "")}
+	order := queueOrder{pipeline: p.Pipeline, paths: p.Lander.CandidatePaths, now: p.Pipeline.clock().Now().UTC(), lastLandedDocument: lastLandingWasDocument(p.Queue, key, ""), records: p.Queue}
 	choice := order.choose(ctx, waiting, started)
 	queueChose(ctx, choice)
 	entry := choice.Entry

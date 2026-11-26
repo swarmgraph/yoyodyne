@@ -530,6 +530,7 @@ func TestEveryRuleThatChoosesAnEntryHasAReasonInPlainWords(t *testing.T) {
 	for rule, want := range map[string]string{
 		MergeQueueRuleOnlyWaiting: "only entry waiting",
 		MergeQueueRuleInProgress:  "already begun",
+		MergeQueueRuleReturned:    "brought up to date",
 		MergeQueueRuleAged:        "waited four hours or more",
 		MergeQueueRuleUrgent:      "priority 0 code",
 		MergeQueueRuleDocument:    "it is a document",
