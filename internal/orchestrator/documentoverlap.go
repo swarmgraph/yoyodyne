@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/designagreement"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -51,46 +52,6 @@ type DocumentOverlap struct {
 	Item     beads.WorkItem
 	// Why says in words why the two overlap.
 	Why string
-}
-
-// AgreementNotePrefix opens the note the harness writes on an item when the
-// architect records that a revision agrees with it. Only a note that opens with
-// it and has exactly the shape AgreementNote writes answers an overlap.
-const AgreementNotePrefix = "Design agreement: "
-
-// agreementSettle is how long after an agreement note's own time the tracker's
-// last-changed time for the item may stand and still be the note's own write
-// rather than a later change: the note is stamped before the tracker records it.
-const agreementSettle = time.Minute
-
-var agreementShape = regexp.MustCompile(`^Design agreement: the architect checked revision (\S+) of (\S+) against this item as it stood at (\S+), and found that they agree\. Recorded (\S+)\.$`)
-
-// AgreementNote is the note recording that the architect checked the revision
-// of the document against the item as it stood at a time, and found that they
-// agree, written at recorded. It is the one wording AgreementNote's readers
-// accept, so whatever writes the note writes it with this.
-func AgreementNote(document, revision string, stood, recorded time.Time) string {
-	return fmt.Sprintf("%sthe architect checked revision %s of %s against this item as it stood at %s, and found that they agree. Recorded %s.",
-		AgreementNotePrefix, revision, document, stood.UTC().Format(time.RFC3339), recorded.UTC().Format(time.RFC3339))
-}
-
-// agreement is one agreement note read back from an item.
-type agreement struct {
-	revision string
-	document string
-	recorded time.Time
-}
-
-func readAgreement(text string) (agreement, bool) {
-	found := agreementShape.FindStringSubmatch(strings.TrimSpace(text))
-	if found == nil {
-		return agreement{}, false
-	}
-	recorded, err := time.Parse(time.RFC3339, found[4])
-	if err != nil {
-		return agreement{}, false
-	}
-	return agreement{revision: found[1], document: found[2], recorded: recorded}, true
 }
 
 // overlapReason is how the document and the item overlap, or empty where they
@@ -141,30 +102,7 @@ func (o DocumentOverlap) answered(reports []report.Report) bool {
 			return true
 		}
 	}
-	records := beads.NoteRecords(o.Item.RecordedNotes())
-	own, latest := -1, time.Time{}
-	for i, record := range records {
-		note, ok := readAgreement(record.Text)
-		if !ok {
-			continue
-		}
-		if note.recorded.After(latest) {
-			latest = note.recorded
-		}
-		if note.revision == o.Revision && note.document == o.Document {
-			own = i
-		}
-	}
-	if own < 0 || o.Item.UpdatedAt.IsZero() {
-		return false
-	}
-	// A note that is not an agreement, written after this one, is a newer entry.
-	for _, record := range records[own+1:] {
-		if _, ok := readAgreement(record.Text); !ok && strings.TrimSpace(record.Text) != "" {
-			return false
-		}
-	}
-	return !o.Item.UpdatedAt.After(latest.Add(agreementSettle))
+	return designagreement.Stands(o.Item.RecordedNotes(), o.Item.UpdatedAt, o.Document, o.Revision)
 }
 
 // FindDocumentOverlaps is the unanswered overlaps of the unpublished documents
@@ -256,7 +194,7 @@ func documentOverlapSection(role domain.AgentRole, overlaps []DocumentOverlap) s
 	section.WriteString("## Unpublished documents that overlap open work\n\n")
 	fmt.Fprintf(&section, "%d overlap(s) between a document written and not yet published and an open work item, oldest first. Each stays here until it is answered.", len(overlaps))
 	if role == domain.RoleArchitect {
-		section.WriteString(" Check each item's recorded decisions and its done condition against the document: they disagree where landing the document would make the done condition false or impossible to meet, would require work a recorded decision refuses, or would refuse work the item needs. Where they do, revise the document so they agree, or report the conflict to the Lead Product Manager naming the revision and the item. Wording that differs while both say the same thing is not a disagreement. Recording that they agree is built separately, so an overlap you find in agreement stays listed until it is.")
+		section.WriteString(" Check each item's recorded decisions and its done condition against the document: they disagree where landing the document would make the done condition false or impossible to meet, would require work a recorded decision refuses, or would refuse work the item needs. Where they do, revise the document so they agree, or report the conflict to the Lead Product Manager naming the revision and the item. Wording that differs while both say the same thing is not a disagreement. Where they agree, record it with the \"agree\" tracker action, naming the item, the document, and the revision as this list names it, and the item_changed time printed here or by your read of the item; the harness then adds the note that takes the overlap off this list.")
 	} else {
 		section.WriteString(" The architect judges whether each disagrees. Where she reports a conflict to you, deciding the item's side is yours: revise the item, record a new decision, or ask her to change the design. Nothing here is for the operator.")
 	}
@@ -269,6 +207,9 @@ func documentOverlapSection(role domain.AgentRole, overlaps []DocumentOverlap) s
 		fmt.Fprintf(&section, "- Document %s, revision %s, %s; item %s (%s): %s. %s\n",
 			overlap.Document, overlap.Revision, writtenAtSaid(overlap.Written),
 			oneline.Fold(overlap.Item.Title, maxOverlapItemBytes), overlap.Item.ID, overlap.Why, newestEntrySaid(overlap))
+		if role == domain.RoleArchitect && !overlap.Item.UpdatedAt.IsZero() {
+			fmt.Fprintf(&section, "  item_changed: %s\n", designagreement.ItemChanged(overlap.Item.UpdatedAt))
+		}
 	}
 	return section.String()
 }

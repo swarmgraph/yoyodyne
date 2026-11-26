@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/designagreement"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -27,7 +28,7 @@ const architectRuling = runstate.RulingNoteOpening + "design-x (Design X, docume
 // passes, is a ruling that can stand.
 func TestARulingStandsOnlyWhereItIsTheNewestNote(t *testing.T) {
 	t.Parallel()
-	agreed := AgreementNote("design-x", "document-3.1", time.Date(2026, 11, 10, 5, 0, 0, 0, time.UTC), time.Date(2026, 11, 10, 5, 1, 0, 0, time.UTC))
+	agreed := designagreement.Note("design-x", "document-3.1", time.Date(2026, 11, 10, 5, 0, 0, 0, time.UTC), time.Date(2026, 11, 10, 5, 1, 0, 0, time.UTC))
 	for _, test := range []struct {
 		name string
 		item beads.WorkItem

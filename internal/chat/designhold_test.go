@@ -55,8 +55,9 @@ func TestOnlyTheRolesAllowedToMayPutTheNeedsDesignLabelOn(t *testing.T) {
 }
 
 // The architect holds no way to change the label: no label action of either
-// kind, and no write to an item at all. The development manager, who removes it
-// for now, may.
+// kind, and no write to an item but the note recording that a document agrees
+// with it, which takes no label to add or remove. The development manager, who
+// removes it for now, may.
 func TestTheArchitectHoldsNoWayToRemoveTheNeedsDesignLabel(t *testing.T) {
 	t.Parallel()
 
@@ -71,8 +72,24 @@ func TestTheArchitectHoldsNoWayToRemoveTheNeedsDesignLabel(t *testing.T) {
 		t.Errorf("the architect's lane actions = %v, want none", authority.LaneActions)
 	}
 	for _, action := range authority.TrackerActions {
-		if action != actionRead && action != actionSurvey && action != actionAmendment {
-			t.Errorf("the architect may ask for %q, want only reading and deciding amendments", action)
+		if action != actionRead && action != actionSurvey && action != actionAmendment && action != actionAgree {
+			t.Errorf("the architect may ask for %q, want only reading, deciding amendments, and recording agreement", action)
+		}
+	}
+	agree := TrackerAction{Action: actionAgree, ID: "yoyodyne-ifd.1", Document: "retry-design",
+		Revision: &AgreedRevision{ID: "document-1.1"}, ItemChanged: "2026-11-20T11:30:37-08:00", Reason: "they agree"}
+	if err := agree.Validate(); err != nil {
+		t.Fatalf("an agreement changing no label: validate() = %v, want it accepted", err)
+	}
+	for name, change := range map[string]func(*TrackerAction){
+		"remove": func(a *TrackerAction) { a.Remove = domain.NeedsDesignLabel },
+		"add":    func(a *TrackerAction) { a.Add = domain.NeedsDesignLabel },
+		"labels": func(a *TrackerAction) { a.Labels = []string{domain.NeedsDesignLabel} },
+	} {
+		labelled := agree
+		change(&labelled)
+		if err := labelled.Validate(); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("an agreement carrying %q: validate() = %v, want it refused", name, err)
 		}
 	}
 	if err := designHoldSession(domain.RoleDevelopmentManager, "").authorize(parsedReply{Actions: []TrackerAction{remove}}); err != nil {
