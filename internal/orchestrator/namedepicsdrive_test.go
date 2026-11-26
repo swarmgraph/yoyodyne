@@ -478,9 +478,9 @@ func driveWholeEpicCheck(t *testing.T, decide StartDecision) int {
 		LookUp: func(string) (string, epicprogress.Looked, error) { return "", epicprogress.NotSent, nil },
 		Judge: func(context.Context, epiccheck.Request) (string, error) {
 			sent++
-			return `{"findings":[{"asks":"it","answer":"met","says":"the test"}]}`, nil
+			return `{"findings":[{"asks":"it","answer":"met","says":"the test"}],"session":"session-check"}`, nil
 		}}
-	if _, _, err := checker.Check(context.Background(), epicprogress.Of(started.Epic), "check-1", "abc"); err != nil {
+	if _, _, err := checker.Check(context.Background(), epicprogress.Of(started.Epic), "check-1", epiccheck.Given{Epic: started.Epic, Commits: []string{"abc"}}); err != nil {
 		t.Fatal(err)
 	}
 	return sent

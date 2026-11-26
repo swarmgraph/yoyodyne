@@ -630,6 +630,17 @@ func (c *Check) branch(ctx context.Context) (string, error) {
 	return branch, nil
 }
 
+// Head is the commit the target branch is at, read from the remote where it can
+// be and fetched so it can be checked out, and from the local branch otherwise.
+func (c *Check) Head(ctx context.Context) (string, error) {
+	branch, err := c.branch(ctx)
+	if err != nil {
+		return "", fmt.Errorf("which branch runs land on could not be read: %w", err)
+	}
+	commit, _, err := c.head(ctx, branch)
+	return commit, err
+}
+
 // head is the commit the remote has the branch at, fetched so it is here to
 // check out. Where the remote cannot be read the local branch is used, and the
 // second answer says so.
@@ -663,10 +674,18 @@ func (c *Check) head(ctx context.Context, branch string) (string, string, error)
 // failing tests of any that failed once more there (runFailingAgain), and
 // removes the worktree afterwards however they ended.
 func (c *Check) checkOut(ctx context.Context, commit string) ([]runstate.MainCheckResult, error) {
+	return c.RunOn(ctx, commit, "main")
+}
+
+// RunOn runs Commands whole on commit in a worktree of its own named name inside
+// WorkRoot, removed afterwards, and answers how each check ended. A check that
+// failed has its failing tests run once more, as on the target branch. Nothing is
+// recorded or reported: that is the caller's.
+func (c *Check) RunOn(ctx context.Context, commit, name string) ([]runstate.MainCheckResult, error) {
 	if err := os.MkdirAll(c.WorkRoot, 0o700); err != nil {
 		return nil, fmt.Errorf("create %s: %w", c.WorkRoot, err)
 	}
-	path := filepath.Join(c.WorkRoot, "main")
+	path := filepath.Join(c.WorkRoot, name)
 	if err := c.clearLeftover(ctx, path); err != nil {
 		return nil, err
 	}
@@ -698,7 +717,7 @@ func (c *Check) checkOut(ctx context.Context, commit string) ([]runstate.MainChe
 // clearLeftover removes what an earlier run left at the run's own path: a
 // worktree Git still lists, one an interrupted `git worktree add` left locked
 // as initializing, and a half-written directory Git no longer lists. It only
-// ever removes the one directory named "main" inside WorkRoot, held open so
+// ever removes the one directory of the run inside WorkRoot, held open so
 // that nothing outside WorkRoot can be reached through it.
 func (c *Check) clearLeftover(ctx context.Context, path string) error {
 	// The lock an add ended part-way leaves is never somebody's to keep, and Git

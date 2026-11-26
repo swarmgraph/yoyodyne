@@ -269,3 +269,52 @@ func TestWhereAnEpicStandsAgainstItsLimit(t *testing.T) {
 		})
 	}
 }
+
+// pricedCalls prices the calls it is given and leaves the rest unknown.
+type pricedCalls struct {
+	*runstate.Store
+	usd map[string]float64
+}
+
+func (p pricedCalls) PriceCall(id string) (float64, bool, error) {
+	usd, known := p.usd[id]
+	return usd, known, nil
+}
+
+// A joining judgment and a check of the whole epic are priced from what was
+// recorded under their identifiers and added to the figure, one that cannot be
+// priced is counted as unknown, and a run of the declared checks is counted.
+func TestJudgmentsAndChecksOfTheWholeEpicAreInItsCost(t *testing.T) {
+	t.Parallel()
+	b := newBench(t)
+	b.ran(member, 1)
+	naming := epicprogress.Naming{WorkItemID: epicID, NamedAt: at}
+	for _, id := range []string{"review-judgment", "review-check", "review-unpriced", epicprogress.ChecksRun("review-check", "abc")} {
+		if _, err := b.progress.Call(naming, id, "a call", nil, func() (string, error) { return "{}", nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record, err := epicscope.Read(b.root, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := epicprogress.Read(b.root, product, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epic, _ := record.Named(epicID)
+	got := epiccost.Of(view, epic, pricedCalls{b.runs, map[string]float64{"review-judgment": 0.25, "review-check": 0.5}})
+	if !near(got.KnownUSD, 1.75) || got.Calls != 3 || got.UnpricedCalls != 1 || got.CheckRuns != 1 {
+		t.Fatalf("the cost is %+v, want $1.75 known, 3 calls of which 1 unpriced, and 1 run of the checks", got)
+	}
+	says := epiccost.Standing{Spend: got}.Says(epicID)
+	for _, want := range []string{"$1.75", "1 other paid call whose cost is unknown in whole or in part", "ran the project's checks once for the check of the whole epic"} {
+		if !strings.Contains(says, want) {
+			t.Errorf("%q does not say %q", says, want)
+		}
+	}
+	// Prices that cannot price a call leave every call unpriced.
+	if plain := epiccost.Of(view, epic, b.runs); plain.UnpricedCalls != 3 || !near(plain.KnownUSD, 1) {
+		t.Fatalf("without call prices the cost is %+v", plain)
+	}
+}

@@ -288,7 +288,7 @@ func TestEachStateOfANamedEpic(t *testing.T) {
 			b.set(stateTwo, func(item *beads.WorkItem) { item.Labels = []string{domain.NeedsDesignLabel} })
 		}, EpicWorking, []string{"Waiting on the architect: Title " + stateTwo}},
 		"working, the check owed": {func(b *stateBench) { b.landed(stateOne, stateTwo) }, EpicWorking,
-			[]string{"Waiting on the reviewer: every member is done and the check of the whole epic is owed; that check is not built yet"}},
+			[]string{"Waiting on the reviewer: every member is done and the check of the whole epic is owed"}},
 		"working, a correction owed, whatever the budget": {func(b *stateBench) {
 			b.budget = "spent"
 			b.landed(stateOne, stateTwo)
@@ -747,5 +747,28 @@ func TestAnEndedEpicKeepsTheStateItHadWhenItWasEnded(t *testing.T) {
 		undelivered(b)
 		t.Log(name)
 		b.wants(EpicCancelled)
+	}
+}
+
+// Status names the check of the whole epic as owed until it is begun, as under
+// way once its checks or its call are reserved, and as owed again where an
+// answer was refused; and it never says the check is not built.
+func TestStatusNamesTheCheckOfTheWholeEpicAsOwedOrUnderWay(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.landed(stateOne, stateTwo)
+	if standing := b.wants(EpicWorking, "every member is done and the check of the whole epic is owed"); !standing.CheckDue() || strings.Contains(standing.render(), "not built") {
+		t.Fatalf("owed: %+v", standing)
+	}
+	b.entry.Reservations = append(b.entry.Reservations, epicprogress.Reservation{ID: epicprogress.ChecksRun("review-1", "abc"), For: "the checks", At: hours(2)})
+	if standing := b.wants(EpicWorking, "the check of the whole epic is under way, as review-1"); !standing.CheckDue() {
+		t.Fatalf("under way: %+v", standing)
+	}
+	b.entry.Reservations = append(b.entry.Reservations, epicprogress.Reservation{ID: "review-1", For: epicprogress.CheckFor + " at abc", At: hours(2),
+		Result: &epicprogress.Result{At: hours(3), Says: "refused"}})
+	b.wants(EpicWorking, "every member is done and the check of the whole epic is owed")
+	b.deliver(hours(4))
+	if standing := b.wants(EpicIntegrated); standing.CheckDue() {
+		t.Fatalf("delivered: %+v", standing)
 	}
 }
