@@ -27,7 +27,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -227,8 +226,6 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		s.restarted(child, state, now, "took the deployed build up itself")
 	}
 	if build == "" || build == s.deployed {
-		delete(s.behindSince, child.Name())
-		delete(s.overdueSince, child.Name())
 		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
 		state.RestartingInto = ""
 		state.Redeploy = ""
@@ -303,33 +300,22 @@ func (s *Supervisor) restartOverdue(ctx context.Context, child Child, state *run
 }
 
 // moveOverdue moves a child that restarts itself and has not begun a move that
-// is due. The move falls due at the later of two moments: the earliest the
-// child may move after its last one, from its own records, and the moment the
-// supervisor first found it behind the binary on disk, which is no later than
-// when that binary was written. A child that has begun winding down is left to
-// its bounded wind-down and restartOverdue. One that has not begun by the time
-// its grace past the due moment is up is restarted the ordinary way, as a
-// session stuck winding down is; before then, the record says when the move is
-// due and when the supervisor makes it, so every surface reading the record
-// names a scheduler left behind, and on which builds, at its next look.
+// is due. Every moment it works with is one a record holds, so a supervisor
+// that restarts — and it restarts onto every build installed — reaches the
+// same deadline as the one before it. The move falls due at the later of two
+// moments: the earliest the child may move after its last one, from its own
+// records, and when the binary on disk was written, which no child on another
+// build can have been behind for longer than. A child that has begun winding
+// down is left to its bounded wind-down and restartOverdue. One that has not
+// begun by the time its grace past the due moment is up is restarted the
+// ordinary way, as a session stuck winding down is; before then, the record
+// says when the move is due and when the supervisor makes it, so every surface
+// reading the record names a scheduler left behind, and on which builds, at
+// its next look.
 func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runstate.SupervisedChild, now time.Time, from string) {
 	scheduled, ok := child.(ScheduledMove)
 	if !ok {
 		return
-	}
-	if s.behindSince == nil {
-		s.behindSince = make(map[config.ServiceName]time.Time)
-	}
-	since, seen := s.behindSince[child.Name()]
-	if !seen {
-		// The binary on disk has been there since it was written, so a child on
-		// another build has been behind at least that long; a supervisor that
-		// has just started knows no more than that.
-		since = now
-		if !s.deployedAt.IsZero() && s.deployedAt.Before(now) {
-			since = s.deployedAt
-		}
-		s.behindSince[child.Name()] = since
 	}
 	next, windingDown, err := scheduled.NextMove(ctx)
 	if err != nil {
@@ -337,31 +323,23 @@ func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runsta
 		return
 	}
 	if windingDown {
-		delete(s.overdueSince, child.Name())
 		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
 		return
 	}
 	apart := fmt.Sprintf("on build %s while the rest of the product is on the deployed build %s", short(from), short(s.deployed))
 	due := next
-	if since.After(due) {
-		due = since
+	if s.deployedAt.After(due) {
+		due = s.deployedAt
 	}
-	// The grace is counted from the first look at which this supervisor, awake,
-	// saw the move overdue, not from the moment it fell due: a machine that slept
-	// across the due moment wakes with the scheduler's own loop yet to run, and
-	// stopping it then would cut live runs short because the laptop slept.
-	deadline := due.Add(scheduled.MoveGrace())
-	if !now.Before(due) {
-		if s.overdueSince == nil {
-			s.overdueSince = make(map[config.ServiceName]time.Time)
-		}
-		first, seenOverdue := s.overdueSince[child.Name()]
-		if !seenOverdue {
-			first = now
-			s.overdueSince[child.Name()] = first
-		}
-		deadline = first.Add(scheduled.MoveGrace())
+	// A machine that slept across the due moment wakes with the scheduler's own
+	// loop yet to run, and stopping it then would cut live runs short because
+	// the laptop slept. So where the operating system records a wake after the
+	// due moment, the grace is counted from that wake instead (observeMachine).
+	counted := due
+	if s.awakeSince.After(counted) {
+		counted = s.awakeSince
 	}
+	deadline := counted.Add(scheduled.MoveGrace())
 	state.MoveDue, state.MoveBy, state.MoveHeld = due, deadline, ""
 	if now.Before(due) {
 		state.Redeploy = fmt.Sprintf("%s; it moves onto it at %s, the least time after its last move (execution.build_move_interval), and goes on working on its own build until then", apart, localStamp(due))
@@ -471,8 +449,6 @@ func (s *Supervisor) restarted(child Child, state *runstate.SupervisedChild, now
 	state.RestartingInto = ""
 	state.Redeploy = ""
 	state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
-	delete(s.behindSince, child.Name())
-	delete(s.overdueSince, child.Name())
 	s.log("the %s service %s and is on build %s: restart %d into a deployed build, a restart rather than a death, so its restart bound is untouched", child.Name(), how, short(into), state.Restarts)
 }
 

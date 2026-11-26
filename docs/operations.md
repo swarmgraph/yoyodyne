@@ -301,8 +301,10 @@ the part is doing:
 
   The supervisor also reads, with its own build, when the scheduler's move
   falls due: three hours (`execution.build_move_interval`) after the last
-  move in the watch log, or when the supervisor first found the scheduler
-  behind, whichever is later. The last move is the session that stopped to
+  move in the watch log, or when the deployed binary was written, whichever
+  is later. Both are recorded times, so a supervisor that restarts, as it does
+  onto every build installed, works out the same moment and the same deadline
+  as the one before it. The last move is the session that stopped to
   restart, or the first session on a different build from the one before it,
   so a move the supervisor made itself counts and the next move waits the full
   interval after it. Until the move is due, the scheduler's line says when it
@@ -312,7 +314,7 @@ the part is doing:
   was due, and when the supervisor moves it; the next maintenance pass's
   `redeploy` step and `yoyo status` both carry that line, and the development manager's health reading names the scheduler as left behind, with both builds and when the move was due. While the move is not yet due, that reading does not count the scheduler's old build as a problem. A session that has
   not begun its move by its limit for winding down and five more minutes past the
-  first look at which the supervisor, awake, found the move overdue is restarted the same way as one stuck winding down. Counting from that look, not from the due moment, means a laptop that slept across the due moment never has the scheduler's runs stopped at the first look on waking. That
+  moment it fell due is restarted the same way as one stuck winding down. Where the operating system's own sleep history records the machine waking after that moment, the time is counted from the wake instead, so a laptop that slept across the due moment never has the scheduler's runs stopped at the first look on waking. That
   holds whatever build the scheduler runs, since it is the supervisor's
   build that decides it.
 - **The Slack sink is restarted by the supervisor**, between two passes over
@@ -4473,7 +4475,11 @@ nothing outside the process can. It moves at most once every
 `execution.build_move_interval`, three hours by default: a build installed
 sooner than that after the last move waits, the session says once in its log
 when it will move, and when the time is up it moves onto the newest build
-installed then. Between the move falling due and restarting, the
+installed then. The session looks for that moment at the top of every pull and
+also on a timer of its own, about once a minute, so a pull held up for minutes
+by a slow tracker does not hold the move back: the drain is dated from the
+moment the timer found the move due, and the pull it found it in starts
+nothing more. Between the move falling due and restarting, the
 session is **draining**, and it is worth being exact about what that does and
 does not stop, because on 2026-09-19 it stopped everything: at 07:35Z the
 session logged that it was restarting, then did nothing for over two hours

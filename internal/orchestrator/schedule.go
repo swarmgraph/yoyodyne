@@ -1104,6 +1104,10 @@ type Scheduler struct {
 	// gives its merge queue passes to end on their own; zero is
 	// queueStepGrace's default. It is a field only so a test can shorten it.
 	queueStepGrace time.Duration
+	// moveCheckEvery is how often the session's own timer looks at whether a
+	// move onto a newly installed build has fallen due; zero is
+	// buildMoveCheckEvery. It is a field only so a test can shorten it.
+	moveCheckEvery time.Duration
 	// Watchdog notices that this product has started nothing at all while work
 	// was ready, and records it where every surface reads it back. It is called
 	// once per pull, from this loop's own goroutine and before anything is
@@ -1940,6 +1944,14 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// checks under load, with the second seat empty and two recurring passes
 	// missed.
 	var drain redeployDrain
+	// moves is the session's own timer on whether a move onto a newly
+	// installed build has fallen due, which a pull asks before every start it
+	// makes (movewatch.go), and noticeMove begins the drain from the moment the
+	// timer found the move due, once, wherever the pull is when it asks.
+	moves := &moveWatch{}
+	stopMoveWatch := s.watchForMove(ctx, moves)
+	defer stopMoveWatch()
+	var noticeMove func() bool
 	// moveEvery is execution.build_move_interval as the last pull read it, and
 	// moveWaitSaid the moment a found build was last said to be waiting for, so
 	// the wait is said once rather than at every pull.
@@ -2017,6 +2029,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		waitsSaid = sayWaitingFirings(session, cadence.waiting, waitsSaid, running)
 	}
 	firingsBetween = func() {
+		noticeMove()
 		if pullRecurring == nil || ctx.Err() != nil || s.now().Before(firingsChecked.Add(firingCheckEvery)) {
 			return
 		}
@@ -2544,10 +2557,38 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		return true
 	}
 
+	// beginMove is the move onto a newly installed build beginning: the drain
+	// starts from at, which is now at the top of the loop and the moment the
+	// session's timer found the move due where that was earlier.
+	beginMove := func(at time.Time) {
+		drain.begin(at)
+		landings.moving(drain.limit, s.SessionID)
+		// A pass going round on its own stops at its next turn, so the
+		// restart is not held for a queue waiting on the forge.
+		queuePasses.settle()
+		schedule.Drain = &ScheduleDrain{Since: drain.since, Bound: drain.limit}
+		session.draining(drain.record(running))
+		session.note(drain.found(running), running)
+	}
+	noticeMove = func() bool {
+		if drain.active {
+			return false
+		}
+		at, due := moves.due()
+		if !due {
+			return false
+		}
+		beginMove(at)
+		// The pull that finds the move due starts nothing more, and the next
+		// pull is the first made under the drain (redeployDrain.foundInPull).
+		drain.foundInPull = true
+		return true
+	}
 	session.enter(runstate.WatchWatching, account{reason: s.opening()})
 pulling:
 	for {
 		pullSlots, whyPassed = newSlotAccount(), map[string]string{}
+		drain.foundInPull = false
 		// A pull that read everything it needed clears the failures behind it. What
 		// the window measures is a store that has gone on being unreadable, rather
 		// than a count of the contended readings one session met over a long life.
@@ -2613,14 +2654,11 @@ pulling:
 						runstate.LocalStamp(due), buildMoveEvery(moveEvery)), running)
 				}
 			case replaced:
-				drain.begin(s.now())
-				landings.moving(drain.limit, s.SessionID)
-				// A pass going round on its own stops at its next turn, so the
-				// restart is not held for a queue waiting on the forge.
-				queuePasses.settle()
-				schedule.Drain = &ScheduleDrain{Since: drain.since, Bound: drain.limit}
-				session.draining(drain.record(running))
-				session.note(drain.found(running), running)
+				at := s.now()
+				if found, due := moves.due(); due && found.Before(at) {
+					at = found
+				}
+				beginMove(at)
 			}
 		}
 		if drain.active {
@@ -2751,6 +2789,7 @@ pulling:
 		runs = pull.Runs
 		poll = pull.Poll
 		moveEvery = pull.BuildMoveInterval
+		moves.interval(buildMoveEvery(moveEvery))
 		// Before anything counts the slots, every run counting against them with
 		// no live worker behind it lets its slot go. It is the first thing each
 		// pull does, so it is also the first thing a scheduler does as it starts:
@@ -3252,6 +3291,7 @@ pulling:
 		// back by the same switches a continuation is, for the same reasons, and
 		// the run reads them again itself.
 		startedDocuments := 0
+		noticeMove()
 		if _, declining := drain.declinesStarts(pull.Poll, s.now()); !paused && !held && !declining {
 			documents, err := s.nextDocuments(pull, landing, mine, refusedDocuments, len(schedule.Started), passOver)
 			if err != nil {
@@ -3499,6 +3539,7 @@ pulling:
 		// is yes it starts nothing more and goes back to the top, where the bound
 		// is applied.
 		drainDeclinesNow := func() bool {
+			noticeMove()
 			_, declined := drain.declinesDeveloperStarts(pull.Poll, s.now())
 			return declined
 		}
@@ -3551,7 +3592,7 @@ pulling:
 			// log still names each decision this pass left standing and why.
 			if outstanding, err := pull.CarryOut.Outstanding(); err == nil {
 				for _, task := range outstanding {
-					schedule.waitCarryOut(task, "this session is stepping down to restart on a newly deployed build and starts nothing new before then; the session that replaces it attempts it at its first pull")
+					schedule.waitCarryOut(task, drain.stepDownSays())
 				}
 			}
 		}
@@ -3751,6 +3792,8 @@ pulling:
 			var continued func(runstate.State) bool
 			waits := "the operator has paused everything the harness spends, so nothing is continued until that lifts"
 			switch {
+			case declining && drain.foundInPull:
+				waits = movedInPullSays
 			case declining:
 				waits = "this session is stepping down to restart on a newly deployed build, so the session that replaces it continues it"
 			case held:
@@ -3937,6 +3980,7 @@ pulling:
 		// because the two are otherwise the same silence — and marked on the
 		// drain as well as said, so the read model names the poll as the session
 		// restarting rather than as an idle session over a queue with work in it.
+		noticeMove()
 		if remaining, declined := drain.declinesDeveloperStarts(pull.Poll, s.now()); declined {
 			drain.paused(s.now())
 			pullSlots.say(pullSlots.ruleAccount("the session is restarting onto a newly deployed build, so it starts nothing new into a free slot and the session that comes back fills it"))
@@ -3949,6 +3993,9 @@ pulling:
 			if drain.boundReached {
 				reason = fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound has run out and the restart is waiting for %s, so the session that comes back pulls them; %s",
 					free, drain.holdingRestart(), skipped.Says())
+			}
+			if drain.foundInPull {
+				reason = fmt.Sprintf("nothing more is pulled into the %d free seat(s) by this pull: %s; %s", free, movedInPullSays, skipped.Says())
 			}
 			if !wait(pull, runstate.WatchIdle, account{reason: reason, running: len(occupied)}) {
 				schedule.Stopped = ScheduleCancelled
@@ -4354,7 +4401,7 @@ pulling:
 		if stoppedForMove {
 			leftBehind = nil
 			for _, pending := range pendingCarryOuts {
-				schedule.waitCarryOut(pending.task, "this session is stepping down to restart on a newly deployed build and starts nothing new before then; the session that replaces it attempts it at its first pull")
+				schedule.waitCarryOut(pending.task, drain.stepDownSays())
 			}
 			pendingCarryOuts = nil
 			drain.paused(s.now())
@@ -7848,6 +7895,12 @@ type redeployDrain struct {
 	// a bound, and a nil channel is one a select never chooses.
 	due   <-chan time.Time
 	timer *time.Timer
+	// foundInPull is the drain having begun inside the pull now under way,
+	// because the session's timer found the move due while the pull was at
+	// work (movewatch.go). That pull starts nothing more, so the move is not
+	// held by work it found after the move fell due; the pulls after it are
+	// made under the drain like any other.
+	foundInPull bool
 }
 
 // begin is the deploy having been found. The bound the last pull read is what
@@ -7951,7 +8004,13 @@ func (d redeployDrain) expired(now time.Time) bool {
 // be stopped — and how far off the bound is, which is nothing once it has run
 // out.
 func (d redeployDrain) declinesStarts(poll time.Duration, now time.Time) (time.Duration, bool) {
-	if !d.active || d.limit <= 0 {
+	if !d.active {
+		return 0, false
+	}
+	if d.foundInPull {
+		return max(d.deadline().Sub(now), 0), true
+	}
+	if d.limit <= 0 {
 		return 0, false
 	}
 	if d.boundReached {
@@ -7977,6 +8036,15 @@ func (d redeployDrain) declinesDeveloperStarts(poll time.Duration, now time.Time
 		return 0, false
 	}
 	return d.declinesStarts(poll, now)
+}
+
+// stepDownSays is what a pull declining starts for the move says of a
+// decision it leaves standing.
+func (d redeployDrain) stepDownSays() string {
+	if d.foundInPull {
+		return movedInPullSays
+	}
+	return "this session is stepping down to restart on a newly deployed build and starts nothing new before then; the session that replaces it attempts it at its first pull"
 }
 
 // found is what the session says the moment it finds the deploy: what it will
