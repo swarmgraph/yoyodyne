@@ -1,11 +1,13 @@
 package runstate
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -414,6 +416,24 @@ type CheckFailure struct {
 	// every finding as its reviewer wrote it, where that review rather than a
 	// check is what failed. Output holds only the hand-back's bounded reason.
 	QueueReview *ReviewBefore `json:"queue_review,omitempty"`
+}
+
+// Same reports whether two check failures say the same thing. Several of the
+// fields are pointers, so comparing the structs with == compares where each
+// reading was decoded to rather than what it says, and two readings of one
+// stored failure always differ. They are compared as the record stores them
+// instead, which is also what makes an absent list and an empty one the same
+// failure wherever the record leaves both out.
+func (f CheckFailure) Same(other CheckFailure) bool {
+	mine, err := json.Marshal(f)
+	if err != nil {
+		return reflect.DeepEqual(f, other)
+	}
+	theirs, err := json.Marshal(other)
+	if err != nil {
+		return reflect.DeepEqual(f, other)
+	}
+	return bytes.Equal(mine, theirs)
 }
 
 // MaxQueueReviewFindingBytes bounds each text of a finding in a QueueReview. It
