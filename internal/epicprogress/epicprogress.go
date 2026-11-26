@@ -514,11 +514,65 @@ func (e Entry) RunsReserved() []string {
 }
 
 // CallsReserved is each paid call reserved for a naming that is not a run's
-// start: a joining judgment or a check of the whole epic.
+// start: a joining judgment or a check of the whole epic. A run of the declared
+// checks calls no provider and is not one (ChecksRunsReserved).
 func (e Entry) CallsReserved() []Reservation {
 	return slices.DeleteFunc(slices.Clone(e.Reservations), func(reserved Reservation) bool {
-		return strings.HasPrefix(reserved.ID, runReservation("")) && reserved.HeldBy != ""
+		return strings.HasPrefix(reserved.ID, runReservation("")) && reserved.HeldBy != "" || strings.HasPrefix(reserved.ID, checksRunPrefix)
 	})
+}
+
+// CheckFor begins what the reservation of a check of the whole epic is for.
+const CheckFor = "the check of the whole epic"
+
+const checksRunPrefix = "checks:"
+
+// ChecksRun is the reservation of the project's declared checks, run on one
+// commit for the check of the whole epic with the identifier check.
+func ChecksRun(check, commit string) string { return checksRunPrefix + check + ":" + commit }
+
+// ChecksRunsReserved is each run of the declared checks reserved for a check of
+// the whole epic. It is charged to the epic and calls no provider.
+func (e Entry) ChecksRunsReserved() []Reservation {
+	return slices.DeleteFunc(slices.Clone(e.Reservations), func(reserved Reservation) bool {
+		return !strings.HasPrefix(reserved.ID, checksRunPrefix)
+	})
+}
+
+// CheckCommits is each commit whose declared checks were reserved for the check
+// of the whole epic with the identifier check, in the order they were reserved.
+func (e Entry) CheckCommits(check string) []string {
+	var commits []string
+	for _, reserved := range e.ChecksRunsReserved() {
+		if commit, mine := strings.CutPrefix(reserved.ID, checksRunPrefix+check+":"); mine {
+			commits = append(commits, commit)
+		}
+	}
+	return commits
+}
+
+// CheckUnderway is the identifier of the check of the whole epic last begun that
+// is still under way: its declared checks or its call are reserved, nothing is
+// kept of it, and its call has no result. A call answered and not kept was
+// refused, so the check is owed again under a new identifier.
+func (e Entry) CheckUnderway() (string, bool) {
+	for _, reserved := range slices.Backward(e.Reservations) {
+		id := ""
+		switch {
+		case strings.HasPrefix(reserved.For, CheckFor):
+			id = reserved.ID
+		case strings.HasPrefix(reserved.ID, checksRunPrefix):
+			id, _, _ = strings.Cut(strings.TrimPrefix(reserved.ID, checksRunPrefix), ":")
+		default:
+			continue
+		}
+		call, called := e.Reservation(id)
+		if slices.ContainsFunc(e.Checks, func(check Check) bool { return check.ID == id }) || called && call.Result != nil {
+			return "", false
+		}
+		return id, true
+	}
+	return "", false
 }
 
 // RunSharedBy is how many namings a run's start was reserved for: a document

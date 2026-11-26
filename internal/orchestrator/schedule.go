@@ -858,6 +858,9 @@ type Pull struct {
 	// EpicJoins judges the pieces that may join a named epic. Optional; see
 	// ScheduleEpicJoins.
 	EpicJoins ScheduleEpicJoins
+	// EpicChecks makes the check of the whole of a named epic whose members are
+	// all done. Optional; see ScheduleEpicChecks.
+	EpicChecks ScheduleEpicChecks
 	// Outages is the product's record of the provider answering nobody, and
 	// Provider is what a watch asks whether the login has been renewed. Both
 	// optional; see ScheduleOutages. A pull wired without them counts a dispatch
@@ -1434,6 +1437,9 @@ type Schedule struct {
 	CorrectionProblem string `json:"correction_problem,omitempty"`
 	// EpicJoinProblem is why a piece that may join a named epic could not be judged.
 	EpicJoinProblem string `json:"epic_join_problem,omitempty"`
+	// EpicCheckProblem is why the check of the whole of a named epic could not be
+	// made.
+	EpicCheckProblem string `json:"epic_check_problem,omitempty"`
 	// ProviderAway counts the dispatches this pass made that the provider turned
 	// away because nobody was logged into it or nobody could reach it, and
 	// ProviderOutage is the outage as the last pull found it standing, nil once
@@ -2844,6 +2850,7 @@ pulling:
 		// correct.
 		s.correct(ctx, &schedule, pull, firings, !drain.active || running > 0)
 		s.judgeEpicPieces(ctx, &schedule, pull, firings, !drain.active || running > 0)
+		s.checkWholeEpics(ctx, &schedule, pull, firings, !drain.active || running > 0)
 		// The claims the tracker holds are audited here, for the reason the three
 		// above it run here: it chooses nothing and starts nothing, so none of what
 		// follows is allowed to stop it happening. It is last of the four because it
@@ -9694,6 +9701,9 @@ func (s Schedule) Render() string {
 	rendered.WriteString(CorrectionSweep{Corrected: s.Corrected}.Render())
 	if s.EpicJoinProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.EpicJoinProblem)
+	}
+	if s.EpicCheckProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.EpicCheckProblem)
 	}
 	if s.CorrectionProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.CorrectionProblem)

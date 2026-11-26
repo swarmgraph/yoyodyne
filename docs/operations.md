@@ -1872,12 +1872,15 @@ What an epic has spent is the provider reported cost of every run whose start wa
 written down for that naming of it, each run's developer, reviewer and repairs
 included. A run written down for two epics, such as a document answering both, is
 shared equally between them, so nothing is counted twice, and what an item cost
-before you took it out stays counted. A run that cannot be priced from all of its
-record, and any other paid call written down for the epic, such as the judgment of a
-piece, is counted beside the figure as unknown, and is never counted toward the limit.
+before you took it out stays counted. The judgment of a piece that may join and the
+check of the whole epic are added at the provider reported cost recorded under their
+own identifiers. A run that cannot be priced from all of its record, and a judgment or
+check whose cost is not all recorded, is counted beside the figure as unknown, and is
+never counted toward the limit. Each time the project's checks were run for the check
+of the whole epic is counted too; those runs call no provider.
 `yoyo status` shows the figure for each epic that has spent anything or has a limit,
 says when it reaches four fifths of the limit, and gives the command that changes it.
-The cost of role passes, and of the check of the whole epic, is not counted yet.
+The cost of role passes is not counted yet.
 
 `end` leaves epic mode on, the last epic included, and `off` ends no epic. While
 epic mode is off you can still add to an epic or end it. `start` on an epic you
@@ -2172,8 +2175,21 @@ is the one shown:
   provider, the forge, another person or an item outside the epic. Anything that also
   waits on you is named with it.
 
-The reviewer session that makes the check of the whole epic is not built yet, so an
-epic whose members are all done shows Working and says the check is owed. When a check
+When every member of an epic is done, status shows it Working with the check of the
+whole epic owed, and the harness's scheduler then makes that check, even past the
+epic's budget; while it is being made, status says it is under way. The check is made
+by a new session of the reviewer agent that may change nothing, and an answer from any
+session that wrote or reviewed a member, or judged a piece that joined, is refused. It
+is given the epic's description as it read when you named it, the items you took out
+with your words, each member's landed change and review, the target branch at one
+commit, or each approved head where changes wait for a person to merge them, and the
+results of the project's checks there. Those results come from the scheduled check of
+the target branch where it ran the same checks to an end on that commit. Otherwise the
+harness runs the checks itself, in a checkout of their own under the product's state
+directory, with the same limits as any other check; a check the machine ended is run
+once more, and a failing check is given to the session as it is and starts no repair.
+That run is written down in `epic-progress.json` before it starts, and a harness
+stopped partway runs it once more. When a check
 is made, its entry in `epic-progress.json` keeps the commit it read and, for each
 thing the epic's description asks, one answer: met, with where it looked; taken out
 by you, naming the item you took out; not met, with what is missing; or cannot be
