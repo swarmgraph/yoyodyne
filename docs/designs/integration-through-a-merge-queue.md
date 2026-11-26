@@ -55,6 +55,10 @@ revisions:
       by: architect
       at: 2026-11-21T16:35:48.658821Z
       reason: The CI job that installs the tracker program is now named getting-started, not adoption (ci.yml and the Makefile read at cdcd0559a79a); the adoption make target stays only as an alias. The trial section's three mentions of the adoption job and the list of targets outside the full local check are corrected, and the job is described as running the conformance tests and the README walk. Nothing about the trial changes. The rest of the section is copied unchanged from main cdcd0559a79a, read whole.
+    - action: amended
+      by: architect
+      at: 2026-11-26T00:36:38.46153Z
+      reason: 'yoyodyne-32of.2: states how a confined conflict resolution is admitted on the approval of the head it resolves, and how the queue''s record is kept from filling: its own 16 MiB limit, and ended entries moved to history files with the order, superseding and crash guarantees kept. The order section follows once the corrected conflict design lands. Section read whole at 0f35eeff1e4a with internal/runstate/mergequeue.go.'
 approvals:
     - revision: 0
       by: operator
@@ -115,6 +119,11 @@ approvals:
       by: harness
       at: 2026-11-21T16:35:48.658821Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3331, for document-3331.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-11-26T00:36:38.46153Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4079, for document-4079.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -128,11 +137,63 @@ Provide a harness-run queue on every supported forge. Use a forge-native queue o
 
 # Durable admission and ownership
 
-One queue exists per repository and target branch. Admission records an immutable entry identity and monotonically assigned order under a short queue-record lock. Deduplicate repeated admission of the same run and head. Record product, repository, work item title and identifier, run, publication, approved head, integration policy, chosen queue mode, admission time and predecessor order. Priority is not recorded at admission: it is read from the tracker each time the queue chooses, as the next section says.
+One queue exists per repository and target branch. Admission records an immutable entry identity and monotonically assigned order under a short lock on the queue's record. Deduplicate repeated admission of the same run and head. Record product, repository, work item title and identifier, run, publication, approved head, integration policy, chosen queue mode, admission time and predecessor order. Priority is not recorded at admission: it is read from the tracker each time the queue chooses, as the next section says.
 
-Only one worker holds the queue-worker lease for that repository and target. This lease owns selection and candidate generation; it is separate from the existing target promotion lease. Checks and review run outside the promotion lease. The promotion lease covers only fresh target validation, the guarded mutation and its durable handoff. Never retain it through provider work or a long remote wait.
+Only one worker holds the lease that makes it the worker for that repository and target. This lease owns selection and candidate generation; it is separate from the existing target promotion lease. Checks and review run outside the promotion lease. The promotion lease covers only fresh target validation, the guarded mutation and its durable handoff. Never retain it through provider work or a long remote wait.
 
-Queue waiting alone does not occupy a developer slot. Any developer or reviewer invocation uses its existing capacity and spending rules. Queue-worker exclusivity must not be implemented by permanently occupying a developer slot.
+Queue waiting alone does not occupy a developer slot. Any developer or reviewer invocation uses its existing capacity and spending rules. That only one worker runs must not be implemented by permanently occupying a developer slot.
+
+## A resolved change whose approval was of an earlier head
+
+A change is admitted on the approval of its exact head, with one exception, which decision 4 of [approved changes that no longer merge](approved-changes-that-no-longer-merge.md) makes: a resolution of a conflict that the harness found confined to the conflicting files is admitted on the approval of the head it resolves. These rules hold for it:
+
+- the entry records two heads: as its approved head, the head the reviewer approved, with that review; and as its resolved head, the commit the developer's session produced; and it records the comparison that found the resolution confined;
+- the exception is for the run that earned the approval and for no other run;
+- the candidate is built from the resolved head, and wherever this document speaks of an entry's admitted head, the resolved head is meant where there is one;
+- two admissions of the same run are the same admission only where both heads agree;
+- nothing shows the resolved head as approved until the candidate's own review approves it, and the landing needs that review and the candidate's checks as every landing does;
+- a resolution the harness did not find confined, or whose comparison could not be made, is admitted only once it has been reviewed itself.
+
+The two new fields are left out where an entry has no resolved head, so entries already recorded are read as they are. A build that does not know the fields refuses to write the record rather than writing it without them.
+
+## The size of the queue's record
+
+On November 25, 2026 the record for `main`, which keeps every entry ever admitted, reached 1,048,576 bytes, the limit it shared with other records. From then on no approved change could be admitted, code or document. Two rules keep that from happening again:
+
+- **A limit of its own.** The queue's record has a limit of 16 MiB, used wherever that record is written or read, and no other record's limit changes. An admission that would pass it is refused with the size and the limit named, and the record stays as it was. The item giving the record this limit (yoyodyne-32of.5) builds it.
+- **Ended entries move to a history.** Once the record passes 1 MiB, the next admission first moves ended entries, earliest first, until the record is under 512 KiB or no ended entry is left. An entry has ended when its landing is recorded complete, when a later entry of the same run supersedes it, or when it was handed back or released and its run has ended. A waiting entry, and one being checked, reviewed or landed, is never moved. Moved entries go, unchanged, into history files beside the record, one for each calendar month in which entries are moved. A history file that would pass 16 MiB is continued in a second file for that month.
+
+The history keeps the guarantees the record gives:
+
+- the move is made under the record's lock; the history file is written and confirmed saved first, and the record after it, so a crash between the two leaves an entry in both and never in neither;
+- an entry in both places with the same contents is one entry, and the next move completes it; with different contents it is an error that names the entry, and nothing is admitted or moved until it is settled;
+- the record keeps the next order to assign, so an order in the history is never assigned again;
+- the order, predecessor, place and superseding checks are made over the record and its history together when an admission moves entries, and over the record alone otherwise, where a predecessor, or an entry superseded, that the record does not hold must be earlier than the entry that names it;
+- an admission whose run has no entry in the record looks for the run's newest entry in the history before deciding it is the run's first, so a run continued long after its entry ended still names the entry it supersedes;
+- every reader that reports past entries, the daily wait figures among them, reads the history as well, and an unreadable history file is reported as unread and never as empty. An unreadable history file stops only the admissions that must read it: one whose run has no entry in the record, and one that would move entries. The refusal names the file and spends no repair attempt.
+
+The records kept beside each entry, of its candidates and its landing, stay where they are.
+
+yoyo doctor and the factory health check report the record once it passes 4 MiB, naming its size and how many of its entries have ended. Passing 4 MiB means the move is not keeping up, and it leaves time to act before admission stops.
+
+Alternatives rejected: only raising the limit, because the record is written whole at each admission and would fill again; deleting ended entries, because they are the history of every attempt to land a change; moving entries by age alone, because an entry can wait for days and must stay; one history file without limit, because it would meet the same fault later; moving only an unbroken run of the oldest entries, because one old entry whose run never ended would keep everything after it.
+
+Build work: two pieces, each built and checked on its own.
+
+1. The limit of 16 MiB for this record (yoyodyne-32of.5). It lands outside the queue, because the full record refuses it too.
+2. The history files, the move, the readers that read them, and the report at 4 MiB. It is queued like any other change.
+
+Admitting a confined resolution is built with build piece 4 of approved changes that no longer merge.
+
+A reviewer can check:
+
+- a record of more than 1 MiB whose size is under 16 MiB is admitted to and read back, and one that would pass 16 MiB is refused with its size and limit named and the earlier record unchanged;
+- an admission with the record past 1 MiB moves only ended entries, unchanged, and leaves every waiting entry and the next order as they were;
+- a crash after the history is saved and before the record is loses no entry and admits nothing twice;
+- a run whose ended entry is in the history, admitted again, names that entry as the one it supersedes;
+- an unreadable history file refuses only the admissions that must read it, naming the file, and the daily figures say it was unread;
+- a confined resolution is admitted with both heads and the comparison recorded, its candidate is built from the resolved head, and no surface shows that head as approved before the candidate's review;
+- a resolution not found confined is refused admission until it is reviewed.
 
 # The order the queue takes entries in
 
