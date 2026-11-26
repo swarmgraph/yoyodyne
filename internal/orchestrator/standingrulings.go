@@ -53,6 +53,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/designagreement"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -171,7 +172,7 @@ func passNoteOf(text string, role domain.AgentRole) bool {
 		}
 	}
 	if role == domain.RoleArchitect {
-		_, agreed := readAgreement(text)
+		_, agreed := designagreement.Read(text)
 		return agreed
 	}
 	return false

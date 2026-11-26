@@ -110,9 +110,14 @@ func bundles() []Bundle {
 			Holds: []capability.Capability{
 				// The architect reads and surveys the tracker and files no work in it:
 				// the work it would otherwise file is proposed to the product manager
-				// instead. The one thing it writes there is the note described at
-				// ReportHandleAddressed below.
+				// instead. The only things it writes there are the agreement note below
+				// and the note described at ReportHandleAddressed below.
 				capability.WorkItemRead,
+				// The one write the architect has on an item: the note recording that
+				// she checked a revision of a design against it and found they agree.
+				// The harness writes the note from her action; she writes no other
+				// part of the item.
+				capability.WorkItemAgreementNote,
 				capability.ReportFile,
 				// Recording what became of a report addressed to the architect by
 				// name, so one she has answered leaves her own list without the Lead
