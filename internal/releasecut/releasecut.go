@@ -24,7 +24,10 @@
 // release workflow publishes the page
 // from the same notes on main (scripts/release-body.sh). A release item the
 // Lead Product Manager has parked is neither cut nor written on, and a cut
-// recorded for it waits until she releases it.
+// recorded for it waits until she releases it. A release the run that landed
+// its notes left open for its tag is not parked in that sense: under either
+// setting this step closes it once the remote holds the tag, and under human
+// says once that the cut is the operator's (owed.go).
 //
 // Interrupted publication follows the architect's ruling on release-tag
 // recovery (Settle interrupted release-tag publication, yoyodyne-ifd.436.2.1):
@@ -104,11 +107,14 @@ var gates = []string{
 }
 
 // Tracker is the work the cut reads and the release item it writes on. It is
-// satisfied by beads.Client, and its only write appends a note: the pass
-// writes no tracker status.
+// satisfied by beads.Client. It appends notes, and the one status it writes is
+// the close of a release held open only for its tag, once the remote holds the
+// tag (owed.go).
 type Tracker interface {
 	List(ctx context.Context, status string) ([]beads.WorkItem, error)
+	Show(ctx context.Context, id string) (beads.WorkItem, error)
 	RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error)
+	Complete(ctx context.Context, id, reason string) (beads.WorkItem, error)
 }
 
 // Cuts is the record of the cuts. It is satisfied by *runstate.ReleaseCutStore.
@@ -164,7 +170,7 @@ type Cutter struct {
 func (c *Cutter) Pass(ctx context.Context) runstate.SweepStep {
 	step := runstate.SweepStep{Name: StepName}
 	if c.Mode != domain.ApprovalAutomatic {
-		return skipped(step, "approvals.releases is human, so a release the Lead Product Manager decided is cut by a person with make release")
+		return c.humanPass(ctx)
 	}
 	if c.Runner == nil || c.Tracker == nil || c.Cuts == nil {
 		return failed(step, "the release cut is not wired with a process runner, the tracker, and its record, so nothing is cut")
@@ -181,7 +187,8 @@ func (c *Cutter) Pass(ctx context.Context) runstate.SweepStep {
 		return failed(step, fmt.Sprintf("the tracker could not be read, so whether a release is parked is not known and nothing is cut: %v", err))
 	}
 	parked := parkedReleases(items)
-	owed := c.announceOwed(ctx, cuts, parked)
+	settled, unsettled := c.settleOwed(ctx, items)
+	owed := strings.Join(append(append(settled, unsettled...), nonEmpty(c.announceOwed(ctx, cuts, parked))...), "; ")
 	if c.Holds != nil {
 		hold, held, err := c.Holds.Held()
 		if err != nil {
@@ -212,11 +219,12 @@ func (c *Cutter) Pass(ctx context.Context) runstate.SweepStep {
 // parkedReleases is the parked items, by id, with the reason each is parked.
 // Every item is read, not only the decided releases, so a cut recorded for an
 // item whose title or origin has since changed is still held while it is
-// parked.
+// parked. A release parked only because its tag is owed is not among them: the
+// tag is what this pass is for (owed.go).
 func parkedReleases(items []beads.WorkItem) map[string]string {
 	parked := map[string]string{}
 	for _, item := range items {
-		if item.Parking.Parked() {
+		if heldBack(item) {
 			parked[item.ID] = item.Parking.Reason()
 		}
 	}
@@ -298,7 +306,7 @@ func (c *Cutter) next(ctx context.Context, cuts []runstate.ReleaseCut, items []b
 	var passedOver []string
 	for _, item := range releases {
 		version, _ := decidedVersion(item)
-		if item.Parking.Parked() {
+		if heldBack(item) {
 			passedOver = append(passedOver, fmt.Sprintf("%s is parked, so it is not cut and nothing is written on %s: %s",
 				version, item.ID, oneline.Fold(item.Parking.Reason(), maxDetailBytes)))
 			continue
@@ -336,7 +344,7 @@ func standing(cuts []runstate.ReleaseCut, version string) string {
 		}
 		switch cut.State {
 		case runstate.ReleaseCutPushed:
-			return fmt.Sprintf("was pushed by the harness at %s, and waits on the Lead Product Manager to close its item", local(cut.UpdatedAt))
+			return fmt.Sprintf("was pushed by the harness at %s, and its item is closed by this pass where its notes' run left it open for the tag, and otherwise by the Lead Product Manager", local(cut.UpdatedAt))
 		case runstate.ReleaseCutBlocked:
 			return "is held for the Lead Product Manager to choose a new version: " + cut.Detail
 		}
@@ -776,7 +784,7 @@ func (c *Cutter) announce(ctx context.Context, cut runstate.ReleaseCut) (runstat
 func (c *Cutter) note(cut runstate.ReleaseCut) string {
 	switch {
 	case cut.State == runstate.ReleaseCutPushed:
-		return fmt.Sprintf("The harness cut %s and pushed its tag to %s at %s, under its own identity, on commit %s. Every gate a person's cut runs passed on that commit first: %s. The notes' readiness stamp ended in %s, pinned to %s, and matched a fresh reading. Cut by %s. This is the evidence this item's done condition asks for; the Lead Product Manager closes it.",
+		return fmt.Sprintf("The harness cut %s and pushed its tag to %s at %s, under its own identity, on commit %s. Every gate a person's cut runs passed on that commit first: %s. The notes' readiness stamp ended in %s, pinned to %s, and matched a fresh reading. Cut by %s. This is the evidence this item's done condition asks for; the release step closes this item on its next pass where the run that landed its notes left it open for the tag, and otherwise the Lead Product Manager closes it.",
 			cut.Version, c.remote(), local(cut.UpdatedAt), cut.Commit, strings.Join(cut.Gates, "; "), orNone(cut.ReadinessVerdict), orNone(cut.ReadinessDefinition), orNone(cut.CutBy))
 	case cut.State == runstate.ReleaseCutBlocked:
 		return fmt.Sprintf("The harness did not finish cutting %s, and the release is held for the Lead Product Manager: %s.", cut.Version, cut.Detail)
@@ -796,7 +804,7 @@ func (c *Cutter) report(cut runstate.ReleaseCut) error {
 	var message string
 	switch {
 	case cut.State == runstate.ReleaseCutPushed:
-		message = fmt.Sprintf("The harness cut %s and pushed its tag to %s on %s, after every release gate passed. The release workflow publishes it from that tag, and the Lead Product Manager closes %s on this evidence.",
+		message = fmt.Sprintf("The harness cut %s and pushed its tag to %s on %s, after every release gate passed. The release workflow publishes it from that tag, and the release step closes %s where the run that landed its notes left it open for the tag.",
 			cut.Version, c.remote(), short(cut.Commit), cut.WorkItemID)
 	case cut.State == runstate.ReleaseCutBlocked:
 		message = fmt.Sprintf("The harness stopped cutting %s: %s. The Lead Product Manager has to choose what happens to the release on %s.",
@@ -1250,6 +1258,37 @@ func firstWord(args []string) string {
 		return ""
 	}
 	return args[0]
+}
+
+// humanPass is the step under approvals.releases: human. A person cuts the
+// release, so nothing is run or tagged; what the pass still does is close each
+// release held open for its tag once the remote holds it, and say once on each
+// still owed that the cut is the operator's (owed.go).
+func (c *Cutter) humanPass(ctx context.Context) runstate.SweepStep {
+	step := runstate.SweepStep{Name: StepName}
+	const human = "approvals.releases is human, so a release the Lead Product Manager decided is cut by a person with make release"
+	if c.Runner == nil || c.Tracker == nil {
+		return skipped(step, human)
+	}
+	items, err := c.Tracker.List(ctx, "")
+	if err != nil {
+		return failed(step, fmt.Sprintf("%s; the tracker could not be read, so no release held open for its tag was closed: %v", human, err))
+	}
+	settled, problems := c.settleOwed(ctx, items)
+	switch {
+	case len(problems) > 0:
+		return failed(step, prefixed(strings.Join(append(settled, problems...), "; "), human))
+	case len(settled) > 0:
+		return ran(step, prefixed(strings.Join(settled, "; "), human))
+	}
+	return skipped(step, human)
+}
+
+func nonEmpty(text string) []string {
+	if text == "" {
+		return nil
+	}
+	return []string{text}
 }
 
 func prefixed(owed, detail string) string {

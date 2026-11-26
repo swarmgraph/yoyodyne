@@ -2484,6 +2484,7 @@ func (s *State) recordedTexts() []recordedText {
 	own("landing_reason", &s.LandingReason, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	own("landing_impediment_problem", &s.LandingImpedimentProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("landing_problem", &s.LandingProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	own("release_tag_owed", &s.ReleaseTagOwed, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	// A finding is the reviewer's own prose, message and file both, and its
 	// record states no bound of its own; the count of findings is the docket's.
 	for index := range s.ReviewFindingDetails {
@@ -4324,6 +4325,14 @@ type State struct {
 	// withholds the closure — an item left open is something a person can settle,
 	// and the false closure it would otherwise be is what nobody can see.
 	LandingProblem string `json:"landing_problem,omitempty"`
+	// ReleaseTagOwed is the version a release item's run leaves owed: the item is
+	// a release the Lead Product Manager decided, its run lands the notes, and the
+	// tag is cut after them. So a run that would otherwise discharge the item
+	// leaves it open, parked until the tag is on the remote, and the release step
+	// of the maintenance pass closes it then (internal/releasecut, owed.go). It is
+	// set from the item when the developer's claim is read, and empty for every
+	// other item.
+	ReleaseTagOwed string `json:"release_tag_owed,omitempty"`
 	// ReviewFindingDetails carries the findings themselves. It is a separate key
 	// from the ReviewFindings count, which predates it and still means what it
 	// always did, so a state file written before the repair loop existed keeps
@@ -6286,8 +6295,17 @@ func (s State) PublicationUnasked() bool {
 // the only thing standing between a diagnosis and the closure it would otherwise
 // get. yoyodyne-ifd.284 is what that costs when the second reader has nowhere to
 // say it.
+//
+// A release item's run never discharges it: its tag is still owed when its
+// notes land (ReleaseTagOwed).
 func (s State) Discharges() bool {
-	return s.LandingDischarges() && s.ApprovalDischarges() && !s.Escalated()
+	return s.LandingDischarges() && s.ApprovalDischarges() && !s.Escalated() && strings.TrimSpace(s.ReleaseTagOwed) == ""
+}
+
+// OwesReleaseTag reports a run whose item is left open only because its release
+// tag is still owed: every reader of the change would have discharged it.
+func (s State) OwesReleaseTag() bool {
+	return strings.TrimSpace(s.ReleaseTagOwed) != "" && s.LandingDischarges() && s.ApprovalDischarges() && !s.Escalated()
 }
 
 // DiedBeforeClaiming reports a run that failed before it took its work item.

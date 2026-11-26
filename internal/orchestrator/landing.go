@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/landing"
+	"github.com/mason-bryant/yoyodyne/internal/releasecut"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -40,6 +41,14 @@ func (a *activeRun) claimLanding(ctx context.Context, text string) string {
 	a.outcome.LandingBlockedBy = ""
 	a.outcome.LandingImpedimentProblem = ""
 	a.outcome.LandingProblem = ""
+	// A release item's run lands its notes, and its tag is cut after them, so
+	// the item is left open for the tag whatever the claim says
+	// (runstate.State.ReleaseTagOwed). A run holding no item keeps what its
+	// record already says.
+	if a.item.ID != "" {
+		a.state.ReleaseTagOwed, _ = releasecut.ItemVersion(a.item)
+	}
+	a.outcome.ReleaseTagOwed = a.state.ReleaseTagOwed
 	if err != nil {
 		// An unreadable claim is not swallowed the way an unreadable report is. A
 		// report decides nothing, so losing one costs the operator a note; this
@@ -210,6 +219,9 @@ func describeLanding(state runstate.State) string {
 			"\nJudge the change on what it is, and say in your summary which of the two it looks like."
 	}
 	described := claimedLanding(state).Describe()
+	if version := strings.TrimSpace(state.ReleaseTagOwed); version != "" {
+		described += "\n" + fmt.Sprintf("This item is the release of %s. Approving its notes does not close it: it stays open after the change lands until the %s tag is on the remote, and the release step closes it then.", version, version)
+	}
 	if state.LandingDischarges() {
 		return described + "\n" + judgingDischarge
 	}
@@ -222,7 +234,12 @@ func describeLanding(state runstate.State) string {
 // surface describing a run from what it returned and one describing it from its
 // record cannot disagree about whether the item was discharged.
 func (o Outcome) Discharges() bool {
-	return o.LandingDischarges() && o.ApprovalDischarges() && !o.Escalated()
+	return o.LandingDischarges() && o.ApprovalDischarges() && !o.Escalated() && strings.TrimSpace(o.ReleaseTagOwed) == ""
+}
+
+// OwesReleaseTag is the outcome's half of runstate.State.OwesReleaseTag.
+func (o Outcome) OwesReleaseTag() bool {
+	return strings.TrimSpace(o.ReleaseTagOwed) != "" && o.LandingDischarges() && o.ApprovalDischarges() && !o.Escalated()
 }
 
 // Escalated is the outcome's half of runstate.State.Escalated, answered over the
@@ -301,6 +318,9 @@ func (o Outcome) UndischargedAccount() string {
 		return "its " + o.EscalatedBy().Title() + " raised this item as one that cannot be met as it stands, for the development manager to decide: " +
 			strings.Join(strings.Fields(o.EscalationReason()), " ")
 	}
+	if o.OwesReleaseTag() {
+		return "its notes for " + o.ReleaseTagOwed + " landed and the " + o.ReleaseTagOwed + " tag is still owed"
+	}
 	if o.LandingDischarges() && !o.ApprovalDischarges() {
 		return "its reviewer approved the change as evidence rather than as the work this item asked for: " +
 			strings.Join(strings.Fields(o.ReviewSummary), " ")
@@ -318,6 +338,9 @@ func (o Outcome) UndischargedDisposition() string {
 	}
 	if o.Escalated() {
 		return "is parked until the development manager decides what happens to it"
+	}
+	if o.OwesReleaseTag() {
+		return "stays open, parked, until the " + o.ReleaseTagOwed + " tag is on the remote, and the release step closes it then"
 	}
 	if impediment := strings.TrimSpace(o.LandingBlockedBy); impediment != "" {
 		return "stays open waiting on " + impediment
@@ -385,6 +408,10 @@ func undischargedLandingReason(state runstate.State) string {
 		return fmt.Sprintf("Yoyodyne run %s raised this item as one that cannot be met as it stands, so nothing was integrated and the item is parked with the escalation in front of the development manager to decide — replan, park, resequence, or redirect. The %s's account: %s",
 			state.RunID, state.EscalatedBy().Title(), state.EscalationReason())
 	}
+	if state.OwesReleaseTag() {
+		return fmt.Sprintf("Yoyodyne run %s integrated this release's notes into %s, and the %s tag is still owed, so the item stays open, parked, until the tag is on the remote. The release step of the maintenance pass closes it then, recording the tag and the commit it names: it cuts the tag itself under approvals.releases: automatic, and under human it says here that the cut is a step only the operator can take.",
+			state.RunID, nonEmpty(state.TargetBranch, "the target branch"), state.ReleaseTagOwed)
+	}
 	if state.LandingDischarges() && !state.ApprovalDischarges() {
 		return fmt.Sprintf("Yoyodyne run %s integrated a change its independent reviewer approved as evidence rather than as the work this item asked for, so the item stays open with its change integrated and parked. The reviewer's account: %s",
 			state.RunID, state.ReviewSummary)
@@ -424,6 +451,12 @@ func undischargedLandingReason(state runstate.State) string {
 func undischargedParking(state runstate.State) domain.WorkItemParking {
 	if !state.Parks() {
 		return ""
+	}
+	// A release left open for its tag is parked in the words the release step
+	// reads back, so it closes the item once the tag is on the remote and cuts it
+	// rather than passing it over as parked.
+	if state.OwesReleaseTag() {
+		return releasecut.TagOwedParking(state.ReleaseTagOwed, state.RunID)
 	}
 	reason := fmt.Sprintf("yoyodyne run %s landed evidence for this item rather than the work, and did not discharge it: %s",
 		state.RunID, state.LandingReason)
