@@ -55,6 +55,9 @@ var providerInvocations = map[string]string{
 	"internal/cli/exchange.go": "an inter-role ask exchange answering a round: exchangeVoice.noteUsageLimit " +
 		"records the refusal naming the exchange it stopped, because an answering round has neither a run " +
 		"to park nor a conversation of its own to fail at anybody's terminal",
+	"internal/cli/epicjoin.go": "the judgment of whether a piece joins a named epic: epicJoins.judge records the " +
+		"refusal naming the judgment, which has neither a run to park nor a conversation, and " +
+		"internal/epicjoin sends it again after RetryAfter",
 	"internal/repositoryask/asker.go": "the reading helper's session, asked by a conversation role: the " +
 		"conversation hands it a provider wrapped by chat's usageLimitNoting, which records the refusal " +
 		"against the asking conversation through Session.noteUsageLimit, and the ask ends with the refusal " +

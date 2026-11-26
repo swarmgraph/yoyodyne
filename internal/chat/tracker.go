@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -2748,6 +2749,19 @@ func (s *Session) creationVerb(parent string) creation {
 		subject: "the work this would carve out of " + parent,
 		applied: func(id string) string { return "decomposed " + parent + " into " + id },
 	}
+}
+
+var developmentManagerSplit = regexp.MustCompile(`^Created under (\S+), decomposing it by the ` + regexp.QuoteMeta(RoleTitle(domain.RoleDevelopmentManager)) + ` in conversation chat-[a-f0-9]+, after turn \d+\.`)
+
+// SplitByDevelopmentManager is the item a work item was split from, where its own
+// notes say the development manager made it by splitting one. That sentence opens
+// the notes a creation writes (creationVerb, trackerProvenance), and what a role
+// writes afterwards only follows it, so no role can give it to another item.
+func SplitByDevelopmentManager(notes string) (from string, split bool) {
+	if found := developmentManagerSplit.FindStringSubmatch(notes); found != nil {
+		return found[1], true
+	}
+	return "", false
 }
 
 // promptingDirective is the recorded directive an admission answers, and is the

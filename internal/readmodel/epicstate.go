@@ -283,6 +283,10 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 			}
 		}
 	}
+	if waits := s.piecesAsked(epic, entry); len(waits) > 0 {
+		allDone = false
+		standing.Waits = append(standing.Waits, waits...)
+	}
 	delivered := EpicIntegrated
 	if handed {
 		delivered = EpicHandedOver
@@ -809,6 +813,41 @@ func (s *epicStandings) pieces(epic epicscope.Epic, entry epicprogress.Entry, id
 		}
 	}
 	return pieces
+}
+
+// piecesAsked is each piece that may join and has not: one still to be judged, and
+// one that is a question about scope. A piece that is closed, is in an open
+// epic, or joined and was taken out asks nothing more.
+func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entry) []EpicWait {
+	var waits []EpicWait
+	for _, piece := range entry.Pieces {
+		id := piece.WorkItemID
+		if s.done(id) || s.gone(id) || s.inside(id) || epic.TakenOut(id) {
+			continue
+		}
+		owner, says := MoverOf(domain.RoleReviewer), "has not been judged yet"
+		reserved, _ := entry.Reservation(piece.Judgment)
+		switch {
+		case piece.Outcome != nil:
+			owner, says = MoverProductManager, "is a question about scope and does not start: "+scopeQuestion(*piece.Outcome)
+		case reserved.Result != nil && reserved.Result.Unknown:
+			owner, says = MoverDevelopmentManager, "was sent to be judged and has no known answer ("+singleLine(reserved.Result.Says, maxEpicReasonBytes)+"): decide what becomes of it"
+		}
+		waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), s.name(piece.From, ""), says)})
+	}
+	return waits
+}
+
+func scopeQuestion(outcome epicprogress.Outcome) string {
+	why := singleLine(outcome.Why, maxEpicReasonBytes)
+	switch outcome.Answer {
+	case epicprogress.AnswerOutside:
+		return "it asks for more than the epic's description (" + why + ")"
+	case epicprogress.AnswerCannotTell:
+		return "whether the epic's description asks for it cannot be told (" + why + ")"
+	default:
+		return why
+	}
 }
 
 // waitsOnItems is a member held by other items: those outside the epic, on it or

@@ -885,6 +885,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// harness is the only thing that invokes a role, and the pull is where it is
 		// already deciding what to do next.
 		Corrections: corrections,
+		// The pieces that may join an epic the operator named, judged by a reviewer
+		// session that wrote none of them.
+		EpicJoins: epicJoinsFrom(parts),
 		// The provider answering nobody, read before anything is chosen so the
 		// brake never counts a dispatch the provider turned away, and the
 		// developer's provider, asked at every pull whether the login has been

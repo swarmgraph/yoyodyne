@@ -559,6 +559,45 @@ func TestEachStepOwedIsNamed(t *testing.T) {
 	}
 }
 
+func TestAPieceThatHasNotJoinedIsAStepOwed(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		change func(*stateBench)
+		says   string
+		state  EpicState
+	}{
+		"not judged": {func(*stateBench) {}, "has not been judged yet", EpicWorking},
+		"its result cannot be known": {func(b *stateBench) {
+			b.entry.Reservations = []epicprogress.Reservation{{ID: "review-1", For: "a judgment", At: hours(1), Result: &epicprogress.Result{At: hours(1), Says: "nothing shows it", Unknown: true}}}
+		}, "has no known answer (nothing shows it)", EpicWorking},
+		"outside": {func(b *stateBench) {
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
+		}, "is a question about scope and does not start: it asks for more than the epic's description (it adds a page)", EpicWorking},
+		"closed": {func(b *stateBench) { b.status(statePiece, "closed") }, "", EpicIntegrated},
+		"joined and taken out": {func(b *stateBench) {
+			b.join(statePiece, stateOne, hours(1))
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerInside, Why: "it is asked for"}
+			b.remove(statePiece, hours(2))
+		}, "", EpicIntegrated},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := newStateBench(t)
+			b.landed(stateOne, stateTwo)
+			b.deliver(hours(3))
+			b.entry.Pieces = []epicprogress.Piece{{WorkItemID: statePiece, From: stateOne, Judgment: "review-1", At: hours(1)}}
+			test.change(b)
+			standing := b.wants(test.state)
+			if test.says != "" && !strings.Contains(standing.render(), test.says) {
+				t.Errorf("it says\n%s\nwant %q", standing.render(), test.says)
+			}
+			if name == "not judged" && (len(standing.Waits) != 1 || standing.Waits[0].Owner != MoverOf(domain.RoleReviewer)) {
+				t.Errorf("waits = %+v, want the reviewer's", standing.Waits)
+			}
+		})
+	}
+}
+
 func TestAnEndedEpicKeepsTheStateItHadWhenItWasEnded(t *testing.T) {
 	t.Parallel()
 	b := newStateBench(t)

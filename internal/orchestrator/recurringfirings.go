@@ -560,8 +560,9 @@ func (f *recurringFirings) launch(started StartedFiring, now func() time.Time) {
 
 // besideTurns is how many turns that are not recurring firings a session can
 // have in flight at once: one summons of the development manager by the brake,
-// and one wake correcting a refused tracker block.
-const besideTurns = 2
+// one wake correcting a refused tracker block, and one judging of the pieces that
+// may join a named epic (epicjoin.go).
+const besideTurns = 3
 
 // summonsTask and correctionTask name the two turns taken beside the firings,
 // where a firing waiting behind one says what holds its conversation.
