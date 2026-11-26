@@ -654,11 +654,11 @@ approval never carries over, because the diff it approved is not the one that
 would now be promoted. A replay that conflicts is never
 resolved automatically, and it goes back to a developer first: the change is
 moved onto where the target went with the conflict left in the worktree as Git's
-markers, and a developer session settles it. The first conflict a run meets is
-its one reconciliation attempt, which spends no repair attempt and is made in a
-new developer session, given the approved change and its approval, the conflicts,
-and the target's commits to the conflicting files; a later one is a repair
-attempt in the run's current session. Either way the result is checked
+markers, and a developer session settles it. Each of the first three conflicts a
+run meets is one of its reconciliation attempts, which spend no repair attempt
+and are each made in a new developer session, given the approved change and its
+approval, the conflicts, and the target's commits to the conflicting files; the
+fourth stops the run for the development manager. Either way the result is checked
 and reviewed again before it is promoted. The
 [delivery definition](configuration.md#running-a-work-item-against-the-workflow-definition)
 names that hand-back as the `integrate` state's `reconciling` outcome and routes

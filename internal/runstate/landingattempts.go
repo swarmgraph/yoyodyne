@@ -2,17 +2,19 @@ package runstate
 
 // What happened to an approved change on its way onto a target branch that
 // moved under it: each landing attempt other work beat it to, what the replay
-// that followed made of it, and the one attempt a run gets to bring a change
-// that conflicted at landing level with the target.
+// that followed made of it, and the attempts a run gets to bring a change that
+// conflicted at landing level with the target.
 //
 // Losing a landing says nothing about the change, and neither does a replay
 // onto the newer target that applies cleanly and passes its checks, so such a
 // replay is recorded here and not counted toward the limit on lost landings
 // (lostRacesBeforeGivingBackTheSlot in the orchestrator). A conflict is about
-// the change, but the first one at landing is answered by one attempt of its
-// own rather than out of the repair attempts the review rounds draw on, because
-// a run whose reviews spent those attempts would otherwise stop with approved
-// work it never got to bring up to date.
+// the change, but each of the first MaxReconciliations at landing is answered by
+// an attempt of its own rather than out of the repair attempts the review
+// rounds draw on, because a run whose reviews spent those attempts would
+// otherwise stop with approved work it never got to bring up to date. The limit
+// is decision 3 of the design for approved changes that no longer merge
+// (docs/designs/approved-changes-that-no-longer-merge.md).
 
 import (
 	"errors"
@@ -110,14 +112,46 @@ func commitNamed(commit string) string {
 	return commit
 }
 
-// Reconciliation is the one attempt a run gets to bring its approved change
-// level with the target branch after it conflicted there at landing. It is
-// recorded when the change is handed to its developer, before the developer is
-// invoked, so a process that dies part-way through comes back to an attempt
-// already used rather than a fresh one. It is never counted against the repair
-// attempts.
+// MaxReconciliations is how many attempts one run gets to bring its approved
+// change level with the target after it conflicted at landing, one for each
+// hand-back for a conflict. The next conflict stops the run as about the work,
+// for the development manager. It is held here and nowhere in configuration,
+// and it counts every attempt on the run's record, so neither a restart nor a
+// new build of the harness gives a run more.
+const MaxReconciliations = 3
+
+// HoldMissed is why holding the entries that change the same files did not
+// keep a conflict from happening again, recorded on every attempt after a run's
+// first. The merge queue holds no entries for a returned change yet, so the
+// only reason there is to record is that no hold applied; the reasons a
+// hold can fail are added with the hold itself (build piece 2 of the design).
+type HoldMissed string
+
+const (
+	// HoldMissedNoHold is a conflict met while no hold applied to the
+	// change.
+	HoldMissedNoHold HoldMissed = "no_hold"
+)
+
+// Says is the reason in words, for a sentence.
+func (h HoldMissed) Says() string {
+	switch h {
+	case HoldMissedNoHold:
+		return "the merge queue held no entries that change the same files for it"
+	default:
+		return string(h)
+	}
+}
+
+// Reconciliation is one attempt a run had to bring its approved change level
+// with the target branch after it conflicted there at landing. It is recorded
+// when the change is handed to its developer, before the developer is invoked
+// (State.UseReconciliation), so a process that dies part-way through comes back
+// to an attempt already used rather than a fresh one. It is never counted
+// against the repair attempts.
 type Reconciliation struct {
-	TargetBranch string    `json:"target_branch"`
+	TargetBranch string `json:"target_branch"`
+	// TargetCommit is the commit on the target the change conflicted with.
 	TargetCommit string    `json:"target_commit,omitempty"`
 	Paths        []string  `json:"paths,omitempty"`
 	Omitted      int       `json:"omitted,omitempty"`
@@ -125,6 +159,12 @@ type Reconciliation struct {
 	// Handback is the hand-back for a conflict that caused this attempt
 	// (ConflictHandback).
 	Handback string `json:"handback,omitempty"`
+	// Attempt is this attempt's number on the run, from 1. A record written
+	// before attempts were numbered has none, and is the run's first.
+	Attempt int `json:"attempt,omitempty"`
+	// HoldMissed is why holding the entries on the same files did not prevent
+	// this conflict, on every attempt after the first.
+	HoldMissed HoldMissed `json:"hold_missed,omitempty"`
 }
 
 // Validate reports every contract violation in the record at once.
@@ -145,7 +185,21 @@ func (r Reconciliation) Validate() error {
 	if r.UsedAt.IsZero() {
 		problems = append(problems, errors.New("used_at is required"))
 	}
+	if r.Attempt < 0 || r.Attempt > MaxReconciliations {
+		problems = append(problems, fmt.Errorf("attempt %d is outside 1 to %d", r.Attempt, MaxReconciliations))
+	}
+	switch r.HoldMissed {
+	case "", HoldMissedNoHold:
+	default:
+		problems = append(problems, fmt.Errorf("hold_missed %q is not a known reason", r.HoldMissed))
+	}
 	return errors.Join(problems...)
+}
+
+// number is the attempt's number on the run, reading an unnumbered record as
+// the first.
+func (r Reconciliation) number() int {
+	return max(r.Attempt, 1)
 }
 
 // Says is what the run's notes say of the reconciliation attempt.
@@ -158,8 +212,12 @@ func (r Reconciliation) Says() string {
 	if len(r.Paths) > 0 {
 		paths = fmt.Sprintf(" on %d path(s)", len(r.Paths)+r.Omitted)
 	}
-	return fmt.Sprintf("Reconciliation attempt: used. The change conflicted with %s%s%s, and its developer was asked once to bring it level with %s; that attempt was not counted against the repair attempts.",
-		r.TargetBranch, on, paths, r.TargetBranch)
+	said := fmt.Sprintf("Reconciliation attempt %d of %d: used. The change conflicted with %s%s%s, and its developer was asked to bring it level with %s; that attempt was not counted against the repair attempts.",
+		r.number(), MaxReconciliations, r.TargetBranch, on, paths, r.TargetBranch)
+	if r.HoldMissed != "" {
+		said += " It was not prevented because " + r.HoldMissed.Says() + "."
+	}
+	return said
 }
 
 // RecordLostLanding adds the account of one lost landing, dropping the oldest
@@ -208,10 +266,46 @@ func (s State) CountedLostLandings() int {
 	return max(s.IntegrationRetries-s.CleanReplays, 0)
 }
 
-// ReconciliationUsed reports whether this run has had its one attempt to
-// bring a change that conflicted at landing level with the target.
-func (s State) ReconciliationUsed() bool {
-	return s.Reconciliation != nil
+// ReconciliationsUsed is how many attempts this run has had to bring a change
+// that conflicted at landing level with the target.
+func (s State) ReconciliationsUsed() int {
+	if s.Reconciliation == nil {
+		return len(s.EarlierReconciliations)
+	}
+	return max(len(s.EarlierReconciliations)+1, s.Reconciliation.number())
+}
+
+// ReconciliationsSpent reports whether this run has had every attempt it gets
+// (MaxReconciliations), so that the next conflict at landing stops it.
+func (s State) ReconciliationsSpent() bool {
+	return s.ReconciliationsUsed() >= MaxReconciliations
+}
+
+// AllReconciliations is every attempt this run had, oldest first.
+func (s State) AllReconciliations() []Reconciliation {
+	all := append([]Reconciliation(nil), s.EarlierReconciliations...)
+	if s.Reconciliation != nil {
+		all = append(all, *s.Reconciliation)
+	}
+	return all
+}
+
+// UseReconciliation records the run's next attempt to bring its change level
+// with the target, numbered after those already used, and keeps the one it
+// replaces as the latest among the earlier ones. An attempt after the first
+// says why holding the entries on the same files did not prevent its conflict,
+// which today is always that no hold applied. The caller saves the record
+// before the developer is invoked, and never calls this once every attempt is
+// used (ReconciliationsSpent).
+func (s *State) UseReconciliation(attempt Reconciliation) {
+	attempt.Attempt = s.ReconciliationsUsed() + 1
+	if attempt.Attempt > 1 && attempt.HoldMissed == "" {
+		attempt.HoldMissed = HoldMissedNoHold
+	}
+	if s.Reconciliation != nil {
+		s.EarlierReconciliations = append(append([]Reconciliation(nil), s.EarlierReconciliations...), *s.Reconciliation)
+	}
+	s.Reconciliation = &attempt
 }
 
 func (s State) validateLandingAttempts() []error {
@@ -233,6 +327,17 @@ func (s State) validateLandingAttempts() []error {
 	if s.Reconciliation != nil {
 		if err := s.Reconciliation.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("reconciliation: %w", err))
+		}
+	}
+	if len(s.EarlierReconciliations) > 0 && s.Reconciliation == nil {
+		problems = append(problems, errors.New("earlier_reconciliations is recorded without a latest reconciliation"))
+	}
+	if len(s.EarlierReconciliations) >= MaxReconciliations {
+		problems = append(problems, fmt.Errorf("earlier_reconciliations holds %d entries, which exceeds the %d entry bound", len(s.EarlierReconciliations), MaxReconciliations-1))
+	}
+	for index, earlier := range s.EarlierReconciliations {
+		if err := earlier.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("earlier_reconciliations[%d]: %w", index, err))
 		}
 	}
 	return problems

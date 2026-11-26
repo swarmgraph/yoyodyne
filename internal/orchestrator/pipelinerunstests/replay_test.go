@@ -378,9 +378,9 @@ func TestPipelineBlocksWhenTheIntegrationRetryBudgetIsSpent(t *testing.T) {
 }
 
 // A replay that conflicts is the one case the harness must not resolve. Once
-// the run's one reconciliation attempt is used, and with no repair attempt left
-// to hand it back to its developer, a second conflict blocks with both sides
-// intact rather than choosing between them.
+// the run's three reconciliation attempts are used, a fourth conflict blocks
+// with both sides intact rather than choosing between them, and leaves the
+// repair attempts the run still has for the development manager to grant.
 func TestPipelineBlocksOnAReplayConflictWithoutResolvingIt(t *testing.T) {
 	t.Parallel()
 
@@ -388,15 +388,15 @@ func TestPipelineBlocksOnAReplayConflictWithoutResolvingIt(t *testing.T) {
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	// The target moves onto the same line, so the replay is a decision rather
 	// than a mechanical one.
-	provider := orchestratortest.RoleBackend(testharness.ConflictsTwiceAtLanding(t, repository, filepath.Join("docs", "design.md"),
+	provider := orchestratortest.RoleBackend(testharness.ConflictsAtEveryLanding(t, repository, filepath.Join("docs", "design.md"),
 		"this run's answer\n", "somebody else's answer\n", testharness.SomebodyElsesSecondAnswer), testharness.ApproveVerdict)
 	pipeline, store := testharness.NewAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
-	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
+	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 2
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err == nil || !strings.Contains(err.Error(), "cannot be replayed onto the moved target branch") ||
-		!strings.Contains(err.Error(), "again after this run's one reconciliation attempt was already used") {
-		t.Fatalf("Run() error = %v, want the second conflict stopping the run and naming the reconciliation attempt as used", err)
+		!strings.Contains(err.Error(), "again after this run's 3 reconciliation attempts were already used") {
+		t.Fatalf("Run() error = %v, want the fourth conflict stopping the run and naming the reconciliation attempts as used", err)
 	}
 	if !outcome.Blocked || outcome.Integration != nil || tracker.Closed {
 		t.Fatalf("Run() outcome = %#v, closed = %t", outcome, tracker.Closed)
@@ -409,7 +409,7 @@ func TestPipelineBlocksOnAReplayConflictWithoutResolvingIt(t *testing.T) {
 	}
 	// Both sides survive: the target keeps its answer, the worktree keeps this
 	// run's, and neither was merged into the other.
-	if content := testharness.ReadPipelineFile(t, repository, filepath.Join("docs", "design.md")); content != testharness.SomebodyElsesSecondAnswer {
+	if content := testharness.ReadPipelineFile(t, repository, filepath.Join("docs", "design.md")); content != testharness.SomebodyElsesLastAnswer {
 		t.Fatalf("target content = %q", content)
 	}
 	if content := testharness.ReadPipelineFile(t, outcome.WorktreePath, filepath.Join("docs", "design.md")); content != "this run's answer\n" {
@@ -422,7 +422,8 @@ func TestPipelineBlocksOnAReplayConflictWithoutResolvingIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if state.Integration != nil || state.IntegrationRetries != 2 || state.HarnessCommit == "" || state.Reconciliation == nil {
+	if state.Integration != nil || state.IntegrationRetries != 1+runstate.MaxReconciliations || state.HarnessCommit == "" ||
+		state.ReconciliationsUsed() != runstate.MaxReconciliations || state.RepairAttempts != 0 {
 		t.Fatalf("state = %#v", state)
 	}
 	if head := testharness.GitLine(t, outcome.WorktreePath, "rev-parse", "HEAD"); head != state.HarnessCommit {
@@ -445,13 +446,15 @@ func TestPipelineBlocksOnAReplayConflictWithoutResolvingIt(t *testing.T) {
 	if want := []string{"docs/design.md"}; strings.Join(state.ReplayConflict.Paths, ",") != strings.Join(want, ",") {
 		t.Fatalf("conflicted paths = %v, want %v", state.ReplayConflict.Paths, want)
 	}
-	if !strings.Contains(tracker.BlockReason, "The replay stopped on: docs/design.md") || !strings.Contains(tracker.BlockReason, "Repair attempts: 0 of 0 permitted") {
+	if !strings.Contains(tracker.BlockReason, "The replay stopped on: docs/design.md") || !strings.Contains(tracker.BlockReason, "Repair attempts: 0 of 2 permitted") {
 		t.Fatalf("blocker does not name the conflict and the spent budget: %q", tracker.BlockReason)
 	}
-	// The stop reason says the reconciliation attempt was already used, and
-	// what each lost landing made of the change.
-	for _, want := range []string{"after the run's one reconciliation attempt was already used", "Reconciliation attempt: used.",
-		"Landing attempts lost to other work: 2. 0 of them were replayed cleanly", "Lost landing 1:", "it conflicted with what other work had changed there", "Lost landing 2:"} {
+	// The stop reason says the reconciliation attempts were already used, each
+	// with the commit it conflicted with and, after the first, that no hold was
+	// applied, and what each lost landing made of the change.
+	for _, want := range []string{"after the run's 3 reconciliation attempts were already used", "Reconciliation attempt 1 of 3: used.",
+		"Reconciliation attempt 2 of 3: used.", "Reconciliation attempt 3 of 3: used.", "It was not prevented because the merge queue held no entries that change the same files for it.",
+		"Landing attempts lost to other work: 4. 0 of them were replayed cleanly", "Lost landing 1:", "it conflicted with what other work had changed there", "Lost landing 4:"} {
 		if !strings.Contains(tracker.BlockReason, want) {
 			t.Fatalf("blocker does not say %q:\n%s", want, tracker.BlockReason)
 		}
@@ -475,12 +478,11 @@ func TestAReplayConflictWhoseBlockerCouldNotBeWrittenIsNeverAResumableStop(t *te
 		Item:     beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"},
 		BlockErr: errors.New("bd update failed with status cancelled and exit code -1: signal: killed"),
 	}
-	provider := orchestratortest.RoleBackend(testharness.ConflictsTwiceAtLanding(t, repository, filepath.Join("docs", "design.md"),
+	provider := orchestratortest.RoleBackend(testharness.ConflictsAtEveryLanding(t, repository, filepath.Join("docs", "design.md"),
 		"this run's answer\n", "somebody else's answer\n", testharness.SomebodyElsesSecondAnswer), testharness.ApproveVerdict)
 	pipeline, store := testharness.NewAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
-	// The run's reconciliation attempt answers the first conflict, and no repair
-	// attempt is left to hand the second back to its developer (yoyodyne-ifd.132),
-	// so the second goes straight to the blocker write.
+	// The run's reconciliation attempts answer the first three conflicts, and the
+	// fourth goes straight to the blocker write.
 	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 	// With no blocker on the item, the run reaches the docket as a death that
 	// preserved its change, which is written as the run ends rather than found by
@@ -554,12 +556,11 @@ func TestAReplayConflictAfterApprovalChargesNothingAndLeavesTheApprovalStanding(
 
 	repository := testharness.PipelineRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-ifd.349", Title: "Task", Status: "open"}}
-	provider := orchestratortest.RoleBackend(testharness.ConflictsTwiceAtLanding(t, repository, filepath.Join("docs", "design.md"),
+	provider := orchestratortest.RoleBackend(testharness.ConflictsAtEveryLanding(t, repository, filepath.Join("docs", "design.md"),
 		"this run's answer\n", "somebody else's answer\n", testharness.SomebodyElsesSecondAnswer), testharness.ApproveVerdict)
 	pipeline, store := testharness.NewAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
-	// The run's reconciliation attempt answers the first conflict, and no repair
-	// attempt is left to hand the second back to the developer, so the run stops
-	// on it: the shape this test is about.
+	// The run's reconciliation attempts answer the first three conflicts, and
+	// the fourth stops the run: the shape this test is about.
 	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 	// Two rounds already spent across the item's earlier runs and a repair grant
 	// of one standing on an earlier stoppage, so the item is committed to three
@@ -591,8 +592,8 @@ func TestAReplayConflictAfterApprovalChargesNothingAndLeavesTheApprovalStanding(
 	}
 	// The approval stands on the stopped run: a conflict is not a verdict, and
 	// the verdict that was reached is what the decision about the stoppage reads.
-	if state.ReviewDecision != string(review.DecisionApprove) || state.ReviewRounds != 2 {
-		t.Fatalf("stopped run = decision %q, %d review round(s); want the approval standing and the two verdicts it reached, before and after its reconciliation", state.ReviewDecision, state.ReviewRounds)
+	if state.ReviewDecision != string(review.DecisionApprove) || state.ReviewRounds != 1+runstate.MaxReconciliations {
+		t.Fatalf("stopped run = decision %q, %d review round(s); want the approval standing and the verdicts it reached, before and after each reconciliation", state.ReviewDecision, state.ReviewRounds)
 	}
 	counters, err := store.Triage().Counters(tracker.Item.ID)
 	if err != nil {

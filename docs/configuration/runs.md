@@ -929,10 +929,10 @@ target the forge protects, replayed the same way and then landed through its
 pull request rather than by a local fast-forward
 ([a protected target lands through its pull request](publishing.md#a-protected-target-lands-through-its-pull-request)).
 A replay that conflicts is handed back to a developer to reconcile on top of
-the target, and the result is checked and reviewed again. The first conflict is
-the run's one reconciliation attempt, made in a new session and spending no
-repair attempt; a later one is a repair attempt, and the run blocks only once a
-budget is spent. Nothing is ever forced.
+the target, and the result is checked and reviewed again. Each of the first
+three conflicts is one of the run's reconciliation attempts, made in a new
+session and spending no repair attempt; the fourth stops the run for the
+development manager, whatever repair attempts are left. Nothing is ever forced.
 
 Thirteen things keep an item out of a pass, reported at two different grains. The
 first ten are named against the item, because nothing else would report that

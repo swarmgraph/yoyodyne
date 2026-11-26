@@ -3926,10 +3926,10 @@ change onto it. Where nothing conflicts, the short local check runs, the new hea
 is pushed, and the wait starts again on it; a short check that fails there goes
 back to the developer as any failing check does, and the repaired head is the one
 that replaces the old head. Where something does, the change goes
-back to the same run's developer as the run's one attempt to bring its change up
-to date, the attempt a conflict in the merge queue gets, but made in the session
-that wrote the change, because no review has approved it yet; a run that has already
-used it stops for the development manager. Neither spends a repair attempt or a
+back to the same run's developer as one of the run's three attempts to bring its
+change up to date, the attempts a conflict in the merge queue gets, but made in
+the session that wrote the change, because no review has approved it yet; a run
+that has already used all three stops for the development manager. Neither spends a repair attempt or a
 review round, and neither the full local checks nor a review runs on the
 conflicting head. Where GitHub cannot be reached while the target is being read,
 the run gives its slot back and tries again five minutes later. The run's record,
@@ -4346,10 +4346,10 @@ target the forge protects, replayed the same way and then landed through its
 pull request rather than by a local fast-forward
 ([a protected target lands through its pull request](#a-protected-target-lands-through-its-pull-request)).
 A replay that conflicts is handed back to a developer to reconcile on top of
-the target, and the result is checked and reviewed again. The first conflict is
-the run's one reconciliation attempt, made in a new session and spending no
-repair attempt; a later one is a repair attempt, and the run blocks only once a
-budget is spent. Nothing is ever forced.
+the target, and the result is checked and reviewed again. Each of the first
+three conflicts is one of the run's reconciliation attempts, made in a new
+session and spending no repair attempt; the fourth stops the run for the
+development manager, whatever repair attempts are left. Nothing is ever forced.
 
 Thirteen things keep an item out of a pass, reported at two different grains. The
 first ten are named against the item, because nothing else would report that
@@ -7644,36 +7644,36 @@ operation — and it goes back to a developer before it goes to anybody else. Th
 change is moved onto where the target went, with whatever would not merge left in the worktree between Git's own conflict
 markers, and a developer session is handed the conflict to settle: the
 branch it could not be replayed onto, the commit that branch is at, and the
-paths the replay stopped on. The first conflict a run meets is handed back as
-the run's one **reconciliation attempt**, whatever repair attempts remain: it is
-recorded on the run (`reconciliation`) before the developer is invoked, and it
-spends neither a repair attempt nor the integration budget, because a run whose
-review rounds used up its repair attempts would otherwise stop with approved work
-it never got to bring level with the target. That attempt is made in a new
-developer session rather than the one that wrote the change. It is given the
+paths the replay stopped on. Each of the first three conflicts a run meets is
+handed back as one of the run's three **reconciliation attempts**, whatever
+repair attempts remain: each is numbered and recorded on the run
+(`reconciliation`) before the developer is invoked, and none spends a repair
+attempt or the integration budget, because a run whose review rounds used up its
+repair attempts would otherwise stop with approved work it never got to bring
+level with the target. Each attempt after the first also records the commit it
+conflicted with and why holding the entries that change the same files did not
+prevent it. Each attempt is made in a new developer session rather than the one
+that wrote the change. It is given the
 work item with its goals and invariants, the approved change as a diff with the
 reviewer's approval, the conflicts as Git left them in the worktree, and the
 target's commits since the change's base that touch the conflicting files, and is
 told to keep what the target and the change each do and change nothing else
 unless the resolved code would not otherwise build or pass its tests. An
 interrupted attempt resumes the new session once it has reported itself. The
-session that wrote the change and the one that resolved the conflict are both
+session that wrote the change and each one that resolved a conflict are all
 recorded as its authors (`author_sessions`), and neither the run nor the merge
-queue lands it on the review of either. A later conflict is handed back as
-a repair attempt in the run's current session, spent from
-`execution.repair_attempts_before_replan` like any other. Either way, what the developer produces goes through the whole gate again
+queue lands it on the review of any of them. What the developer produces goes through the whole gate again
 — the protected-path refusal, the checks, and a fresh independent review — before
 it is promoted by the same fast-forward. A replay conflict on an approved change
 therefore costs a developer attempt on the same run rather than a fresh run. The target
 keeps every commit it has; what the move drops is only the run's own commits,
 whose content is what the developer is handed back as uncommitted work.
 
-A conflict after the reconciliation attempt is also a replay that stopped on
-the change, so it is charged to the integration budget above at the same moment,
-and a run past either budget — no repair attempt left, or more conflicting
-replays than `integration_retries_before_reconciliation` permits — stops
-instead, with a stop reason saying the reconciliation attempt was already used,
-as every conflict did before:
+A fourth conflict is never handed back to a developer. It is charged to the
+integration budget above as a replay that stopped on the change, and the run
+stops for the development manager whatever repair attempts remain, with a stop
+reason saying the three reconciliation attempts were already used and listing
+each with the commit it conflicted with:
 the replay is abandoned, the branch and worktree are left exactly as they were,
 both sides survive, and the blocker on the item names the paths and the target
 commit. The conflict stays on the run's record, so a repair the development
@@ -7851,14 +7851,14 @@ files for that check on that branch is found or filed, nothing is charged to the
 change, and the entry steps aside for the entries behind it — one of which may
 be the fix — and is built afresh once the target moves. A head that will not
 merge onto the target at all, because the target moved while it waited, is
-first given its run's one reconciliation attempt rather than a stop: the run is
+first given one of its run's three reconciliation attempts rather than a stop: the run is
 put back live at its developer attempt, the reconciling sweep hosts it, a
 new developer session reconciles the conflict on top of the target, and the change is
 checked and reviewed again and rejoins the queue by itself, charged no repair
 attempt and no fresh run (`merge-queue-behind` in
 [run stops](run-stops.md)); while every developer slot is taken, the queue
-gives it at a later pass. A run that already used that attempt, or cannot take
-it, is handed back the way a replay conflict is, saying why, so the repair
+gives it at a later pass. A run that already used all three, or cannot take
+one, is handed back the way a replay conflict is, saying why, so the repair
 continuation moves the change onto the target and asks its developer to
 reconcile it. A handback no single run can take up goes on the development
 manager's docket. GitHub holds a candidate's merge only where a build from
