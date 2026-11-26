@@ -2,13 +2,16 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
@@ -933,8 +936,128 @@ func TestWhatAWatchSessionIsDoingStaysInTheLogExceptWhenItStops(t *testing.T) {
 	}
 	cursors = harness.poll(t, cursors)
 
+	harness.hold(t, "the queue is being reordered", moment.Add(2*time.Minute))
 	harness.watched(t, runstate.WatchBraked, "the operator placed it — the queue is being reordered", moment.Add(2*time.Minute))
-	harness.poll(t, cursors, notify.KindWatchBraked)
+	harness.poll(t, cursors, notify.KindWatchBraked, notify.KindIntakeHeld)
+}
+
+// One hold is said once in the watch stream however many lines the log holds
+// for it: a session writes a braked line each time its count of runs in flight
+// changes, and every session started under the hold writes its own. A second
+// hold is said again, and a line read once its hold is lifted is read past,
+// since the product's stream says the lifting.
+func TestABrakedLineIsSaidOncePerHold(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	harness.hold(t, "the queue is being reordered", moment)
+	harness.watched(t, runstate.WatchBraked, "the operator placed it — the queue is being reordered", moment.Add(time.Minute))
+	cursors := harness.poll(t, harness.start(), notify.KindWatchBraked, notify.KindIntakeHeld)
+
+	// Many changes of count and two more sessions starting, all under one hold,
+	// across several passes and a cursor file written and read back each time.
+	for pass := range 5 {
+		at := moment.Add(time.Duration(pass+2) * time.Minute)
+		harness.braking(t, "watch-0123456789abcdef0123456789abcdef", at, pass+1)
+		if pass%2 == 0 {
+			session := fmt.Sprintf("watch-%032d", pass)
+			harness.watchedAs(t, session, runstate.WatchWatching, "watching the backlog until stopped", at)
+			harness.braking(t, session, at, pass)
+		}
+		cursors = harness.poll(t, roundTrip(t, cursors))
+	}
+	if marks := cursors.Streams[watchStream].Delivered; len(marks) != 1 {
+		t.Fatalf("watch cursor marks = %v, want the one hold's", marks)
+	}
+
+	if _, _, err := harness.intake.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	harness.braking(t, "watch-0123456789abcdef0123456789abcdef", moment.Add(10*time.Minute), 9)
+	cursors = harness.poll(t, roundTrip(t, cursors), notify.KindIntakeReleased)
+	if marks := cursors.Streams[watchStream].Delivered; len(marks) != 0 {
+		t.Fatalf("watch cursor marks = %v, want the lifted hold's forgotten", marks)
+	}
+	cursors = harness.poll(t, roundTrip(t, cursors))
+
+	harness.hold(t, "a second look at the queue", moment.Add(20*time.Minute))
+	harness.braking(t, "watch-0123456789abcdef0123456789abcdef", moment.Add(21*time.Minute), 1)
+	harness.braking(t, "watch-0123456789abcdef0123456789abcdef", moment.Add(22*time.Minute), 2)
+	cursors = harness.poll(t, roundTrip(t, cursors), notify.KindWatchBraked, notify.KindIntakeHeld)
+	harness.braking(t, "watch-0123456789abcdef0123456789abcdef", moment.Add(23*time.Minute), 3)
+	harness.poll(t, roundTrip(t, cursors))
+}
+
+// braking records one braked poll of a session with the given count of runs in
+// flight beside it, which is what a session writes each time that count moves.
+func (h *testHarness) braking(t *testing.T, sessionID string, at time.Time, running int) {
+	t.Helper()
+	if err := h.watch.Record(runstate.WatchTransition{
+		SchemaVersion: runstate.WatchSchemaVersion,
+		ProductID:     "yoyodyne",
+		SessionID:     sessionID,
+		State:         runstate.WatchBraked,
+		At:            at,
+		Reason:        "the operator placed it — the queue is being reordered, and it stays held until somebody releases it",
+		Running:       running,
+	}); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+}
+
+// roundTrip is the cursors as the sink reads them back from its file, so what
+// a pass compares against is a separate decoding rather than the value it made.
+func roundTrip(t *testing.T, cursors Cursors) Cursors {
+	t.Helper()
+	data, err := json.Marshal(cursors)
+	if err != nil {
+		t.Fatalf("encode cursors: %v", err)
+	}
+	var read Cursors
+	if err := json.Unmarshal(data, &read); err != nil {
+		t.Fatalf("decode cursors: %v", err)
+	}
+	if read.Streams == nil {
+		read.Streams = map[string]Cursor{}
+	}
+	return read
+}
+
+// A run that never settles is read on every pass for as long as it stands. Its
+// check failure, carrying the fields that are pointers, is said once, and again
+// only when the failure itself changes.
+func TestAnUnsettledRunsCheckFailureIsSaidOnceAcrossPasses(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	state := harness.run(t, runstate.StatusRunning)
+	state.Phase = runstate.PhaseChecking
+	state.CheckFailure = &runstate.CheckFailure{
+		Command:  "make test",
+		ExitCode: 2,
+		FailingTests: &checks.FailingTests{
+			Tests: []checks.FailingTest{{Name: "TestA", File: "internal/a/a_test.go"}},
+		},
+		TouchedTests: &checks.TouchedTests{
+			Tests:  []checks.JudgedTest{{Name: "TestA", File: "internal/a/a_test.go"}},
+			Reason: "the change touches none of the failing tests",
+		},
+		ReviewBefore: &runstate.ReviewBefore{Decision: "repair", Findings: []runstate.Finding{{Severity: runstate.SeverityMajor, Message: "a finding"}}},
+	}
+	harness.record(t, state)
+
+	cursors := harness.poll(t, harness.start(), notify.KindRunStarted, notify.KindChecksFailed)
+	for range 5 {
+		cursors = harness.poll(t, roundTrip(t, cursors))
+	}
+
+	state.CheckFailure.FailingTests = &checks.FailingTests{
+		Tests: []checks.FailingTest{{Name: "TestB", File: "internal/b/b_test.go"}},
+	}
+	state.UpdatedAt = moment.Add(time.Minute)
+	harness.save(t, state)
+	cursors = harness.poll(t, roundTrip(t, cursors), notify.KindChecksFailed)
+	harness.poll(t, roundTrip(t, cursors))
 }
 
 // A session that ran before anybody pointed a channel at this product is
@@ -952,8 +1075,9 @@ func TestAWatchSessionFromBeforeTheWatermarkIsReadPast(t *testing.T) {
 	}
 	// What happens after the watermark is news, whatever came before it — and for
 	// this log that means the one transition somebody has to act on.
+	harness.hold(t, "the operator is holding intake", moment.Add(time.Hour))
 	harness.watched(t, runstate.WatchBraked, "the operator is holding intake", moment.Add(time.Hour))
-	harness.poll(t, cursors, notify.KindWatchBraked)
+	harness.poll(t, cursors, notify.KindWatchBraked, notify.KindIntakeHeld)
 }
 
 // A provider refusing something that is not a run reaches the channel from the

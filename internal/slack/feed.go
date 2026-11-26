@@ -597,7 +597,21 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	if err != nil {
 		return Batch{}, err
 	}
-	watched, err := f.watchDeliveries(cursors, batch.Streams, sessions, tornSessions)
+
+	// The operator's two switches are read once and used three times: for the
+	// messages that say they were placed and lifted, for which hold a session's
+	// braked line is about, and for what has stopped the line when the heartbeat
+	// below asks. Reading them apart would let one pass post a hold and derive a
+	// line nothing is holding.
+	//
+	// A hold that cannot be read is never taken for an absent one, so nothing
+	// derived from the switches is said on this pass — the holds themselves, the
+	// heartbeat, and the provider's outage — and every stream that does not turn
+	// on them carries on.
+	held, switchErr := f.switches()
+	switched := switchErr == nil
+
+	watched, err := f.watchDeliveries(cursors, batch.Streams, sessions, tornSessions, held, switched)
 	if err != nil {
 		return Batch{}, err
 	}
@@ -615,22 +629,11 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	}
 	batch.Deliveries = append(batch.Deliveries, outcomes...)
 
-	// The operator's two switches are read once and used twice: for the messages
-	// that say they were placed and lifted, and for what has stopped the line when
-	// the heartbeat below asks. Reading them apart would let one pass post a hold
-	// and derive a line nothing is holding.
-	//
-	// A hold that cannot be read is never taken for an absent one, so nothing
-	// derived from the switches is said on this pass — the holds themselves, the
-	// heartbeat, and the provider's outage — and every stream that does not turn
-	// on them carries on.
-	held, err := f.switches()
-	switched := err == nil
 	if switched {
 		batch.Deliveries = append(batch.Deliveries, f.holdDeliveries(cursors.Streams[productStream], held)...)
 	} else {
 		batch.Partial = true
-		f.readPast(unread, "the operator's pause and the intake hold", err)
+		f.readPast(unread, "the operator's pause and the intake hold", switchErr)
 	}
 
 	// What is ready to pull is asked at most once a pass, however many of this
@@ -918,16 +921,81 @@ func (f *HarnessFeed) amendmentCursor(cursors Cursors, records []amendment.Recor
 // stream of its own rather than part of the product's marks because it is a
 // history rather than a switch that is on or off: a session that idled all night
 // and one that stopped at midnight are both things somebody reads afterwards.
-func (f *HarnessFeed) watchDeliveries(cursors Cursors, streams map[string]struct{}, transitions []runstate.WatchTransition, skipped []runstate.SkippedLine) ([]Delivery, error) {
+//
+// A braked line is said once per hold. A session writes one every time what it
+// says about the wait changes — every run that starts or finishes beside the
+// hold changes its count of runs in flight — and every session started while
+// intake is held writes its own, so one hold is dozens of lines in the log.
+// Which hold a line is about is the one standing when it is read, and the
+// stream's cursor keeps a mark for the hold it has been said for (brakedOnce).
+func (f *HarnessFeed) watchDeliveries(cursors Cursors, streams map[string]struct{}, transitions []runstate.WatchTransition, skipped []runstate.SkippedLine, held switches, switched bool) ([]Delivery, error) {
 	if f.Watch == nil {
 		return nil, nil
 	}
 	streams[watchStream] = struct{}{}
-	return f.logDeliveries(watchStream, "watch", cursors.Streams[watchStream], len(transitions), skipped, cursors.Since,
+	cursor := cursors.Streams[watchStream]
+	deliveries, err := f.logDeliveries(watchStream, "watch", cursor, len(transitions), skipped, cursors.Since,
 		func(index int) (time.Time, notify.Notification, error) {
 			notification, err := notify.FromWatch(transitions[index])
 			return transitions[index].At, notification, err
 		})
+	if err != nil {
+		return nil, err
+	}
+	return brakedOnce(cursor, deliveries, held, switched), nil
+}
+
+// brakedMark is the watch stream's mark for the hold whose braked line has been
+// said, by the moment the hold was placed.
+const brakedMark = "braked:"
+
+// brakedOnce keeps one braked line per hold out of what the watch log read
+// this pass, and carries the stream's marks on every cursor it hands back.
+//
+// A braked line is about the hold standing when it is read, if it was written
+// after that hold was placed. One written before it, or read while no hold
+// stands, is about a hold that has since been lifted: that hold was said when
+// it was placed and its lifting is said by the product's stream, so the line is
+// read past rather than said late. Where the hold could not be read, a line is
+// said only if no hold's line has been, so a store that will not answer costs
+// at most one line rather than one per change of count.
+//
+// The marks are forgotten with the hold, so the cursor holds at most one.
+func brakedOnce(cursor Cursor, deliveries []Delivery, held switches, switched bool) []Delivery {
+	marks := Cursor{Delivered: cursor.Delivered}
+	current := ""
+	if switched {
+		if held.intakeHeld {
+			current = brakedMark + stamp(held.intake.HeldAt)
+		}
+		for _, mark := range cursor.Delivered {
+			if strings.HasPrefix(mark, brakedMark) && mark != current {
+				marks = marks.Without(mark)
+			}
+		}
+	}
+	forgot := len(marks.Delivered) != len(cursor.Delivered)
+	kept := make([]Delivery, 0, len(deliveries)+1)
+	for _, delivery := range deliveries {
+		if delivery.Notification.Event.Kind == notify.KindWatchBraked && delivery.Posts() {
+			_, anySaid := marks.Marked(brakedMark)
+			switch {
+			case !switched && anySaid:
+				delivery.Notification = notify.Notification{}
+			case !switched:
+			case current == "" || delivery.Notification.Event.At.Before(held.intake.HeldAt) || marks.Has(current):
+				delivery.Notification = notify.Notification{}
+			default:
+				marks = marks.With(current)
+			}
+		}
+		delivery.Cursor.Delivered = marks.Delivered
+		kept = append(kept, delivery)
+	}
+	if forgot && len(kept) == 0 {
+		kept = append(kept, Delivery{Stream: watchStream, Cursor: Cursor{Position: cursor.Position, Delivered: marks.Delivered}})
+	}
+	return kept
 }
 
 // usageLimitDeliveries says where a provider refused the harness outside a run.

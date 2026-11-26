@@ -938,7 +938,10 @@ passing, a review approving, a promotion, a publication, a merge completing, the
 backlog moving and a filed report are in the item's thread. What a watch session does poll by poll — started, idle, resumed,
 stopped, redeploying — is not posted anywhere: the watch log holds every one of
 them, `yoyo status` reads it back, and the two states you have to act on are said
-by the braked line and the hourly waiting line instead.
+by the braked line and the hourly waiting line instead. The braked line is said
+once for each hold, however many sessions start under it and however often their
+count of runs in flight changes; the hold being placed and lifted are said once
+each by the hold's own messages.
 
 There is one promotion over all of that, and it is severity doing the job it is
 for: a `critical` — something already wrong that will cost somebody — is shown at
