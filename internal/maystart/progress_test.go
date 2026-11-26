@@ -77,7 +77,7 @@ func TestEitherFileNotWholeMeansTheDecisionCannotBeMade(t *testing.T) {
 			t.Parallel()
 			root := joined(t)
 			put(t, root, file, "{")
-			for _, start := range []Start{Run(ReadyWork, member), Run(ReadyWork, otherItem), Run(ReadyWork, outside), Pass(RecurringPass, "architect"), DocumentRun(PublishDocument, otherItem), UpdateFromTeam("staging"), GoalReview(), JudgmentOfAPiece(named(otherEpic))} {
+			for _, start := range []Start{Run(ReadyWork, member), Run(ReadyWork, otherItem), Run(ReadyWork, outside), Pass(RecurringPass, "architect"), DocumentRun(PublishDocument, otherItem), UpdateFromTeam("staging"), GoalReview(), JudgmentOfAPiece(named(otherEpic)), CheckOfTheEpic(named(otherEpic))} {
 				wantAnswer(t, root, start, CouldNotTell, file)
 			}
 			wantAnswer(t, root, OperatorConversation(), May)
@@ -97,10 +97,10 @@ func TestAnUnreadableEpicStartsNothingOfItsOwnAndOthersCarryOn(t *testing.T) {
 			if err := os.Remove(fileOf(root, missing)); err != nil {
 				t.Fatal(err)
 			}
-			for _, start := range []Start{Run(ReadyWork, member), DocumentRun(PublishDocument, member), DocumentRun(PublishDocument, openEpicID), JudgmentOfAPiece(named(openEpicID))} {
+			for _, start := range []Start{Run(ReadyWork, member), DocumentRun(PublishDocument, member), DocumentRun(PublishDocument, openEpicID), JudgmentOfAPiece(named(openEpicID)), CheckOfTheEpic(named(openEpicID))} {
 				wantAnswer(t, root, start, CouldNotTell, openEpicID, "`yoyo epic end "+openEpicID+"`")
 			}
-			for _, start := range []Start{Run(ReadyWork, otherItem), DocumentRun(PublishDocument, member, otherItem), Pass(RecurringPass, "architect"), UpdateFromTeam("staging"), JudgmentOfAPiece(named(otherEpic))} {
+			for _, start := range []Start{Run(ReadyWork, otherItem), DocumentRun(PublishDocument, member, otherItem), Pass(RecurringPass, "architect"), UpdateFromTeam("staging"), JudgmentOfAPiece(named(otherEpic)), CheckOfTheEpic(named(otherEpic))} {
 				wantAnswer(t, root, start, May)
 			}
 			end(t, root, otherEpic)

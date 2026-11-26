@@ -27,6 +27,7 @@ const (
 	MessagesForWork  Path = "messages-for-work"
 	TeamBranchUpdate Path = "team-branch-update"
 	JoiningJudgment  Path = "joining-judgment"
+	WholeEpicCheck   Path = "whole-epic-check"
 	OperatorReview   Path = "operator-review"
 )
 
@@ -56,6 +57,7 @@ const (
 	startsMessageReading
 	startsTeamBranchUpdate
 	startsJoiningJudgment
+	startsWholeEpicCheck
 	// startsByAPerson is an AlwaysStarts path. Nothing that asks is on it.
 	startsByAPerson
 )
@@ -85,6 +87,7 @@ func Paths() []PathEntry {
 		{Path: MessagesForWork, Says: "reading outside messages for work", Wired: true, starts: startsMessageReading},
 		{Path: TeamBranchUpdate, Says: "bringing the target branch up to date with the team's branch", Wired: true, starts: startsTeamBranchUpdate},
 		{Path: JoiningJudgment, Says: "the judgment of whether a piece joins a named epic", Wired: true, starts: startsJoiningJudgment},
+		{Path: WholeEpicCheck, Says: "the check of the whole epic", Wired: true, starts: startsWholeEpicCheck},
 		{Path: OperatorReview, Says: "a review of a branch that a person asks for with yoyo review", Wired: true, AlwaysStarts: true, starts: startsByAPerson},
 	}
 }
