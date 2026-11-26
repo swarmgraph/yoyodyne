@@ -320,6 +320,10 @@ type Options struct {
 	// epic mode is on when a handling or an escalation names his own hold. It is
 	// optional, and a conversation without one counts no epic mode.
 	Epics readmodel.NamedEpics
+	// EpicCorrections links a piece the development manager writes to the check of
+	// the whole epic it corrects. It is optional, and a conversation without one
+	// refuses a creation that names a check.
+	EpicCorrections EpicCorrections
 	// TrackerMerge is where the development manager's decision about an item
 	// held because two machines' versions cannot be merged is recorded.
 	TrackerMerge TrackerMergeDecisions

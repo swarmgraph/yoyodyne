@@ -26,6 +26,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
 const (
@@ -200,6 +202,136 @@ type Check struct {
 	Found    string    `json:"found"`
 	At       time.Time `json:"at"`
 	Findings []Finding `json:"findings,omitempty"`
+	// Owed is the one correction owed for this check, where one is: for what it
+	// found missing, or for the evidence the Lead Product Manager's handling of the
+	// question in Asked named, for a check that could not tell.
+	Owed *Correction `json:"owed,omitempty"`
+	// Asked is the question about the missing evidence the harness put to the Lead
+	// Product Manager for a check that could not tell, where it has.
+	Asked *Asked `json:"asked,omitempty"`
+}
+
+// Asked is the one report the harness files the Lead Product Manager for a check
+// that could not tell, asking what evidence would settle it. Its identifier is
+// written here before the report is filed. Her recorded handling of it is her
+// answer, and nothing else counts.
+type Asked struct {
+	Report string    `json:"report"`
+	At     time.Time `json:"at"`
+	// Answered is when her handling was recorded, once the harness has read it.
+	Answered *time.Time `json:"answered,omitempty"`
+	// Operator is the reason from the operator's closed list her handling gave,
+	// where it recorded that only he can act, and Says is what it said he has to
+	// do. No correction is owed then, and the epic waits on him.
+	Operator ownership.OperatorReason `json:"operator,omitempty"`
+	Says     string                   `json:"says,omitempty"`
+}
+
+func (a *Asked) valid() bool {
+	return a == nil || report.ValidID(a.Report) && !a.At.IsZero() &&
+		(a.Operator == "" && a.Says == "" || a.Answered != nil && a.Operator.Valid() && strings.TrimSpace(a.Says) != "")
+}
+
+// Correction is the one correcting piece owed for a check of the whole epic. The
+// development manager writes it, naming the check, and the harness writes the
+// piece's identifier here before the note on the item. A piece is a correction
+// only where a correction names it: the note is for people to read.
+type Correction struct {
+	// Missing is what the piece has to give: what the check found missing, or the
+	// evidence it lacked.
+	Missing string    `json:"missing"`
+	At      time.Time `json:"at"`
+	// Answered is when the Lead Product Manager's handling that named the evidence
+	// was recorded, for a correction owed for evidence.
+	Answered *time.Time `json:"answered,omitempty"`
+	Piece    string     `json:"piece,omitempty"`
+	// Noted is that the note naming the epic, the check and its commit is on the
+	// piece. A stop between the two writes leaves it false, and the note is
+	// written at the next reading.
+	Noted bool `json:"noted,omitempty"`
+}
+
+func (c *Correction) valid(epic string) bool {
+	return c == nil || strings.TrimSpace(c.Missing) != "" && !c.At.IsZero() &&
+		(c.Piece == "" && !c.Noted || beads.ValidIssueID(c.Piece) && c.Piece != epic)
+}
+
+// Asking is the last check of the naming where it could not tell and owes no
+// correction yet: the one whose question about evidence the harness puts to the
+// Lead Product Manager, or whose answer it reads. An earlier check was made again,
+// so it asks nothing.
+func (e Entry) Asking() (Check, bool) {
+	if len(e.Checks) == 0 {
+		return Check{}, false
+	}
+	last := e.Checks[len(e.Checks)-1]
+	if last.Found != FoundCannotTell || last.Owed != nil || last.Asked != nil && last.Asked.Answered != nil {
+		return Check{}, false
+	}
+	return last, true
+}
+
+// CouldNotTell is what a check could not tell, each thing asked with why, leaving
+// out a step the description reserves for a person.
+func CouldNotTell(check Check) string {
+	var said []string
+	for _, finding := range check.Findings {
+		if finding.Answer == CannotBeTold && !finding.ForAPerson {
+			said = append(said, finding.Asks+": "+finding.Says)
+		}
+	}
+	return strings.Join(said, "; ")
+}
+
+// FromCheck is what a correcting piece is recorded as made from: the check, in
+// the place a split records the member.
+func FromCheck(check string) string { return "the check " + check }
+
+// Correcting is the check whose owed correction names the item, where one does.
+func (e Entry) Correcting(item string) (Check, bool) {
+	if at := slices.IndexFunc(e.Checks, func(check Check) bool { return check.Owed != nil && check.Owed.Piece == item }); item != "" && at >= 0 {
+		return e.Checks[at], true
+	}
+	return Check{}, false
+}
+
+// correctsFrom reports a piece made from a check whose owed correction names it.
+func (e Entry) correctsFrom(item, from string) bool {
+	check, correcting := e.Correcting(item)
+	return correcting && FromCheck(check.ID) == from
+}
+
+// Superseded reports a check that did not pass and was made again because the
+// operator took an item out after it, with nothing joined in between. It is not a
+// round of correction.
+func (e Entry) Superseded(epic epicscope.Epic, check Check) bool {
+	return !check.Passed() && slices.ContainsFunc(epic.Removed, func(removal epicscope.Removal) bool {
+		return removal.RemovedAt.After(check.At) && !slices.ContainsFunc(e.Joined, func(joined Joined) bool {
+			return joined.At.After(check.At) && joined.At.Before(removal.RemovedAt)
+		})
+	})
+}
+
+// Rounds is how many checks of the naming found something missing, each a round
+// of correction.
+func (e Entry) Rounds(epic epicscope.Epic) int {
+	rounds := 0
+	for _, check := range e.Checks {
+		if check.Found == FoundNotMet && !e.Superseded(epic, check) {
+			rounds++
+		}
+	}
+	return rounds
+}
+
+// MaxRounds is how many rounds of correction the harness starts by itself. A
+// check that finds something missing after them goes to the Lead Product Manager.
+const MaxRounds = 2
+
+// CorrectionNote is the note of fixed form written on a correcting piece, for
+// people to read. Nothing reads it to decide anything.
+func CorrectionNote(epic string, check Check) string {
+	return fmt.Sprintf("Written as the correction owed by the check of the whole epic %s, %s, which read commit %s.", epic, check.ID, check.Commit)
 }
 
 // CheckAnswer is the answer a check gives one thing the description asks.
@@ -349,7 +481,14 @@ func (e Entry) validate() error {
 	}
 	for _, c := range e.Checks {
 		part("check", c.ID, c.Commit != "" && c.Found != "" && !c.At.IsZero() &&
-			(len(c.Findings) == 0 || c.Found == FoundOf(c.Findings) && !slices.ContainsFunc(c.Findings, func(f Finding) bool { return !f.valid() })))
+			(len(c.Findings) == 0 || c.Found == FoundOf(c.Findings) && !slices.ContainsFunc(c.Findings, func(f Finding) bool { return !f.valid() })) &&
+			c.Owed.valid(e.WorkItemID) && (c.Owed == nil || c.Found == FoundNotMet || c.Found == FoundCannotTell) &&
+			c.Asked.valid() && (c.Asked == nil || c.Found == FoundCannotTell) && (c.Asked == nil || c.Asked.Operator == "" || c.Owed == nil))
+	}
+	for _, c := range e.Checks {
+		if c.Owed != nil && c.Owed.Piece != "" {
+			part("correcting piece", c.Owed.Piece, true)
+		}
 	}
 	for _, d := range e.Deliveries {
 		part("delivery", d.At.String(), d.Evidence != "" && !d.At.IsZero())

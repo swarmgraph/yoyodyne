@@ -3,8 +3,13 @@
 // only for what the epic's description, as the operator named it, already asks.
 // docs/designs/epic-mode-second-part.md states the rule, under piece 9.
 //
-// The one act it knows is the development manager splitting a member. The other
-// acts of the rule are added where they are built, through the same judgment.
+// It also asks the Lead Product Manager, by a report, for the evidence a check of
+// the whole epic that could not tell lacked, and reads her handling of it.
+//
+// It knows two of the rule's acts: the development manager splitting a member, read
+// from the note a split writes, and a correction owed by a check of the whole epic,
+// read only from the owed correction in the epic's progress that names the piece.
+// The third act is added where it is built, through the same judgment.
 package epicjoin
 
 import (
@@ -25,6 +30,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 const (
@@ -44,6 +50,9 @@ type Progress interface {
 	Judged(naming epicprogress.Naming, item string, outcome epicprogress.Outcome) error
 	Call(naming epicprogress.Naming, id, purpose string, lookUp func() (string, epicprogress.Looked, error), send func() (string, error)) (string, error)
 	Alone() (release func() error, held bool, err error)
+	Noted(epic, check string) error
+	AskEvidence(naming epicprogress.Naming, check, reportID string) error
+	EvidenceAnswered(naming epicprogress.Naming, check, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error
 }
 
 // Log keeps what was sent and what came back of each judgment, under its
@@ -74,7 +83,14 @@ type Joiner struct {
 	Items func(ctx context.Context) ([]beads.WorkItem, error)
 	// SplitFrom reads from an item's notes what the development manager split it from.
 	SplitFrom func(notes string) (from string, split bool)
-	NewID     func() (string, error)
+	// Note appends a note to an item. It writes the note of fixed form on a
+	// correcting piece whose owed correction names it and says no note is on it.
+	Note  func(ctx context.Context, item, note string) error
+	NewID func() (string, error)
+	// Evidence is where the question about the evidence a check that could not
+	// tell lacked is filed and its answer read (evidence.go). Without its reports
+	// nothing is asked.
+	Evidence Evidence
 	// Judge makes the call in a session of its own, which is never resumed.
 	Judge func(ctx context.Context, request Request) (backend.RunResult, error)
 	// MayStart asks the one decision on what may start (internal/maystart).
@@ -95,10 +111,59 @@ type owed struct {
 	asked bool
 }
 
-// Owed reports whether a judgment is owed now. It calls no provider.
+// Owed reports whether a judgment, a note on a correcting piece, or a question
+// about evidence or its answer is owed now. It calls no provider.
 func (j Joiner) Owed(ctx context.Context) (bool, error) {
 	found, _, err := j.owed(ctx)
-	return len(found) > 0, err
+	if err != nil || len(found) > 0 {
+		return len(found) > 0, err
+	}
+	notes, err := j.unnoted()
+	if err != nil || len(notes) > 0 {
+		return len(notes) > 0, err
+	}
+	return j.evidenceOwed()
+}
+
+// unnoted is each correction that names its piece and has no note on it yet.
+type unnoted struct {
+	naming epicprogress.Naming
+	check  epicprogress.Check
+}
+
+func (j Joiner) unnoted() ([]unnoted, error) {
+	view, err := j.read()
+	if err != nil || !view.Record.On() {
+		return nil, err
+	}
+	var found []unnoted
+	for _, epic := range view.Record.OpenEpics() {
+		entry, _ := view.Entry(epicprogress.Of(epic))
+		for _, check := range entry.Checks {
+			if check.Owed != nil && check.Owed.Piece != "" && !check.Owed.Noted {
+				found = append(found, unnoted{epicprogress.Of(epic), check})
+			}
+		}
+	}
+	return found, nil
+}
+
+// note writes the note of fixed form on each correcting piece that has none, the
+// one a stop between the two writes of its creation left out.
+func (j Joiner) note(ctx context.Context) error {
+	found, err := j.unnoted()
+	if err != nil || j.Note == nil {
+		return err
+	}
+	var problems []error
+	for _, one := range found {
+		if err := j.Note(ctx, one.check.Owed.Piece, epicprogress.CorrectionNote(one.naming.WorkItemID, one.check)); err != nil {
+			problems = append(problems, fmt.Errorf("write the note on %s: %w", one.check.Owed.Piece, err))
+			continue
+		}
+		problems = append(problems, j.Progress.Noted(one.naming.WorkItemID, one.check.ID))
+	}
+	return errors.Join(problems...)
 }
 
 // Round makes the judgments that are owed. Where another process is making them it
@@ -109,11 +174,12 @@ func (j Joiner) Round(ctx context.Context) error {
 		return err
 	}
 	defer release()
+	noted := errors.Join(j.note(ctx), j.evidence())
 	found, items, err := j.owed(ctx)
 	if err != nil {
-		return err
+		return errors.Join(noted, err)
 	}
-	var problems []error
+	problems := []error{noted}
 	for _, one := range found {
 		if ctx.Err() != nil {
 			return errors.Join(append(problems, ctx.Err())...)
@@ -167,7 +233,10 @@ func (j Joiner) owed(ctx context.Context) ([]owed, map[string]beads.WorkItem, er
 				continue
 			}
 			piece, asked := entry.Asked(item.ID)
-			if !asked {
+			if check, correcting := entry.Correcting(item.ID); !asked && correcting {
+				// A correction is read from the progress alone, whatever its notes say.
+				piece = epicprogress.Piece{WorkItemID: item.ID, From: epicprogress.FromCheck(check.ID)}
+			} else if !asked {
 				from, split := j.SplitFrom(item.Notes)
 				entered, member := since[from]
 				// The split is of a member only where it was one at the time. The

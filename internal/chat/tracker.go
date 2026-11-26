@@ -306,7 +306,7 @@ const (
 var trackerActionArguments = map[string][]string{
 	actionRead:         {"report", "offset"},
 	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects"},
+	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects", "epic_check"},
 	actionAttribute:    {"goal"},
 	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals", "kind", "corrects"},
 	actionLabel:        {"add", "remove"},
@@ -569,6 +569,12 @@ type TrackerAction struct {
 	// correction already admitted to name the further closed items it covers.
 	// See correction.go.
 	Corrects []string `json:"corrects,omitempty"`
+	// EpicCheck names the check of the whole epic a correcting piece corrects, and is
+	// taken by a creation and by nothing else. The parent is the epic. The harness
+	// refuses it where no correction is owed for that check or one has been written
+	// for it already, and otherwise links the piece to the check in the epic's
+	// progress (epiccorrection.go).
+	EpicCheck string `json:"epic_check,omitempty"`
 	// Proposal names the undecided proposal a withdrawal takes back, exactly as
 	// it was listed, and is taken by a withdrawal and by nothing else.
 	Proposal string `json:"proposal,omitempty"`
@@ -1367,6 +1373,7 @@ func (a TrackerAction) validateArguments() []error {
 			problems = append(problems, a.DistinctFrom.problems()...)
 		}
 		problems = append(problems, a.correctionProblems()...)
+		problems = append(problems, a.epicCheckProblems()...)
 	case actionWithdraw:
 		problems = append(problems, proposalReferenceProblems(a.Proposal)...)
 	case actionAgree:
@@ -1644,6 +1651,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if len(a.Corrects) > 0 {
 		carried = append(carried, "corrects")
+	}
+	if strings.TrimSpace(a.EpicCheck) != "" {
+		carried = append(carried, "epic_check")
 	}
 	if strings.TrimSpace(a.Proposal) != "" {
 		carried = append(carried, "proposal")
@@ -2254,6 +2264,12 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			outcome.Failure = refusal
 			return
 		}
+		// A piece correcting a check of the whole epic is refused before it exists
+		// where no correction is owed for that check or one is already written.
+		if refusal := s.mayCorrectCheck(action); refusal != "" {
+			outcome.Failure = refusal
+			return
+		}
 		// A lane admission carries the lane label in this same write whether or not
 		// the reply named it, so it never exists outside the lane it was admitted
 		// into, and its notes say whose lane that is.
@@ -2320,6 +2336,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// that happened rather than as one that did not: the item is in the queue
 		// either way, and saying otherwise would be worse than saying nothing.
 		s.recordDirectiveOutcome(ctx, outcome, prompting, creation, created)
+		linked := s.linkCorrection(ctx, action, created.ID)
 		// A child of work whose change is still on a preserved branch is told where
 		// that change is, whatever the role decomposing believed about where the
 		// substrate is, and the result says whether the child is held for it. The
@@ -2338,7 +2355,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		if action.Parked.Parked() {
 			parked = ", parked so nothing selects it until it is released: " + singleLine(action.Parked.Reason(), maxTrackerFailureBytes)
 		}
-		from := citedClause(cited) + distinctionClause(distinct) + correctionClause(corrected)
+		from := citedClause(cited) + distinctionClause(distinct) + correctionClause(corrected) + linked
 		// Labels applied at admission are said where the admission is reported, in
 		// the words the survey uses, because the label is what a seat watches for
 		// and the operator reads this line rather than the item.

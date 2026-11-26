@@ -2198,7 +2198,30 @@ told, with why. An answer of taken out that names no item you took out is refuse
 Only where every answer is met or taken out is the epic's delivery written, with when
 and on what evidence, and status then names each item you took out beside the
 delivered epic, with your words. The call is written down before it is made, so a
-harness stopped partway looks it up before making it again. A member that was closed with nothing landed, or whose pull
+harness stopped partway looks it up before making it again.
+
+An answer of not met writes, beside that check, that one correction is owed for it and
+what is missing, and status says the development manager owes the piece. She writes
+it with a `create` whose parent is the epic and whose `epic_check` names the check;
+the harness refuses that where no correction is owed for the check or one has already
+been written, writes the new item into the owed correction, and then adds a note to
+the item naming the epic, the check and the commit it read. Only that link in
+`epic-progress.json` makes a piece a correction: a note in the same words that no
+owed correction names makes nothing join. The piece then joins only once a reviewer
+session that did not write it judges it inside the epic's description, and the check
+is owed again once it lands. Two rounds of correction start this way. A third answer
+of not met owes no correction: it waits on the Lead Product Manager, who decides on
+one more round or asks you about scope. An answer of cannot be told waits on you
+where the description reserves the step for a person. Otherwise the harness files the
+Lead Product Manager one report for that check, naming the epic, the check, its commit
+and what could not be told, and writes the report's identifier beside the check before
+filing it. Her recorded handling of that report is her answer, and nothing else counts.
+Until it is recorded, or while the handlings cannot be read, nothing is owed and status
+names the step as hers. A handling that records that only you can act, for a reason on
+your closed list, makes the epic wait on you for that step, and no correction is owed.
+Any other handling owes one correction, naming the evidence as her handling's reason
+states it and when the handling was recorded, and the development manager's piece
+giving it joins the same way. A member that was closed with nothing landed, or whose pull
 request a person closed unmerged, waits on the Lead Product Manager until it is
 admitted again, replaced by a piece that is done, or taken out with `yoyo epic remove`.
 A member whose run ended complete with no change, and whose summary the reviewer
