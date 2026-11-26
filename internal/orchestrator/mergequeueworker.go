@@ -496,9 +496,9 @@ func (w MergeQueueWorker) build(ctx context.Context, lease *runstate.Lease, key 
 	request := gitworktree.QueueCandidateRequest{
 		Entry:        entry.EntryID,
 		TargetBranch: key.TargetBranch,
-		Heads:        []string{entry.ApprovedHead},
-		Message: fmt.Sprintf("yoyodyne: merge queue candidate for %s %s\n\nEntry: %s (order %d)\nRun: %s\nApproved head: %s\n",
-			entry.WorkItemID, entry.WorkItemTitle, entry.EntryID, entry.Order, entry.RunID, entry.ApprovedHead),
+		Heads:        []string{entry.Head()},
+		Message: fmt.Sprintf("yoyodyne: merge queue candidate for %s %s\n\nEntry: %s (order %d)\nRun: %s\n%s",
+			entry.WorkItemID, entry.WorkItemTitle, entry.EntryID, entry.Order, entry.RunID, headLines(entry)),
 	}
 	if ahead != nil {
 		request.Base = ahead.Candidate
@@ -1162,7 +1162,7 @@ func (w MergeQueueWorker) candidateSpendsForConflict(key runstate.MergeQueueKey,
 		return "", "", fmt.Errorf("read the merge queue for the earlier reviews of entry %d's change: %w", entry.Order, err)
 	}
 	for _, other := range entries {
-		if other.RunID != entry.RunID || other.ApprovedHead != entry.ApprovedHead || other.Order > entry.Order {
+		if other.RunID != entry.RunID || other.Head() != entry.Head() || other.Order > entry.Order {
 			continue
 		}
 		generations, err := w.Queue.Generations(key, other.EntryID)
@@ -1303,7 +1303,7 @@ func (w MergeQueueWorker) ask(ctx context.Context, lease *runstate.Lease, key ru
 			DeveloperSummaryContext:          summaryContext,
 			EarlierDeveloperSummaries:        recordedEarlierSummaries(run),
 			EarlierDeveloperSummariesDropped: run.EarlierDeveloperSummariesDropped,
-			ApprovingReview:                  candidateApprovingReview(run),
+			ApprovingReview:                  candidateApprovingReview(entry, run),
 			WorktreePath:                     generation.Checkout,
 			Changes:                          change.Changes,
 			Repository:                       reviewedRepository(ctx, w.Candidates, generation.Candidate, item, change.Changes),
@@ -1467,8 +1467,7 @@ func candidateReviewContext(entry runstate.MergeQueueEntry, generation runstate.
 	lines := []string{
 		fmt.Sprintf("# Merge queue candidate for %s: %s", entry.WorkItemID, title),
 		"",
-		fmt.Sprintf("The change for this work item was approved at head `%s` and admitted to the merge queue for `%s`. The candidate under review is commit `%s`: the target branch at `%s` with that head merged onto it. It is the exact revision that would land, and nothing else is.",
-			entry.ApprovedHead, generation.TargetBranch, generation.Candidate, generation.TargetBase),
+		candidateAdmittedSays(entry, generation),
 		"",
 		"The earlier approval was of the head on the base it was written against. It does not answer for this candidate: the target has other work in it now, and what you are asked is whether the change, combined with that work, still does what the item asks and breaks nothing. The configured checks have already run on this candidate, and their results are below.",
 	}

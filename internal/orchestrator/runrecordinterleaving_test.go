@@ -66,7 +66,7 @@ func TestNoWriterOfARunLosesAnotherWritersField(t *testing.T) {
 	// While the admission waits on the tracker, the queue lands the change and
 	// retires its pull request.
 	landed := runstate.MergeQueueCompletion{Path: runstate.MergeQueueLandThroughPullRequest, TargetBase: strings.Repeat("b", 40), Landed: strings.Repeat("c", 40)}
-	if err := (MergeQueueRunCompletion{Store: store, Now: func() time.Time { return at }}).RecordRun(ctx, entry, landed); err != nil {
+	if err := (MergeQueueRunCompletion{Store: store, Now: func() time.Time { return at }}).RecordRun(ctx, entry, landed, nil); err != nil {
 		t.Fatalf("the queue's completion: %v", err)
 	}
 	forge := &closingForge{}
@@ -187,7 +187,7 @@ func TestAnAdmissionWaitingOnTheTrackerKeepsWhatTheQueueRecorded(t *testing.T) {
 	tracker := &landingTracker{
 		Tracker: &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Status: "in_progress"}, RecordFailures: 1, TransientRecordErr: syscall.ECONNRESET},
 		duringFirstNote: func() {
-			if err := (MergeQueueRunCompletion{Store: store, Now: func() time.Time { return at }}).RecordRun(ctx, entry, landed); err != nil {
+			if err := (MergeQueueRunCompletion{Store: store, Now: func() time.Time { return at }}).RecordRun(ctx, entry, landed, nil); err != nil {
 				t.Errorf("the queue's completion: %v", err)
 			}
 			if err := (MergeQueuePublicationRetirer{Store: store, Forge: forge, Branches: keptBranches{}, Now: func() time.Time { return at }}).retireRunRequest(ctx, entry, landed); err != nil {

@@ -3018,8 +3018,12 @@ What can happen to a queued change instead:
   this happens the change is handed back to its own run for the run's one
   attempt to catch up: the run is put back to work by itself, a new developer session reconciles the
   conflict on top of the target, and the
-  change is checked and reviewed again and rejoins the queue. The item is told,
-  not blocked, and no repair attempt or fresh run is spent.
+  change is checked again and rejoins the queue. A resolution that changes
+  nothing outside the conflicting files, compared with Git's own merge of the
+  approved head, rejoins with no review of its own: the queue's review of its
+  candidate is its one review, and that reviewer is shown each conflict and how
+  it was resolved. Any other resolution is reviewed before it rejoins. The item
+  is told, not blocked, and no repair attempt or fresh run is spent.
 
   That attempt first waits while a change the queue would take before this one,
   and has not finished with, touches any of the conflicting files. The wait is at

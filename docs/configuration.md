@@ -7854,8 +7854,17 @@ merge onto the target at all, because the target moved while it waited, is
 first given one of its run's three reconciliation attempts rather than a stop: the run is
 put back live at its developer attempt, the reconciling sweep hosts it, a
 new developer session reconciles the conflict on top of the target, and the change is
-checked and reviewed again and rejoins the queue by itself, charged no repair
-attempt and no fresh run (`merge-queue-behind` in
+checked again and rejoins the queue by itself, charged no repair
+attempt and no fresh run. The harness compares the resolved change with Git's own
+merge of the approved head onto the same target: where every file outside the
+conflicting ones is exactly as that merge leaves it, the change rejoins with no
+review in between, on the approval of the head it resolves, and the queue's
+review of its candidate is its one review, by a reviewer who wrote none of it
+and is shown each conflict and how it was resolved. The entry names the approved
+head and the resolved head apart, and nothing calls the resolved head approved
+until that review approves the candidate. Any other resolution is reviewed
+before it rejoins, and so is every later one of a run whose resolution the
+candidate's review refused, or whose project has a person approve integration (`merge-queue-behind` in
 [run stops](run-stops.md)); while every developer slot is taken, the queue
 gives it at a later pass. A run that already used all three, or cannot take
 one, is handed back the way a replay conflict is, saying why, so the repair

@@ -83,7 +83,7 @@ func (p *Pipeline) quickQueueChecks(entry runstate.MergeQueueEntry) runstate.Mer
 		owed := true
 		if p.Store != nil {
 			if run, err := p.Store.Load(entry.RunID); err == nil {
-				owed = raceOwed(run, entry.ApprovedHead, race)
+				owed = raceOwed(run, entry.Head(), race)
 			}
 		}
 		if owed {
@@ -268,8 +268,8 @@ func (w MergeQueueWorker) pushForForge(ctx context.Context, lease *runstate.Leas
 		Head:  branch,
 		Base:  key.TargetBranch,
 		Title: fmt.Sprintf("%s: %s", entry.WorkItemID, entry.WorkItemTitle),
-		Body: fmt.Sprintf("Merge queue candidate %s for %s: %s at %s with the approved head %s merged onto it, generation %d of entry %s. Its quick local checks passed; GitHub's required checks (%s) and an independent review are run on it now, and it is merged only once both pass.\n\nRun: %s\n",
-			generation.Candidate, entry.WorkItemID, key.TargetBranch, generation.TargetBase, entry.ApprovedHead, generation.Number, entry.EntryID,
+		Body: fmt.Sprintf("Merge queue candidate %s for %s: %s at %s with %s merged onto it, generation %d of entry %s. Its quick local checks passed; GitHub's required checks (%s) and an independent review are run on it now, and it is merged only once both pass.\n\nRun: %s\n",
+			generation.Candidate, entry.WorkItemID, key.TargetBranch, generation.TargetBase, headNamed(entry), generation.Number, entry.EntryID,
 			strings.Join(generation.Checks.ForgeChecks, ", "), entry.RunID) + nonEmptyLine(p.factoryLine(ctx)),
 		Mark: forgeMark(ctx, p.Factory, entry.ProductID, p.Config.Product.ID),
 	})

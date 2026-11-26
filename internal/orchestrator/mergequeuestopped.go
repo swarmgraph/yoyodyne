@@ -224,7 +224,7 @@ type reachedTarget struct {
 // landing; a pull request that reads as merged with nothing on the target to
 // show for it is not one.
 func (q *queuePromotion) reachedTarget(ctx context.Context) reachedTarget {
-	target, head := q.key.TargetBranch, q.entry.ApprovedHead
+	target, head := q.key.TargetBranch, q.entry.Head()
 	freshness := q.catchUpTarget(ctx)
 	holds := func(commit string) (bool, string) {
 		if !fullCommitID.MatchString(commit) {
@@ -313,12 +313,12 @@ func (q *queuePromotion) catchUpTarget(ctx context.Context) string {
 // a guess.
 func (p MergeQueuePromoter) releaseLandedOutside(ctx context.Context, q *queuePromotion, refuse func(string, ...any) (MergeQueuePromotion, error), why string) (MergeQueuePromotion, error) {
 	target := q.key.TargetBranch
-	held, err := p.Lander.TargetHolds(ctx, target, q.entry.ApprovedHead)
+	held, err := p.Lander.TargetHolds(ctx, target, q.entry.Head())
 	if err != nil {
-		return q.result(), fmt.Errorf("read whether %s holds the approved commit %s: %w", target, q.entry.ApprovedHead, err)
+		return q.result(), fmt.Errorf("read whether %s holds the commit %s it admitted: %w", target, q.entry.Head(), err)
 	}
 	if !held {
-		return refuse("%s does not hold its approved commit %s, so it has not landed; hand it back instead", target, q.entry.ApprovedHead)
+		return refuse("%s does not hold its admitted commit %s, so it has not landed; hand it back instead", target, q.entry.Head())
 	}
 	if err := q.withdraw(ctx, why); err != nil {
 		return q.result(), err
@@ -344,9 +344,9 @@ func (p MergeQueuePromoter) releaseLandedOutside(ctx context.Context, q *queuePr
 	// reason differs, naming who released it and why.
 	q.landing.Handback = &runstate.MergeQueueHandback{
 		At: q.now(), Continuation: runstate.MergeQueueLandedOutside, Mover: ownership.MoverHarness,
-		Reason: oneline.Fold(fmt.Sprintf("%s; recorded as landed outside the queue because %s already carries its approved commit %s, at %s",
-			why, target, q.entry.ApprovedHead, carrying), 1500),
-		TargetBase: carrying, ApprovedHead: q.entry.ApprovedHead,
+		Reason: oneline.Fold(fmt.Sprintf("%s; recorded as landed outside the queue because %s already carries its admitted commit %s, at %s",
+			why, target, q.entry.Head(), carrying), 1500),
+		TargetBase: carrying, ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead,
 	}
 	if err := q.save(); err != nil {
 		q.landing.Handback = nil

@@ -200,8 +200,15 @@ type MergeQueueAdmission struct {
 	// Publication is the publication the change was approved under, such as
 	// its pull request's address. It is empty for a project that does not
 	// publish.
-	Publication  string
+	Publication string
+	// ApprovedHead is the head the reviewer approved.
 	ApprovedHead string
+	// ResolvedHead and Resolution are set only for a resolution of a conflict
+	// the harness found confined to the conflicting files, which is admitted on
+	// the approval of ApprovedHead, the head it resolves, for the same run only
+	// (confinedresolution.go). The candidate is built from ResolvedHead.
+	ResolvedHead string
+	Resolution   *MergeQueueResolution
 	// IntegrationPolicy names the integration policy the change was approved
 	// under, which admission records and never interprets.
 	IntegrationPolicy string
@@ -218,17 +225,27 @@ type MergeQueueEntry struct {
 	EntryID string `json:"entry_id"`
 	// Order is the entry's place in its queue, from 1, assigned once and never
 	// assigned again in that queue.
-	Order             uint64           `json:"order"`
-	ProductID         domain.ProductID `json:"product_id"`
-	Repository        string           `json:"repository"`
-	TargetBranch      string           `json:"target_branch"`
-	WorkItemID        string           `json:"work_item_id"`
-	WorkItemTitle     string           `json:"work_item_title"`
-	RunID             string           `json:"run_id"`
-	Publication       string           `json:"publication,omitempty"`
-	ApprovedHead      string           `json:"approved_head"`
-	IntegrationPolicy string           `json:"integration_policy"`
-	Mode              MergeQueueMode   `json:"mode"`
+	Order         uint64           `json:"order"`
+	ProductID     domain.ProductID `json:"product_id"`
+	Repository    string           `json:"repository"`
+	TargetBranch  string           `json:"target_branch"`
+	WorkItemID    string           `json:"work_item_id"`
+	WorkItemTitle string           `json:"work_item_title"`
+	RunID         string           `json:"run_id"`
+	Publication   string           `json:"publication,omitempty"`
+	// ApprovedHead is the head an independent reviewer approved. It is what
+	// the candidate is built from unless the entry has a resolved head (Head).
+	ApprovedHead string `json:"approved_head"`
+	// ResolvedHead is the commit a resolving session produced for a conflict
+	// of ApprovedHead, and Resolution the comparison that found it confined to
+	// the conflicting files. Both are left out of every other entry, so a record
+	// written before they existed is read as it is; a build that does not know
+	// them refuses the record when it reads it strictly to admit, rather than
+	// writing it back without them.
+	ResolvedHead      string                `json:"resolved_head,omitempty"`
+	Resolution        *MergeQueueResolution `json:"resolution,omitempty"`
+	IntegrationPolicy string                `json:"integration_policy"`
+	Mode              MergeQueueMode        `json:"mode"`
 	// ModeEvidence is why the entry is in Mode, as observed when it was
 	// admitted. A later observation never revises it, and never moves the
 	// entry to another mode.
@@ -293,6 +310,7 @@ func (e MergeQueueEntry) validate() error {
 	}
 	problems = append(problems, mergeQueueContents(e.WorkItemID, e.WorkItemTitle, e.RunID, e.Publication, e.ApprovedHead, e.IntegrationPolicy, e.Mode)...)
 	problems = append(problems, e.ModeEvidence.validate(e.Mode)...)
+	problems = append(problems, e.validateResolution()...)
 	if e.AdmittedAt.IsZero() {
 		problems = append(problems, errors.New("admission time is required"))
 	}
@@ -318,6 +336,7 @@ func (e MergeQueueEntry) sameContents(other MergeQueueEntry) bool {
 	return e.ProductID == other.ProductID && e.Repository == other.Repository && e.TargetBranch == other.TargetBranch &&
 		e.WorkItemID == other.WorkItemID && e.WorkItemTitle == other.WorkItemTitle && e.RunID == other.RunID &&
 		e.Publication == other.Publication && e.ApprovedHead == other.ApprovedHead &&
+		e.ResolvedHead == other.ResolvedHead && e.Resolution.same(other.Resolution) &&
 		e.IntegrationPolicy == other.IntegrationPolicy && e.Mode == other.Mode
 }
 
@@ -392,8 +411,8 @@ type MergeQueueConflictError struct {
 }
 
 func (e MergeQueueConflictError) Error() string {
-	return fmt.Sprintf("run %s is already admitted to the merge queue for %s as entry %d at head %s, with different contents; an admitted entry is never rewritten",
-		e.Admitted.RunID, e.Admitted.TargetBranch, e.Admitted.Order, e.Admitted.ApprovedHead)
+	return fmt.Sprintf("run %s is already admitted to the merge queue for %s as entry %d at %s, with different contents; an admitted entry is never rewritten",
+		e.Admitted.RunID, e.Admitted.TargetBranch, e.Admitted.Order, e.Admitted.HeadSays())
 }
 
 // ErrMergeQueueSaveUncertain is an admission whose write failed in a way that
@@ -504,13 +523,19 @@ func (s *MergeQueueStore) Admit(ctx context.Context, admission MergeQueueAdmissi
 	asked := MergeQueueEntry{
 		ProductID: s.productID, Repository: admission.Key.Repository, TargetBranch: admission.Key.TargetBranch,
 		WorkItemID: admission.WorkItemID, WorkItemTitle: admission.WorkItemTitle, RunID: admission.RunID,
-		Publication: admission.Publication, ApprovedHead: admission.ApprovedHead,
+		Publication: admission.Publication, ApprovedHead: admission.ApprovedHead, ResolvedHead: admission.ResolvedHead,
 		IntegrationPolicy: admission.IntegrationPolicy, Mode: admission.Mode, ModeEvidence: admission.ModeEvidence, AdmittedAt: at.UTC(),
 	}
 	asked.ModeEvidence.ObservedAt = asked.ModeEvidence.ObservedAt.UTC()
 	asked.ModeEvidence.Unmet = append([]string(nil), asked.ModeEvidence.Unmet...)
+	if admission.Resolution != nil {
+		resolution := *admission.Resolution
+		resolution.Conflicting = append([]string(nil), resolution.Conflicting...)
+		resolution.ComparedAt = resolution.ComparedAt.UTC()
+		asked.Resolution = &resolution
+	}
 	if err := errors.Join(admission.Key.validate(), errors.Join(mergeQueueContents(asked.WorkItemID, asked.WorkItemTitle, asked.RunID, asked.Publication, asked.ApprovedHead, asked.IntegrationPolicy, asked.Mode)...),
-		errors.Join(asked.ModeEvidence.validate(asked.Mode)...)); err != nil {
+		errors.Join(asked.ModeEvidence.validate(asked.Mode)...), errors.Join(asked.validateResolution()...)); err != nil {
 		return MergeQueueEntry{}, false, fmt.Errorf("merge queue admission: %w", err)
 	}
 	queueRoot, unlock, err := s.lockQueue(ctx, admission.Key)
@@ -903,14 +928,17 @@ type MergeQueueAdmissionRecord struct {
 	TargetBranch string         `json:"target_branch"`
 	Mode         MergeQueueMode `json:"mode"`
 	ApprovedHead string         `json:"approved_head"`
-	AdmittedAt   time.Time      `json:"admitted_at"`
+	// ResolvedHead is the entry's resolved head where it has one
+	// (MergeQueueEntry.ResolvedHead).
+	ResolvedHead string    `json:"resolved_head,omitempty"`
+	AdmittedAt   time.Time `json:"admitted_at"`
 }
 
 // AdmissionRecord is what a run records of its admission as this entry.
 func (e MergeQueueEntry) AdmissionRecord() MergeQueueAdmissionRecord {
 	return MergeQueueAdmissionRecord{
 		EntryID: e.EntryID, Order: e.Order, Repository: e.Repository, TargetBranch: e.TargetBranch,
-		Mode: e.Mode, ApprovedHead: e.ApprovedHead, AdmittedAt: e.AdmittedAt,
+		Mode: e.Mode, ApprovedHead: e.ApprovedHead, ResolvedHead: e.ResolvedHead, AdmittedAt: e.AdmittedAt,
 	}
 }
 
@@ -932,6 +960,9 @@ func (r MergeQueueAdmissionRecord) validate() error {
 	}
 	if !commitPattern.MatchString(r.ApprovedHead) {
 		problems = append(problems, fmt.Errorf("approved head %q is not a full commit id", r.ApprovedHead))
+	}
+	if r.ResolvedHead != "" && !commitPattern.MatchString(r.ResolvedHead) {
+		problems = append(problems, fmt.Errorf("resolved head %q is not a full commit id", r.ResolvedHead))
 	}
 	if r.AdmittedAt.IsZero() {
 		problems = append(problems, errors.New("admission time is required"))

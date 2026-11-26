@@ -22,7 +22,7 @@ func TestQueueReleaseSaysWhatBecameOfTheEntry(t *testing.T) {
 		result orchestrator.MergeQueuePromotion
 		want   string
 	}{
-		{"landed and recorded", orchestrator.MergeQueuePromotion{Entry: entry, HandedBack: &runstate.MergeQueueHandback{Continuation: runstate.MergeQueueLandedOutside, HandedBackAt: &recorded}}, "as landed: its approved commit abc is on main"},
+		{"landed and recorded", orchestrator.MergeQueuePromotion{Entry: entry, HandedBack: &runstate.MergeQueueHandback{Continuation: runstate.MergeQueueLandedOutside, HandedBackAt: &recorded}}, "as landed: its admitted commit abc is on main"},
 		{"landed, recording unfinished", orchestrator.MergeQueuePromotion{Entry: entry, HandedBack: &runstate.MergeQueueHandback{Continuation: runstate.MergeQueueLandedOutside}}, "is not finished"},
 		{"handed back", orchestrator.MergeQueuePromotion{Entry: entry, HandedBack: &runstate.MergeQueueHandback{Continuation: runstate.MergeQueueReleased}}, `handed it back to "Release the queue head" (yoyodyne-task)`},
 		{"landed through the queue", orchestrator.MergeQueuePromotion{Entry: entry, Completed: true}, "through the merge queue itself, so it was recorded"},
