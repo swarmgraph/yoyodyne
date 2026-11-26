@@ -896,7 +896,8 @@ not brought up to date, a run stopped because GitHub refused the harness's login
 stays stopped, the attempt to repair a change the merge queue handed back stays
 owed, a run already begun waits before its next call to a provider with
 its slot given back, and a run you name is refused with the command that
-adds the item to an open epic. Adding the item, or turning epic mode off, lets
+adds the item to an open epic. Adding the item, its [joining the
+epic](../operations.md#what-joins-a-named-epic), or turning epic mode off, lets
 the same start go ahead. Being in a named epic lifts
 no other check: a member held for its design still waits for it. [Which epics the
 factory works on](../operations.md#which-epics-the-factory-works-on) has every

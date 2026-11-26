@@ -298,6 +298,10 @@ func TestTheDevelopmentManagerDecomposesAdmittedWork(t *testing.T) {
 	if len(tracker.created) != 1 {
 		t.Fatalf("created %d item(s), want 1", len(tracker.created))
 	}
+	// What the item itself says of the act is what lets it join a named epic.
+	if from, split := SplitByDevelopmentManager(tracker.created[0].Notes); !split || from != "yoyodyne-ifd.4" {
+		t.Errorf("its notes are read as split from %q: %t\n%s", from, split, tracker.created[0].Notes)
+	}
 	if tracker.created[0].Parent != "yoyodyne-ifd.4" {
 		t.Fatalf("the child was created under %q", tracker.created[0].Parent)
 	}

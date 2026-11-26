@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 )
@@ -43,6 +44,10 @@ func name(t *testing.T, root, epic, item string) {
 	t.Helper()
 	started, err := operatorAt(t, root).Start(epicscope.Naming{Epic: epic, From: "terminal", Members: []string{item}}, at)
 	must(t, started.Record, err)
+}
+
+func named(epic string) epicprogress.Naming {
+	return epicprogress.Naming{WorkItemID: epic, NamedAt: at.UTC()}
 }
 
 func end(t *testing.T, root, epic string) {
@@ -118,6 +123,11 @@ func TestEveryRule(t *testing.T) {
 		{"message reading", MessageReading(), false, out},
 		{"team branch update", UpdateFromTeam("staging"), false, in},
 		{"team branch update of no branch", UpdateFromTeam(""), false, unknown},
+		{"judgment for an open epic", JudgmentOfAPiece(named(openEpicID)), false, in},
+		{"judgment for an ended epic", JudgmentOfAPiece(named(endedEpic)), false, out},
+		{"judgment for another naming", JudgmentOfAPiece(epicprogress.Naming{WorkItemID: openEpicID, NamedAt: at.Add(1)}), false, out},
+		{"judgment for no naming", JudgmentOfAPiece(epicprogress.Naming{}), false, unknown},
+		{"judgment by another path", Start{path: PromptedPass, what: joiningJudgment, naming: named(openEpicID)}, false, unknown},
 		{"operator's conversation", OperatorConversation(), true, answers{May, May}},
 		{"role's question", RoleQuestion(), true, answers{May, May}},
 		{"nothing said", Start{}, false, unknown},
@@ -137,7 +147,7 @@ func TestEveryRule(t *testing.T) {
 			documents, documentsOut = in, out
 		case startsPass:
 			passes = in
-		case startsGoalReview, startsMessageReading, startsTeamBranchUpdate, startsByAPerson:
+		case startsGoalReview, startsMessageReading, startsTeamBranchUpdate, startsJoiningJudgment, startsByAPerson:
 		default:
 			t.Fatalf("%s starts nothing this test knows", entry.Path)
 		}
@@ -233,7 +243,7 @@ func TestTheClosedListOfPaths(t *testing.T) {
 		ReadyWork, NamedRun, HoldTest, DecidedRerun, DecidedRepair, FinishMerge, ContinueRun, PickUpRun,
 		FeedbackRepair, PublishDocument, BringUpToDate, ResolveConflict, BringInFile,
 		UpdateQueued, UpdateForPerson, AfterLogin, RecurringPass, PromptedPass, UnmetGoalReview, MessagesForWork,
-		TeamBranchUpdate, OperatorReview,
+		TeamBranchUpdate, JoiningJudgment, OperatorReview,
 	}
 	wired := map[Path]bool{
 		ReadyWork: true, NamedRun: true, HoldTest: true, DecidedRerun: true, DecidedRepair: true, FeedbackRepair: true,
@@ -242,7 +252,7 @@ func TestTheClosedListOfPaths(t *testing.T) {
 		BringUpToDate: true,
 		RecurringPass: true, PromptedPass: true, UnmetGoalReview: true, MessagesForWork: true,
 		FinishMerge: true, ContinueRun: true, PickUpRun: true,
-		TeamBranchUpdate: true, OperatorReview: true,
+		TeamBranchUpdate: true, JoiningJudgment: true, OperatorReview: true,
 	}
 
 	got := Paths()

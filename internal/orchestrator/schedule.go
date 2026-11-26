@@ -855,6 +855,9 @@ type Pull struct {
 	// lost are re-issued without a person prompting it. Optional; see
 	// ScheduleCorrections.
 	Corrections ScheduleCorrections
+	// EpicJoins judges the pieces that may join a named epic. Optional; see
+	// ScheduleEpicJoins.
+	EpicJoins ScheduleEpicJoins
 	// Outages is the product's record of the provider answering nobody, and
 	// Provider is what a watch asks whether the login has been renewed. Both
 	// optional; see ScheduleOutages. A pull wired without them counts a dispatch
@@ -1429,6 +1432,8 @@ type Schedule struct {
 	// unsaid, because a refusal nobody woke for is exactly the loss the wakeup
 	// exists to prevent.
 	CorrectionProblem string `json:"correction_problem,omitempty"`
+	// EpicJoinProblem is why a piece that may join a named epic could not be judged.
+	EpicJoinProblem string `json:"epic_join_problem,omitempty"`
 	// ProviderAway counts the dispatches this pass made that the provider turned
 	// away because nobody was logged into it or nobody could reach it, and
 	// ProviderOutage is the outage as the last pull found it standing, nil once
@@ -2838,6 +2843,7 @@ pulling:
 		// a time and never in a conversation a turn of this session's holds; see
 		// correct.
 		s.correct(ctx, &schedule, pull, firings, !drain.active || running > 0)
+		s.judgeEpicPieces(ctx, &schedule, pull, firings, !drain.active || running > 0)
 		// The claims the tracker holds are audited here, for the reason the three
 		// above it run here: it chooses nothing and starts nothing, so none of what
 		// follows is allowed to stop it happening. It is last of the four because it
@@ -9686,6 +9692,9 @@ func (s Schedule) Render() string {
 	// actions a role lost are actions an operator may be expecting, and a pass that
 	// spent a turn getting them re-issued is a pass that did something.
 	rendered.WriteString(CorrectionSweep{Corrected: s.Corrected}.Render())
+	if s.EpicJoinProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.EpicJoinProblem)
+	}
 	if s.CorrectionProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.CorrectionProblem)
 	}

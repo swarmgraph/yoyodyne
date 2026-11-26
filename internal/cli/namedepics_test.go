@@ -13,6 +13,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
@@ -99,11 +100,17 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 	wiredTo[maystart.TeamBranchUpdate] = []orchestrator.StartDecision{teamUpdater.Pipeline.MayStart}
 	wiredTo[maystart.UnmetGoalReview] = []orchestrator.StartDecision{trigger.MayStart}
 	wiredTo[maystart.MessagesForWork] = []orchestrator.StartDecision{pull.MayStart}
+	joiner, err := epicJoins{parts, parts.runner}.joiner(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wiredTo[maystart.JoiningJudgment] = []orchestrator.StartDecision{joiner.MayStart}
 	notRuns := map[maystart.Path]maystart.Start{
 		maystart.RecurringPass:   maystart.Pass(maystart.RecurringPass, domain.RoleProgramManager),
 		maystart.PromptedPass:    maystart.Pass(maystart.PromptedPass, domain.RoleProgramManager),
 		maystart.UnmetGoalReview: maystart.GoalReview(),
 		maystart.MessagesForWork: maystart.MessageReading(),
+		maystart.JoiningJudgment: maystart.JudgmentOfAPiece(epicprogress.Naming{WorkItemID: "yoyodyne-other", NamedAt: time.Now()}),
 	}
 	if trigger.WouldStart(notRuns[maystart.RecurringPass]).MayStart() || trigger.EpicsChanged().IsZero() {
 		t.Error("the check for missed passes does not read this product's named epics")
