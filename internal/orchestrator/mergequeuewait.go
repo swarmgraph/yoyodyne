@@ -156,9 +156,10 @@ func (r Reconciler) settleMergeQueueWait(ctx context.Context, state runstate.Sta
 // run's own last commit: a run repaired after a handback and promoted some other
 // way has moved on from the head it once queued.
 func cleanupCommit(state runstate.State) string {
-	if queued := state.MergeQueue; queued != nil && queued.ApprovedHead != "" && queued.ApprovedHead == state.HarnessCommit &&
-		state.Integration.SourceCommit != queued.ApprovedHead {
-		return state.MergeQueue.ApprovedHead
+	// A resolved entry's head is its resolved head (Head).
+	if queued := state.MergeQueue; queued != nil && queued.Head() != "" && queued.Head() == state.HarnessCommit &&
+		state.Integration.SourceCommit != queued.Head() {
+		return queued.Head()
 	}
 	return state.Integration.SourceCommit
 }

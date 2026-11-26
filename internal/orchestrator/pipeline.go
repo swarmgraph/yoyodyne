@@ -3213,6 +3213,12 @@ func (a *activeRun) verifyReviewAndFinish(ctx context.Context) (Outcome, error) 
 // was given by a process that then stopped short of this step for a reason the
 // environment answers for.
 func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) {
+	// A resolution confined to the conflicting files has no approval of its own
+	// to check here: it is admitted to the harness's merge queue on the approval
+	// of the head it resolves, or goes round the gate again to be reviewed.
+	if a.rejoiningConfined() {
+		return a.admitConfined(ctx)
+	}
 	// An approval only authorizes integration when it demonstrably came from a
 	// second invocation. Missing or reused provider identity means the
 	// independence the policy relies on was never established.
@@ -3263,7 +3269,7 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 		// queue rather than promoted here, and the run ends; a queue that cannot
 		// land into the target holds the change here rather than promoting it as
 		// below (mergequeueadmission.go).
-		if outcome, ended, err := a.admitToMergeQueue(ctx); ended {
+		if outcome, ended, err := a.admitToMergeQueue(ctx, nil); ended {
 			return outcome, false, err
 		}
 		if a.queueElsewhere == "" {
@@ -4198,6 +4204,12 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 		a.observe(ctx, deliveryCheck, "passed")
 		if err := a.payOwedPublish(ctx); err != nil {
 			return err
+		}
+		// A resolution the harness finds confined to the conflicting files
+		// rejoins the merge queue with no review here: the queue's review of its
+		// candidate is its review (confinedresolution.go).
+		if a.rejoinsUnreviewed(ctx) {
+			return a.judgeReplay(runstate.ReplayClean)
 		}
 		decision, err := a.reviewChange(ctx)
 		if err != nil {
@@ -7761,7 +7773,11 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// describing the change: it was moved into the worktree for its author to
 	// settle, and a change that passes its checks on top of the target is that
 	// settlement. Nothing later can say it — the promotion after it is an
-	// ordinary fast-forward, with no replay left to prove anything.
+	// ordinary fast-forward, with no replay left to prove anything. A
+	// resolution made in a new session is kept apart first, for the comparison
+	// that decides whether it is reviewed before it rejoins the merge queue
+	// (confinedresolution.go).
+	a.noteResolutionChecked()
 	a.state.ReplayConflict = nil
 	return nil
 }
@@ -7808,6 +7824,19 @@ func refusedForGood(err error) bool {
 // than off the record, because the record can only say what the checks ran
 // over, and the question is whether that is what is about to be promoted.
 func (a *activeRun) integrationEarned(ctx context.Context) error {
+	return a.earned(ctx, true)
+}
+
+// integrationEarnedBeforeReview is integrationEarned short of the approving
+// review, for a resolution confined to the conflicting files, which is admitted
+// to the merge queue on the approval of the head it resolves and has the
+// queue's review of its candidate as its own (confinedresolution.go). It lands
+// nothing: the queue lands only a candidate whose own review approved it.
+func (a *activeRun) integrationEarnedBeforeReview(ctx context.Context) error {
+	return a.earned(ctx, false)
+}
+
+func (a *activeRun) earned(ctx context.Context, reviewed bool) error {
 	state := a.state
 	if state.OutsideFile != nil {
 		// The paths are settled again at the promotion, as a document's are.
@@ -7856,7 +7885,7 @@ func (a *activeRun) integrationEarned(ctx context.Context) error {
 	case state.ChecksPassed.Narrowed != "" && !(state.ChecksPassed.WholeLeftToQueue && a.queueChecksCandidateWhole()):
 		return lasting(fmt.Errorf("%w: the checks passed only over %s, and the full checks were never run over the change as it would be merged",
 			ErrIntegrationUnearned, state.ChecksPassed.Narrowed))
-	case state.ReviewDecision != runstate.ReviewApprove:
+	case reviewed && state.ReviewDecision != runstate.ReviewApprove:
 		return lasting(fmt.Errorf("%w: the recorded review decision is %q rather than an approval",
 			ErrIntegrationUnearned, state.ReviewDecision))
 	}

@@ -396,7 +396,7 @@ func (q *queuePromotion) release(why string, transferTo runstate.MergeQueueMode)
 	q.landing.Handback = &runstate.MergeQueueHandback{
 		At: q.now(), Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverHarness,
 		Reason:       oneline.Fold(why+"; the entry leaves the queue, and the change is admitted again once what the withdrawal was for is done", 1500),
-		ApprovedHead: q.entry.ApprovedHead, TransferTo: transferTo,
+		ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead, TransferTo: transferTo,
 	}
 	if err := q.save(); err != nil {
 		q.landing.Handback = nil
@@ -812,7 +812,7 @@ func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueH
 		At: q.now(), Class: failure.Class, Reason: oneline.Fold(failure.Reason, 1500), Review: failure.Review,
 		Generation: generation.Number, Binding: generation.Binding(), TargetBase: generation.TargetBase,
 		Heads: append([]string(nil), generation.Heads...), Candidate: generation.Candidate,
-		ApprovedHead: q.entry.ApprovedHead,
+		ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead,
 	}
 	missing := func(why string) *runstate.MergeQueueHandback {
 		handback.Continuation, handback.Mover = runstate.MergeQueueMissingPrerequisite, ownership.MoverDevelopmentManager
@@ -979,7 +979,7 @@ func (q *queuePromotion) earlierWithdrawals() (int, error) {
 	}
 	count := 0
 	for _, entry := range entries {
-		if entry.RunID != q.entry.RunID || entry.ApprovedHead != q.entry.ApprovedHead || entry.EntryID == q.entry.EntryID || entry.Order >= q.entry.Order {
+		if entry.RunID != q.entry.RunID || entry.Head() != q.entry.Head() || entry.EntryID == q.entry.EntryID || entry.Order >= q.entry.Order {
 			continue
 		}
 		landing, found, err := q.p.Queue.Landing(q.key, entry.EntryID)
@@ -1056,12 +1056,12 @@ func (q *queuePromotion) handBackConflict(ctx context.Context, conflict gitworkt
 	paths, omitted := runstate.BoundConflictPaths(conflict.Paths)
 	failure := MergeQueueFailure{
 		Class: runstate.MergeQueueCandidateDefect, Attributed: true, Mover: ownership.MoverOf(domain.RoleDeveloper),
-		Reason: fmt.Sprintf("the approved head %s does not merge onto %s at %s, so no candidate could be built (conflicting: %s)",
-			entry.ApprovedHead, key.TargetBranch, conflict.BaseCommit, nonEmpty(conflictPathsSay(paths, omitted), "no paths named")),
+		Reason: fmt.Sprintf("%s does not merge onto %s at %s, so no candidate could be built (conflicting: %s)",
+			headNamed(entry), key.TargetBranch, conflict.BaseCommit, nonEmpty(conflictPathsSay(paths, omitted), "no paths named")),
 	}
 	handback := q.decide(failure)
 	handback.Generation, handback.Binding, handback.Candidate = 0, "", ""
-	handback.TargetBase, handback.Heads = conflict.BaseCommit, []string{entry.ApprovedHead}
+	handback.TargetBase, handback.Heads = conflict.BaseCommit, []string{entry.Head()}
 	handback.Conflict = &runstate.MergeQueueConflict{
 		TargetBase: conflict.BaseCommit, Paths: paths, Omitted: omitted,
 		Lines: conflict.Lines.Lines, LinesUnknown: oneline.Fold(conflict.Lines.Unknown, runstate.MaxConflictLinesUnknownBytes),
@@ -1192,8 +1192,8 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 			return err
 		}
 	}
-	notes := fmt.Sprintf("The merge queue handed this change back. %s\n%s\nRun %s keeps its branch %s and its approved head %s.",
-		handback.Reason, marker, entry.RunID, nonEmpty(handback.Branch, "(none recorded)"), handback.ApprovedHead)
+	notes := fmt.Sprintf("The merge queue handed this change back. %s\n%s\nRun %s keeps its branch %s and its %s.",
+		handback.Reason, marker, entry.RunID, nonEmpty(handback.Branch, "(none recorded)"), entry.HeadSays())
 	if notCaught != "" {
 		notes += fmt.Sprintf(" It was not given an attempt to bring the change up to date with %s by itself, because %s.", entry.TargetBranch, notCaught)
 	}
@@ -1254,6 +1254,13 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		// (handBackRedMergeWithCheck).
 		state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes), QueueReview: handback.Review}
 		state.ChecksPassed = nil
+		// A resolution admitted on the approval of the head it resolves had the
+		// candidate's review as its only one; where that review refused it, every
+		// later resolution of this run is reviewed before it rejoins
+		// (confinedresolution.go).
+		if entry.ResolvedHead != "" && handback.Review != nil && state.ConfinedRefused == "" {
+			state.ConfinedRefused = oneline.Fold(fmt.Sprintf("the merge queue's review of the candidate carrying resolved head %s refused it", entry.ResolvedHead), runstate.MaxMergeQueueTextBytes)
+		}
 	}
 	state.Blocker = runstate.RecordBlocker(notes)
 	if state.HarnessAuthored() {

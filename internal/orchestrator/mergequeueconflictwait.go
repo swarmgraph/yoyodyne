@@ -138,7 +138,7 @@ func (r MergeQueueReturns) Ahead(ctx context.Context, returned runstate.MergeQue
 // number of them, so one that dropped some is merged again to name them all.
 func (r MergeQueueReturns) conflictingPaths(ctx context.Context, returned runstate.MergeQueueEntry, conflict runstate.MergeQueueConflict) []string {
 	if conflict.Omitted > 0 && conflict.TargetBase != "" {
-		_, err := r.Git.MergeTree(ctx, conflict.TargetBase, returned.ApprovedHead)
+		_, err := r.Git.MergeTree(ctx, conflict.TargetBase, returned.Head())
 		var found *gitworktree.QueueCandidateConflict
 		if errors.As(err, &found) && len(found.Paths) > 0 {
 			return found.Paths
@@ -154,7 +154,7 @@ func (r MergeQueueReturns) touches(ctx context.Context, entry runstate.MergeQueu
 	if err != nil || run.BaseCommit == "" {
 		return nil
 	}
-	changed, err := r.Git.CandidatePaths(ctx, run.BaseCommit, entry.ApprovedHead)
+	changed, err := r.Git.CandidatePaths(ctx, run.BaseCommit, entry.Head())
 	if err != nil {
 		return nil
 	}
@@ -173,7 +173,7 @@ func (r MergeQueueReturns) Merges(ctx context.Context, returned runstate.MergeQu
 	if err != nil {
 		return false, err
 	}
-	_, err = r.Git.MergeTree(ctx, target, returned.ApprovedHead)
+	_, err = r.Git.MergeTree(ctx, target, returned.Head())
 	var conflict *gitworktree.QueueCandidateConflict
 	if errors.As(err, &conflict) {
 		return false, nil
@@ -200,12 +200,15 @@ func (r MergeQueueReturns) Rejoined(returned runstate.MergeQueueEntry) (runstate
 // answers says the entry, or why the queue will not take the change now.
 func (r MergeQueueReturns) Rejoin(ctx context.Context, returned runstate.MergeQueueEntry, run runstate.State, now time.Time) (queuemode.Admitted, error) {
 	admitter := queuemode.Admitter{Queue: r.Queue, Forge: r.Forge, Harness: r.Harness, Now: func() time.Time { return now }}
-	if run.ChecksPassed != nil && run.ChecksPassed.WholeLeftToQueue {
+	// A resolution admitted on the approval of the head it resolves has the
+	// harness's queue review its candidate, so it goes back to that queue only.
+	if (run.ChecksPassed != nil && run.ChecksPassed.WholeLeftToQueue) || returned.ResolvedHead != "" {
 		admitter.Only = runstate.MergeQueueHarness
 	}
 	return admitter.Admit(ctx, runstate.MergeQueueAdmission{
 		Key: returned.Key(), WorkItemID: returned.WorkItemID, WorkItemTitle: returned.WorkItemTitle, RunID: returned.RunID,
-		Publication: returned.Publication, ApprovedHead: returned.ApprovedHead, IntegrationPolicy: returned.IntegrationPolicy, At: now,
+		Publication: returned.Publication, ApprovedHead: returned.ApprovedHead, ResolvedHead: returned.ResolvedHead, Resolution: returned.Resolution,
+		IntegrationPolicy: returned.IntegrationPolicy, At: now,
 	})
 }
 
@@ -284,7 +287,7 @@ func (h MergeQueueRunHandback) rejoin(ctx context.Context, entry runstate.MergeQ
 	if err != nil {
 		return false, fmt.Errorf("try whether the approved head of run %s merges onto %s again: %w", entry.RunID, entry.TargetBranch, err)
 	}
-	if !merges || handback.ApprovedHead != run.HarnessCommit || entry.ApprovedHead != run.HarnessCommit {
+	if !merges || handback.Head() != run.HarnessCommit || entry.Head() != run.HarnessCommit {
 		return false, nil
 	}
 	admitted, err := h.Returns.Rejoin(ctx, entry, run, h.now().UTC())

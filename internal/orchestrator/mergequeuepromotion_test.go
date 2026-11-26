@@ -985,7 +985,7 @@ func TestTheRunCompletionMakesItsRecordsOnce(t *testing.T) {
 	entry := runstate.MergeQueueEntry{RunID: runID, WorkItemID: "yoyodyne-task", TargetBranch: "main", ApprovedHead: strings.Repeat("a", 40)}
 	landed := runstate.MergeQueueCompletion{Path: runstate.MergeQueueLandThroughPullRequest, TargetBase: strings.Repeat("b", 40), Landed: strings.Repeat("c", 40)}
 	for range 3 {
-		if err := completion.RecordRun(context.Background(), entry, landed); err != nil {
+		if err := completion.RecordRun(context.Background(), entry, landed, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := completion.RecordWorkItem(context.Background(), entry, landed); err != nil {

@@ -29,6 +29,7 @@ package runstate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -493,11 +494,28 @@ func (u ForgeWaitRecorded) apply(state *State) (bool, error) {
 type IntegrationRecorded struct {
 	Integration Integration
 	WholeBy     string
-	At          time.Time
+	// CandidateReview is the merge queue's review that approved the landed
+	// candidate, given only for an entry admitted on the approval of the head
+	// its resolution resolves (confinedresolution.go). That resolution had no
+	// review of its own, so the run records this one as its approval.
+	CandidateReview *MergeQueueReviewEvidence
+	At              time.Time
 }
 
 func (u IntegrationRecorded) apply(state *State) (bool, error) {
 	changed := false
+	if review := u.CandidateReview; review != nil && state.ReviewDecision == "" && state.ConflictResolution != nil {
+		if review.Decision != ReviewApprove || strings.TrimSpace(review.SessionID) == "" {
+			return false, errors.New("the candidate review given for a resolution is not an approval by a recorded session")
+		}
+		state.ReviewDecision, state.ReviewSessionID, state.ReviewModel, state.ReviewResolvedModel = ReviewApprove, review.SessionID, review.Model, review.ResolvedModel
+		state.ReviewSummary = review.Summary
+		// What the change is for is unchanged by resolving its conflict, so what
+		// the earlier approval said it approves still says whether it discharges
+		// the item.
+		state.ReviewApproves = state.ConflictResolution.Approved.Approves
+		changed = true
+	}
 	if passed := state.ChecksPassed; u.WholeBy != "" && passed != nil && passed.WholeLeftToQueue && passed.WholeBy != u.WholeBy {
 		passed.WholeBy = u.WholeBy
 		changed = true

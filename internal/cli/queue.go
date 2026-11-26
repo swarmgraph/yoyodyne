@@ -284,8 +284,8 @@ func queueReleaseSays(result orchestrator.MergeQueuePromotion) string {
 	handback := result.HandedBack
 	switch {
 	case handback != nil && handback.Continuation == runstate.MergeQueueLandedOutside && handback.HandedBackAt != nil:
-		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed: its approved commit %s is on %s, the landing is recorded on run %s and on %s with your reason, and the next pass goes on to the entry behind it",
-			entry.Order, entry.EntryID, entry.TargetBranch, entry.ApprovedHead, entry.TargetBranch, entry.RunID, item)
+		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed: its admitted commit %s is on %s, the landing is recorded on run %s and on %s with your reason, and the next pass goes on to the entry behind it",
+			entry.Order, entry.EntryID, entry.TargetBranch, entry.Head(), entry.TargetBranch, entry.RunID, item)
 	case handback != nil && handback.Continuation == runstate.MergeQueueLandedOutside:
 		return fmt.Sprintf("released entry %d (%s) from the head of the merge queue for %s as landed; recording it on run %s and on %s is not finished, and the next pass of the queue finishes it",
 			entry.Order, entry.EntryID, entry.TargetBranch, entry.RunID, item)

@@ -120,8 +120,16 @@ func (a *activeRun) admitsToMergeQueue() bool {
 // admitToMergeQueue admits the run's approved change to its target's queue and
 // ends the run, or ends it holding the change where the queue cannot take it.
 // The boolean is whether the run has ended here, which with the switch on it
-// always has.
-func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error) {
+// always has, with one exception below.
+//
+// A resolution confined to the conflicting files is admitted with it named
+// (confinedresolution.go): on the approval of the head it resolves, with both
+// heads and the comparison on the entry, and to the harness's own queue or not
+// at all, because it is that queue's review of the candidate that is the
+// resolution's only review. Where that queue does not take it straight away,
+// nothing is admitted, the run notes why, and the boolean says the run goes
+// on, to have the resolution reviewed as any other.
+func (a *activeRun) admitToMergeQueue(ctx context.Context, resolution *runstate.ConflictResolution) (Outcome, bool, error) {
 	if !a.admitsToMergeQueue() {
 		return Outcome{}, false, nil
 	}
@@ -130,7 +138,11 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 		outcome, err := a.endPromotion(ctx, stoppedBy(runstate.StopIntegration, err))
 		return outcome, true, err
 	}
-	if err := a.integrationEarned(ctx); err != nil {
+	earned := a.integrationEarned
+	if resolution != nil {
+		earned = a.integrationEarnedBeforeReview
+	}
+	if err := earned(ctx); err != nil {
 		return end(err)
 	}
 	// What was approved is committed, so the queue merges a commit rather than
@@ -140,7 +152,9 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 	if err != nil {
 		return end(fmt.Errorf("commit the approved change for the merge queue: %w", err))
 	}
-	if head != a.state.HarnessCommit {
+	// A resolution's comparison is on the record before the entry is admitted
+	// on it, saved here with the commit.
+	if head != a.state.HarnessCommit || resolution != nil {
 		a.recordHarnessCommit(head)
 		a.state.UpdatedAt = p.clock().Now()
 		if err := p.Store.Save(a.state); err != nil {
@@ -154,6 +168,14 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 	admission := a.queueAdmission()
 	key := admission.Key
 	admission.ApprovedHead = head
+	if resolution != nil {
+		if head != resolution.ResolvedHead {
+			return a.declineConfined(fmt.Sprintf("the commit admitted, %s, is not the resolution that was compared, %s", head, resolution.ResolvedHead))
+		}
+		recorded := runstate.NewMergeQueueResolution(*resolution)
+		admission.ApprovedHead, admission.ResolvedHead, admission.Resolution = resolution.Approved.HeadCommit, head, &recorded
+		admitter.Only = runstate.MergeQueueHarness
+	}
 	// A change whose run left its whole check to the harness's queue is
 	// admitted to that queue or not at all: where the forge's own queue is
 	// chosen instead, nothing is admitted, and the promotion has the run check
@@ -168,8 +190,20 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 		// failure the admitter saw is not what ended it.
 		return end(waiting.stopped)
 	}
+	if resolution != nil && errors.Is(err, runstate.ErrMergeQueueFull) {
+		// Reviewed, the change is held for room as any approved change is, and
+		// taken up again by itself once the record has some.
+		return a.declineConfined("the merge queue's record had no room for it: " + err.Error())
+	}
 	if err != nil {
 		return end(fmt.Errorf("admit the approved change to the merge queue for %s: %w", key.TargetBranch, err))
+	}
+	if resolution != nil && (admitted.Elsewhere != "" || admitted.Hold != nil) {
+		why := "the merge queue would admit the change only to the forge's own queue, whose landing this harness does not review"
+		if admitted.Hold != nil {
+			why = "the merge queue holds approved changes out for now: " + strings.TrimSpace(admitted.Hold.Requirement)
+		}
+		return a.declineConfined(why)
 	}
 	if admitted.Elsewhere != "" {
 		a.queueElsewhere = admitted.Elsewhere
@@ -353,6 +387,11 @@ func (a *activeRun) completeQueued(ctx context.Context, entry runstate.MergeQueu
 	a.state = ended
 	notes := fmt.Sprintf("Approved and admitted to the merge queue for %s as entry %d (%s queue), at %s. %s The queue builds a candidate from %s as it then stands with this change merged onto it, runs the configured checks on it, has an independent reviewer approve it, and lands exactly that candidate; this item is settled when it lands, or the change is handed back to this run if the candidate fails on the change.",
 		entry.TargetBranch, entry.Order, modeName(entry.Mode), shortCommit(entry.ApprovedHead), entry.ModeEvidence.Explanation, entry.TargetBranch)
+	if entry.ResolvedHead != "" {
+		notes = fmt.Sprintf("Admitted to the merge queue for %s as entry %d (%s queue), at resolved head %s, on the approval of head %s, which it resolves a conflict of. No reviewer has approved the resolved head: the harness compared it with Git's own merge of the approved head onto %s and found %s, so it rejoined without a review of its own. The queue builds a candidate from %s as it then stands with the resolved head merged onto it, runs the configured checks on it, and has an independent reviewer who wrote none of it review the whole candidate, shown the conflicts and how each was resolved; it lands exactly that candidate only if that review approves it, and the change is handed back to this run otherwise.",
+			entry.TargetBranch, entry.Order, modeName(entry.Mode), shortCommit(entry.ResolvedHead), shortCommit(entry.ApprovedHead), shortCommit(entry.Resolution.TargetCommit),
+			comparedSays(a.state.ConflictResolution), entry.TargetBranch)
+	}
 	// The checks before review were narrowed and this run did not run them again
 	// over the whole module, because the queue does that on the candidate it
 	// lands (checkCandidateWhole); the item says so, and the run's record names

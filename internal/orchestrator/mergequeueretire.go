@@ -94,7 +94,7 @@ func (r MergeQueuePublicationRetirer) retireRunRequest(ctx context.Context, entr
 			fmt.Sprintf("Yoyodyne closed this pull request: the change it carries was approved, admitted to the merge queue, and landed by %s.", vehicle),
 			"",
 			"- Work item: `" + entry.WorkItemID + "`",
-			"- Run: `" + entry.RunID + "`, approved head `" + entry.ApprovedHead + "`",
+			"- Run: `" + entry.RunID + "`, " + entry.HeadSays(),
 			"",
 			"The queue built a candidate of the target with this change merged onto it, ran the project's checks on that candidate, and had an independent reviewer approve it; nothing here is pending review or waiting to merge, and the branch this request carries is being deleted with it.",
 		}, "\n"),

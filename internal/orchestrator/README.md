@@ -88,7 +88,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    landing, one of the run's reconciliation attempts, numbered on its record by
    `runstate.State.UseReconciliation`, charging no repair attempt and made in a
    new developer session; a fourth stops the run, whose prompt and author records are
-   `conflictresolution.go`), `noteReplay`
+   `conflictresolution.go`; a resolution confined to the conflicting files
+   rejoins the merge queue with no review of its own, through
+   `rejoinsUnreviewed` in `repairLoop` and `admitConfined` at the top of
+   `promoteApproved`, both in `confinedresolution.go`), `noteReplay`
    and `judgeReplay` (what each lost landing's replay made of the change; a
    clean one is not counted, `runstate`'s `landingattempts.go`),
    `recordReplayConflict` (also records the hand-back,

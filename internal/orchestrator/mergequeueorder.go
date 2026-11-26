@@ -218,10 +218,10 @@ func (o queueOrder) documentKind(ctx context.Context, entry runstate.MergeQueueE
 		return false
 	}
 	run, err := o.pipeline.Store.Load(entry.RunID)
-	if err != nil || run.BaseCommit == "" || entry.ApprovedHead == "" {
+	if err != nil || run.BaseCommit == "" || entry.Head() == "" {
 		return false
 	}
-	changed, err := o.paths(ctx, run.BaseCommit, entry.ApprovedHead)
+	changed, err := o.paths(ctx, run.BaseCommit, entry.Head())
 	if err != nil {
 		return false
 	}
