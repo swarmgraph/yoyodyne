@@ -7985,6 +7985,15 @@ resumption. A change already admitted when the requirement appears is not
 landed while it stands: its verified candidate waits with its checks and review kept, and a
 target that moves meanwhile is drift as always.
 
+**A queue whose own record is full holds the change the same way.** The queue's
+record keeps every entry ever admitted to it and may grow to 16 MiB. An
+admission that would take it past that, or a record already past it, stops the
+run at its promotion with its approval and review standing, cause
+`merge-queue-full`: a limit of the harness's own, so it charges no repair
+attempt or review round and counts toward no brake. The same five-minute look
+asks whether the record has room, starts nothing while it has none, and resumes
+the change at its promotion once it has room or the switch is off.
+
 With the switch off nothing of this applies, so a person can remove GitHub's
 queue requirement from the branch's protection rules before turning the switch
 on, and merging carries on as before in between.

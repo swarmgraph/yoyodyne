@@ -30,13 +30,15 @@ type StopCause string
 
 const (
 	// StopCauseWork is a stop about the change: a failing check, a reviewer's
-	// repair verdict, a conflict the developer can resolve, a review refusal, a
-	// budget spent on those, and any stop reason this build does not recognise.
+	// repair verdict, a conflict the developer can resolve, a review refusal, and
+	// a budget spent on those.
 	StopCauseWork StopCause = "work"
 	// StopCauseOutside is a stop on step 1's fixed list of causes outside the
-	// work, together with the harness's own failures around the run, which the
-	// hold on new work still counts (stopsTheHoldCounts) but which judged
-	// nothing about the change.
+	// work, together with the harness's own failures around the run and any stop
+	// reason this build does not recognise. The hold on new work still counts
+	// those last two (stopsTheHoldCounts, StopKeptOutOfHold), but neither judged
+	// anything about the change, so neither is charged (stopped-run-recovery,
+	// step 1, as ruled on November 18).
 	StopCauseOutside StopCause = "outside"
 	// StopCauseUncertain is a run whose change may have merged with nothing
 	// confirming it (MergeDisagreement); only finishing the merge acts on it.
@@ -73,11 +75,14 @@ func (c StopCause) Charges() bool { return c == StopCauseWork }
 
 // StopCauseOf decides a stopped run's cause from the stop reason its record
 // names, by the fixed lists in stopcause.go: a cause the hold on new work
-// keeps out, or one StopSideOf names as outside the work, is outside it, and
-// everything else — the change's own failures, the bounds spent on them, and a
-// reason this build does not recognise — is about the work. A run whose merge
-// is in doubt is uncertain whatever its reason. It is called once, as the stop
-// is written; nothing reads a recorded stop's cause from here again.
+// keeps out, one StopSideOf names as outside the work, and a reason this build
+// does not recognise are outside it, and everything else — the change's own
+// failures and the bounds spent on them — is about the work. An unrecognised
+// reason is not evidence about the change, so it charges nothing, while the
+// hold on new work, which reads the reason itself rather than this cause, still
+// counts it. A run whose merge is in doubt is uncertain whatever its reason. It
+// is called once, as the stop is written; nothing reads a recorded stop's cause
+// from here again.
 func StopCauseOf(state State) StopCause {
 	if state.MergeDisagreement != nil {
 		return StopCauseUncertain
@@ -89,7 +94,8 @@ func StopCauseOf(state State) StopCause {
 	if StopKeptOutOfHoldAfter(class, state.Retries) {
 		return StopCauseOutside
 	}
-	if side, listed := stopSideListed(class); listed && side == StopSideOutside {
+	side, listed := stopSideListed(class)
+	if !listed || side == StopSideOutside {
 		return StopCauseOutside
 	}
 	return StopCauseWork
@@ -129,7 +135,8 @@ type RunStop struct {
 	// review rounds (StopCause.Charges).
 	Charged bool `json:"charged"`
 	// Unrecognised says Reason is one this build does not recognise, which is
-	// why it was decided as about the work. A reader is told so each time.
+	// why it was decided as outside the work and still counts toward the hold on
+	// new work. A reader is told so each time.
 	Unrecognised bool         `json:"unrecognised,omitempty"`
 	Evidence     StopEvidence `json:"evidence"`
 }

@@ -80,6 +80,15 @@ func TestAnAdmissionThatWouldTakeTheMergeQueuePastItsOwnBoundIsRefused(t *testin
 	if !errors.As(err, &stop) || stop.Class != StopStateBound {
 		t.Fatalf("Admit() error = %#v, want a StopError of class %v", err, StopStateBound)
 	}
+	// The refusal is the harness's own limit, which is what lets the stop it
+	// ends a run on be held rather than charged, and the room a retry waits on
+	// is not there.
+	if !errors.Is(err, ErrMergeQueueFull) {
+		t.Fatalf("Admit() error = %v, want it to be ErrMergeQueueFull", err)
+	}
+	if room, says, roomErr := store.RoomForAdmission(mainQueue); roomErr != nil || room || !strings.Contains(says, strconv.Itoa(maxEncodedMergeQueueBytes)) {
+		t.Fatalf("RoomForAdmission() = %t, %q, %v; want no room, said against the limit", room, says, roomErr)
+	}
 	match := regexp.MustCompile(`would be (\d+) bytes, limit is (\d+)`).FindStringSubmatch(err.Error())
 	if match == nil {
 		t.Fatalf("Admit() error = %q, want it to name the record's size and its limit", err)
@@ -112,8 +121,26 @@ func TestAMergeQueueRecordPastItsOwnBoundIsNotRead(t *testing.T) {
 	}
 	_, err := store.Entries(mainQueue)
 	want := fmt.Sprintf("%d bytes, which exceeds the %d byte bound", maxEncodedMergeQueueBytes+1, maxEncodedMergeQueueBytes)
-	if err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("Entries() of an oversized record error = %v, want one saying %q", err, want)
+	if err == nil || !strings.Contains(err.Error(), want) || !errors.Is(err, ErrMergeQueueFull) {
+		t.Fatalf("Entries() of an oversized record error = %v, want ErrMergeQueueFull saying %q", err, want)
+	}
+	if room, says, roomErr := store.RoomForAdmission(mainQueue); roomErr != nil || room || !strings.Contains(says, want) {
+		t.Fatalf("RoomForAdmission() of an oversized record = %t, %q, %v; want no room, saying %q", room, says, roomErr, want)
+	}
+}
+
+// A queue with no record, and one well inside its bound, have room for the
+// next admission, so a change refused for want of room is taken up again.
+func TestAMergeQueueInsideItsBoundHasRoomForAnAdmission(t *testing.T) {
+	t.Parallel()
+
+	store := newMergeQueueStore(t, t.TempDir())
+	if room, says, err := store.RoomForAdmission(mainQueue); err != nil || !room || says == "" {
+		t.Fatalf("RoomForAdmission() of a queue with no record = %t, %q, %v; want room", room, says, err)
+	}
+	fillMergeQueue(t, store, maxEncodedMergeQueueBytes-2*mergeQueueAdmissionRoom, false)
+	if room, says, err := store.RoomForAdmission(mainQueue); err != nil || !room || !strings.Contains(says, "bytes of its") {
+		t.Fatalf("RoomForAdmission() of a queue inside its bound = %t, %q, %v; want room, said by size", room, says, err)
 	}
 }
 

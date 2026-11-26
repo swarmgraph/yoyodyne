@@ -101,7 +101,9 @@ func (s StopSide) Describe() string {
 // name is about the work: an unrecognised cause is counted rather than excused,
 // because sorting it outside by default is what let a harness fault that kept
 // recurring escape the hold on new work (recoverable-and-terminal-failures,
-// "Trip the brake"). StopRecognised says which causes are named here.
+// "Trip the brake"). StopRecognised says which causes are named here. This
+// class is the program manager's grouping and the hold's; what a stop charges
+// is StopCauseOf's, which charges an unrecognised cause nothing.
 func StopSideOf(class StopClass) StopSide {
 	side, _ := stopSideListed(class)
 	return side
