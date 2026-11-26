@@ -31,6 +31,8 @@ var starts = map[string]launch{
 	"internal/cli/epicjoin.go epicJoins.judge RunRequest{}":                                 starting(JoiningJudgment),
 	"internal/cli/epicjoin.go epicJoins.judge provider.Run":                                 starting(JoiningJudgment),
 	"internal/epicjoin/epicjoin.go Joiner.send Judge":                                       starting(JoiningJudgment),
+	"internal/epiccheck/epiccheck.go Checker.Check Judge":                                   starting(WholeEpicCheck),
+	"internal/epiccheck/epiccheck.go Checker.Check Judge (2)":                               starting(WholeEpicCheck),
 	"internal/orchestrator/epicjoin.go Scheduler.judgeEpicPieces Judge":                     starting(JoiningJudgment),
 	"internal/cli/escalate.go developmentManagerConversation.Judge Send":                    starting(PromptedPass),
 	"internal/cli/escalate.go developmentManagerConversation.Judge openChat":                starting(PromptedPass),

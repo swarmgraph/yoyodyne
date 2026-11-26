@@ -105,12 +105,18 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		t.Fatal(err)
 	}
 	wiredTo[maystart.JoiningJudgment] = []orchestrator.StartDecision{joiner.MayStart}
+	checker, err := epicChecks{parts}.checker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wiredTo[maystart.WholeEpicCheck] = []orchestrator.StartDecision{checker.MayStart}
 	notRuns := map[maystart.Path]maystart.Start{
 		maystart.RecurringPass:   maystart.Pass(maystart.RecurringPass, domain.RoleProgramManager),
 		maystart.PromptedPass:    maystart.Pass(maystart.PromptedPass, domain.RoleProgramManager),
 		maystart.UnmetGoalReview: maystart.GoalReview(),
 		maystart.MessagesForWork: maystart.MessageReading(),
 		maystart.JoiningJudgment: maystart.JudgmentOfAPiece(epicprogress.Naming{WorkItemID: "yoyodyne-other", NamedAt: time.Now()}),
+		maystart.WholeEpicCheck:  maystart.CheckOfTheEpic(epicprogress.Naming{WorkItemID: "yoyodyne-other", NamedAt: time.Now()}),
 	}
 	if trigger.WouldStart(notRuns[maystart.RecurringPass]).MayStart() || trigger.EpicsChanged().IsZero() {
 		t.Error("the check for missed passes does not read this product's named epics")

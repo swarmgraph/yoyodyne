@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -266,7 +267,33 @@ const (
 // it, and is ErrResultUnknown from then on. A send that fails leaves the reservation to be looked up. The
 // caller makes sure no other process makes the same call at once.
 func (s *Store) Call(naming Naming, id, purpose string, lookUp func() (string, Looked, error), send func() (string, error)) (string, error) {
-	reserved, made, err := s.reserve(naming, Reservation{ID: id, For: purpose})
+	return s.call(naming, id, purpose, s.reserve, lookUp, send)
+}
+
+// CallWhileOpen is Call for a naming that has not ended. The reservation is made
+// while the operator's record is held still, and is refused for a naming that has
+// ended, was never made, or whose progress cannot be read, so nothing is paid for
+// one whatever the one decision answered. Epic mode being off does not refuse it.
+func (s *Store) CallWhileOpen(naming Naming, id, purpose string, lookUp func() (string, Looked, error), send func() (string, error)) (string, error) {
+	reserve := func(naming Naming, reservation Reservation) (standing Reservation, made bool, err error) {
+		err = epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+			view, _, err := s.open(record, naming)
+			if err != nil {
+				return err
+			}
+			if why := view.Unreadable(naming); why != "" {
+				return fmt.Errorf("the progress of epic %s cannot be read: %s", naming.WorkItemID, why)
+			}
+			standing, made, err = s.reserve(naming, reservation)
+			return err
+		})
+		return standing, made, err
+	}
+	return s.call(naming, id, purpose, reserve, lookUp, send)
+}
+
+func (s *Store) call(naming Naming, id, purpose string, reserve func(Naming, Reservation) (Reservation, bool, error), lookUp func() (string, Looked, error), send func() (string, error)) (string, error) {
+	reserved, made, err := reserve(naming, Reservation{ID: id, For: purpose})
 	if err != nil {
 		return "", err
 	}
@@ -299,6 +326,67 @@ func (s *Store) Call(naming Naming, id, purpose string, lookUp func() (string, L
 		return "", err
 	}
 	return says, s.settle(naming, id, Result{Says: says})
+}
+
+// Checked keeps a check of the whole epic, made under the reservation of the same
+// identifier, with what it found worked out from its answers. Where every answer is
+// met or taken out, the epic's delivered entry is written in the same write, with
+// when and on what evidence; any other answer writes none. A check already kept is
+// left as it is. It is refused for a naming that has ended, for a check with no
+// answer or one missing what its answer needs, and for an answer of taken out that
+// names no item the operator's record holds as taken out.
+func (s *Store) Checked(naming Naming, check Check) (Check, error) {
+	err := epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		_, epic, err := s.open(record, naming)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(check.Commit) == "" || len(check.Findings) == 0 {
+			return errors.New("a check of the whole epic needs the commit it read and an answer for each thing the description asks")
+		}
+		for _, finding := range check.Findings {
+			if !finding.valid() {
+				return fmt.Errorf("the answer to %q is not met, taken out, not met or cannot be told with what that answer needs", finding.Asks)
+			}
+			if finding.Answer == TakenOut && !epic.TakenOut(finding.Removal) {
+				return fmt.Errorf("the answer to %q is that the operator took it out, and the operator's record holds no removal of %s from epic %s", finding.Asks, finding.Removal, naming.WorkItemID)
+			}
+		}
+		check.Found, check.At = FoundOf(check.Findings), s.now().UTC()
+		return s.change(naming, func(entry *Entry) error {
+			if at := slices.IndexFunc(entry.Checks, func(kept Check) bool { return kept.ID == check.ID }); at >= 0 {
+				check = entry.Checks[at]
+				return errUnchanged
+			}
+			if reserved, found := entry.Reservation(check.ID); !found || reserved.Result == nil || reserved.Result.Unknown {
+				return fmt.Errorf("the check %s was not reserved and answered", check.ID)
+			}
+			entry.Checks = append(entry.Checks, check)
+			if check.Passed() {
+				entry.Deliveries = append(entry.Deliveries, Delivery{At: check.At, Evidence: evidence(check)})
+			}
+			return nil
+		})
+	})
+	return check, err
+}
+
+// evidence is what a delivery rests on, in words: the check, the commit it read,
+// and how many answers were met and which items were taken out.
+func evidence(check Check) string {
+	met, out := 0, []string{}
+	for _, finding := range check.Findings {
+		if finding.Answer == Met {
+			met++
+		} else {
+			out = append(out, finding.Removal)
+		}
+	}
+	says := fmt.Sprintf("the check of the whole epic %s read commit %s and found %d of %d asked met", check.ID, check.Commit, met, len(check.Findings))
+	if len(out) > 0 {
+		says += ", and the rest taken out by the operator with " + strings.Join(slices.Compact(slices.Sorted(slices.Values(out))), ", ")
+	}
+	return says
 }
 
 // reserve writes a reservation and answers the one that stands, and whether this
