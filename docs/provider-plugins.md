@@ -332,6 +332,11 @@ The two kinds of tool access are:
   read and search inside its worktree and read-only Git commands in a sandbox
   that refuses writes to the worktree and has no network; Codex permits native
   read-only inspection and disables tool network access and external integrations.
+  A Claude Code session with no tools also runs with attachments off
+  (`CLAUDE_CODE_DISABLE_ATTACHMENTS=1`, whatever the harness's own environment
+  says), because the CLI otherwise reads any file its prompt names with an `@`
+  in front and sends it to the model, tools or none, and such a prompt carries
+  text the harness did not write.
 - `worktree-write` — the agent's work is editing a worktree, and the provider
   must be able to scope writes to it. The developer needs this.
 
@@ -883,7 +888,7 @@ Each adapter also says what tool access it launched the session under:
 |---|---|---|
 | Developer | its tools: reading, commands, and edits in the worktree | the same, under the developer's sandbox |
 | Reviewer | read-only inspection: reads and the read-only Git commands | read-only inspection under the read-only sandbox |
-| Product manager, architect, development manager, program manager | no tools at all | read-only inspection under the read-only sandbox, which is all Codex can be narrowed to |
+| Product manager, architect, development manager, program manager | no tools at all, and no file read for an `@` in the prompt | read-only inspection under the read-only sandbox, which is all Codex can be narrowed to |
 
 Read-only inspection also allows keeping a plan or a list of tasks inside the
 session, which touches nothing outside it. A developer's tools include Claude

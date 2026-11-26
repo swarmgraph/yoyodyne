@@ -485,6 +485,22 @@ const stableSystemPromptFlag = "--exclude-dynamic-system-prompt-sections"
 // in its worktree with git.
 const gitSnapshotVariable = "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS"
 
+// attachmentsVariable, set to 1, keeps Claude Code from reading a file its
+// prompt names with an @ in front and sending what the file holds to the model.
+//
+// It is every session's that is launched with no tools (`--tools ""`): a
+// management conversation or recurring pass, a helper answering for a role, a
+// developer its role definition holds read-only. Holding no tool is not enough
+// on its own, because the CLI reads such a file wherever it is, under `--tools
+// ""` and `--safe-mode` as under anything else, and the prompt of such a session
+// carries text the harness did not write -- a work item, a report, a message --
+// so without this a line in that text could have the role sent any file on the
+// machine. Set to 1 it replaces whatever value the harness's own environment
+// carried through, so nothing there turns attachments back on. The developer and
+// the reviewer, which read files with tools of their own, are left as they were.
+// TestTheInstalledCLISendsNoFileAToolFreePromptNames asks the installed CLI.
+const attachmentsVariable = "CLAUDE_CODE_DISABLE_ATTACHMENTS"
+
 // promptCacheLifetimeVariable is how Claude Code is told how long what an
 // invocation writes into the provider's cache is kept: "5m" or "1h". Unset, the
 // provider chooses an hour on a subscription, and an hour is billed at double
@@ -974,6 +990,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if subagent != "" {
 		args = append(args, "--agents", definition, "--forward-subagent-text")
 	}
+	toolFree := false
 	switch {
 	case len(allowedTools) > 0:
 		args = append(args, "--allowedTools")
@@ -984,6 +1001,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		args = append(args, "--tools", strings.Join(reviewerTools, ","))
 	default:
 		args = append(args, "--tools", "")
+		toolFree = true
 	}
 	if systemPrompt := systemPromptFor(request, named); systemPrompt != "" {
 		args = append(args, "--append-system-prompt", systemPrompt)
@@ -1056,6 +1074,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		for _, variable := range reviewerEnvironment {
 			environment = withEnvironmentValue(environment, variable[0], variable[1])
 		}
+	}
+	if toolFree {
+		environment = withEnvironmentValue(environment, attachmentsVariable, "1")
 	}
 	// What the provider is about to be sent is recorded first, from the same
 	// parts the arguments and the standard input above were made of; an

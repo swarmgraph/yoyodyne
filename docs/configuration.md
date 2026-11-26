@@ -404,7 +404,8 @@ with tool network access, escalation, and external integrations disabled. Claude
 Code gives a reviewer reads of the worktree under review — its file read, file
 search, and text search tools, and a shell that runs only read-only Git commands
 inside Claude Code's sandbox, with the worktree refused for writing and no
-network — and gives the management roles no tools at all.
+network — and gives the management roles no tools at all, with attachments off
+so a file their prompt names with an `@` is not read either.
 [Provider plugins](provider-plugins.md#capability-validation) describes the boundary
 and its limits. A project running a fork, a proxy, or
 a variant of a provider yoyo already speaks can describe it under a top-level `providers:` key and name it here: which
