@@ -847,7 +847,11 @@ else in the way, the step:
    tracker: the harness names it in `YOYODYNE_RELEASE_BEADS_DIR`, which the
    script turns into `BEADS_DIR` for that check alone, and the walkthrough,
    `make check`, and the release build run with no `BEADS_DIR` and no other
-   `BEADS_` or `BD_` setting. A named commit whose script is from before
+   `BEADS_` or `BD_` setting. The script takes every `YOYODYNE_RELEASE_`
+   setting out of its environment once it has read them, so no step it starts
+   runs in the harness's mode or reads its notes, and those three steps also
+   run without `YOYODYNE_CHANGED_GO_PACKAGES` and `YOYODYNE_FAILING_TESTS`, so
+   `make check` runs whole. A named commit whose script is from before
    `YOYODYNE_RELEASE_BEADS_DIR` is given no `BEADS_DIR` either, and its readiness
    check finds the tracker through the checkout being a Git worktree of the
    primary one. The worktree and the notes beside it are

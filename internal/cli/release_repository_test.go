@@ -78,6 +78,13 @@ func TestTheReleaseVerbRefusesWhatItShould(t *testing.T) {
 	// through `make test`, those invocations would otherwise inherit this
 	// make's jobserver, which is not theirs to join.
 	suite.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=0")
+	// The harness's own cut runs make check, and so this suite, with these set
+	// (internal/releasecut). The suite clears them itself, and it is run here
+	// with them set so that it is shown to.
+	suite.Env = append(suite.Env,
+		"YOYODYNE_RELEASE_CUT=automatic",
+		"YOYODYNE_RELEASE_NOTES="+filepath.Join(t.TempDir(), "missing-notes.md"),
+		"YOYODYNE_RELEASE_BEADS_DIR="+filepath.Join(t.TempDir(), "missing-tracker"))
 	report, err := suite.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s did not pass (%v):\n%s", cutReleaseTestPath, err, report)
