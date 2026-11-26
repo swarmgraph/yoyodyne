@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
@@ -22,20 +23,44 @@ type Results struct {
 	Problem string                     `json:"problem,omitempty"`
 }
 
+// Queued is one merge queue candidate that landed as the commit its checks ran
+// on: that commit, the digest of the check set it was verified by
+// (runstate.MergeQueueCheckConfiguration), when its checks finished, and how each
+// ended.
+type Queued struct {
+	Commit   string
+	CheckSet string
+	At       time.Time
+	Checks   []runstate.MainCheckResult
+}
+
 const (
 	fromNone      = "the project declares no checks"
+	fromQueue     = "the merge queue candidate that landed as this commit"
 	fromScheduled = "the scheduled check of the target branch"
 	fromRun       = "run whole on this commit for this check"
 )
 
-// results gives the declared checks' results on commit. A scheduled check of the
-// target branch that ran the same list of checks on that commit, each to an end,
-// is given as it is. Otherwise the checks are run whole, reserved in the epic's
+// results gives the declared checks' results on commit. A merge queue candidate
+// that landed as that commit, or a scheduled check of the target branch on it,
+// that ran the same list of checks, each to an end, is given as it is. Otherwise the checks are run whole, reserved in the epic's
 // progress first; one the machine ended is run once more, and a restart between
 // the reservation and the result runs them again once, because nothing was kept.
 func (c Checker) results(ctx context.Context, naming epicprogress.Naming, id, commit string) (Results, error) {
 	if len(c.Commands) == 0 {
 		return Results{Commit: commit, From: fromNone}, nil
+	}
+	if c.Queued != nil {
+		landed, err := c.Queued()
+		if err != nil {
+			return Results{}, fmt.Errorf("read the merge queue's landed candidates: %w", err)
+		}
+		want := runstate.NewMergeQueueCheckConfiguration(c.Commands).Digest
+		for _, queued := range slices.Backward(landed) {
+			if queued.Commit == commit && queued.CheckSet == want && len(queued.Checks) == len(c.Commands) && !slices.ContainsFunc(queued.Checks, couldNotRun) {
+				return Results{Commit: commit, From: fromQueue + ", checked at " + runstate.LocalStamp(queued.At), Checks: queued.Checks}, nil
+			}
+		}
 	}
 	if c.Recorded != nil {
 		runs, err := c.Recorded()

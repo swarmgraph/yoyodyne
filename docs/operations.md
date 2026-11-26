@@ -2183,8 +2183,9 @@ session that wrote or reviewed a member, or judged a piece that joined, is refus
 is given the epic's description as it read when you named it, the items you took out
 with your words, each member's landed change and review, the target branch at one
 commit, or each approved head where changes wait for a person to merge them, and the
-results of the project's checks there. Those results come from the scheduled check of
-the target branch where it ran the same checks to an end on that commit. Otherwise the
+results of the project's checks there. Those results come from a merge queue candidate
+that landed as that commit, or from the scheduled check of the target branch on it,
+where either ran the same checks to an end. Otherwise the
 harness runs the checks itself, in a checkout of their own under the product's state
 directory, with the same limits as any other check; a check the machine ended is run
 once more, and a failing check is given to the session as it is and starts no repair.

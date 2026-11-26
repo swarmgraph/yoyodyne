@@ -151,3 +151,29 @@ func TestACheckStopsBeingSentAfterTheSessionsItIsAllowed(t *testing.T) {
 		t.Fatalf("it looks up as %v", looked)
 	}
 }
+
+// A landed attempt gives its generation's check results where the generation's
+// own candidate is what landed and its checks finished; a candidate the forge
+// combined into another commit, or checks that ended with a problem, give none.
+func TestALandedMergeQueueCandidateGivesItsCheckResults(t *testing.T) {
+	t.Parallel()
+	finished := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+	checks := runstate.NewMergeQueueCheckConfiguration([]string{"make test", "make vet"})
+	generation := runstate.MergeQueueGeneration{Number: 2, Candidate: "cand2", Checks: checks, CheckRun: &runstate.MergeQueueCheckEvidence{FinishedAt: &finished,
+		Results: []runstate.MergeQueueCheckResult{{Command: "make test", Passed: true}, {Command: "make vet", ExitCode: 1, Status: "exited", FailingTests: "TestA in a_test.go"}}}}
+	landing := func(commit string) runstate.MergeQueueLanding {
+		return runstate.MergeQueueLanding{Attempts: []runstate.MergeQueuePromotionAttempt{{Number: 1, Generation: 1}, {Number: 2, Generation: 2, Landed: &runstate.MergeQueueLanded{Commit: commit}}}}
+	}
+	got := queuedOf(landing("cand2"), []runstate.MergeQueueGeneration{{Number: 1, Candidate: "cand1"}, generation})
+	if len(got) != 1 || got[0].Commit != "cand2" || got[0].CheckSet != checks.Digest || !got[0].At.Equal(finished) || len(got[0].Checks) != 2 ||
+		got[0].Checks[0].Outcome != runstate.MainCheckPassed || got[0].Checks[1].Outcome != runstate.MainCheckFailed || got[0].Checks[1].Detail != "TestA in a_test.go" {
+		t.Fatalf("landed as its candidate it gives %+v", got)
+	}
+	if got := queuedOf(landing("forge-merge"), []runstate.MergeQueueGeneration{generation}); len(got) != 0 {
+		t.Fatalf("combined by the forge it gives %+v", got)
+	}
+	generation.CheckRun.Problem = "the stage was stopped"
+	if got := queuedOf(landing("cand2"), []runstate.MergeQueueGeneration{generation}); len(got) != 0 {
+		t.Fatalf("with a problem it gives %+v", got)
+	}
+}

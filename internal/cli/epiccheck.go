@@ -128,9 +128,77 @@ func (e epicChecks) checker() (epiccheck.Checker, error) {
 		MayStart:  e.parts.wouldStart(),
 		LookUp:    e.lookUp,
 		Commands:  commands,
+		Queued:    e.queued,
 		Recorded:  runs.List,
 		RunChecks: e.runChecks,
 	}, nil
+}
+
+// queued is every merge queue candidate that landed as the commit it was checked
+// on, with its finished check run. A queue whose record cannot be read gives
+// nothing, so the checks are run instead, which is never wrong.
+func (e epicChecks) queued() ([]epiccheck.Queued, error) {
+	store, err := runstate.NewMergeQueueStore(e.parts.stateRoot, e.parts.config.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	keys, _ := store.Keys()
+	var landed []epiccheck.Queued
+	for _, key := range keys {
+		entries, err := store.Entries(key)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			landing, found, err := store.Landing(key, entry.EntryID)
+			if err != nil || !found {
+				continue
+			}
+			generations, err := store.Generations(key, entry.EntryID)
+			if err != nil {
+				continue
+			}
+			landed = append(landed, queuedOf(landing, generations)...)
+		}
+	}
+	return landed, nil
+}
+
+// queuedOf is each attempt of a landing whose generation's own candidate is the
+// commit that landed and whose checks finished with a result for every command.
+// A candidate the forge combined into a commit of its own was not checked as the
+// commit that landed, so it gives none.
+func queuedOf(landing runstate.MergeQueueLanding, generations []runstate.MergeQueueGeneration) []epiccheck.Queued {
+	var landed []epiccheck.Queued
+	for _, attempt := range landing.Attempts {
+		if attempt.Landed == nil {
+			continue
+		}
+		at := slices.IndexFunc(generations, func(generation runstate.MergeQueueGeneration) bool { return generation.Number == attempt.Generation })
+		if at < 0 {
+			continue
+		}
+		generation := generations[at]
+		run := generation.CheckRun
+		if generation.Candidate != attempt.Landed.Commit || run == nil || run.FinishedAt == nil || run.Problem != "" {
+			continue
+		}
+		queued := epiccheck.Queued{Commit: generation.Candidate, CheckSet: generation.Checks.Digest, At: *run.FinishedAt}
+		for _, result := range run.Results {
+			check := runstate.MainCheckResult{Command: result.Command, Outcome: runstate.MainCheckFailed, Detail: result.FailingTests}
+			switch {
+			case result.Passed:
+				check.Outcome, check.Detail = runstate.MainCheckPassed, ""
+			case result.CouldNotRun != "":
+				check.Outcome, check.Detail = runstate.MainCheckCouldNotRun, result.CouldNotRun
+			case check.Detail == "":
+				check.Detail = fmt.Sprintf("it ended %s with exit code %d", result.Status, result.ExitCode)
+			}
+			queued.Checks = append(queued.Checks, check)
+		}
+		landed = append(landed, queued)
+	}
+	return landed
 }
 
 // checkout runs the checks in a worktree of the commit's own under the product's

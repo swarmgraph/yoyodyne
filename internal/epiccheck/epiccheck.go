@@ -74,11 +74,13 @@ type Checker struct {
 	// Judge makes the call in a new reviewer session that is never resumed and may
 	// write nothing, and answers what was recorded (Recorded).
 	Judge func(ctx context.Context, request Request) (string, error)
-	// Commands is the project's configured checks, run whole. Recorded is every run
-	// of the scheduled check of the target branch, and RunChecks runs the commands
+	// Commands is the project's configured checks, run whole. Queued is every merge
+	// queue candidate that landed as the commit it was checked on, Recorded every
+	// run of the scheduled check of the target branch, and RunChecks runs the commands
 	// whole on one commit in a checkout of its own, under the limits every check
 	// runs under.
 	Commands  []string
+	Queued    func() ([]Queued, error)
 	Recorded  func() ([]runstate.MainCheckRun, error)
 	RunChecks func(ctx context.Context, commit string, commands []string) ([]runstate.MainCheckResult, error)
 }

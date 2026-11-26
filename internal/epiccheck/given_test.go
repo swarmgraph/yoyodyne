@@ -188,6 +188,37 @@ func TestTheChecksOnTheCommitTheCheckReads(t *testing.T) {
 			}
 		})
 	}
+	// A merge queue candidate that landed as the commit, verified by the same check
+	// set, is given and nothing is run; one under another check set, on another
+	// commit, or with a check that could not run is not used.
+	digest := runstate.NewMergeQueueCheckConfiguration(commands).Digest
+	for name, test := range map[string]struct {
+		queued []Queued
+		order  string
+		gives  string
+	}{
+		"queued":                {[]Queued{{Commit: commit, CheckSet: digest, At: namedAt, Checks: failed}}, "judge", fromQueue + ", checked at "},
+		"queued, other set":     {[]Queued{{Commit: commit, CheckSet: runstate.NewMergeQueueCheckConfiguration([]string{"make test"}).Digest, At: namedAt, Checks: failed[:1]}}, "run " + commit + ", judge", fromRun},
+		"queued, other commit":  {[]Queued{{Commit: "another", CheckSet: digest, At: namedAt, Checks: passed}}, "run " + commit + ", judge", fromRun},
+		"queued, could not run": {[]Queued{{Commit: commit, CheckSet: digest, At: namedAt, Checks: cannot}}, "run " + commit + ", judge", fromRun},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			naming := named(t, root)
+			c, requests, order := withChecks(t, root, nil, passed)
+			c.Queued = func() ([]Queued, error) { return test.queued, nil }
+			if _, _, err := c.Check(context.Background(), naming, "check-1", givenAt(t, root)); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(*order, ", "); got != test.order || !strings.Contains((*requests)[0].Prompt, test.gives) {
+				t.Fatalf("it did %q, want %q, and gave:\n%s", got, test.order, (*requests)[0].Prompt)
+			}
+			if reserved := len(entryOf(t, root, naming).ChecksRunsReserved()); (reserved == 0) != (test.order == "judge") {
+				t.Fatalf("reserved %d runs of the checks", reserved)
+			}
+		})
+	}
 	// Checks that cannot be started at all are named to the session.
 	root := t.TempDir()
 	naming := named(t, root)
