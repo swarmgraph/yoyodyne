@@ -27,6 +27,10 @@ revisions:
       by: architect
       at: 2026-11-26T15:21:04.932043Z
       reason: 'Two reviewer notes on piece 10b (report-27a85a17a1883639a00ad95379887b60, report-ee8afe0e8d903a4dcea74ead97df0090): the first sentence of this section says status calls the check of the whole epic not built until piece 10 lands, which piece 10b makes untrue. It now says what status shows before and after that piece lands. The other two paragraphs are copied unchanged from main e8814efbc71c, read whole.'
+    - action: amended
+      by: architect
+      at: 2026-11-26T16:09:49.149605Z
+      reason: 'yoyodyne-9k1y.12.3: two developer reports (report-2db8e2cca12b151d744c55a1c21cb574, report-ef627770dde2315ea4f97f96e3124f3b) say the design never says what records the Lead Product Manager''s answer naming missing evidence. It is her recorded handling of a report the harness files, as for scope; a handling naming the operator''s reason waits on him. The rest of the section is copied unchanged from main add5a7c11521.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -53,6 +57,11 @@ approvals:
       by: harness
       at: 2026-11-26T15:21:04.932043Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4137, for document-4137.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 5
+      by: harness
+      at: 2026-11-26T16:09:49.149605Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4140, for document-4140.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -229,15 +238,18 @@ Rejected: answering without results, because most of what a description asks is 
 
 Ruled on November 26, 2026, for piece 10c (yoyodyne-9k1y.12.3). The joining code reads the progress record, never the words of a note.
 
-1. When a check answers not met, the harness writes in the epic's progress entry, beside that check, that one correction is owed for it, naming what is missing. When the Lead Product Manager's recorded answer names evidence a check of cannot be told lacked, the harness writes the same, naming that evidence.
-2. The development manager writes the piece with the action that creates an item under a parent, naming the epic as the parent and the check the piece corrects. The action gains one optional field for that. The harness refuses it, and says why, where no correction is owed for that check or one has already been written for it.
-3. On creating the piece, the harness writes its identifier into the owed correction in the progress entry first, and then writes on the item a note of one fixed form naming the epic, the check and its commit, as it writes the split note. A stop between the two writes leaves the entry naming the piece and no note, and the note is written at the next reading.
-4. The joining code treats a piece as a correction only where an owed correction in the progress entry names it. The note is for people to read. A note that no entry matches makes nothing join.
-5. A correction asked for in review of a member's change, in piece 11, works the same way: the owed correction names the member and the forge's identifier of the comment, and the action's field names the comment.
+1. When a check answers not met, the harness writes in the epic's progress entry, beside that check, that one correction is owed for it, naming what is missing. When a check answers cannot be told and the description does not reserve the step for a person, the harness asks the Lead Product Manager for the missing evidence as point 2 says, and writes the owed correction only once her answer is recorded.
+2. The question is a report addressed to the Lead Product Manager, filed by the harness, naming the epic, the check, its commit and what could not be told. Before it is filed, its identifier is written beside the check in the progress entry, as for a question about scope. Her answer is her recorded handling of that report, and nothing else counts, whatever a note or the item says. Where the handling records that only the operator can act, for a reason on the closed list, the epic waits on the operator for that step and no correction is owed. Otherwise the harness writes the owed correction beside the check, naming the evidence as her handling's reason states it and when the handling was recorded. Until the handling is recorded, or while it cannot be read, nothing is owed, and the epic is Working with that step named as hers. One check files one such report.
+3. The development manager writes the piece with the action that creates an item under a parent, naming the epic as the parent and the check the piece corrects. The action gains one optional field for that. The harness refuses it, and says why, where no correction is owed for that check or one has already been written for it.
+4. On creating the piece, the harness writes its identifier into the owed correction in the progress entry first, and then writes on the item a note of one fixed form naming the epic, the check and its commit, as it writes the split note. A stop between the two writes leaves the entry naming the piece and no note, and the note is written at the next reading.
+5. The joining code treats a piece as a correction only where an owed correction in the progress entry names it. The note is for people to read. A note that no entry matches makes nothing join.
+6. A correction asked for in review of a member's change, in piece 11, works the same way: the owed correction names the member and the forge's identifier of the comment, and the action's field names the comment.
 
 The action that creates items and the code that writes the split note were not read for this ruling. A builder who finds either differing from it stops and asks the architect.
 
-Rejected: reading the check from the item's words, because anyone who can write an item could then make it join; the harness writing the piece itself, because the development manager writes every piece, as the joining rule says.
+A reviewer can also check: a check that cannot be told, with no step reserved for a person, files one report to the Lead Product Manager and owes nothing until its handling is recorded; a handling that names the operator's reason makes the epic wait on the operator and owes nothing; any other handling owes one correction naming its reason, and the development manager's piece for it joins only after its judgment.
+
+Rejected: reading the check from the item's words, because anyone who can write an item could then make it join; the harness writing the piece itself, because the development manager writes every piece, as the joining rule says; a command for the Lead Product Manager to name the evidence, because her handling of a report already records a decision and its time.
 
 ### What records the answer on scope
 
