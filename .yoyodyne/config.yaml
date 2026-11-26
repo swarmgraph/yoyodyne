@@ -115,11 +115,24 @@ services:
     hide_summary: true
 
 execution:
-  # Three developer slots, at the operator's direction of 2026-11-24: "If the
-  # epic work completes without more instructions please put a few dev slots to
-  # work on whatever you think is best". It takes effect once epic mode can be
-  # turned on: the epics named then are the only work the harness starts.
-  max_concurrent_developers: 3
+  # Two developer slots at the operator's direction of 2026-11-26: "let's
+  # reduce this down to 2 developer seats. One of them should be epic mode".
+  # Lowering the count stops no run: a run already holding a slot keeps it, and
+  # new work waits until fewer than two slots are held.
+  max_concurrent_developers: 2  # slot 1 no preference, slot 2 epic-mode (dedicated)
+  # docs/configuration.md, "A developer slot that prefers a label", explains
+  # what a preference does and does not change: it selects what a slot pulls
+  # first, and never what it may do.
+  developer_slots:
+    # Slot 1 prefers nothing: it pulls in the Lead Product Manager's order.
+    - {}
+    # Slot 2 is kept for epic-mode-labelled work, the pieces of the epic-mode
+    # epic (yoyodyne-9k1y). Dedicated, it takes that work ahead of fresh
+    # priority-0 work carrying no epic-mode label, and falls back to the
+    # ordinary order when none is ready. Work on a change already written still
+    # goes first.
+    - prefer: [epic-mode]
+      dedicated: true
   # The whole race check on main (main_checks below) runs once a day, not every
   # four hours, at the operator's direction of 2026-11-24 ("Yes, please do all of
   # those", to stretching it to once a day): GitHub's CI already runs build,
