@@ -81,11 +81,22 @@ func checkerAt(t *testing.T, root string, answer string) *checker {
 }
 
 func answering(findings ...epicprogress.Finding) string {
-	encoded, err := json.Marshal(recorded{Findings: findings})
+	encoded, err := json.Marshal(recorded{Findings: findings, Session: "session-check"})
 	if err != nil {
 		panic(err)
 	}
 	return string(encoded)
+}
+
+// givenAt is what a check reads of the naming: the epic, with one member done and
+// the target branch at commit.
+func givenAt(t *testing.T, root string) Given {
+	t.Helper()
+	record, err := epicscope.Read(root, product)
+	must(t, err)
+	named, _ := record.Named(epic)
+	return Given{Epic: named, Members: []Member{{WorkItemID: member, Title: "the first thing", Change: commit, Review: "approve: it does the first thing", Sessions: []string{"session-developer", "session-reviewer"}}},
+		Commits: []string{commit}, Titles: map[string]string{removed: "the second thing"}}
 }
 
 func entryOf(t *testing.T, root string, naming epicprogress.Naming) epicprogress.Entry {
@@ -128,7 +139,7 @@ func TestEachAnswerIsKeptAndOnlyMetOrTakenOutDelivers(t *testing.T) {
 			root := t.TempDir()
 			naming := named(t, root)
 			c := checkerAt(t, root, answering(test.findings...))
-			check, decision, err := c.Check(context.Background(), naming, "check-1", commit)
+			check, decision, err := c.Check(context.Background(), naming, "check-1", givenAt(t, root))
 			must(t, err)
 			if !decision.MayStart() || c.sent != 1 || c.looked != 0 {
 				t.Fatalf("decision %+v, sent %d, looked up %d", decision, c.sent, c.looked)
@@ -147,7 +158,7 @@ func TestEachAnswerIsKeptAndOnlyMetOrTakenOutDelivers(t *testing.T) {
 				}
 			}
 			// Made again under the same identifier, it is answered from what was kept.
-			if _, _, err := c.Check(context.Background(), naming, "check-1", commit); err != nil || c.sent != 1 || len(entryOf(t, root, naming).Checks) != 1 {
+			if _, _, err := c.Check(context.Background(), naming, "check-1", givenAt(t, root)); err != nil || c.sent != 1 || len(entryOf(t, root, naming).Checks) != 1 {
 				t.Fatalf("made again: %v, sent %d", err, c.sent)
 			}
 		})
@@ -174,7 +185,7 @@ func TestAnAnswerOfTakenOutThatNamesNoRemovalIsRefused(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			naming := named(t, root)
-			_, _, err := checkerAt(t, root, answering(met, test.finding)).Check(context.Background(), naming, "check-1", commit)
+			_, _, err := checkerAt(t, root, answering(met, test.finding)).Check(context.Background(), naming, "check-1", givenAt(t, root))
 			if err == nil || !strings.Contains(err.Error(), test.says) {
 				t.Fatalf("error %v, want one saying %q", err, test.says)
 			}
@@ -185,7 +196,7 @@ func TestAnAnswerOfTakenOutThatNamesNoRemovalIsRefused(t *testing.T) {
 	}
 	root := t.TempDir()
 	naming := named(t, root)
-	if _, _, err := checkerAt(t, root, answering()).Check(context.Background(), naming, "check-1", commit); err == nil || !strings.Contains(err.Error(), "an answer for each thing") {
+	if _, _, err := checkerAt(t, root, answering()).Check(context.Background(), naming, "check-1", givenAt(t, root)); err == nil || !strings.Contains(err.Error(), "an answer for each thing") {
 		t.Fatalf("a check with no answer: %v", err)
 	}
 }
@@ -243,7 +254,7 @@ func TestTheCheckStartsOnlyForAnOpenNamingWhoseProgressCanBeRead(t *testing.T) {
 				}
 				before := progressFiles(t, root)
 				c := checkerAt(t, root, answering(met))
-				_, decision, err := c.Check(context.Background(), naming, "check-1", commit)
+				_, decision, err := c.Check(context.Background(), naming, "check-1", givenAt(t, root))
 				if decision.Answer != want || c.sent+c.looked != 0 || (err == nil) != (mode == "on") {
 					t.Fatalf("decision %+v, error %v, sent %d, looked up %d", decision, err, c.sent, c.looked)
 				}
@@ -262,7 +273,7 @@ func TestTheCheckStartsOnlyForAnOpenNamingWhoseProgressCanBeRead(t *testing.T) {
 	root := t.TempDir()
 	naming := named(t, root)
 	c := checkerAt(t, root, answering(met))
-	if _, decision, err := c.Check(context.Background(), naming, "check-1", commit); err != nil || !decision.MayStart() || c.sent != 1 {
+	if _, decision, err := c.Check(context.Background(), naming, "check-1", givenAt(t, root)); err != nil || !decision.MayStart() || c.sent != 1 {
 		t.Fatalf("an open naming: %+v, %v, sent %d", decision, err, c.sent)
 	}
 }
@@ -282,7 +293,7 @@ func TestStoppedChecker(t *testing.T) {
 		os.Exit(3)
 		return "", nil
 	}
-	_, _, _ = c.Check(context.Background(), epicprogress.Of(opened), "check-1", commit)
+	_, _, _ = c.Check(context.Background(), epicprogress.Of(opened), "check-1", givenAt(t, root))
 	t.Fatal("the call returned")
 }
 
@@ -319,7 +330,7 @@ func TestACheckStoppedBetweenItsReservationAndItsAnswerIsLookedUpFirst(t *testin
 				order = append(order, "send "+request.ID)
 				return judge(ctx, request)
 			}
-			check, _, err := c.Check(context.Background(), naming, "check-1", commit)
+			check, _, err := c.Check(context.Background(), naming, "check-1", givenAt(t, root))
 			must(t, err)
 			want := "look up check-1"
 			if looked == epicprogress.NotSent {

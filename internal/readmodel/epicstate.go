@@ -53,9 +53,19 @@ type EpicWait struct {
 	WorkItemID string `json:"work_item_id,omitempty"`
 	Owner      Mover  `json:"owner"`
 	Says       string `json:"says"`
+	// CheckOwed is the check of the whole epic owed and not begun, and
+	// CheckUnderway one begun and not finished. The harness makes both.
+	CheckOwed     bool `json:"check_owed,omitempty"`
+	CheckUnderway bool `json:"check_underway,omitempty"`
 	// step is what is owed, where two records can ask for the same one: a question
 	// and a hold of the same step are one wait.
 	step string
+}
+
+// CheckDue reports an epic whose check of the whole epic the harness owes: one
+// not begun, or one begun and not finished, which it looks up before going on.
+func (s EpicStanding) CheckDue() bool {
+	return slices.ContainsFunc(s.Waits, func(wait EpicWait) bool { return wait.CheckOwed || wait.CheckUnderway })
 }
 
 // outside is a wait that no role, the harness or the operator ends.
@@ -280,7 +290,7 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 		read, err := s.costs.Cost(s.view, epic)
 		if err != nil {
 			costProblem = singleLine(err.Error(), maxEpicReasonBytes)
-		} else if read.Budget != nil || read.Runs > 0 || read.UnpricedCalls > 0 {
+		} else if read.Budget != nil || read.Runs > 0 || read.Calls > 0 || read.CheckRuns > 0 {
 			// An epic with no limit that nothing was spent on has no cost to say.
 			cost = &read
 		}
@@ -687,7 +697,10 @@ func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry,
 	}
 	switch {
 	case last == nil:
-		return &EpicWait{Owner: MoverOf(domain.RoleReviewer), Says: "every member is done and the check of the whole epic is owed; that check is not built yet"}
+		if id, underway := entry.CheckUnderway(); underway {
+			return &EpicWait{Owner: MoverOf(domain.RoleReviewer), Says: fmt.Sprintf("every member is done and the check of the whole epic is under way, as %s", id), CheckUnderway: true}
+		}
+		return &EpicWait{Owner: MoverOf(domain.RoleReviewer), Says: "every member is done and the check of the whole epic is owed", CheckOwed: true}
 	case last.Passed():
 		return nil
 	case last.Found == epicprogress.FoundNotMet && rounds > 2:

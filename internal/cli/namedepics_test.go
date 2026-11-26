@@ -105,7 +105,7 @@ func TestEveryPartThatBeginsARunIsWiredTheDecisionOnTheNamedEpics(t *testing.T) 
 		t.Fatal(err)
 	}
 	wiredTo[maystart.JoiningJudgment] = []orchestrator.StartDecision{joiner.MayStart}
-	checker, err := epicChecks{parts}.checker()
+	checker, err := epicChecks{parts, parts.runner}.checker()
 	if err != nil {
 		t.Fatal(err)
 	}

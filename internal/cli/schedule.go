@@ -888,6 +888,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// The pieces that may join an epic the operator named, judged by a reviewer
 		// session that wrote none of them.
 		EpicJoins: epicJoinsFrom(parts),
+		// The check of the whole of a named epic whose members are all done, made by
+		// a reviewer session that did none of its work.
+		EpicChecks: epicChecksFrom(parts),
 		// The provider answering nobody, read before anything is chosen so the
 		// brake never counts a dispatch the provider turned away, and the
 		// developer's provider, asked at every pull whether the login has been
