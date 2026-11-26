@@ -939,7 +939,20 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 	var waits []EpicWait
 	for _, piece := range entry.Pieces {
 		id := piece.WorkItemID
-		if s.done(id) || s.gone(id) || s.inside(id) || epic.TakenOut(id) {
+		if s.done(id) || s.gone(id) || epic.TakenOut(id) {
+			continue
+		}
+		// A piece that joined starts no developer on a text no judgment found inside.
+		if item, read := s.items[id]; read && entry.Has(id) && !epic.Has(id) {
+			if why := s.view.TextWait(item); why != "" {
+				owner := MoverOf(domain.RoleReviewer)
+				if answer, judged := piece.JudgedAs(epicprogress.TextDigest(item)); judged && answer.Asks() {
+					owner = MoverProductManager
+				}
+				waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, starts no developer: %s", s.name(id, ""), s.name(piece.From, ""), why)})
+			}
+		}
+		if s.inside(id) {
 			continue
 		}
 		owner, says := MoverOf(domain.RoleReviewer), "has not been judged yet"

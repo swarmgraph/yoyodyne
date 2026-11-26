@@ -64,8 +64,8 @@ func (e epicJoins) joiner(spent func(runstate.Spend)) (epicjoin.Joiner, error) {
 	if err != nil {
 		return epicjoin.Joiner{}, err
 	}
-	// The question about evidence goes in the collected reports; without them
-	// nothing is asked.
+	// The questions about evidence and scope go in the collected reports; without
+	// them nothing is asked.
 	evidence := epicjoin.Evidence{Build: buildinfo.Commit(), RepositoryID: string(e.parts.config.Product.RepositoryID)}
 	if e.parts.reports != nil {
 		evidence.Reports = e.parts.reports

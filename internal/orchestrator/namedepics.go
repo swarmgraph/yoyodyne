@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -78,6 +79,40 @@ func (e EpicStarts) reserve(state runstate.State) (func() error, error) {
 		return nil, refused
 	}
 	return withdraw, nil
+}
+
+// PieceTexts is why a piece that joined a named epic may not start a developer on
+// the item as read, and empty where it may (epicprogress.TextWaits). It is asked
+// of the same reading the developer is given, beside the one decision, which is
+// given only an identifier and reads no tracker. The harness wires it (cli's
+// components.pieceTexts). Nil is a caller that names no epic.
+type PieceTexts func(item beads.WorkItem) (string, error)
+
+// refuse is why a developer may not be given this reading of the item, and nil
+// where it may. A record that cannot be read starts nothing.
+func (t PieceTexts) refuse(item beads.WorkItem, runID string) *OutsideNamedEpicsError {
+	if t == nil {
+		return nil
+	}
+	why, err := t(item)
+	switch {
+	case err != nil:
+		return &OutsideNamedEpicsError{WorkItemID: item.ID, RunID: runID, Decision: maystart.Decision{Answer: maystart.CouldNotTell,
+			Why: fmt.Sprintf("whether its text was judged inside its epic could not be read (%v)", err)}}
+	case why != "":
+		return &OutsideNamedEpicsError{WorkItemID: item.ID, RunID: runID, Decision: maystart.Decision{Answer: maystart.MayNot, Why: why,
+			Clears: "a reviewer session judges its text as it reads now inside the epic, or its text is put back to one judged inside"}}
+	}
+	return nil
+}
+
+// refuseContinuing is refuse for a run already started, which is asked where the
+// one decision asks it.
+func (t PieceTexts) refuseContinuing(state runstate.State, item beads.WorkItem) *OutsideNamedEpicsError {
+	if state.HarnessAuthored() || state.Integration != nil || state.Document != nil || state.OutsideFile != nil {
+		return nil
+	}
+	return t.refuse(item, state.RunID)
 }
 
 // allows is whether a start that is not a work item's run may go ahead.

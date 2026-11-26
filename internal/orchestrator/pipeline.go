@@ -620,6 +620,9 @@ type Pipeline struct {
 	MayStart StartDecision
 	// EpicStarts reserves a fresh run's start in the progress of its epic.
 	EpicStarts EpicStarts
+	// PieceTexts is asked of the item's text before each developer session, so a
+	// piece that joined an epic is never given text no judgment found inside it.
+	PieceTexts PieceTexts
 	// EndRefusedDocument takes a document off the record of refused starts. Nil
 	// is a caller that keeps no such record.
 	EndRefusedDocument func(id string)
@@ -1480,7 +1483,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		if !resumable(inFlight) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
-		if err := p.waitForEpic(ctx, inFlight); err != nil {
+		if err := p.waitForEpic(ctx, inFlight, item); err != nil {
 			return Outcome{}, err
 		}
 		waitedForEpic := inFlight.EpicWait != nil
@@ -1509,6 +1512,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// So is whether the item is in an epic the operator named, and this is asked
 	// of a run the operator named too.
 	if refused := p.MayStart.refuseRun(p.startPath(), workItemID); refused != nil {
+		return Outcome{}, refused
+	}
+	if refused := p.PieceTexts.refuse(item, ""); refused != nil {
 		return Outcome{}, refused
 	}
 	// The needs-design label is asked at the same point and for the same reason:
@@ -2036,7 +2042,7 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 				inFlight.Status, inFlight.Phase),
 		}
 	}
-	if err := p.waitForEpic(ctx, inFlight); err != nil {
+	if err := p.waitForEpic(ctx, inFlight, item); err != nil {
 		return Outcome{}, err
 	}
 	waitedForEpic := inFlight.EpicWait != nil
@@ -5116,6 +5122,12 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		// Asked at the same place for the same reason, and the one place a run
 		// whose item has been left outside the named epics stops for it.
 		if err := a.holdForEpic(ctx); err != nil {
+			a.observeDevelopEnded(ctx, err)
+			return err
+		}
+		// The developer is given this run's reading of the item, so that reading is
+		// the one compared.
+		if err := a.holdForPieceText(ctx); err != nil {
 			a.observeDevelopEnded(ctx, err)
 			return err
 		}

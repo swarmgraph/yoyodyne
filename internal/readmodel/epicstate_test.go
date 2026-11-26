@@ -594,6 +594,22 @@ func TestAPieceThatHasNotJoinedIsAStepOwed(t *testing.T) {
 			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
 		}, "is a question about scope and does not start: it asks for more than the epic's description (it adds a page)", EpicWorking},
 		"closed": {func(b *stateBench) { b.status(statePiece, "closed") }, "", EpicIntegrated},
+		"joined and its text changed since": {func(b *stateBench) {
+			b.join(statePiece, stateOne, hours(1))
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerInside, Why: "it is asked for"}
+			b.entry.Pieces[0].Digest = epicprogress.TextDigest(beads.WorkItem{Title: "the text it was judged on"})
+		}, "starts no developer: its title, description or acceptance criteria changed since a reviewer judged it inside epic " + stateEpic, EpicWorking},
+		"joined and its new text judged outside": {func(b *stateBench) {
+			b.join(statePiece, stateOne, hours(1))
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(2), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
+			b.entry.Pieces[0].Digest, b.entry.Pieces[0].Question = epicprogress.TextDigest(b.items[statePiece]), "report-0123456789abcdef0123456789abcdef"
+		}, "waits as a question about scope for the Lead Product Manager (report report-0123456789abcdef0123456789abcdef)", EpicWorking},
+		"joined on the text it has": {func(b *stateBench) {
+			b.join(statePiece, stateOne, hours(1))
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerInside, Why: "it is asked for"}
+			b.entry.Pieces[0].Digest = epicprogress.TextDigest(b.items[statePiece])
+			b.ready = []string{statePiece}
+		}, "", EpicWorking},
 		"joined and taken out": {func(b *stateBench) {
 			b.join(statePiece, stateOne, hours(1))
 			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerInside, Why: "it is asked for"}
@@ -610,6 +626,9 @@ func TestAPieceThatHasNotJoinedIsAStepOwed(t *testing.T) {
 			standing := b.wants(test.state)
 			if test.says != "" && !strings.Contains(standing.render(), test.says) {
 				t.Errorf("it says\n%s\nwant %q", standing.render(), test.says)
+			}
+			if name == "joined on the text it has" && strings.Contains(standing.render(), "starts no developer") {
+				t.Errorf("a piece on the text judged inside waits:\n%s", standing.render())
 			}
 			if name == "not judged" && (len(standing.Waits) != 1 || standing.Waits[0].Owner != MoverOf(domain.RoleReviewer)) {
 				t.Errorf("waits = %+v, want the reviewer's", standing.Waits)
