@@ -118,3 +118,36 @@ func TestAMemberIsGivenWithItsChangeItsReviewAndItsSessions(t *testing.T) {
 		t.Fatalf("handed over: %+v, handed %t", member, handed)
 	}
 }
+
+// Once the most sessions allowed for one check ended without answering, the
+// budget refuses another, no session is started, and the check looks up as one
+// whose result cannot be known.
+func TestACheckStopsBeingSentAfterTheSessionsItIsAllowed(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	reviews, err := runstate.NewBranchReviewStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := runstate.NewBranchReviewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for sequence := uint64(1); sequence <= maxCheckFailures; sequence++ {
+		event, err := execution.NewEvent(id, sequence, time.Now(), execution.EventReviewCompleted, epicCheckSource, ended{Refused: "it failed", Failed: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reviews.AppendEvent(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cli := &checkingCLIRunner{text: "{}"}
+	checks := epicChecks{components{config: answeringConfig(), stateRoot: root, branchReviews: reviews}, cli}
+	if _, err := checks.judge(context.Background(), epiccheck.Request{ID: id}, nil); err == nil || len(cli.commands) != 0 {
+		t.Fatalf("a session past the limit: %v, %d started", err, len(cli.commands))
+	}
+	if _, looked, _ := checks.lookUp(id); looked != epicprogress.CannotTell {
+		t.Fatalf("it looks up as %v", looked)
+	}
+}

@@ -58,6 +58,9 @@ var providerInvocations = map[string]string{
 	"internal/cli/epicjoin.go": "the judgment of whether a piece joins a named epic: epicJoins.judge records the " +
 		"refusal naming the judgment, which has neither a run to park nor a conversation, and " +
 		"internal/epicjoin sends it again after RetryAfter",
+	"internal/cli/epiccheck.go": "the check of the whole of a named epic: epicChecks.judge records the " +
+		"refusal naming the check, which has neither a run to park nor a conversation, and the scheduler " +
+		"makes the check again at a later round, because a refused call is kept as never sent",
 	"internal/repositoryask/asker.go": "the reading helper's session, asked by a conversation role: the " +
 		"conversation hands it a provider wrapped by chat's usageLimitNoting, which records the refusal " +
 		"against the asking conversation through Session.noteUsageLimit, and the ask ends with the refusal " +

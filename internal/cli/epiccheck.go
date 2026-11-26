@@ -12,6 +12,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/budget"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epiccheck"
@@ -246,50 +247,87 @@ func memberOf(id, title string, runs []runstate.State) (epiccheck.Member, bool) 
 }
 
 // ended is what the harness writes of a check's call once it has ended: the
-// recorded answer, or why nothing answered.
+// recorded answer, or why nothing answered. Failed is that a session was started,
+// so the call may have cost something.
 type ended struct {
 	Recorded string `json:"recorded,omitempty"`
 	Refused  string `json:"refused,omitempty"`
+	Failed   bool   `json:"failed,omitempty"`
 }
 
-// lookUp finds what became of a check that was reserved: its answer where the log
-// kept one, never sent where nothing was sent or the provider answered nothing,
-// and cannot tell where a session was started and nothing came back.
-func (e epicChecks) lookUp(id string) (string, epicprogress.Looked, error) {
-	events, err := e.parts.branchReviews.LoadEvents(id)
-	if err != nil {
-		return "", epicprogress.CannotTell, nil
-	}
-	looked, says := epicprogress.NotSent, ""
+// maxCheckFailures is how many sessions may end without answering one check
+// before nothing more is sent for it and the development manager decides, as for
+// any call whose result cannot be known.
+const maxCheckFailures = 6
+
+// checkLog is how a check's log stands: the last sequence, how many sessions
+// ended without answering, and what the last ending said.
+type checkLog struct {
+	sequence uint64
+	failures int
+	looked   epicprogress.Looked
+	recorded string
+}
+
+func readCheckLog(events []execution.Event) checkLog {
+	log := checkLog{looked: epicprogress.NotSent}
 	for _, event := range events {
+		log.sequence = max(log.sequence, event.Sequence)
 		if event.Source != epicCheckSource {
 			continue
 		}
 		var end ended
 		switch {
 		case event.Type == execution.EventReviewStarted:
-			looked = epicprogress.CannotTell
+			log.looked, log.recorded = epicprogress.CannotTell, ""
 		case json.Unmarshal(event.Payload, &end) == nil && end.Recorded != "":
-			looked, says = epicprogress.Found, end.Recorded
+			log.looked, log.recorded = epicprogress.Found, end.Recorded
 		default:
-			looked, says = epicprogress.NotSent, ""
+			log.looked, log.recorded = epicprogress.NotSent, ""
+			if end.Failed {
+				log.failures++
+			}
 		}
 	}
-	return says, looked, nil
+	return log
+}
+
+// permission is the budget's leave to send a check again.
+func (l checkLog) permission() budget.Permission {
+	return budget.Decide(budget.Spent{Turns: l.failures}, budget.Limits{Turns: maxCheckFailures}).Permission
+}
+
+// lookUp finds what became of a check that was reserved: its answer where the log
+// kept one, never sent where nothing was sent or a session ended without an answer
+// and another may be sent, and cannot tell where a session was started and nothing
+// came back, or no further session may be sent.
+func (e epicChecks) lookUp(id string) (string, epicprogress.Looked, error) {
+	events, err := e.parts.branchReviews.LoadEvents(id)
+	if err != nil {
+		return "", epicprogress.CannotTell, nil
+	}
+	log := readCheckLog(events)
+	if log.looked == epicprogress.NotSent && !log.permission().Granted() {
+		return fmt.Sprintf("%d sessions ended without answering", log.failures), epicprogress.CannotTell, nil
+	}
+	return log.recorded, log.looked, nil
 }
 
 // judge makes one check in a new session that is never resumed and may use no
-// tool, asking the budget's leave as a joining judgment does.
+// tool. It asks internal/budget's leave first, which is refused once
+// maxCheckFailures sessions ended without answering, and records a usage limit
+// the provider met, naming the check, which has neither a run nor a conversation.
 func (e epicChecks) judge(ctx context.Context, request epiccheck.Request, spent func(runstate.Spend)) (string, error) {
 	parts, cfg := e.parts, e.parts.config
 	events, err := parts.branchReviews.LoadEvents(request.ID)
 	if err != nil {
 		return "", err
 	}
-	var sequence uint64
-	for _, event := range events {
-		sequence = max(sequence, event.Sequence)
+	before := readCheckLog(events)
+	if !before.permission().Granted() {
+		return "", errors.New("no further session may be started for the check")
 	}
+	sequence := before.sequence
 	write := func(kind execution.EventType, payload any) error {
 		event, err := execution.NewEvent(request.ID, sequence+1, time.Now(), kind, epicCheckSource, payload)
 		if err == nil {
@@ -328,16 +366,26 @@ func (e epicChecks) judge(ctx context.Context, request epiccheck.Request, spent 
 		},
 		AccountAlias: account.Alias, AccountConfigDir: account.Directory,
 	})
+	if limit := result.UsageLimit; limit != nil && (err != nil || result.IsError) && parts.usageLimits != nil {
+		refusal := runstate.UsageLimitExhaustion{SchemaVersion: runstate.UsageLimitSchemaVersion, ProductID: cfg.Product.ID, At: time.Now().UTC(),
+			Waiting: "the check of the whole of a named epic, " + request.ID, Kind: limit.Kind, AccountAlias: account.Alias, Model: strings.TrimSpace(reviewer.Model)}
+		if !limit.ResetsAt.IsZero() {
+			resets := limit.ResetsAt.UTC()
+			refusal.ResetsAt = &resets
+		}
+		if recordErr := parts.usageLimits.Record(refusal); recordErr != nil {
+			err = errors.Join(err, fmt.Errorf("record the provider's refusal: %w", recordErr))
+		}
+	}
 	if err == nil && result.IsError {
 		err = errors.New("the checking session failed: " + result.DescribeFailure())
 	}
 	if err != nil {
-		// A session that was started may have cost something, so its end is left
-		// as started, and it is looked up as one that cannot tell.
-		if result.SessionID == "" && result.LastEvent == 0 {
-			err = errors.Join(err, write(execution.EventReviewCompleted, ended{Refused: err.Error()}))
-		}
-		return "", err
+		// A call the provider refused costs nothing and is sent again; one whose
+		// session started may have cost something and counts toward the limit on
+		// sessions for this check.
+		failed := result.UsageLimit == nil && result.ServerOverload == nil && result.ProviderOutage == nil && (result.SessionID != "" || result.LastEvent != 0)
+		return "", errors.Join(err, write(execution.EventReviewCompleted, ended{Refused: err.Error(), Failed: failed}))
 	}
 	says, err := epiccheck.Recorded(result.FinalText, result.SessionID)
 	if err != nil {
