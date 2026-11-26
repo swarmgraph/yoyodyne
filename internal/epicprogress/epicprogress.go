@@ -26,6 +26,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
 const (
@@ -201,9 +203,33 @@ type Check struct {
 	At       time.Time `json:"at"`
 	Findings []Finding `json:"findings,omitempty"`
 	// Owed is the one correction owed for this check, where one is: for what it
-	// found missing, or for the evidence the Lead Product Manager named that a check
-	// of cannot be told lacked.
+	// found missing, or for the evidence the Lead Product Manager's handling of the
+	// question in Asked named, for a check that could not tell.
 	Owed *Correction `json:"owed,omitempty"`
+	// Asked is the question about the missing evidence the harness put to the Lead
+	// Product Manager for a check that could not tell, where it has.
+	Asked *Asked `json:"asked,omitempty"`
+}
+
+// Asked is the one report the harness files the Lead Product Manager for a check
+// that could not tell, asking what evidence would settle it. Its identifier is
+// written here before the report is filed. Her recorded handling of it is her
+// answer, and nothing else counts.
+type Asked struct {
+	Report string    `json:"report"`
+	At     time.Time `json:"at"`
+	// Answered is when her handling was recorded, once the harness has read it.
+	Answered *time.Time `json:"answered,omitempty"`
+	// Operator is the reason from the operator's closed list her handling gave,
+	// where it recorded that only he can act, and Says is what it said he has to
+	// do. No correction is owed then, and the epic waits on him.
+	Operator ownership.OperatorReason `json:"operator,omitempty"`
+	Says     string                   `json:"says,omitempty"`
+}
+
+func (a *Asked) valid() bool {
+	return a == nil || report.ValidID(a.Report) && !a.At.IsZero() &&
+		(a.Operator == "" && a.Says == "" || a.Answered != nil && a.Operator.Valid() && strings.TrimSpace(a.Says) != "")
 }
 
 // Correction is the one correcting piece owed for a check of the whole epic. The
@@ -215,7 +241,10 @@ type Correction struct {
 	// evidence it lacked.
 	Missing string    `json:"missing"`
 	At      time.Time `json:"at"`
-	Piece   string    `json:"piece,omitempty"`
+	// Answered is when the Lead Product Manager's handling that named the evidence
+	// was recorded, for a correction owed for evidence.
+	Answered *time.Time `json:"answered,omitempty"`
+	Piece    string     `json:"piece,omitempty"`
 	// Noted is that the note naming the epic, the check and its commit is on the
 	// piece. A stop between the two writes leaves it false, and the note is
 	// written at the next reading.
@@ -225,6 +254,33 @@ type Correction struct {
 func (c *Correction) valid(epic string) bool {
 	return c == nil || strings.TrimSpace(c.Missing) != "" && !c.At.IsZero() &&
 		(c.Piece == "" && !c.Noted || beads.ValidIssueID(c.Piece) && c.Piece != epic)
+}
+
+// Asking is the last check of the naming where it could not tell and owes no
+// correction yet: the one whose question about evidence the harness puts to the
+// Lead Product Manager, or whose answer it reads. An earlier check was made again,
+// so it asks nothing.
+func (e Entry) Asking() (Check, bool) {
+	if len(e.Checks) == 0 {
+		return Check{}, false
+	}
+	last := e.Checks[len(e.Checks)-1]
+	if last.Found != FoundCannotTell || last.Owed != nil || last.Asked != nil && last.Asked.Answered != nil {
+		return Check{}, false
+	}
+	return last, true
+}
+
+// CouldNotTell is what a check could not tell, each thing asked with why, leaving
+// out a step the description reserves for a person.
+func CouldNotTell(check Check) string {
+	var said []string
+	for _, finding := range check.Findings {
+		if finding.Answer == CannotBeTold && !finding.ForAPerson {
+			said = append(said, finding.Asks+": "+finding.Says)
+		}
+	}
+	return strings.Join(said, "; ")
 }
 
 // FromCheck is what a correcting piece is recorded as made from: the check, in
@@ -425,7 +481,9 @@ func (e Entry) validate() error {
 	}
 	for _, c := range e.Checks {
 		part("check", c.ID, c.Commit != "" && c.Found != "" && !c.At.IsZero() &&
-			(len(c.Findings) == 0 || c.Found == FoundOf(c.Findings) && !slices.ContainsFunc(c.Findings, func(f Finding) bool { return !f.valid() })))
+			(len(c.Findings) == 0 || c.Found == FoundOf(c.Findings) && !slices.ContainsFunc(c.Findings, func(f Finding) bool { return !f.valid() })) &&
+			c.Owed.valid(e.WorkItemID) && (c.Owed == nil || c.Found == FoundNotMet || c.Found == FoundCannotTell) &&
+			c.Asked.valid() && (c.Asked == nil || c.Found == FoundCannotTell) && (c.Asked == nil || c.Asked.Operator == "" || c.Owed == nil))
 	}
 	for _, c := range e.Checks {
 		if c.Owed != nil && c.Owed.Piece != "" {

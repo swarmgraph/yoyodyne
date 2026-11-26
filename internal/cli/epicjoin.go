@@ -9,6 +9,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicjoin"
@@ -63,7 +64,14 @@ func (e epicJoins) joiner(spent func(runstate.Spend)) (epicjoin.Joiner, error) {
 	if err != nil {
 		return epicjoin.Joiner{}, err
 	}
+	// The question about evidence goes in the collected reports; without them
+	// nothing is asked.
+	evidence := epicjoin.Evidence{Build: buildinfo.Commit(), RepositoryID: string(e.parts.config.Product.RepositoryID)}
+	if e.parts.reports != nil {
+		evidence.Reports = e.parts.reports
+	}
 	return epicjoin.Joiner{
+		Evidence:  evidence,
 		StateRoot: e.parts.stateRoot,
 		Product:   e.parts.config.Product.ID,
 		Progress:  store,

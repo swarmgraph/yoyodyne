@@ -14,6 +14,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -390,13 +392,13 @@ func missing(findings []Finding) string {
 	return strings.Join(said, "; ")
 }
 
-// OweEvidence writes that one correction is owed for a check that could not tell,
-// naming the evidence the Lead Product Manager's recorded answer says it lacked.
-// It is refused for a naming that has ended, a check that did not answer cannot
-// be told, and one that already owes a correction.
-func (s *Store) OweEvidence(naming Naming, checkID, evidence string) error {
-	if strings.TrimSpace(evidence) == "" {
-		return errors.New("the evidence the check lacked is required")
+// AskEvidence writes the identifier of the report asking the Lead Product Manager
+// what evidence a check that could not tell lacked, before the report is filed.
+// Writing the same report again changes nothing; a second report for the check,
+// and a check that did not answer cannot be told, are refused.
+func (s *Store) AskEvidence(naming Naming, checkID, reportID string) error {
+	if !report.ValidID(reportID) {
+		return fmt.Errorf("%q is not a report's identifier", reportID)
 	}
 	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
 		if _, _, err := s.open(record, naming); err != nil {
@@ -408,11 +410,48 @@ func (s *Store) OweEvidence(naming Naming, checkID, evidence string) error {
 			case err != nil:
 				return err
 			case check.Found != FoundCannotTell:
-				return fmt.Errorf("the check %s found %s, and evidence is owed only for one that could not tell", checkID, check.Found)
-			case check.Owed != nil:
-				return fmt.Errorf("the check %s already owes a correction, for %s", checkID, check.Owed.Missing)
+				return fmt.Errorf("the check %s found %s, and evidence is asked for only for one that could not tell", checkID, check.Found)
+			case check.Asked != nil && check.Asked.Report == reportID:
+				return errUnchanged
+			case check.Asked != nil:
+				return fmt.Errorf("the check %s already asked for its evidence, in %s", checkID, check.Asked.Report)
 			}
-			check.Owed = &Correction{Missing: strings.TrimSpace(evidence), At: s.now().UTC()}
+			check.Asked = &Asked{Report: reportID, At: s.now().UTC()}
+			return nil
+		})
+	})
+}
+
+// EvidenceAnswered records the Lead Product Manager's handling of the report a
+// check asked its evidence in: its reason and when it was recorded, and the
+// operator's reason where it recorded that only he can act. A handling naming the
+// operator owes nothing; any other owes one correction naming its reason as the
+// evidence. An answer already recorded is left as it is.
+func (s *Store) EvidenceAnswered(naming Naming, checkID, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error {
+	if strings.TrimSpace(reason) == "" || recorded.IsZero() {
+		return errors.New("the handling's reason and when it was recorded are required")
+	}
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		if _, _, err := s.open(record, naming); err != nil {
+			return err
+		}
+		return s.change(naming, func(entry *Entry) error {
+			check, err := entry.check(checkID)
+			switch {
+			case err != nil:
+				return err
+			case check.Asked == nil || check.Asked.Report != reportID:
+				return fmt.Errorf("the check %s did not ask for its evidence in %s", checkID, reportID)
+			case check.Asked.Answered != nil:
+				return errUnchanged
+			}
+			at := recorded.UTC()
+			check.Asked.Answered = &at
+			if operator.Valid() {
+				check.Asked.Operator, check.Asked.Says = operator, strings.TrimSpace(reason)
+				return nil
+			}
+			check.Owed = &Correction{Missing: strings.TrimSpace(reason), At: s.now().UTC(), Answered: &at}
 			return nil
 		})
 	})

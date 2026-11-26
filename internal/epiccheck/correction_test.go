@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 const correcting = "yoyodyne-ep.3"
@@ -96,35 +98,60 @@ func TestAThirdNotMetOwesNoCorrection(t *testing.T) {
 	refused(t, storeOf(t, root).MayCorrect(epic, "check-3"), "no correction is owed for the check check-3")
 }
 
-// An answer of cannot be told owes nothing until the Lead Product Manager's answer
-// names the evidence it lacked; a step the description reserves for a person owes
-// none at all.
-func TestCannotBeToldOwesACorrectionOnlyForEvidenceNamed(t *testing.T) {
+// An answer of cannot be told owes nothing until the Lead Product Manager's
+// handling of the one question asked for it is recorded: a handling naming the
+// operator's reason owes nothing, and any other owes one correction naming its
+// reason. A check that did not answer cannot be told asks nothing.
+func TestCannotBeToldOwesACorrectionOnlyForTheAnswerToItsQuestion(t *testing.T) {
 	t.Parallel()
+	const question, another = "report-0123456789abcdef0123456789abcdef", "report-fedcba9876543210fedcba9876543210"
+	answered := namedAt.Add(time.Hour)
 	root := t.TempDir()
 	naming := named(t, root)
 	store := storeOf(t, root)
 	checkOnce(t, root, naming, "check-1", met, cannotTell)
-	if entryOf(t, root, naming).Checks[0].Owed != nil {
-		t.Fatal("cannot be told owes a correction before any evidence is named")
+	if asking, asks := entryOf(t, root, naming).Asking(); !asks || asking.ID != "check-1" || asking.Owed != nil {
+		t.Fatalf("asking %+v, %t; want check-1 asking and owing nothing", asking, asks)
 	}
 	refused(t, store.MayCorrect(epic, "check-1"), "no correction is owed")
-	refused(t, store.OweEvidence(naming, "check-1", " "), "evidence the check lacked is required")
-	must(t, store.OweEvidence(naming, "check-1", "a test that runs the new command"))
-	refused(t, store.OweEvidence(naming, "check-1", "again"), "already owes a correction")
+	refused(t, store.EvidenceAnswered(naming, "check-1", question, "a test", answered, ""), "did not ask for its evidence")
+	must(t, store.AskEvidence(naming, "check-1", question))
+	must(t, store.AskEvidence(naming, "check-1", question))
+	refused(t, store.AskEvidence(naming, "check-1", another), "already asked for its evidence, in "+question)
+	refused(t, store.MayCorrect(epic, "check-1"), "no correction is owed")
+	refused(t, store.EvidenceAnswered(naming, "check-1", another, "a test", answered, ""), "did not ask for its evidence in "+another)
+	must(t, store.EvidenceAnswered(naming, "check-1", question, "a test that runs the new command", answered, ""))
+	must(t, store.EvidenceAnswered(naming, "check-1", question, "something else", answered.Add(time.Hour), ""))
+	check := entryOf(t, root, naming).Checks[0]
+	if owed := check.Owed; owed == nil || owed.Missing != "a test that runs the new command" || owed.Answered == nil || !owed.Answered.Equal(answered) || !check.Asked.Answered.Equal(answered) {
+		t.Fatalf("check %+v owes %+v, want one correction naming the first answer and when it was recorded", check, check.Owed)
+	}
+	if _, asks := entryOf(t, root, naming).Asking(); asks {
+		t.Fatal("an answered check still asks")
+	}
 	must(t, store.MayCorrect(epic, "check-1"))
 	_, err := store.Correcting(epic, "check-1", correcting)
 	must(t, err)
-	if owed := entryOf(t, root, naming).Checks[0].Owed; owed.Missing != "a test that runs the new command" || owed.Piece != correcting {
-		t.Fatalf("owed %+v", owed)
+
+	operator := t.TempDir()
+	operatorNaming := named(t, operator)
+	checkOnce(t, operator, operatorNaming, "check-1", cannotTell)
+	must(t, storeOf(t, operator).AskEvidence(operatorNaming, "check-1", question))
+	must(t, storeOf(t, operator).EvidenceAnswered(operatorNaming, "check-1", question, "only he can sign the release key", answered, ownership.OperatorHumanGate))
+	if check := entryOf(t, operator, operatorNaming).Checks[0]; check.Owed != nil || check.Asked.Operator != ownership.OperatorHumanGate || check.Asked.Says != "only he can sign the release key" {
+		t.Fatalf("check %+v, want it waiting on the operator and owing nothing", check)
 	}
+	refused(t, storeOf(t, operator).MayCorrect(epic, "check-1"), "no correction is owed")
 
 	person := t.TempDir()
 	personNaming := named(t, person)
 	checkOnce(t, person, personNaming, "check-1", met, personStep)
-	refused(t, storeOf(t, person).OweEvidence(personNaming, "check-1", "a signature"), "evidence is owed only for one that could not tell")
+	refused(t, storeOf(t, person).AskEvidence(personNaming, "check-1", question), "only for one that could not tell")
 	checkOnce(t, person, personNaming, "check-2", notMet)
-	refused(t, storeOf(t, person).OweEvidence(personNaming, "check-2", "a test"), "evidence is owed only for one that could not tell")
+	refused(t, storeOf(t, person).AskEvidence(personNaming, "check-2", question), "only for one that could not tell")
+	if _, asks := entryOf(t, person, personNaming).Asking(); asks {
+		t.Fatal("a check that did not answer cannot be told asks")
+	}
 }
 
 // A piece the owed correction names is asked about and joins from the check, and

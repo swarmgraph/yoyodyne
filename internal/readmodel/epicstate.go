@@ -689,8 +689,25 @@ func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry,
 		answer := humanGateAttention("", HumanGateWait{}).Ownership
 		return &EpicWait{Owner: answer.Owner, Says: "the epic's description reserves a step for a person, and it has not been taken"}
 	default:
-		return &EpicWait{Owner: MoverProductManager, Says: "say what evidence the check of the whole epic lacked, for the development manager to have written"}
+		return evidenceAsked(*last)
 	}
+}
+
+// evidenceAsked is who owes the next step of a check that could not tell and owes
+// no correction yet. The Lead Product Manager answers the question the harness
+// files her by handling it, and until her handling is recorded the step is hers.
+// A handling that recorded that only the operator can act makes the epic wait on
+// him, as the ownership registry resolves it.
+func evidenceAsked(check epicprogress.Check) *EpicWait {
+	asked := check.Asked
+	switch {
+	case asked == nil:
+		return &EpicWait{Owner: MoverProductManager, Says: "say what evidence the check of the whole epic lacked, for the development manager to have written; the harness is filing her the question"}
+	case asked.Operator != "":
+		answer := resolved(Attention{Kind: AttentionOperatorAction, OperatorAction: &OperatorAction{Needs: asked.Says, Reason: asked.Operator, ReportID: asked.Report}}).Ownership
+		return &EpicWait{Owner: answer.Owner, Says: fmt.Sprintf("the check %s of the whole epic could not tell, and the answer to %s says only the operator can act (%s): %s", check.ID, asked.Report, asked.Operator, singleLine(asked.Says, maxEpicReasonBytes))}
+	}
+	return &EpicWait{Owner: MoverProductManager, Says: fmt.Sprintf("say what evidence the check of the whole epic lacked, for the development manager to have written, by handling report %s", asked.Report)}
 }
 
 // correctionOwed is who owes the next step of the correction a check owes: the

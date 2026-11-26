@@ -2195,11 +2195,16 @@ session that did not write it judges it inside the epic's description, and the c
 is owed again once it lands. Two rounds of correction start this way. A third answer
 of not met owes no correction: it waits on the Lead Product Manager, who decides on
 one more round or asks you about scope. An answer of cannot be told waits on you
-where the description reserves the step for a person, and otherwise on the Lead
-Product Manager to name the evidence the check lacked. Once the harness records that
-evidence, a correction is owed for it and the development manager's piece giving it
-joins the same way; the way her answer reaches that record is not built yet, so until
-it is the epic keeps waiting on her. A member that was closed with nothing landed, or whose pull
+where the description reserves the step for a person. Otherwise the harness files the
+Lead Product Manager one report for that check, naming the epic, the check, its commit
+and what could not be told, and writes the report's identifier beside the check before
+filing it. Her recorded handling of that report is her answer, and nothing else counts.
+Until it is recorded, or while the handlings cannot be read, nothing is owed and status
+names the step as hers. A handling that records that only you can act, for a reason on
+your closed list, makes the epic wait on you for that step, and no correction is owed.
+Any other handling owes one correction, naming the evidence as her handling's reason
+states it and when the handling was recorded, and the development manager's piece
+giving it joins the same way. A member that was closed with nothing landed, or whose pull
 request a person closed unmerged, waits on the Lead Product Manager until it is
 admitted again, replaced by a piece that is done, or taken out with `yoyo epic remove`.
 A member whose run ended complete with no change, and whose summary the reviewer

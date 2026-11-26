@@ -3,6 +3,9 @@
 // only for what the epic's description, as the operator named it, already asks.
 // docs/designs/epic-mode-second-part.md states the rule, under piece 9.
 //
+// It also asks the Lead Product Manager, by a report, for the evidence a check of
+// the whole epic that could not tell lacked, and reads her handling of it.
+//
 // It knows two of the rule's acts: the development manager splitting a member, read
 // from the note a split writes, and a correction owed by a check of the whole epic,
 // read only from the owed correction in the epic's progress that names the piece.
@@ -27,6 +30,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 const (
@@ -47,6 +51,8 @@ type Progress interface {
 	Call(naming epicprogress.Naming, id, purpose string, lookUp func() (string, epicprogress.Looked, error), send func() (string, error)) (string, error)
 	Alone() (release func() error, held bool, err error)
 	Noted(epic, check string) error
+	AskEvidence(naming epicprogress.Naming, check, reportID string) error
+	EvidenceAnswered(naming epicprogress.Naming, check, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error
 }
 
 // Log keeps what was sent and what came back of each judgment, under its
@@ -81,6 +87,10 @@ type Joiner struct {
 	// correcting piece whose owed correction names it and says no note is on it.
 	Note  func(ctx context.Context, item, note string) error
 	NewID func() (string, error)
+	// Evidence is where the question about the evidence a check that could not
+	// tell lacked is filed and its answer read (evidence.go). Without its reports
+	// nothing is asked.
+	Evidence Evidence
 	// Judge makes the call in a session of its own, which is never resumed.
 	Judge func(ctx context.Context, request Request) (backend.RunResult, error)
 	// MayStart asks the one decision on what may start (internal/maystart).
@@ -101,15 +111,18 @@ type owed struct {
 	asked bool
 }
 
-// Owed reports whether a judgment, or a note on a correcting piece, is owed now.
-// It calls no provider.
+// Owed reports whether a judgment, a note on a correcting piece, or a question
+// about evidence or its answer is owed now. It calls no provider.
 func (j Joiner) Owed(ctx context.Context) (bool, error) {
 	found, _, err := j.owed(ctx)
 	if err != nil || len(found) > 0 {
 		return len(found) > 0, err
 	}
 	notes, err := j.unnoted()
-	return len(notes) > 0, err
+	if err != nil || len(notes) > 0 {
+		return len(notes) > 0, err
+	}
+	return j.evidenceOwed()
 }
 
 // unnoted is each correction that names its piece and has no note on it yet.
@@ -161,7 +174,7 @@ func (j Joiner) Round(ctx context.Context) error {
 		return err
 	}
 	defer release()
-	noted := j.note(ctx)
+	noted := errors.Join(j.note(ctx), j.evidence())
 	found, items, err := j.owed(ctx)
 	if err != nil {
 		return errors.Join(noted, err)

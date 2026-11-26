@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // owe is a correction owed for the last check, naming the piece where one is.
@@ -42,10 +43,12 @@ func TestEachStepOfACorrectionNamesWhoOwesIt(t *testing.T) {
 }
 
 // An answer of cannot be told waits on the operator where the description reserves
-// the step for a person, and otherwise on the Lead Product Manager until the
-// evidence is named, then on the development manager's piece giving it.
+// the step for a person. Otherwise it is the Lead Product Manager's step until her
+// handling of the question the harness files her is recorded: a handling naming the
+// operator's reason waits on him, and any other owes the development manager's piece.
 func TestCannotBeToldWaitsOnTheOperatorOrForEvidence(t *testing.T) {
 	t.Parallel()
+	const question = "report-0123456789abcdef0123456789abcdef"
 	person := newStateBench(t)
 	person.landed(stateOne, stateTwo)
 	person.check(epicprogress.FoundPersonsStep, hours(2))
@@ -54,7 +57,18 @@ func TestCannotBeToldWaitsOnTheOperatorOrForEvidence(t *testing.T) {
 	b := newStateBench(t)
 	b.landed(stateOne, stateTwo)
 	b.check(epicprogress.FoundCannotTell, hours(2))
-	b.wants(EpicWorking, "Waiting on the Lead Product Manager: say what evidence the check of the whole epic lacked")
+	b.wants(EpicWorking, "Waiting on the Lead Product Manager: say what evidence the check of the whole epic lacked", "the harness is filing her the question")
+	last := &b.entry.Checks[0]
+	last.Asked = &epicprogress.Asked{Report: question, At: hours(3)}
+	b.wants(EpicWorking, "Waiting on the Lead Product Manager: say what evidence the check of the whole epic lacked, for the development manager to have written, by handling report "+question)
+
+	operator := *b
+	operator.entry.Checks = []epicprogress.Check{*last}
+	answered := hours(4)
+	operator.entry.Checks[0].Asked = &epicprogress.Asked{Report: question, At: hours(3), Answered: &answered, Operator: ownership.OperatorHumanGate, Says: "only he signs the release"}
+	operator.wants(EpicWaitsOnOperator, "and the answer to "+question+" says only the operator can act (human-gate): only he signs the release")
+
+	last.Asked = &epicprogress.Asked{Report: question, At: hours(3), Answered: &answered}
 	b.owe("a test that runs the new command", "")
 	b.wants(EpicWorking, "Waiting on the development manager: write the piece that corrects the check", "a test that runs the new command")
 	b.owe("a test that runs the new command", statePiece)
