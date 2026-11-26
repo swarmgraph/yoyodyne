@@ -19,6 +19,10 @@ revisions:
       by: architect
       at: 2026-11-25T21:35:41.557476Z
       reason: 'yoyodyne-9k1y.12: adds the rule for a piece edited after it joined a named epic, answering report-dd30c959 and report-38f40667: it starts a developer only on text a reviewer session judged inside the epic. Piece 10 builds it. The rest of the section is copied unchanged from main 0f35eeff1e4a, read whole. An earlier send was refused for lack of room.'
+    - action: amended
+      by: architect
+      at: 2026-11-26T11:06:05.815236Z
+      reason: 'yoyodyne-9k1y.12: rules the three questions the development manager''s split of piece 10 left open (report-3245043b, report-3ad72097). The harness runs the configured checks on the commit the check reads where no result for it exists. A correcting piece joins by an owed correction in the progress record, linked by the action that creates it, never by a note''s words. The answer on scope is the Lead Product Manager''s recorded handling of a report the harness files. The rest of the section is copied unchanged from main deaa4fd73275, read whole.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -35,6 +39,11 @@ approvals:
       by: harness
       at: 2026-11-25T21:35:41.557476Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4067, for document-4067.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-26T11:06:05.815236Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4119, for document-4119.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -182,17 +191,59 @@ A reviewer can check: a piece edited after joining starts no developer until it 
 
 ## The check of the whole epic: piece 10 (yoyodyne-9k1y.12)
 
-When every member is done, the harness starts one reviewer session that did none of the work. It is given the epic's description as it was copied when the operator named it; the items the operator took out, with the words; each member's landed change and review; the target branch at one recorded commit, or the approved heads where changes were handed over; and the results of the project's declared checks on that commit.
+When every member is done, the harness starts one reviewer session that did none of the work. It is given the epic's description as it was copied when the operator named it; the items the operator took out, with the words; each member's landed change and review; the target branch at one recorded commit, or the approved heads where changes were handed over; and the results of the project's declared checks on that commit, as the first subsection below says.
 
 It answers for each thing the description asks: met, with where it looked; taken out by the operator, naming the removal; not met, with what is missing; or cannot be told, with why. Taken out is an answer only for what a removed item would have given, and it does not keep the epic from being delivered.
 
 - **All met or taken out:** the epic is delivered, and what was taken out is shown beside it.
-- **Not met:** the development manager writes one correcting piece for what is missing. It joins under the joining rule, judged by a different session. The check is made again when it lands.
+- **Not met:** the development manager writes one correcting piece for what is missing, as the second subsection below says. It joins under the joining rule, judged by a different session. The check is made again when it lands.
 - **Cannot be told:** where the description itself reserves the step for a person, the epic waits on the operator for that step. Otherwise the Lead Product Manager says what evidence is missing, and the development manager writes the piece that gives it.
 
 After two rounds of correction, a third answer of not met goes to the Lead Product Manager, who decides on one more round or asks the operator about scope.
 
 `yoyo epic start` refuses an epic whose description is empty, and says so. It refuses no other description, because no code can tell whether words ask for something that can be checked. A description that asks for nothing checkable shows itself as cannot be told, and the Lead Product Manager then says what evidence would settle it.
+
+### Check results for the commit it reads
+
+Ruled on November 26, 2026, for piece 10b (yoyodyne-9k1y.12.2).
+
+The session is never started without results for the commit it reads. Before it starts, the harness looks for results of the project's configured checks, run whole, on that exact commit and recorded with the digest of the check set: from a merge queue candidate that landed as that commit, or from the scheduled check of the target branch on it. Where every configured check has such a result, those are given. Where any has none, the harness first runs the configured checks whole on that commit, in a checkout of its own, under the same limits on how many checks run at once and how long one may take as any other check. Where changes were handed over and the session reads approved heads, the same is done for each head.
+
+- A check that fails is a result, given to the session as it is. It does not stop the check of the whole epic and starts no repair.
+- A check ended by the machine running it is run once more. Ended again, or unable to start, the session is told that it could not run and why, and whatever the description asks that rests on it is answered cannot be told.
+- Running them is part of the check of the whole epic. It is reserved in the epic's progress before it starts and looked up before it is started again after a restart, it is judged by the same rule as that session in [the first part](epic-mode-first-part.md), it is charged to the epic, and it is made even past the epic's budget.
+- A project that declares no checks gives none, and the session is told so.
+
+Rejected: answering without results, because most of what a description asks is shown only by running the code, so the check would answer cannot be told and the Lead Product Manager would be asked for evidence the harness could have made; giving the last results of each member's own change, because those ran on other commits and say nothing about the members together.
+
+### How a correcting piece names the check it came from
+
+Ruled on November 26, 2026, for piece 10c (yoyodyne-9k1y.12.3). The joining code reads the progress record, never the words of a note.
+
+1. When a check answers not met, the harness writes in the epic's progress entry, beside that check, that one correction is owed for it, naming what is missing. When the Lead Product Manager's recorded answer names evidence a check of cannot be told lacked, the harness writes the same, naming that evidence.
+2. The development manager writes the piece with the action that creates an item under a parent, naming the epic as the parent and the check the piece corrects. The action gains one optional field for that. The harness refuses it, and says why, where no correction is owed for that check or one has already been written for it.
+3. On creating the piece, the harness writes its identifier into the owed correction in the progress entry first, and then writes on the item a note of one fixed form naming the epic, the check and its commit, as it writes the split note. A stop between the two writes leaves the entry naming the piece and no note, and the note is written at the next reading.
+4. The joining code treats a piece as a correction only where an owed correction in the progress entry names it. The note is for people to read. A note that no entry matches makes nothing join.
+5. A correction asked for in review of a member's change, in piece 11, works the same way: the owed correction names the member and the forge's identifier of the comment, and the action's field names the comment.
+
+The action that creates items and the code that writes the split note were not read for this ruling. A builder who finds either differing from it stops and asks the architect.
+
+Rejected: reading the check from the item's words, because anyone who can write an item could then make it join; the harness writing the piece itself, because the development manager writes every piece, as the joining rule says.
+
+### What records the answer on scope
+
+Ruled on November 26, 2026, for piece 10d (yoyodyne-9k1y.12.4), and used by piece 11.
+
+1. A question about scope is put to the Lead Product Manager as a report addressed to that role, filed by the harness, naming the epic, the piece and the digest of the text judged. The report's identifier is written into the piece's judgment entry in the progress record.
+2. The answer is that role's recorded handling of the report: what was decided, and when it was recorded. Nothing else counts as the answer, whatever a note or the item says.
+3. A text that differs from every text judged inside makes a new judgment only once that handling is recorded, and only for an edit seen after the handling's time. An edit seen before it makes no call, and the piece waits. Where the answer is that the epic can be delivered without the piece, the piece waits, and status says that only the operator can take it out, as piece 8 says.
+4. Each new judgment of outside, or cannot tell, files a new question, so each answer is to one judged text.
+
+Rejected: a separate command or record for the answer, because the handling of a report already records the decision and its time; reading the answer from a note, because any role can write a note.
+
+### What a reviewer checks in piece 10
+
+Beside the list for piece 10 at the end of this document: where a result for every configured check on the commit exists, no check is run; where one is missing, the checks run on that commit before the session starts, are charged to the epic, and run past its budget; a failing check is given to the session and starts no repair; a check that cannot run is named to the session; a restart between reserving the checks and their result starts them once. A piece created naming a check for which a correction is owed joins only after its judgment, and its link is in the progress entry; the same action naming a check with no owed correction, or a second piece for one, is refused; a note of the fixed form with no matching entry makes nothing join. An edited piece judged outside makes no call before the handling of its question is recorded, and makes one for the first edit after it.
 
 ## Review comments and questions about scope: piece 11 (yoyodyne-9k1y.13)
 
