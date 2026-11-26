@@ -28,7 +28,7 @@ var writers = []struct {
 	{[]string{"epic-scope.json"}, "internal/epicscope", []string{"ForOperator", "Operator"},
 		[]string{"Add", "End", "Remove", "Start", "TurnOff", "UnderLock", "change", "write"}, []string{"internal/cli/epic.go"}},
 	{[]string{progressName, begunName}, "internal/epicprogress", []string{"Open", "Store"},
-		[]string{"Begin", "Call", "Join", "Point", "ReserveRun", "change", "reserve", "settle", "write"}, []string{"internal/cli/run.go"}},
+		[]string{"Ask", "Begin", "Call", "Join", "Judged", "Point", "ReserveRun", "change", "reserve", "settle", "write"}, []string{"internal/cli/run.go"}},
 }
 
 // TestEveryWriterOfTheThreeFilesIsListed reads every Go file of the module, tests

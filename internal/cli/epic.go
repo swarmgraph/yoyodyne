@@ -483,9 +483,11 @@ func printEpicUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `Usage: yoyo epic <start|add|remove|end|list|off> [options]
 
 Name the epics the factory works only on. While epic mode is on, only the members
-of an open epic are to start. The members are the list recorded when the epic was
-named and what you add to it: nothing is worked out from the tracker afterwards,
-and the epic itself is not one of them.
+of an open epic and the pieces that joined it are to start. The members are the list
+recorded when the epic was named and what you add to it: nothing is worked out from
+the tracker afterwards, and the epic itself is not one of them. A piece made from a
+member joins without you only where it is judged to ask for nothing the epic's
+description does not; see "What joins a named epic" in the operations guide.
 
 "start" is refused until every way the harness starts work asks whether it may
 start, and the refusal names each one that does not yet.

@@ -62,6 +62,9 @@ func (s *Store) Join(epic string, piece Joined) error {
 		if err != nil {
 			return err
 		}
+		if entry, _ := view.Entry(Of(named)); entry.Full() != "" {
+			return fmt.Errorf("work item %s cannot join epic %s: %s", piece.WorkItemID, epic, entry.Full())
+		}
 		if holders := view.Holders(piece.WorkItemID); len(holders) > 0 {
 			return fmt.Errorf("work item %s is already in epic %s, which has not ended", piece.WorkItemID, holders[0].WorkItemID)
 		}
@@ -70,6 +73,111 @@ func (s *Store) Join(epic string, piece Joined) error {
 			return nil
 		})
 	})
+}
+
+// Ask records a piece that may join, made from a member of an open epic. One that
+// is already recorded, or in an open epic, is left as it is.
+func (s *Store) Ask(naming Naming, piece Piece) error {
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		view, epic, err := s.open(record, naming)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(view.Items(epic), piece.From) {
+			return fmt.Errorf("work item %s is not in epic %s, so a piece of it cannot join", piece.From, epic.WorkItemID)
+		}
+		if len(view.Holders(piece.WorkItemID)) > 0 {
+			return nil
+		}
+		piece.At, piece.Outcome = s.now().UTC(), nil
+		return s.change(naming, func(entry *Entry) error {
+			if entry.piece(piece.WorkItemID) >= 0 {
+				return errUnchanged
+			}
+			entry.Pieces = append(entry.Pieces, piece)
+			return nil
+		})
+	})
+}
+
+// Judged records what became of a piece that was asked about, and lets it join in
+// the same write where the judgment says it may and nothing has happened since
+// that keeps it out. The operator's record is held still meanwhile, as in Join.
+func (s *Store) Judged(naming Naming, item string, outcome Outcome) error {
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		view, epic, err := s.open(record, naming)
+		if err != nil {
+			return err
+		}
+		return s.change(naming, func(entry *Entry) error {
+			at := entry.piece(item)
+			if at < 0 {
+				return fmt.Errorf("work item %s was not asked about", item)
+			}
+			piece := &entry.Pieces[at]
+			if piece.Outcome != nil {
+				return errUnchanged
+			}
+			outcome.At = s.now().UTC()
+			joins := outcome.Answer == AnswerInside
+			switch holders := view.Holders(item); {
+			case !joins:
+			case len(holders) > 0:
+				joins = false
+				outcome.Why = "it was already in epic " + holders[0].WorkItemID
+			case epic.TakenOut(item):
+				joins = false
+				outcome.Answer, outcome.Why = AnswerTakenOut, "the operator took it out, so it cannot join"
+			case !slices.Contains(view.Items(epic), piece.From):
+				joins = false
+				outcome.Answer, outcome.Why = AnswerOutside, piece.From+", which it was made from, is no longer in the epic"
+			case entry.Full() != "":
+				joins = false
+				outcome.Answer, outcome.Why = AnswerLimit, entry.Full()
+			}
+			piece.Outcome = &outcome
+			if joins {
+				entry.Joined = append(entry.Joined, Joined{WorkItemID: item, From: piece.From, Judgment: piece.Judgment + ": " + outcome.Why, Session: outcome.Session, At: outcome.At})
+			}
+			return nil
+		})
+	})
+}
+
+// open is a reading of one naming that has not ended.
+func (s *Store) open(record epicscope.Record, naming Naming) (View, epicscope.Epic, error) {
+	epic, found := record.Named(naming.WorkItemID)
+	if !found || !epic.Open() || !Of(epic).same(naming) {
+		return View{}, epic, fmt.Errorf("that naming of epic %s is not open", naming.WorkItemID)
+	}
+	view, err := Read(s.stateRoot, s.product, record)
+	return view, epic, err
+}
+
+// Alone holds the making of judgments against every other process, so that two do
+// not make the same call at once. Nothing is held where another process has it.
+func (s *Store) Alone() (release func() error, held bool, err error) {
+	root, err := runstate.PinStateRoot(s.stateRoot)
+	if err != nil {
+		return nil, false, fmt.Errorf("pin the state root: %w", err)
+	}
+	defer root.Close()
+	product, err := root.OpenDirectory(filepath.FromSlash(home.ProductDirectoryWithin(root.Path(), string(s.product))))
+	if err != nil {
+		return nil, false, fmt.Errorf("open the product's state directory: %w", err)
+	}
+	defer product.Close()
+	lock, err := product.OpenLock(judgingLockName, 0o600)
+	if err != nil {
+		return nil, false, fmt.Errorf("open the lock on joining judgments: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	release, err = runstate.LockFile(ctx, lock)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, false, nil
+	}
+	return release, err == nil, err
 }
 
 // Point reserves something whose reservation another durable record holds, such
@@ -154,8 +262,8 @@ const (
 // Call makes one paid call for an epic, once. It is reserved before send. A
 // reservation already there is never sent again without looking it up first: a
 // result kept, or found by lookUp, is the answer; one that was never sent is
-// sent; and one that cannot be told is kept as unknown and is ErrResultUnknown
-// from then on. A send that fails leaves the reservation to be looked up. The
+// sent; and one that cannot be told is kept as unknown, with what lookUp says of
+// it, and is ErrResultUnknown from then on. A send that fails leaves the reservation to be looked up. The
 // caller makes sure no other process makes the same call at once.
 func (s *Store) Call(naming Naming, id, purpose string, lookUp func() (string, Looked, error), send func() (string, error)) (string, error) {
 	reserved, made, err := s.reserve(naming, Reservation{ID: id, For: purpose})
@@ -180,7 +288,10 @@ func (s *Store) Call(naming Naming, id, purpose string, lookUp func() (string, L
 			return says, s.settle(naming, id, Result{Says: says})
 		}
 		if looked != NotSent {
-			return "", errors.Join(unknown, s.settle(naming, id, Result{Says: "nothing shows whether it was sent", Unknown: true}))
+			if says == "" {
+				says = "nothing shows whether it was sent"
+			}
+			return "", errors.Join(unknown, s.settle(naming, id, Result{Says: says, Unknown: true}))
 		}
 	}
 	says, err := send()

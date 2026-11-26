@@ -14,6 +14,9 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicjoin"
+	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
+	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -48,6 +51,7 @@ var drivenBy = map[maystart.Path][]drive{
 	maystart.UnmetGoalReview:  {driveGoalReview},
 	maystart.MessagesForWork:  {driveMessages},
 	maystart.TeamBranchUpdate: {driveTeamBranchUpdate},
+	maystart.JoiningJudgment:  {driveJoiningJudgment},
 }
 
 // Every path on the closed list that asks is driven with an item outside the
@@ -407,4 +411,43 @@ func driveTeamBranchUpdate(t *testing.T, decide StartDecision) int {
 	f.pipeline.MayStart = decide
 	f.update()
 	return f.checks.calls() + f.reviewer.calls()
+}
+
+// driveJoiningJudgment judges a piece of an epic that is open in its own records,
+// which are what is asked where nothing else is.
+func driveJoiningJudgment(t *testing.T, decide StartDecision) int {
+	root := t.TempDir()
+	operator, err := epicscope.ForOperator(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operator.Start(epicscope.Naming{Epic: "yoyodyne-ep", From: "terminal", Members: []string{"yoyodyne-ep.1"}}, baseTime); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := epicprogress.Open(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := runstate.NewBranchReviewStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decide == nil {
+		decide = func(start maystart.Start) maystart.Decision { return maystart.Decide(root, "yoyodyne", start) }
+	}
+	sent := 0
+	joiner := epicjoin.Joiner{StateRoot: root, Product: "yoyodyne", Progress: progress, Log: log, NewID: runstate.NewBranchReviewID, MayStart: decide, Now: time.Now,
+		SplitFrom: func(string) (string, bool) { return "yoyodyne-ep.1", true },
+		Paused:    func() (bool, error) { return false, nil },
+		Items: func(context.Context) ([]beads.WorkItem, error) {
+			return []beads.WorkItem{{ID: "yoyodyne-ep.1.1", Status: "open", CreatedAt: baseTime.Add(time.Hour)}}, nil
+		},
+		Judge: func(context.Context, epicjoin.Request) (backend.RunResult, error) {
+			sent++
+			return backend.RunResult{SessionID: "session-1", FinalText: `{"answer":"inside","why":"it is asked for"}`}, nil
+		}}
+	if err := joiner.Round(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return sent
 }

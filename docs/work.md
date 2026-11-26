@@ -2185,7 +2185,7 @@ A fresh run or a repair held back because its item is
 neither as well: it is written down at the next pass as waiting on those epics,
 in place of any earlier wait, it is not put ahead of the walk, and `yoyo status`
 counts the item as waiting on them. No pass attempts it while they leave its item
-out, and the first pass after the item is added, or after epic mode is turned
+out, and the first pass after the item is added or joins, or after epic mode is turned
 off, can carry it out.
 The re-runs recorded for yoyodyne-ifd.192 and .187 on 2026-09-19 sat in that
 third ending for a week with nothing anywhere saying so;

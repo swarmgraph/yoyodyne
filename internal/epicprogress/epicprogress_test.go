@@ -484,3 +484,14 @@ func TestWhichRunsAreOlderThanAnythingKept(t *testing.T) {
 		t.Error("a run since the entry was begun is not older than it")
 	}
 }
+
+func TestNoMorePiecesJoinThanTheLimit(t *testing.T) {
+	t.Parallel()
+	root, _, _ := twoNamed(t)
+	store := storeAt(t, root)
+	for at := range MaxJoined {
+		must(t, store.Join(epicA, joins(fmt.Sprintf("yoyodyne-piece.%d", at))))
+	}
+	wantError(t, store.Join(epicA, joins(piece)), "12 pieces have joined")
+	must(t, store.Join(epicB, joins(piece)))
+}

@@ -260,12 +260,18 @@ func sayNotKept(err error) {
 // epicStarts writes a run's start down in the progress of the epics it is for.
 func (c components) epicStarts() orchestrator.EpicStarts {
 	return func(runID string, items []string) (func() error, error) {
-		store, err := epicprogress.Open(c.stateRoot, c.config.Product.ID)
+		store, err := c.epicProgress()
 		if err != nil {
 			return nil, err
 		}
 		return store.ReserveRun(runID, items)
 	}
+}
+
+// epicProgress opens what is kept of the named epics' progress for the harness's
+// own writes.
+func (c components) epicProgress() (*epicprogress.Store, error) {
+	return epicprogress.Open(c.stateRoot, c.config.Product.ID)
 }
 
 // epicReports is the collected pile, with each report about an item in an open
