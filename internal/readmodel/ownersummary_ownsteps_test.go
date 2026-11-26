@@ -76,6 +76,34 @@ func TestTheSummarySaysAnOwnHoldEpicAddApartFromACredentialStep(t *testing.T) {
 	}
 }
 
+// A step a work item reserves for a person names the whole command that
+// records it, with every flag `yoyo gate record` requires, and stays apart from
+// the same step on another item.
+func TestTheSummaryNamesTheWholeCommandForAPersonsStep(t *testing.T) {
+	t.Parallel()
+	now := summaryNow()
+	gate := func(item, step, statement string) Attention {
+		return resolved(Attention{Kind: AttentionHumanGate, ID: item, WorkItemID: item, HumanGate: &HumanGateWait{Gate: step, Statement: statement}})
+	}
+	summary := ownStepsSummary(now,
+		gate("ex-g1", "soak-reviewed", "read the soak results"),
+		gate("ex-g2", "soak-reviewed", "read the soak results"),
+	)
+
+	first := entryWith(t, summary.Decisions, "ex-g1")
+	want := "read the soak results; then record it with `yoyo gate record soak-reviewed --for ex-g1 --by <you> --did \"<what you did>\"`"
+	if first.Next != want || !strings.Contains(first.Line, want) {
+		t.Fatalf("the person's step line = %+v, want next %q", first, want)
+	}
+	if first.WaitingOn != "you, because it is "+ownership.OperatorHumanGate.Says() {
+		t.Fatalf("the person's step is said in another reason: %+v", first)
+	}
+	second := entryWith(t, summary.Decisions, "ex-g2")
+	if first.Count != 1 || second.Count != 1 || !strings.Contains(second.Next, "--for ex-g2 --by <you> --did") {
+		t.Fatalf("one step on two items is two lines: %+v, %+v", first, second)
+	}
+}
+
 // Two requests to add different items are two lines; the same request about
 // the same item recorded twice is one line saying how many times.
 func TestTheSummaryFoldsOwnStepsOnlyForTheSameActOnTheSameItem(t *testing.T) {

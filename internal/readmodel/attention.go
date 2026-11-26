@@ -527,6 +527,13 @@ type HumanGateWait struct {
 	Unreadable string `json:"unreadable,omitempty"`
 }
 
+// GateRecordCommand is the whole command a person types to record that they
+// took the step named step on subject, with every flag `yoyo gate record`
+// requires, so a surface that names the act names one the command accepts.
+func GateRecordCommand(step, subject string) string {
+	return fmt.Sprintf("yoyo gate record %s --for %s --by <you> --did \"<what you did>\"", step, subject)
+}
+
 // HeldWait is which of the two waits held work is in.
 type HeldWait string
 
@@ -987,8 +994,8 @@ func (a Attention) Whose() string {
 			if a.HumanGate.Unreadable != "" {
 				return a.Mover.Possessive() + " — no act records this one; the item's author has to correct the declaration on it before anything pulls it"
 			}
-			return fmt.Sprintf("%s — nothing machinery does passes it, closing an item included; `yoyo gate record %s --for %s` is the act",
-				a.Mover.Possessive(), a.HumanGate.Gate, a.WorkItemID)
+			return fmt.Sprintf("%s — nothing machinery does passes it, closing an item included; `%s` is the act",
+				a.Mover.Possessive(), GateRecordCommand(a.HumanGate.Gate, a.WorkItemID))
 		}
 	case AttentionProductDecision:
 		return a.Mover.Possessive() + " — it is on her docket: \"stop\" stops the run with its change preserved and \"proceed\" lets it finish, and the run goes on until she records one"

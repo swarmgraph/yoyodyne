@@ -829,7 +829,7 @@ func ownStepAct(waiting Attention) string {
 	case waiting.Kind == AttentionLaneHumanBlock && waiting.LaneHumanBlock != nil:
 		return singleLine(waiting.LaneHumanBlock.Entry.What, maxRefusalBytes)
 	case waiting.Kind == AttentionHumanGate && waiting.HumanGate != nil && waiting.HumanGate.Unreadable == "" && waiting.HumanGate.Gate != "":
-		act := fmt.Sprintf("record it with `yoyo gate record %s --for %s`", waiting.HumanGate.Gate, waiting.WorkItemID)
+		act := "record it with `" + GateRecordCommand(waiting.HumanGate.Gate, waiting.WorkItemID) + "`"
 		if statement := singleLine(waiting.HumanGate.Statement, maxRefusalBytes); statement != "" {
 			act = statement + "; then " + act
 		}
