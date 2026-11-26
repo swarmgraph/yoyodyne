@@ -22,6 +22,9 @@ func (s *Session) trackerTool(verb string) capability.Capability {
 	if s.authority().LaneScoped(verb) {
 		return laneCapabilities[verb]
 	}
+	if s.authority().AddressedOnly(verb) {
+		return addressedCapabilities[verb]
+	}
 	return trackerCapabilities[verb]
 }
 

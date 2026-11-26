@@ -302,8 +302,9 @@ func TestScaffoldedRecurringExampleLoadsWhenUncommented(t *testing.T) {
 		t.Errorf("prompt = %q, want the filing instruction the example carries", task.Prompt)
 	}
 	// The pile's own standing reader. Every role files reports and only the
-	// product manager can record what became of one, so a project that schedules
-	// nothing works the pile only when somebody opens a conversation.
+	// product manager can record what became of any of them (the architect and
+	// the development manager only of those addressed to them), so a project
+	// that schedules nothing works the pile only when somebody opens a conversation.
 	triage, err := resolved.Config.RecurringTaskNamed("report-triage")
 	if err != nil {
 		t.Fatalf("RecurringTaskNamed() error = %v", err)
