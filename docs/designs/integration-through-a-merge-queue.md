@@ -59,6 +59,10 @@ revisions:
       by: architect
       at: 2026-11-26T00:36:38.46153Z
       reason: 'yoyodyne-32of.2: states how a confined conflict resolution is admitted on the approval of the head it resolves, and how the queue''s record is kept from filling: its own 16 MiB limit, and ended entries moved to history files with the order, superseding and crash guarantees kept. The order section follows once the corrected conflict design lands. Section read whole at 0f35eeff1e4a with internal/runstate/mergequeue.go.'
+    - action: amended
+      by: architect
+      at: 2026-11-26T12:17:27.762963Z
+      reason: 'yoyodyne-32of.3: resends the next turn rule after run 6eae6c8b was returned for one contradiction. Two code entries brought up to date after a conflict now go in the order they were last handed back for a conflict, as decision 1 of the design for approved changes that no longer merge orders them, not by first admission; the reviewer check matches. The rest of the section is copied unchanged from the returned run, itself copied from main deaa4fd73275.'
 approvals:
     - revision: 0
       by: operator
@@ -124,6 +128,11 @@ approvals:
       by: harness
       at: 2026-11-26T00:36:38.46153Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4079, for document-4079.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-11-26T12:17:27.762963Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4122, for document-4122.1 under the automatic approval policy
 ---
 # Purpose
 
@@ -232,14 +241,15 @@ With code arriving at no more than about two entries an hour, ordinary code wait
 
 ## Further rules
 
-Four further rules hold whatever the order says:
+Five further rules hold whatever the order says:
 
 - nothing already being checked or reviewed is stopped for a later entry that ranks higher; the order chooses only the next candidate;
 - an entry whose work item depends on another admitted entry's work item waits until that one lands, wherever it ranks;
 - checking one entry ahead, below, takes the next candidate in this same order;
-- when the tracker cannot be read at the moment of choosing, that choice uses the priority and placement last read for each entry, under the same rules as if they had just been read; an entry with none remembered goes under rule 5, in admission order. The record says the tracker could not be read, and names the entries ordered by remembered values and when each value was read. The dependency rule above uses the dependencies last read in the same way.
+- when the tracker cannot be read at the moment of choosing, that choice uses the priority and placement last read for each entry, under the same rules as if they had just been read; an entry with none remembered goes under rule 5, in admission order. The record says the tracker could not be read, and names the entries ordered by remembered values and when each value was read. The dependency rule above uses the dependencies last read in the same way;
+- a code entry that was handed back because it conflicted with the target at landing, and has since been brought up to date and admitted again, takes the next candidate alone, ahead of every numbered rule above, age rule included. Where two such entries wait, the one handed back first goes first, each judged by the last time it was handed back for a conflict, as decision 1 of [approved changes that no longer merge](approved-changes-that-no-longer-merge.md) orders them. The three rules before this one still hold over it: it stops no candidate already being checked, it waits for an admitted entry its item depends on, and it goes in no document candidate. This rule is for code entries only. A document entry whose publication conflicts goes back to the role that wrote it, as [approved changes that no longer merge](approved-changes-that-no-longer-merge.md) says, and takes no next turn: when that role writes the document again, the new entry is chosen under the numbered rules like any other document entry. How long the repair of a conflicting code entry waits before it is brought up to date is that design's to say, not this one's.
 
-Each choice is recorded: the candidate chosen and every entry in it, the rule that chose it and why, whether a placement decided it, whether remembered priorities or placements were used and for which entries, whether rule 3 was passed over because the last landing was a document candidate, and the entries it passed over. yoyo status and the dashboard show the waiting entries in this order, with the rule that put the first one first. Each day the queue's own records give the median and longest wait from admission to landing for each kind of entry: priority 0 code, other code, and documents.
+Each choice is recorded: the candidate chosen and every entry in it, the rule that chose it and why, whether a placement decided it, whether remembered priorities or placements were used and for which entries, whether rule 3 was passed over because the last landing was a document candidate, whether the entry was chosen as one brought up to date after a conflict, and the entries it passed over. yoyo status and the dashboard show the waiting entries in this order, with the rule that put the first one first. Each day the queue's own records give the median and longest wait from admission to landing for each kind of entry: priority 0 code, other code, and documents.
 
 A reviewer can check:
 
@@ -255,12 +265,16 @@ A reviewer can check:
 - with the tracker unreadable, an entry last read as priority 0 is chosen ahead of an older entry last read as priority 1, and an entry with no priority ever read goes last among code, in admission order;
 - the record of a choice made with the tracker unreadable says so and names the entries ordered by remembered values;
 - whether an entry is a document or code is decided by its paths, the same with the tracker readable or not;
+- a code entry brought up to date after a conflict at landing is chosen next, alone, ahead of an entry waiting four hours or more and of priority 0 code, and the record says it was chosen for that reason;
+- of two such code entries, the one whose last handing back for a conflict came earlier is chosen first, whichever was first admitted;
+- such an entry still waits for a candidate already being checked and for an admitted entry its item depends on;
+- a document entry whose publication conflicted is never chosen by that rule, and a later entry for the same document is chosen under the numbered rules;
 - every choice is recorded with its rule, every entry in it and the entries passed over, and status and the dashboard show the same order;
 - the daily wait figures for each kind of entry are read from the queue's records, not estimated.
 
-Build work: three pieces, each built and checked on its own, listed as pieces 8, 9 and 10 under the pieces of work below. Keeping the last read priority, placement and dependencies for each entry and using them when the tracker cannot be read is built by the item fixing that ordering (yoyodyne-ifd.429.252).
+Build work: three pieces, each built and checked on its own, listed as pieces 8, 9 and 10 under the pieces of work below. Keeping the last read priority, placement and dependencies for each entry and using them when the tracker cannot be read is built by the item fixing that ordering (yoyodyne-ifd.429.252). The next turn for a code entry brought up to date after a conflict is built by the item for it (yoyodyne-32of.3).
 
-Alternatives rejected: fixing the order at admission, because a priority raised while an entry waits would be ignored; strict priority with no age rule, because a document or low priority change could wait without limit; only lowering the age rule, because it adds no landings and so moves the wait from one entry to another; making documents take turns with code without landing them together, because documents are what the development manager's decompositions wait on, so making each wait longer costs as much as it saves; keeping a place for the architect's oldest document beside priority 0 code, because documents now land at least every other turn; landing code entries together as well, for now, because each code candidate runs the full checks and a failed combined candidate would cost one full check per entry when split, which is worth weighing only once the queue's pace work has measured how often candidates fail; a separate queue for documents, because two queues landing on one target would need two promotions at once, which [one promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) forbids; a command that moves a queue entry forward, because the order the work is pulled in is already the Lead Product Manager's to set by placing an item first, and a second way to move an entry would let the queue order and the backlog order disagree; falling back to admission order whenever the tracker cannot be read, because that let a priority 1 entry pass two priority 0 fixes (yoyodyne-ifd.429.252), against the operator's direction that urgent code goes first; stopping the queue until the tracker can be read, because tracker reads are often slow and the queue would stand still each time.
+Alternatives rejected: fixing the order at admission, because a priority raised while an entry waits would be ignored; strict priority with no age rule, because a document or low priority change could wait without limit; only lowering the age rule, because it adds no landings and so moves the wait from one entry to another; making documents take turns with code without landing them together, because documents are what the development manager's decompositions wait on, so making each wait longer costs as much as it saves; keeping a place for the architect's oldest document beside priority 0 code, because documents now land at least every other turn; landing code entries together as well, for now, because each code candidate runs the full checks and a failed combined candidate would cost one full check per entry when split, which is worth weighing only once the queue's pace work has measured how often candidates fail; a separate queue for documents, because two queues landing on one target would need two promotions at once, which [one promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) forbids; a command that moves a queue entry forward, because the order the work is pulled in is already the Lead Product Manager's to set by placing an item first, and a second way to move an entry would let the queue order and the backlog order disagree; falling back to admission order whenever the tracker cannot be read, because that let a priority 1 entry pass two priority 0 fixes (yoyodyne-ifd.429.252), against the operator's direction that urgent code goes first; stopping the queue until the tracker can be read, because tracker reads are often slow and the queue would stand still each time; giving a document entry brought up to date the next turn as well, because no developer rewrites a document, so a conflicting document goes back to its writer and a new entry for it is ordinary document work; letting a code entry brought up to date wait its turn under the numbered rules, because main would move again under it and the same conflict would come back; ordering two such code entries by first admission, because the design for approved changes that no longer merge orders returned changes by when they were handed back, and two designs ordering the same entries differently would leave the builder to choose.
 
 # Harness-run queue
 
