@@ -561,9 +561,9 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.WorktreeMutate},
 		gap:      "the same gap the row above it has, and for the same reason: the sandbox a role gets is decided from its tool posture, and posture is the second axis the design settles as a typed scope on a capability. A bundle that happened to line up with the mapping would prove nothing about it",
 	},
-	"backend.codex-developer-services": {
-		question: "none: refusing the harness's services folder withholds from the developer and grants nothing",
-		gap:      "it holds for every developer whatever its tool posture and no capability lifts it, so a bundle has nothing to say about it",
+	"backend.services-directory": {
+		question: "none: refusing the harness's services folder withholds from every role and grants nothing",
+		gap:      "it holds for every role whatever its tool posture and no capability lifts it, so a bundle has nothing to say about it",
 	},
 	"backend.codex-developer-mcp-servers": {
 		question: "none: turning off the MCP servers the account's or the worktree's configuration lists withholds from the developer and grants nothing",

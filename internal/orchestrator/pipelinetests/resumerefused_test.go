@@ -94,7 +94,7 @@ func TestPipelineAsksTheSecondTimeInAFreshSessionWhenTheResumeIsRefused(t *testi
 	}{
 		{
 			name:    "Claude Code",
-			adapter: func(cli *scriptedCLI) backend.Backend { return claudecode.Backend{Runner: cli} },
+			adapter: func(cli *scriptedCLI) backend.Backend { return claudecode.Backend{Runner: cli, StateRoot: t.TempDir()} },
 			cli: []execution.ProcessResult{{
 				Status: execution.ProcessFailed, ExitCode: 1,
 				Stderr: "No conversation found with session ID: reviewer-session\n",
@@ -102,7 +102,7 @@ func TestPipelineAsksTheSecondTimeInAFreshSessionWhenTheResumeIsRefused(t *testi
 		},
 		{
 			name:    "Codex that cannot find the session",
-			adapter: func(cli *scriptedCLI) backend.Backend { return codex.Backend{Runner: cli} },
+			adapter: func(cli *scriptedCLI) backend.Backend { return codex.Backend{Runner: cli, StateRoot: t.TempDir()} },
 			cli: []execution.ProcessResult{
 				{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "Error: no rollout found for thread id reviewer-session\n"},
 				{Status: execution.ProcessSucceeded, Stdout: "codex-cli 0.160.0\n"},
@@ -110,7 +110,7 @@ func TestPipelineAsksTheSecondTimeInAFreshSessionWhenTheResumeIsRefused(t *testi
 		},
 		{
 			name:    "Codex that starts a new session in its place",
-			adapter: func(cli *scriptedCLI) backend.Backend { return codex.Backend{Runner: cli} },
+			adapter: func(cli *scriptedCLI) backend.Backend { return codex.Backend{Runner: cli, StateRoot: t.TempDir()} },
 			cli: []execution.ProcessResult{{
 				Status: execution.ProcessSucceeded,
 				Stdout: `{"id":"0","msg":{"type":"session_configured","session_id":"a-new-session"}}` + "\n" +

@@ -24,7 +24,7 @@ import (
 func launchedFor(t *testing.T, request backendapi.RunRequest) execution.Command {
 	t.Helper()
 	runner := &fakeRunner{results: claudeCompletedTurn()}
-	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), request); err != nil {
+	if _, err := (Backend{Runner: runner, Clock: fixedClock{}, StateRoot: testState}).Run(context.Background(), request); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	return runner.commands[0]

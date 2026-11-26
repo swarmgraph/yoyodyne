@@ -93,7 +93,7 @@ func TestACodexInvocationThatCannotBeRecordedIsNotStarted(t *testing.T) {
 	t.Parallel()
 	repository, worktree := sandboxRepository(t, false)
 	fake := &fakeRunner{results: completedTurn()}
-	_, err := (Backend{Runner: &versionAnswering{inner: fake}, ConfigDir: personalHome(t)}).Run(context.Background(), backend.RunRequest{
+	_, err := (Backend{StateRoot: testState, Runner: &versionAnswering{inner: fake}, ConfigDir: personalHome(t)}).Run(context.Background(), backend.RunRequest{
 		RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree, RepositoryRoot: repository,
 		Prompt: "do the work", Model: "gpt-6-astra", Recorder: &keptInvocations{fail: errors.New("the disk is full")},
 	})

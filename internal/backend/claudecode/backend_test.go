@@ -27,8 +27,12 @@ import (
 const testRunID = "run-0123456789abcdef0123456789abcdef"
 
 // readOnlyTestSettings is what a read-only role is passed with --settings: the
-// account's memory and claude.ai connectors kept out, and nothing else.
-const readOnlyTestSettings = `{"autoMemoryEnabled":false,"disableClaudeAiConnectors":true}`
+// account's memory and claude.ai connectors kept out, reading the services folder
+// refused, and nothing else.
+func readOnlyTestSettings() string {
+	services := servicesBeside(testScratch)
+	return `{"autoMemoryEnabled":false,"disableClaudeAiConnectors":true,"permissions":{"deny":["Read(/` + services + `)","Read(/` + services + `/**)"]}}`
+}
 
 func TestCheckAvailability(t *testing.T) {
 	t.Parallel()
@@ -181,7 +185,7 @@ func TestRunParsesStructuredSuccessAndToolActivity(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	developer, err := developerSettingsFor(testScratch, testRunID, "/worktree")
+	developer, err := developerSettingsFor(testScratch, servicesBeside(testScratch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +482,7 @@ func TestADeveloperSandboxAllowsLocalBindingAndNothingElseFreshOrResumed(t *test
 			t.Fatalf("%s: %v", role, err)
 		}
 		sandbox, _ := invocationSettings(t, runner.commands[0].Args)["sandbox"].(map[string]any)
-		if network, found := sandbox["network"]; found {
+		if network, found := sandbox["network"]; found && !reflect.DeepEqual(network, map[string]any{"allowAllUnixSockets": false}) {
 			t.Fatalf("%s is given a network grant meant for developers alone: %v", role, network)
 		}
 	}
@@ -1123,7 +1127,7 @@ func TestRunLeavesAKilledTurnCarryingNoAnswer(t *testing.T) {
 	// The provider opened the session and said nothing else before the process
 	// group was torn down under it.
 	stream := `{"type":"system","subtype":"init","session_id":"session-1","model":"claude-test"}` + "\n"
-	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{
+	result, err := (Backend{StateRoot: testState, Runner: &fakeRunner{results: []execution.ProcessResult{{
 		Status: execution.ProcessCancelled, ExitCode: -1, Stdout: stream,
 	}}}, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleDevelopmentManager, WorkingDirectory: "/worktree", Prompt: "judge this stoppage",
@@ -1213,12 +1217,12 @@ func TestRunKeepsReviewersReadOnly(t *testing.T) {
 
 	stream := `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"{\"decision\":\"approve\",\"summary\":\"fine\"}"}` + "\n"
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}
-	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	if _, err := (Backend{StateRoot: testState, Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: "/worktree", Prompt: "review",
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	settings, err := reviewerSettings("/worktree")
+	settings, err := reviewerSettings("/worktree", servicesBeside(testScratch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1261,7 +1265,7 @@ func TestRunKeepsReviewersReadOnly(t *testing.T) {
 			request := test.request
 			request.RunID, request.Role, request.WorkingDirectory, request.Prompt = testRunID, domain.RoleReviewer, "/worktree", "review"
 			blocked := &fakeRunner{}
-			if _, err := (Backend{Runner: blocked}).Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := (Backend{StateRoot: testState, Runner: blocked}).Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Run() error = %v, want it to contain %q", err, test.want)
 			}
 			if len(blocked.commands) != 0 {
@@ -1336,7 +1340,7 @@ func TestRunKeepsTheProductManagerAdvisory(t *testing.T) {
 
 	stream := `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"the brief is thin"}` + "\n"
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}
-	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	result, err := (Backend{StateRoot: testState, Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleProductManager, WorkingDirectory: "/repository", Prompt: "what is missing?",
 	})
 	if err != nil {
@@ -1347,7 +1351,7 @@ func TestRunKeepsTheProductManagerAdvisory(t *testing.T) {
 	}
 	// No sandbox settings, because there is nothing to sandbox: the role has no
 	// tools at all and cannot apply an edit it proposes.
-	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
+	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings(), "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -1374,7 +1378,7 @@ func TestRunKeepsTheProductManagerAdvisory(t *testing.T) {
 			request := test.request
 			request.RunID, request.Role, request.WorkingDirectory, request.Prompt = testRunID, domain.RoleProductManager, "/repository", "advise"
 			blocked := &fakeRunner{}
-			if _, err := (Backend{Runner: blocked}).Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := (Backend{StateRoot: testState, Runner: blocked}).Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Run() error = %v, want it to contain %q", err, test.want)
 			}
 			if len(blocked.commands) != 0 {
@@ -1444,12 +1448,12 @@ func TestRunKeepsTheManagementRolesToolless(t *testing.T) {
 			runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}
 			// No permission mode and no tool list, so the defaults this backend
 			// chooses for the role are what get asserted.
-			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+			if _, err := (Backend{StateRoot: testState, Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 				RunID: testRunID, Role: role, ScratchDirectory: testScratch, WorkingDirectory: "/repository", Prompt: "where is the promotion lease recorded?",
 			}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
-			wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
+			wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings(), "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
 			if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 				t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 			}
@@ -1476,7 +1480,7 @@ func TestRunKeepsTheManagementRolesToolless(t *testing.T) {
 					request := test.request
 					request.RunID, request.Role, request.WorkingDirectory, request.Prompt = testRunID, role, "/repository", "advise"
 					blocked := &fakeRunner{}
-					if _, err := (Backend{Runner: blocked}).Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.want) {
+					if _, err := (Backend{StateRoot: testState, Runner: blocked}).Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.want) {
 						t.Fatalf("Run() error = %v, want it to contain %q", err, test.want)
 					}
 					if len(blocked.commands) != 0 {
@@ -2561,7 +2565,7 @@ func TestTheReplyReachesAWatcherRedactedRecordedAndBeforeTheResult(t *testing.T)
 	var events []execution.Event
 	var fragments []string
 	var recordedWhenShown []int
-	result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}}).Run(context.Background(), backendapi.RunRequest{
+	result, err := (Backend{StateRoot: testState, Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleProductManager,
 		WorkingDirectory: "/repository",
@@ -2631,7 +2635,7 @@ func TestAWatchedInvocationRecordsAndReturnsWhatAnUnwatchedOneDoes(t *testing.T)
 		if watch {
 			request.ReplySink = func(string) {}
 		}
-		result, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}}).Run(context.Background(), request)
+		result, err := (Backend{StateRoot: testState, Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}}).Run(context.Background(), request)
 		if err != nil {
 			t.Fatalf("Run(watch=%v) error = %v", watch, err)
 		}
@@ -3160,7 +3164,7 @@ func TestFailedSessionKeepsLongProcessDiagnosticThroughTheRealAdapter(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			session, err := chat.Open(chat.Options{Role: domain.RoleArchitect, Agent: "architect", Backend: Backend{Binary: binary, Runner: execution.OSProcessRunner{}}, Store: conversations, Model: "claude-test", Provider: domain.BackendClaudeCode, AccountAlias: "default", Repository: root, ProductID: "example", RepositoryID: "example", Briefing: chat.Briefing{Text: "Inspect the product.", GatheredAt: time.Now()}, RedactValues: []string{"secret-value"}})
+			session, err := chat.Open(chat.Options{Role: domain.RoleArchitect, Agent: "architect", Backend: Backend{StateRoot: testState, Binary: binary, Runner: execution.OSProcessRunner{}}, Store: conversations, Model: "claude-test", Provider: domain.BackendClaudeCode, AccountAlias: "default", Repository: root, ProductID: "example", RepositoryID: "example", Briefing: chat.Briefing{Text: "Inspect the product.", GatheredAt: time.Now()}, RedactValues: []string{"secret-value"}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -3243,7 +3247,7 @@ func TestADocumentInTheReplyKeepsAnOrdinaryConfigurationLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var events []execution.Event
-	run, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: string(assistant) + "\n" + string(result) + "\n"}}}}).Run(context.Background(), backendapi.RunRequest{
+	run, err := (Backend{StateRoot: testState, Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: string(assistant) + "\n" + string(result) + "\n"}}}}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleArchitect,
 		WorkingDirectory: "/repository",

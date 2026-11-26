@@ -77,9 +77,10 @@ func providerExecutables(cfg config.Config) []string {
 // here that says nothing is what keeps this from becoming a second place that
 // decides whether work may start.
 //
-// stateRoot is the product's state root as productStateRoot agreed it, where a
-// Claude Code adapter records the usage windows its invocations hear; empty
-// records none.
+// stateRoot is the product's state root as productStateRoot agreed it. The
+// services folder every session is refused is found there, so a session other
+// than a developer's is not started where it is empty, and a Claude Code adapter
+// records there the usage windows its invocations hear.
 func providerBackend(cfg config.Config, stateRoot string, named domain.Backend, runner execution.ProcessRunner) backend.Backend {
 	return providerBackendIn(cfg, stateRoot, named, runner, "")
 }
@@ -101,10 +102,12 @@ func providerBackendIn(cfg config.Config, stateRoot string, named domain.Backend
 			switch adapter := provider.(type) {
 			case codex.Backend:
 				adapter.Context = cfg.Codex.Anchored(cfg.Product.Repository)
+				adapter.StateRoot = stateRoot
 				return adapter
 			case claudecode.Backend:
 				adapter.Context = cfg.ClaudeCode.Anchored(cfg.Product.Repository)
 				adapter.UsageWindows = usageWindowRecorder(cfg, stateRoot)
+				adapter.StateRoot = stateRoot
 				return adapter
 			}
 			return provider
@@ -115,7 +118,7 @@ func providerBackendIn(cfg config.Config, stateRoot string, named domain.Backend
 	// second place that decides whether work may start; what refuses it is the
 	// run pipeline and the conversation, which say so in their own terms and
 	// before anything is claimed.
-	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir, Context: cfg.ClaudeCode.Anchored(cfg.Product.Repository), UsageWindows: usageWindowRecorder(cfg, stateRoot)}
+	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir, StateRoot: stateRoot, Context: cfg.ClaudeCode.Anchored(cfg.Product.Repository), UsageWindows: usageWindowRecorder(cfg, stateRoot)}
 }
 
 // usageWindowRecorder is where every Claude Code invocation this process makes

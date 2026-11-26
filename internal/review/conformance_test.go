@@ -22,7 +22,7 @@ func TestLocalReviewConformance(t *testing.T) {
 	if os.Getenv("YOYODYNE_CLAUDE_CONFORMANCE") != "1" {
 		t.Skip("set YOYODYNE_CLAUDE_CONFORMANCE=1 to run against the installed Claude Code CLI")
 	}
-	provider := claudecode.Backend{Runner: execution.OSProcessRunner{}}
+	provider := claudecode.Backend{Runner: execution.OSProcessRunner{}, StateRoot: t.TempDir()}
 	availability, err := provider.CheckAvailability(context.Background())
 	if err != nil {
 		t.Fatalf("CheckAvailability() error = %v", err)
@@ -92,7 +92,7 @@ func TestLocalInvariantReviewConformance(t *testing.T) {
 	if os.Getenv("YOYODYNE_CLAUDE_CONFORMANCE") != "1" {
 		t.Skip("set YOYODYNE_CLAUDE_CONFORMANCE=1 to run against the installed Claude Code CLI")
 	}
-	provider := claudecode.Backend{Runner: execution.OSProcessRunner{}}
+	provider := claudecode.Backend{Runner: execution.OSProcessRunner{}, StateRoot: t.TempDir()}
 	availability, err := provider.CheckAvailability(context.Background())
 	if err != nil {
 		t.Fatalf("CheckAvailability() error = %v", err)
@@ -164,7 +164,7 @@ func TestLocalGrantReviewConformance(t *testing.T) {
 	if os.Getenv("YOYODYNE_CLAUDE_CONFORMANCE") != "1" {
 		t.Skip("set YOYODYNE_CLAUDE_CONFORMANCE=1 to run against the installed Claude Code CLI")
 	}
-	provider := claudecode.Backend{Runner: execution.OSProcessRunner{}}
+	provider := claudecode.Backend{Runner: execution.OSProcessRunner{}, StateRoot: t.TempDir()}
 	availability, err := provider.CheckAvailability(context.Background())
 	if err != nil {
 		t.Fatalf("CheckAvailability() error = %v", err)
