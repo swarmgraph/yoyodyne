@@ -110,9 +110,9 @@ func catchUpRefusal(state runstate.State, handback runstate.MergeQueueHandback, 
 		return "the run's worktree is gone and the run records no path to rebuild it at"
 	case checkoutGone(state) && strings.TrimSpace(state.HarnessCommit) == "":
 		return fmt.Sprintf("the run's worktree is gone and the run records no approved head on its branch %s to rebuild it from", state.Branch)
-	case checkoutGone(state) && strings.TrimSpace(handback.ApprovedHead) != "" && handback.ApprovedHead != state.HarnessCommit:
+	case checkoutGone(state) && strings.TrimSpace(handback.Head()) != "" && handback.Head() != state.HarnessCommit:
 		return fmt.Sprintf("the run's worktree is gone, and the head it records (%s) is not the approved head the queue held (%s), so a checkout rebuilt from its branch would not be the approved change",
-			shortCommit(state.HarnessCommit), shortCommit(handback.ApprovedHead))
+			shortCommit(state.HarnessCommit), shortCommit(handback.Head()))
 	case checkoutGone(state) && strings.TrimSpace(state.PreservedWorkRef) != "":
 		return fmt.Sprintf("the run's worktree is gone, and the sweep that removed it kept uncommitted work on %s that its branch does not hold", state.PreservedWorkRef)
 	case strings.TrimSpace(state.BaseCommit) == "" || strings.TrimSpace(state.TargetBranch) == "":

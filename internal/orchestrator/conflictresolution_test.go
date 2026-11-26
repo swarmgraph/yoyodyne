@@ -16,7 +16,14 @@ import (
 // because the target moved, put back for one of its attempts.
 func handedBackForAConflict(t *testing.T) (*queueRun, *orchestratortest.Backend, Outcome, runstate.State) {
 	t.Helper()
-	r, provider := newCatchUpRun(t, resolveBothSides)
+	return handedBackWithResolver(t, resolveBothSides)
+}
+
+// handedBackWithResolver is handedBackForAConflict with the resolving
+// session's work given.
+func handedBackWithResolver(t *testing.T, resolve func(dir string) error) (*queueRun, *orchestratortest.Backend, Outcome, runstate.State) {
+	t.Helper()
+	r, provider := newCatchUpRun(t, resolve)
 	admitted := r.run(t)
 	if admitted.MergeQueue == nil {
 		t.Fatalf("Run() = %#v, want the approved change admitted to the queue", admitted)
@@ -94,10 +101,12 @@ func TestAHandedBackChangeIsResolvedInANewSessionGivenTheChangeAndTheConflict(t 
 	}
 }
 
+// A resolution that changes a file outside the conflicting ones is reviewed
+// before it rejoins, and that review is held to the same authors.
 func TestAResolvedChangeIsNotLandedOnAReviewByTheSessionThatWroteIt(t *testing.T) {
 	t.Parallel()
 
-	r, provider, admitted, _ := handedBackForAConflict(t)
+	r, provider, admitted, _ := handedBackWithResolver(t, resolveAndChangeMore)
 	provider.DeveloperSession, provider.ReviewerSession = "resolving-session", "developer-session"
 	outcome, err := continueRun(t, r, admitted.RunID)
 	if err == nil || !strings.Contains(err.Error(), "wrote part of the change") || outcome.MergeQueue != nil && outcome.MergeQueue.EntryID != admitted.MergeQueue.EntryID {

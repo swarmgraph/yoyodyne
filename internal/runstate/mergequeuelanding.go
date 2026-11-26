@@ -586,9 +586,13 @@ type MergeQueueHandback struct {
 	TargetBase string   `json:"target_base"`
 	Heads      []string `json:"heads"`
 	Candidate  string   `json:"candidate"`
-	// Branch and ApprovedHead are the run's saved change.
+	// Branch and ApprovedHead are the run's saved change. ApprovedHead is
+	// always the head a reviewer approved; ResolvedHead is the resolved head of
+	// an entry admitted on the approval of the head it resolves, and empty for
+	// every other entry, so a record from before it reads as it is (Head).
 	Branch       string `json:"branch,omitempty"`
 	ApprovedHead string `json:"approved_head"`
+	ResolvedHead string `json:"resolved_head,omitempty"`
 	// RepairAttempts and RepairBudget are the run's own repair counters as they
 	// stood when this was decided. They are read, never granted: the run's
 	// record is what bounds its repairs.
@@ -736,6 +740,9 @@ func (h MergeQueueHandback) validate() []error {
 		if !commitPattern.MatchString(value) {
 			problems = append(problems, fmt.Errorf("handback %s %q is not a full commit id", field, value))
 		}
+	}
+	if h.ResolvedHead != "" && (!commitPattern.MatchString(h.ResolvedHead) || h.ResolvedHead == h.ApprovedHead) {
+		problems = append(problems, fmt.Errorf("handback resolved head %q is not a full commit id apart from the approved head", h.ResolvedHead))
 	}
 	for _, head := range h.Heads {
 		if !commitPattern.MatchString(head) {

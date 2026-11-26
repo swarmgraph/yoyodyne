@@ -191,7 +191,7 @@ func (p MergeQueuePromoter) giveReturned(ctx context.Context, worker *runstate.L
 // conflictWith merges the entry's approved head onto target in memory, and is
 // nil where they merge.
 func (p MergeQueuePromoter) conflictWith(ctx context.Context, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, target string) (*gitworktree.QueueCandidateConflict, error) {
-	_, err := p.Lander.MergeTree(ctx, target, entry.ApprovedHead)
+	_, err := p.Lander.MergeTree(ctx, target, entry.Head())
 	var conflict *gitworktree.QueueCandidateConflict
 	if errors.As(err, &conflict) {
 		conflict.TargetBranch = key.TargetBranch

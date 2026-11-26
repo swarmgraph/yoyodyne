@@ -147,14 +147,14 @@ func (q *queuePromotion) settleOutside(ctx context.Context) error {
 			}
 		}
 	}
-	if !fullCommitID.MatchString(q.entry.ApprovedHead) {
+	if !fullCommitID.MatchString(q.entry.Head()) {
 		return nil
 	}
-	carried, err := q.p.Lander.TargetHolds(ctx, target, q.entry.ApprovedHead)
+	carried, err := q.p.Lander.TargetHolds(ctx, target, q.entry.Head())
 	if err != nil || !carried {
 		return nil
 	}
-	return q.landedOutside(ctx, "", fmt.Sprintf("%s already carries the approved head %s, put there outside the merge queue", target, q.entry.ApprovedHead))
+	return q.landedOutside(ctx, "", fmt.Sprintf("%s already carries %s, put there outside the merge queue", target, headNamed(q.entry)))
 }
 
 // landedOutside ends the entry's turn as landed outside the queue, and records
@@ -173,7 +173,7 @@ func (q *queuePromotion) landedOutside(ctx context.Context, carrying, how string
 		At: q.now(), Continuation: runstate.MergeQueueLandedOutside, Mover: ownership.MoverHarness,
 		Reason: oneline.Fold(fmt.Sprintf("%s; %s carries it at %s, so the queue built no candidate for it and ran no check, and the entry left the queue as landed",
 			how, target, carrying), 1500),
-		TargetBase: carrying, ApprovedHead: q.entry.ApprovedHead,
+		TargetBase: carrying, ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead,
 	}
 	if err := q.save(); err != nil {
 		q.landing.Handback = nil
@@ -190,7 +190,7 @@ func (q *queuePromotion) closedOutside(ctx context.Context, number int) error {
 		At: q.now(), Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverDevelopmentManager,
 		Reason: oneline.Fold(fmt.Sprintf("pull request #%d, which carries this change, was closed without being merged outside the merge queue, so the queue built no candidate for it and ran no check; the entry left the queue, and its change is kept on its run's branch for the development manager to decide on",
 			number), 1500),
-		ApprovedHead: q.entry.ApprovedHead,
+		ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead,
 	}
 	if err := q.save(); err != nil {
 		q.landing.Handback = nil

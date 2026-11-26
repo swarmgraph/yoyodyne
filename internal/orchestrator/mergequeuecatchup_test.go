@@ -33,16 +33,32 @@ const conflictFree = "test -f feature.txt && ! grep -q '<<<<<<<' feature.txt"
 // conflict markers.
 func newCatchUpRun(t *testing.T, resolve func(dir string) error) (*queueRun, *orchestratortest.Backend) {
 	t.Helper()
+	return newCatchUpRunWithVerdicts(t, resolve, approveVerdict)
+}
+
+// newCatchUpRunWithVerdicts is newCatchUpRun with the reviews' verdicts given,
+// in the order the reviews are asked, the last repeating.
+func newCatchUpRunWithVerdicts(t *testing.T, resolve func(dir string) error, verdicts ...string) (*queueRun, *orchestratortest.Backend) {
+	t.Helper()
+	return newCatchUpRunWriting(t, func(dir string) error {
+		return os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, resolve, verdicts...)
+}
+
+// newCatchUpRunWriting is newCatchUpRunWithVerdicts with the first attempt's
+// work given too.
+func newCatchUpRunWriting(t *testing.T, first, resolve func(dir string) error, verdicts ...string) (*queueRun, *orchestratortest.Backend) {
+	t.Helper()
 	repository := pipelineRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Add the feature", Status: "open"}}
 	attempts := 0
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		attempts++
 		if attempts == 1 {
-			return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+			return first(request.WorkingDirectory)
 		}
 		return resolve(request.WorkingDirectory)
-	}, approveVerdict)
+	}, verdicts...)
 	pipeline, runs := newAutomaticPipeline(t, repository, tracker, provider, []string{conflictFree})
 	queue, err := runstate.NewMergeQueueStore(t.TempDir(), "yoyodyne")
 	if err != nil {
@@ -213,8 +229,11 @@ func TestACatchUpAndEveryReviewAfterItNameTheHandbackThatCausedThem(t *testing.T
 	if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassLanded {
 		t.Fatalf("Pass() = %#v, want the change landed", pass)
 	}
-	if len(log.lines) != before+3 {
-		t.Fatalf("recorded %d lines after the conflict, want the attempt, its review, and the candidate's", len(log.lines)-before)
+	// The resolution is confined to the conflicting file, so it rejoins with
+	// no review of its own and the candidate's review is its one review
+	// (confinedresolution.go).
+	if len(log.lines) != before+2 {
+		t.Fatalf("recorded %d lines after the conflict, want the attempt and the candidate's review", len(log.lines)-before)
 	}
 	for index, line := range log.lines {
 		want, named := runstate.SpendConflictNone, ""

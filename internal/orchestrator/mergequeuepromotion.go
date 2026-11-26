@@ -99,7 +99,9 @@ type MergeQueueLandingRecords interface {
 // however often it is asked, because a process can die after making it and
 // before that is written down.
 type MergeQueueCompletion interface {
-	RecordRun(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error
+	// review is the candidate's approving review, given only for an entry with
+	// a resolved head, whose run has no approval of its own until then.
+	RecordRun(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion, review *runstate.MergeQueueReviewEvidence) error
 	RecordWorkItem(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error
 }
 
@@ -551,7 +553,7 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 			q.outcome.Refusal, q.outcome.Uncovered = refusal, true
 			return nil
 		}
-		attempt.Path, attempt.Candidate, attempt.CandidateBranch = runstate.MergeQueueLandThroughForgeQueue, q.entry.ApprovedHead, run.Branch
+		attempt.Path, attempt.Candidate, attempt.CandidateBranch = runstate.MergeQueueLandThroughForgeQueue, q.entry.Head(), run.Branch
 	} else {
 		generation, refusal, err := q.verified(target)
 		if err != nil || refusal != "" {
@@ -823,7 +825,7 @@ func (q *queuePromotion) handBackEntry(ctx context.Context, why string) error {
 	q.landing.Handback = &runstate.MergeQueueHandback{
 		At: q.now(), Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverDevelopmentManager,
 		Reason:       oneline.Fold(why+"; the entry leaves the queue so the entries behind it go on, and its change is kept on its run for the development manager to decide on", 1500),
-		ApprovedHead: q.entry.ApprovedHead,
+		ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead,
 	}
 	if err := q.save(); err != nil {
 		q.landing.Handback = nil
@@ -865,10 +867,10 @@ func (q *queuePromotion) pullRequestBody(ctx context.Context, attempt runstate.M
 	}
 	if attempt.Path == runstate.MergeQueueLandThroughForgeQueue {
 		return fmt.Sprintf("The change for %s, approved at %s and admitted to the forge's merge queue for %s.\n\nRun: %s\n",
-			q.entry.WorkItemID, q.entry.ApprovedHead, q.key.TargetBranch, q.entry.RunID) + opener
+			q.entry.WorkItemID, q.entry.Head(), q.key.TargetBranch, q.entry.RunID) + opener
 	}
-	body := fmt.Sprintf("Merge queue candidate %s for %s: %s at %s with the approved head %s merged onto it. Its configured checks passed and an independent reviewer approved it, both bound to generation %d of entry %s.\n\nRun: %s\n",
-		attempt.Candidate, q.entry.WorkItemID, q.key.TargetBranch, attempt.TargetBase, q.entry.ApprovedHead, attempt.Generation, q.entry.EntryID, q.entry.RunID)
+	body := fmt.Sprintf("Merge queue candidate %s for %s: %s at %s with %s merged onto it. Its configured checks passed and an independent reviewer approved it, both bound to generation %d of entry %s.\n\nRun: %s\n",
+		attempt.Candidate, q.entry.WorkItemID, q.key.TargetBranch, attempt.TargetBase, headNamed(q.entry), attempt.Generation, q.entry.EntryID, q.entry.RunID)
 	if q.entry.Publication != "" {
 		body += "Approved as: " + q.entry.Publication + "\n"
 	}
@@ -1746,7 +1748,11 @@ func (q *queuePromotion) recordCompletion(ctx context.Context) error {
 	}
 	completion := q.landing.Completion
 	if completion.RunAt == nil {
-		if err := q.p.Completion.RecordRun(ctx, q.entry, *completion); err != nil {
+		review, err := q.resolvedApproval(*completion)
+		if err != nil {
+			return fmt.Errorf("record the landing on run %s: %w", q.entry.RunID, err)
+		}
+		if err := q.p.Completion.RecordRun(ctx, q.entry, *completion, review); err != nil {
 			return fmt.Errorf("record the landing on run %s: %w", q.entry.RunID, err)
 		}
 		at := q.now()
@@ -1841,7 +1847,7 @@ func (c MergeQueueRunCompletion) now() time.Time {
 // the integration's source and its target, as a run's own fast-forward is. The
 // run's approved head is inside it, which is what lets the run's branch and
 // worktree be cleaned up on the proof a landed run's are.
-func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
+func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion, review *runstate.MergeQueueReviewEvidence) error {
 	state, err := c.Store.Load(entry.RunID)
 	if err != nil {
 		return err
@@ -1866,10 +1872,34 @@ func (c MergeQueueRunCompletion) RecordRun(ctx context.Context, entry runstate.M
 			TargetCommit:         completion.Landed,
 			PreviousTargetCommit: completion.TargetBase,
 		},
-		WholeBy: mergeQueueWholeBy(entry, completion),
-		At:      c.now(),
+		WholeBy:         mergeQueueWholeBy(entry, completion),
+		CandidateReview: review,
+		At:              c.now(),
 	})
 	return err
+}
+
+// resolvedApproval is the review that approved the landed candidate of an
+// entry with a resolved head, which is that resolution's only review, and nil
+// for every other entry.
+func (q *queuePromotion) resolvedApproval(completion runstate.MergeQueueCompletion) (*runstate.MergeQueueReviewEvidence, error) {
+	if q.entry.ResolvedHead == "" {
+		return nil, nil
+	}
+	generations, err := q.p.Queue.Generations(q.key, q.entry.EntryID)
+	if err != nil {
+		return nil, err
+	}
+	for _, generation := range generations {
+		if generation.Number != completion.Generation {
+			continue
+		}
+		if review := generation.Review; review != nil && review.FinishedAt != nil && review.Decision == runstate.ReviewApprove && review.Problem == "" {
+			approval := *review
+			return &approval, nil
+		}
+	}
+	return nil, fmt.Errorf("no approving review of generation %d is recorded for entry %s, whose resolved head %s has no other review", completion.Generation, q.entry.EntryID, q.entry.ResolvedHead)
 }
 
 // RecordWorkItem settles the item on the landing as a run's own settlement
@@ -1884,7 +1914,7 @@ func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runst
 		entry.RunID, entry.TargetBranch, completion.Landed)
 	if completion.Path == runstate.MergeQueueLandThroughForgeQueue {
 		reason = fmt.Sprintf("Reviewed by Yoyodyne run %s at %s and landed on %s by the forge's merge queue as %s, the combined commit that queue required the project's checks and an independent approval of before landing it.",
-			entry.RunID, entry.ApprovedHead, entry.TargetBranch, completion.Landed)
+			entry.RunID, entry.Head(), entry.TargetBranch, completion.Landed)
 	}
 	return c.settleLandedItem(ctx, entry, completion.Landed, reason)
 }

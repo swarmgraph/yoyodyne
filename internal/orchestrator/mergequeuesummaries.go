@@ -50,8 +50,26 @@ func recordedEarlierSummaries(run runstate.State) []review.AttemptSummary {
 
 // candidateApprovingReview is the summary of the run's own review that approved
 // the change. Only an approval is shown: what a review that did not approve
-// said is never presented as one.
-func candidateApprovingReview(run runstate.State) string {
+// said is never presented as one. An entry admitted on the approval of the head
+// it resolves shows that approval, of the head before the resolution, and then
+// the conflicts and how each was resolved, which no reviewer has seen
+// (resolutionReview).
+func candidateApprovingReview(entry runstate.MergeQueueEntry, run runstate.State) string {
+	if entry.ResolvedHead != "" {
+		approval := fmt.Sprintf("The run's record no longer holds the review that approved head %s.", entry.ApprovedHead)
+		if r := run.ConflictResolution; r != nil && r.ResolvedHead == entry.ResolvedHead && r.Approved.HeadCommit == entry.ApprovedHead {
+			approval = fmt.Sprintf("The review of run %s approved head %s, before the resolution", run.RunID, entry.ApprovedHead)
+			if r.Approved.Approves != "" {
+				approval += ", as " + r.Approved.Approves
+			}
+			if summary := strings.TrimSpace(r.Approved.Summary); summary != "" {
+				approval += ". Its summary:\n\n" + summary
+			} else {
+				approval += ", and no summary of that review is on the run's record."
+			}
+		}
+		return approval + "\n\n" + resolutionReview(entry, run)
+	}
 	if run.ReviewDecision != runstate.ReviewApprove {
 		return fmt.Sprintf("Run %s has no approving review on its record.", run.RunID)
 	}
@@ -63,4 +81,33 @@ func candidateApprovingReview(run runstate.State) string {
 		return said + ". Its summary:\n\n" + summary
 	}
 	return said + ", and no summary of that review is on the run's record."
+}
+
+// headNamed names the head an entry's candidate is built from, without calling
+// a resolved head approved: only the candidate's own review approves that.
+func headNamed(entry runstate.MergeQueueEntry) string {
+	if entry.ResolvedHead == "" {
+		return "the approved head " + entry.ApprovedHead
+	}
+	return fmt.Sprintf("the resolved head %s, which resolves a conflict of the approved head %s", entry.ResolvedHead, entry.ApprovedHead)
+}
+
+// headLines are the head lines of a candidate's commit message.
+func headLines(entry runstate.MergeQueueEntry) string {
+	lines := "Approved head: " + entry.ApprovedHead + "\n"
+	if entry.ResolvedHead != "" {
+		lines += "Resolved head: " + entry.ResolvedHead + "\n"
+	}
+	return lines
+}
+
+// candidateAdmittedSays is how a candidate's reviewer is told what was
+// admitted and what the candidate is.
+func candidateAdmittedSays(entry runstate.MergeQueueEntry, generation runstate.MergeQueueGeneration) string {
+	admitted := fmt.Sprintf("The change for this work item was approved at head `%s` and admitted to the merge queue for `%s`.", entry.ApprovedHead, generation.TargetBranch)
+	if entry.ResolvedHead != "" {
+		admitted = fmt.Sprintf("The change for this work item was approved at head `%s`, handed back because it no longer merged onto `%s`, and resolved at head `%s`, which no reviewer has approved; it was admitted to the merge queue again on the approval of the head it resolves.", entry.ApprovedHead, generation.TargetBranch, entry.ResolvedHead)
+	}
+	return admitted + fmt.Sprintf(" The candidate under review is commit `%s`: the target branch at `%s` with head `%s` merged onto it. It is the exact revision that would land, and nothing else is.",
+		generation.Candidate, generation.TargetBase, entry.Head())
 }

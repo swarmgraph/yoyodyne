@@ -52,7 +52,7 @@ func (d queueDeclaration) wanted(run runstate.State) []string {
 
 // declaration is what the project declared for its queue, read for one entry.
 func (p *Pipeline) declaration(entry runstate.MergeQueueEntry) queueDeclaration {
-	return queueDeclaration{Checks: p.Config.MergeQueueChecks, Race: p.Config.MergeQueueRaceCheck, Head: entry.ApprovedHead}
+	return queueDeclaration{Checks: p.Config.MergeQueueChecks, Race: p.Config.MergeQueueRaceCheck, Head: entry.Head()}
 }
 
 // declaredQueueChecks is the checks the queue verifies an entry's candidate by

@@ -2661,6 +2661,14 @@ func (s *State) recordedTexts() []recordedText {
 		nested("identity_take_ups[].reason", at("identity_take_ups", index, "reason"), &takeUp.Reason, MaxSelectionReasonBytes)
 		nested("identity_take_ups[].superseded_failure", at("identity_take_ups", index, "superseded_failure"), &takeUp.SupersededFailure, MaxBlockerBytes)
 	}
+	own("confined_refused", &s.ConfinedRefused, MaxMergeQueueTextBytes, truncatedNote(MaxMergeQueueTextBytes))
+	if r := s.ConflictResolution; r != nil {
+		unstated("conflict_resolution.approved.summary", "conflict_resolution.approved.summary", &r.Approved.Summary, MaxReviewSummaryBytes)
+		if c := r.Comparison; c != nil {
+			unstated("conflict_resolution.comparison.problem", "conflict_resolution.comparison.problem", &c.Problem, MaxMergeQueueTextBytes)
+			unstated("conflict_resolution.comparison.resolutions", "conflict_resolution.comparison.resolutions", &c.Resolutions, MaxResolutionDiffBytes)
+		}
+	}
 	if s.ReplayConflict != nil {
 		nested("replay_conflict.detail", "replay_conflict.detail", &s.ReplayConflict.Detail, MaxConflictDetailBytes)
 		if s.ReplayConflict.Approved != nil {
@@ -4505,6 +4513,17 @@ type State struct {
 	// Absent is every run whose replay did not conflict, which is nearly all of
 	// them. See integrationresume.go.
 	ReplayConflict *ReplayConflict `json:"replay_conflict,omitempty"`
+	// ConflictResolution is the approved change's conflict, resolved in a new
+	// session, as it stood when the resolution passed its checks, and the
+	// harness's comparison of it with Git's own merge once that is made. It
+	// stays while the resolution is the run's change, which is what the merge
+	// queue's reviewer of its candidate is shown. See confinedresolution.go.
+	ConflictResolution *ConflictResolution `json:"conflict_resolution,omitempty"`
+	// ConfinedRefused is why this run no longer rejoins the merge queue on the
+	// approval of the head a resolution resolves: the queue's review of such a
+	// candidate refused it, or the queue could not take it straight back. Every
+	// later resolution of the run is reviewed before it rejoins.
+	ConfinedRefused string `json:"confined_refused,omitempty"`
 	// DocumentConflict is a document run finding the target branch's copy of
 	// its document changed after the text was written, which is never tried
 	// again. Absent on every other run. See documentconflict.go.
@@ -5542,6 +5561,7 @@ func (s State) Validate() error {
 		}
 	}
 	problems = append(problems, s.validateAuthorSessions()...)
+	problems = append(problems, s.validateConflictResolution()...)
 	if s.TransientRelaunches < 0 {
 		problems = append(problems, errors.New("transient_relaunches cannot be negative"))
 	}
