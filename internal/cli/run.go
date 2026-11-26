@@ -1847,13 +1847,15 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 	// action `yoyo triage resume` is, once the condition clears or the switch
 	// is turned off.
 	resumer := integrationResumerFrom(parts)
+	// The same look takes up a change the queue refused because its own record
+	// was over its size limit, once the record has room.
 	held := &orchestrator.MergeQueueHeldChanges{
-		Docket: parts.docket, Runs: parts.store, Refusals: parts.mergeQueues,
+		Docket: parts.docket, Runs: parts.store, Refusals: parts.mergeQueues, Room: parts.mergeQueues,
 		Harness: promoter.Harness, Enabled: parts.config.Execution.MergeQueue, ProductID: string(parts.config.Product.ID),
-		Resume: func(ctx context.Context, runID string) (orchestrator.IntegrationResumeResult, error) {
+		Resume: func(ctx context.Context, runID, cleared string) (orchestrator.IntegrationResumeResult, error) {
 			return resumer.Resume(ctx, orchestrator.IntegrationResumeRequest{
 				Run:    runID,
-				Reason: "the merge queue held this approved change because its target required the forge's own merge queue, or its protection could not be read, and that has cleared",
+				Reason: "the merge queue held this approved change, and what held it has cleared: " + cleared,
 			})
 		},
 	}

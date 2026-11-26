@@ -21,6 +21,14 @@ package orchestrator
 // Clearing is also what ends the queue's one report of the condition: the
 // queue's refusal record is removed, so a condition found again later is
 // reported again, once. The harness never changes a repository setting.
+//
+// A change the queue refused because its own record is over the size limit
+// the harness sets for it (CauseMergeQueueFull) is taken up the same way, in
+// its own turn: it waits at its promotion with its approval and review
+// standing, nothing tries it again while the record has no room, and it is
+// resumed at the first look that finds room (RoomForAdmission) or the switch
+// off. That limit is the harness's own, so the stop charged nothing and the
+// hold on new work left it out.
 
 import (
 	"context"
@@ -41,6 +49,12 @@ type MergeQueueHeldRefusals interface {
 	ClearRefusal(ctx context.Context, key runstate.MergeQueueKey) error
 }
 
+// MergeQueueRoom says whether a queue's record has room for another
+// admission. It is satisfied by *runstate.MergeQueueStore.
+type MergeQueueRoom interface {
+	RoomForAdmission(key runstate.MergeQueueKey) (bool, string, error)
+}
+
 // MergeQueueHeldRuns reads the run a held change was approved by. It is
 // satisfied by *runstate.Store.
 type MergeQueueHeldRuns interface {
@@ -55,6 +69,10 @@ type MergeQueueHeldChanges struct {
 	Docket   ResumeDocket
 	Runs     MergeQueueHeldRuns
 	Refusals MergeQueueHeldRefusals
+	// Room is asked whether a queue whose record was full has room again; nil
+	// leaves every change held for that waiting, because nothing can say the
+	// refusal would not recur.
+	Room MergeQueueRoom
 	// Forge is asked again whether the target requires its own merge queue;
 	// nil for a project with no forge that can say, whose targets nothing of
 	// the forge's holds.
@@ -64,9 +82,9 @@ type MergeQueueHeldChanges struct {
 	Enabled bool
 	// ProductID names the queue of a run that recorded no repository.
 	ProductID string
-	// Resume resumes one held run at its promotion. It is satisfied by
-	// IntegrationResumer.Resume.
-	Resume func(ctx context.Context, runID string) (IntegrationResumeResult, error)
+	// Resume resumes one held run at its promotion, given what was found to
+	// have cleared. It is satisfied by IntegrationResumer.Resume.
+	Resume func(ctx context.Context, runID, cleared string) (IntegrationResumeResult, error)
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 }
@@ -93,6 +111,17 @@ type heldChange struct {
 	run   runstate.State
 }
 
+// heldQueue is one queue's changes held for one cause, which clear together.
+type heldQueue struct {
+	key   runstate.MergeQueueKey
+	cause runstate.EnvironmentalCause
+}
+
+// heldByQueue reports a cause whose changes this pass takes up.
+func heldByQueue(cause runstate.EnvironmentalCause) bool {
+	return cause == runstate.CauseMergeQueueHeld || cause == runstate.CauseMergeQueueFull
+}
+
 // Take looks at every change the merge queue holds and takes up those whose
 // condition has cleared. It never returns an error: what stopped it is its
 // account.
@@ -106,19 +135,22 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 		pass.Says = fmt.Sprintf("the changes the merge queue holds could not be listed: %v", err)
 		return pass
 	}
-	queues := map[runstate.MergeQueueKey][]heldChange{}
-	var keys []runstate.MergeQueueKey
+	queues := map[heldQueue][]heldChange{}
+	var keys []heldQueue
 	for _, entry := range entries {
-		if entry.Class != triage.ClassStoppedRun || entry.IntegrationStop == nil || entry.IntegrationStop.Cause != string(runstate.CauseMergeQueueHeld) {
+		if entry.Class != triage.ClassStoppedRun || entry.IntegrationStop == nil || !heldByQueue(runstate.EnvironmentalCause(entry.IntegrationStop.Cause)) {
 			continue
 		}
 		run, err := h.Runs.Load(entry.RunID)
-		if err != nil || run.IntegrationStop == nil || run.IntegrationStop.Cause != runstate.CauseMergeQueueHeld {
+		if err != nil || run.IntegrationStop == nil || string(run.IntegrationStop.Cause) != entry.IntegrationStop.Cause {
 			// A run whose record no longer says it is held was taken up already,
 			// or settled some other way, and its entry closes on its own terms.
 			continue
 		}
-		key := runstate.MergeQueueKey{Repository: nonEmpty(run.RepositoryID, h.ProductID), TargetBranch: run.TargetBranch}
+		key := heldQueue{
+			key:   runstate.MergeQueueKey{Repository: nonEmpty(run.RepositoryID, h.ProductID), TargetBranch: run.TargetBranch},
+			cause: run.IntegrationStop.Cause,
+		}
 		if _, seen := queues[key]; !seen {
 			keys = append(keys, key)
 		}
@@ -142,10 +174,12 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 		})
 		stands, why := h.stands(ctx, key)
 		if stands {
-			says = append(says, fmt.Sprintf("%d change(s) into %s stay held: %s", len(held), key.TargetBranch, why))
+			says = append(says, fmt.Sprintf("%d change(s) into %s stay held: %s", len(held), key.key.TargetBranch, why))
 			continue
 		}
-		_ = h.Refusals.ClearRefusal(context.WithoutCancel(ctx), key)
+		if key.cause == runstate.CauseMergeQueueHeld && h.Refusals != nil {
+			_ = h.Refusals.ClearRefusal(context.WithoutCancel(ctx), key.key)
+		}
 		resumed, stopped := 0, ""
 		var outside []string
 		for _, change := range held {
@@ -153,7 +187,7 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 				stopped = "the session working the queue stopped"
 				break
 			}
-			result, err := h.Resume(ctx, change.run.RunID)
+			result, err := h.Resume(ctx, change.run.RunID, why)
 			switch {
 			case result.Resumed:
 				resumed++
@@ -175,7 +209,7 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 			}
 		}
 		pass.Resumed += resumed
-		account := fmt.Sprintf("%s: %s; took up %d of the %d change(s) held for it, in the order they were approved", key.TargetBranch, why, resumed, len(held))
+		account := fmt.Sprintf("%s: %s; took up %d of the %d change(s) held for it, in the order they were approved", key.key.TargetBranch, why, resumed, len(held))
 		for _, why := range outside {
 			account += "; " + why
 		}
@@ -190,9 +224,13 @@ func (h MergeQueueHeldChanges) Take(ctx context.Context) MergeQueueHeldPass {
 
 // stands reports whether what holds a queue's changes still stands, and says
 // what was found either way.
-func (h MergeQueueHeldChanges) stands(ctx context.Context, key runstate.MergeQueueKey) (bool, string) {
+func (h MergeQueueHeldChanges) stands(ctx context.Context, held heldQueue) (bool, string) {
+	key := held.key
 	if !h.Enabled {
 		return false, "execution.merge_queue is off now, so each is integrated the way changes integrate without the queue"
+	}
+	if held.cause == runstate.CauseMergeQueueFull {
+		return h.full(key)
 	}
 	if h.Forge == nil {
 		return false, "nothing here can say the forge requires its own merge queue any more"
@@ -209,4 +247,21 @@ func (h MergeQueueHeldChanges) stands(ctx context.Context, key runstate.MergeQue
 		return true, strings.TrimSpace(selection.Hold.Requirement)
 	}
 	return false, fmt.Sprintf("the protection of %s is readable and no longer requires the forge's own merge queue", key.TargetBranch)
+}
+
+// full reports whether a queue whose record was over its size limit still has
+// no room for another admission. Where nothing can say, the change stays held,
+// so no retry is started that the same refusal would end.
+func (h MergeQueueHeldChanges) full(key runstate.MergeQueueKey) (bool, string) {
+	if h.Room == nil {
+		return true, "nothing here can read whether the merge queue's record has room"
+	}
+	room, says, err := h.Room.RoomForAdmission(key)
+	if err != nil {
+		return true, fmt.Sprintf("whether the merge queue's record for %s has room could not be read: %v", key.TargetBranch, err)
+	}
+	if !room {
+		return true, says + ", which leaves no room for another admission"
+	}
+	return false, says + ", which has room for another admission"
 }

@@ -4860,6 +4860,10 @@ func integrationStopCauseOf(failure error) (runstate.EnvironmentalCause, bool) {
 		return runstate.CauseMergeQueueHeld, true
 	case errors.Is(failure, gitworktree.ErrGitLockHeld):
 		return runstate.CauseGitLockHeld, true
+	// The queue's own record over the size limit the harness sets for it is a
+	// limit of the harness's, not a judgment of the change.
+	case errors.Is(failure, runstate.ErrMergeQueueFull):
+		return runstate.CauseMergeQueueFull, true
 	// The same cause where it did not come through a Git remote command: the
 	// GitHub command line tool not logged in, or the machine unable to name the
 	// user the harness runs as, in the words recovery reads them by.

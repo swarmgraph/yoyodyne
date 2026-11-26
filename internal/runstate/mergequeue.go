@@ -75,6 +75,19 @@ const MaxMergeQueueTextBytes = 2 << 10
 // shared bound.
 const maxEncodedMergeQueueBytes = 16 << 20
 
+// mergeQueueAdmissionRoom is the room a queue's record must have left under
+// maxEncodedMergeQueueBytes before a change it refused for want of room is
+// tried again (RoomForAdmission). An entry's free text is bounded by
+// MaxMergeQueueTextBytes a field, so one entry encodes well inside this.
+const mergeQueueAdmissionRoom = 64 << 10
+
+// ErrMergeQueueFull is the queue refusing an admission because its own record
+// is, or would be, over maxEncodedMergeQueueBytes. It is a limit of the
+// harness's own and says nothing about the change, so the run it stops is held
+// at its promotion with its approval standing (CauseMergeQueueFull) and taken
+// up again once the record has room.
+var ErrMergeQueueFull = errors.New("the merge queue's record is over the harness's size limit for it")
+
 const (
 	mergeQueuesDirectory  = "merge-queues"
 	mergeQueueRecordName  = "queue.json"
@@ -551,7 +564,7 @@ func (s *MergeQueueStore) append(queueRoot *repowrite.PinnedRoot, key MergeQueue
 		return MergeQueueEntry{}, false, err
 	}
 	if len(encoded) > maxEncodedMergeQueueBytes {
-		return MergeQueueEntry{}, false, StopError{Class: StopStateBound, Cause: fmt.Errorf("the merge queue for %s would be %d bytes, limit is %d", key.TargetBranch, len(encoded), maxEncodedMergeQueueBytes)}
+		return MergeQueueEntry{}, false, StopError{Class: StopStateBound, Cause: fmt.Errorf("%w: the merge queue for %s would be %d bytes, limit is %d", ErrMergeQueueFull, key.TargetBranch, len(encoded), maxEncodedMergeQueueBytes)}
 	}
 	saveErr := s.save(queueRoot, encoded)
 	if saveErr == nil {
@@ -567,6 +580,43 @@ func (s *MergeQueueStore) append(queueRoot *repowrite.PinnedRoot, key MergeQueue
 		return entry, true, nil
 	}
 	return MergeQueueEntry{}, false, fmt.Errorf("save the merge queue for %s: %w; reading it back found the admission was not saved", key.TargetBranch, saveErr)
+}
+
+// RoomForAdmission reports whether a queue's record has room for another
+// admission, and says what it found either way: the record's size against its
+// limit, or why it could not be read. A queue nothing has been admitted to has
+// room. It is what a change refused with ErrMergeQueueFull waits on, so the
+// harness asks this rather than trying the admission again while the same
+// refusal would follow.
+func (s *MergeQueueStore) RoomForAdmission(key MergeQueueKey) (bool, string, error) {
+	if err := key.validate(); err != nil {
+		return false, "", fmt.Errorf("merge queue: %w", err)
+	}
+	root, err := pinStateRoot(s.stateRoot, s.anchor)
+	if err != nil {
+		return false, "", fmt.Errorf("pin the merge queue state root: %w", err)
+	}
+	defer root.Close()
+	queueRoot, err := root.OpenDirectory(path.Join(filepath.ToSlash(s.directory()), key.directory()))
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, fmt.Sprintf("the merge queue for %s has no record yet", key.TargetBranch), nil
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("open the merge queue for %s: %w", key.TargetBranch, err)
+	}
+	defer queueRoot.Close()
+	encoded, err := readQueue(queueRoot)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return true, fmt.Sprintf("the merge queue for %s has no record yet", key.TargetBranch), nil
+	case errors.Is(err, ErrMergeQueueFull):
+		return false, fmt.Sprintf("the merge queue for %s: %v", key.TargetBranch, err), nil
+	case err != nil:
+		return false, "", fmt.Errorf("read the merge queue for %s: %w", key.TargetBranch, err)
+	}
+	room := maxEncodedMergeQueueBytes - len(encoded)
+	says := fmt.Sprintf("the merge queue record for %s is %d bytes of its %d byte limit", key.TargetBranch, len(encoded), maxEncodedMergeQueueBytes)
+	return room >= mergeQueueAdmissionRoom, says, nil
 }
 
 // Entries reports every entry admitted to a queue, in order. A queue nothing
@@ -779,7 +829,7 @@ func readQueue(queueRoot *repowrite.PinnedRoot) ([]byte, error) {
 		return nil, err
 	}
 	if len(encoded) > maxEncodedMergeQueueBytes {
-		return nil, fmt.Errorf("the merge queue record is %d bytes, which exceeds the %d byte bound", len(encoded), maxEncodedMergeQueueBytes)
+		return nil, fmt.Errorf("%w: the merge queue record is %d bytes, which exceeds the %d byte bound", ErrMergeQueueFull, len(encoded), maxEncodedMergeQueueBytes)
 	}
 	return encoded, nil
 }

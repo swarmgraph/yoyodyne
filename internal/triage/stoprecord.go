@@ -25,7 +25,9 @@ type StopRecord struct {
 	// review rounds, which only a stop about the work does.
 	Charged bool `json:"charged"`
 	// Unrecognised says the run's stop reason is one the build that recorded it
-	// did not recognise, which is why it was decided as about the work.
+	// did not recognise. A stop recorded since the ruling of November 18 is
+	// outside the work for it, and charged nothing; one recorded before may say
+	// it was charged, and Charged says which.
 	Unrecognised bool `json:"unrecognised,omitempty"`
 }
 

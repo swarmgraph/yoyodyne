@@ -239,6 +239,16 @@ const (
 	// (docs/designs/integration-through-a-merge-queue.md, "GitHub's own merge
 	// queue"). Only the integration stop records it.
 	CauseMergeQueueHeld EnvironmentalCause = "merge-queue-held"
+	// CauseMergeQueueFull is an approved change the merge queue refused to admit
+	// because the queue's own record is, or would be, over the size limit the
+	// harness sets for it (ErrMergeQueueFull). The limit is the harness's own and
+	// judged nothing about the change, so the stop charges no repair attempt or
+	// review round and the hold on new work leaves it out. The change waits at
+	// its promotion with its approval and review standing, and the harness takes
+	// it up by itself, with no paid retry before then, at the first look that
+	// finds the record has room (MergeQueueStore.RoomForAdmission), or once the
+	// switch is off. Only the integration stop records it.
+	CauseMergeQueueFull EnvironmentalCause = "merge-queue-full"
 	// CauseNoCheckRan is a change every one of whose configured checks could not
 	// run at all (checks.CouldNotRunPrefix), whether the check said so itself or
 	// the machine refused to start the tool it drives. Nothing verified the
@@ -295,7 +305,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CausePersonMergeBehind, CauseMergeQueueBehind, CauseCheckStageBound,
 		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
-		CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld,
+		CauseMergeQueueFull, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld,
 	}
 }
 
@@ -399,6 +409,8 @@ func (c EnvironmentalCause) Title() string {
 		return "the developer's provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out"
 	case CauseMergeQueueHeld:
 		return "the merge queue is switched on and the target branch's protection requires the forge's own merge queue, or could not be read"
+	case CauseMergeQueueFull:
+		return "the merge queue's own record is over the size limit the harness sets for it, so the approved change could not be admitted"
 	case CauseNoCheckRan:
 		return "every configured check could not run, so nothing verified the change"
 	case CauseInstallUnavailable:

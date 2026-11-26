@@ -349,6 +349,10 @@ func TestTheBrakeReadsTheRecordedStopCause(t *testing.T) {
 		{runstate.StopManager, false},
 		{runstate.CauseTransportFailure.StopClass(), false},
 		{runstate.CauseMergeQueueHeld.StopClass(), false},
+		// The merge queue's own record over its size limit is the harness's
+		// limit, not the change's, so three of them in a row hold nothing.
+		{runstate.CauseMergeQueueFull.StopClass(), false},
+		{runstate.StopStateBound, true},
 		{runstate.StopCheckTimeout, false},
 		{runstate.CauseCheckTimeLimit.StopClass(), false},
 		{runstate.CauseCheckStageBound.StopClass(), false},
