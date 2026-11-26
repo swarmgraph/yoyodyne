@@ -104,8 +104,9 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 	}
 	// A failing check is said whenever the recorded failure changes, so a second
 	// repair attempt that fails differently is news rather than silence. A repeat
-	// of exactly the same failure is the same fact and is said once.
-	if after.CheckFailure != nil && (before.CheckFailure == nil || *before.CheckFailure != *after.CheckFailure) {
+	// of exactly the same failure is the same fact and is said once, however
+	// many times the record is read (runstate.CheckFailure.Same).
+	if after.CheckFailure != nil && (before.CheckFailure == nil || !before.CheckFailure.Same(*after.CheckFailure)) {
 		say(KindChecksFailed, report.SeverityWarning, Harness(), Detail{
 			Command:  after.CheckFailure.Command,
 			ExitCode: after.CheckFailure.ExitCode,

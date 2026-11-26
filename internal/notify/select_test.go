@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -316,6 +318,60 @@ func TestAFailingCheckIsSaidAsAWarningInTheChecksOwnWords(t *testing.T) {
 	differently.CheckFailure = &runstate.CheckFailure{Command: "go vet ./...", ExitCode: 2}
 	if kinds, _ := crossed(t, after, differently); len(kinds) != 1 || kinds[0] != KindChecksFailed {
 		t.Fatalf("a different failing check crossed %v", kinds)
+	}
+}
+
+// A failure carrying the fields that are pointers, read twice from the same
+// stored record, is one failure. Compared by address it was a new one on every
+// reading, and a run that never settled said it on every pass of the sink.
+func TestTheSameFailingCheckReadTwiceIsSaidOnce(t *testing.T) {
+	failure := running()
+	failure.CheckFailure = pointedCheckFailure()
+	stored, err := json.Marshal(failure)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	read := func() runstate.State {
+		var state runstate.State
+		if err := json.Unmarshal(stored, &state); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return state
+	}
+	first, second := read(), read()
+	if first.CheckFailure.FailingTests == second.CheckFailure.FailingTests {
+		t.Fatal("the two readings share their pointers, so this proves nothing")
+	}
+	if kinds, _ := crossed(t, running(), first); len(kinds) != 1 || kinds[0] != KindChecksFailed {
+		t.Fatalf("the failing check first read crossed %v", kinds)
+	}
+	if again, _ := crossed(t, first, second); len(again) != 0 {
+		t.Fatalf("the same failing check read a second time crossed %v", again)
+	}
+	// What a pointer points at still counts: a failure that names a different
+	// failing test is a different failure.
+	changed := read()
+	changed.CheckFailure.FailingTests.Tests[0].Name = "TestSomethingElse"
+	if kinds, _ := crossed(t, first, changed); len(kinds) != 1 || kinds[0] != KindChecksFailed {
+		t.Fatalf("a failure naming a different test crossed %v", kinds)
+	}
+}
+
+func pointedCheckFailure() *runstate.CheckFailure {
+	return &runstate.CheckFailure{
+		Command:  "make test",
+		ExitCode: 2,
+		Output:   "--- FAIL: TestA",
+		FailingTests: &checks.FailingTests{
+			Tests: []checks.FailingTest{{Name: "TestA", File: "internal/a/a_test.go"}},
+		},
+		TouchedTests: &checks.TouchedTests{
+			Tests:  []checks.JudgedTest{{Name: "TestA", File: "internal/a/a_test.go"}},
+			Reason: "the change touches none of the failing tests",
+		},
+		LocalPromotion: &runstate.Integration{TargetBranch: "main", SourceCommit: strings.Repeat("a", 40), TargetCommit: strings.Repeat("b", 40)},
+		ReviewBefore:   &runstate.ReviewBefore{Decision: "repair", Findings: []runstate.Finding{{Severity: runstate.SeverityMajor, Message: "a finding"}}},
+		QueueReview:    &runstate.ReviewBefore{Decision: "repair", Findings: []runstate.Finding{{Severity: runstate.SeverityMajor, Message: "another"}}},
 	}
 }
 
