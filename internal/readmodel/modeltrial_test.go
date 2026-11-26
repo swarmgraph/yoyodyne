@@ -91,3 +91,50 @@ func TestTheModelTrialIsANamedQuery(t *testing.T) {
 		t.Fatalf("answer = %+v", answer.Figures)
 	}
 }
+
+type conflictTrialRuns struct {
+	trialRuns
+	conflicts runstate.ConflictModelTrialFigures
+	target    int
+}
+
+func (r *conflictTrialRuns) ConflictModelTrialFigures(target int) (runstate.ConflictModelTrialFigures, error) {
+	r.target = target
+	return r.conflicts, nil
+}
+
+func TestTheConflictTrialIsShownForEachSideBesideTheOtherTrial(t *testing.T) {
+	t.Parallel()
+
+	runs := &conflictTrialRuns{conflicts: runstate.ConflictModelTrialFigures{
+		Target: 20, Attempts: 3, StoppedBy: "run-c", StopNote: "lost a side",
+		Cheaper:  runstate.ConflictModelSideFigures{Attempts: 2, Landed: 2, CostPerLandedUSD: 0.75, ChecksFailed: 1, Reviewed: 2, Refused: 1, DefectsAfterLanding: 1},
+		Stronger: runstate.ConflictModelSideFigures{Attempts: 1, Landed: 1, CostPerLandedUSD: 1.25, Reviewed: 1},
+	}}
+	trial := ReadModelTrial(Sources{Runs: runs, ConflictResolutionModel: config.ModelKindCheaper})
+	if runs.target != config.ConflictModelTrialAttempts {
+		t.Fatalf("the conflict trial was read against %d attempts, want %d", runs.target, config.ConflictModelTrialAttempts)
+	}
+	if !trial.Speaks() {
+		t.Fatal("a conflict trial that is set says nothing")
+	}
+	rendered := trial.Render()
+	for _, want := range []string{
+		"First attempts at a small conflict (execution.conflict_resolution_model): the cheaper model. 3 of 20 trial attempts so far.",
+		"The trial is stopped: run run-c resolved its conflict on the cheaper model",
+		"cost per landed change", "$0.75", "$1.25",
+		"review refused", "1 of 2", "0 of 1",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the trial does not say %q:\n%s", want, rendered)
+		}
+	}
+	if section := trial.PassSection(); !strings.Contains(section, "--resolution") {
+		t.Fatalf("the pass section does not say how a resolution's defect is recorded:\n%s", section)
+	}
+
+	quiet := ReadModelTrial(Sources{Runs: &conflictTrialRuns{conflicts: runstate.ConflictModelTrialFigures{Target: 20}}})
+	if quiet.Speaks() {
+		t.Fatalf("a conflict trial that was never set, with no attempts, said %q", quiet.Render())
+	}
+}

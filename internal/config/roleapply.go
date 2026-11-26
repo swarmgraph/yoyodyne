@@ -32,6 +32,10 @@ var roleApplicableKeys = []string{
 	// it chooses a model and never who reviews, and a code review below the
 	// stronger model is refused in code (reviewermodels.go).
 	"execution.reviewer_models",
+	// Which model kind a run's first attempt at a small conflict is tried on:
+	// it chooses a model and nothing else, and which attempts it may reach is
+	// held in code (conflictmodel.go).
+	"execution.conflict_resolution_model",
 	// How long the reading helper may run and how much of its answer comes
 	// back: bounds held in code (repositoryask.go), and never which roles hold
 	// it, which is the role bundles' in Go.

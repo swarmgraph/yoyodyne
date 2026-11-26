@@ -12,8 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+// The same reading carries the trial of resolving a run's first small conflict
+// on the cheaper model (execution.conflict_resolution_model;
+// docs/designs/approved-changes-that-no-longer-merge.md, decision 5), which the
+// same development manager decides on.
 
 // QueryModelTrial is the read-model query for the trial.
 const QueryModelTrial = "model-trial"
@@ -24,12 +30,24 @@ type ModelTrialRuns interface {
 	CheaperFirstTrialFigures(target int) (runstate.CheaperFirstTrialFigures, error)
 }
 
+// ConflictModelTrialRuns is the part of the run store the trial of resolving
+// small conflicts on the cheaper model is read from, satisfied by
+// *runstate.Store.
+type ConflictModelTrialRuns interface {
+	ConflictModelTrialFigures(target int) (runstate.ConflictModelTrialFigures, error)
+}
+
 // ModelTrial is the trial as the read model carries it.
 type ModelTrial struct {
 	ObservedAt time.Time                         `json:"observed_at"`
 	Enabled    bool                              `json:"enabled"`
 	Figures    runstate.CheaperFirstTrialFigures `json:"figures"`
 	Problem    string                            `json:"problem,omitempty"`
+	// ConflictSetting is the kind execution.conflict_resolution_model names,
+	// empty where it is not set, and Conflicts the trial on small conflicts.
+	ConflictSetting string                             `json:"conflict_setting,omitempty"`
+	Conflicts       runstate.ConflictModelTrialFigures `json:"conflicts"`
+	ConflictProblem string                             `json:"conflict_problem,omitempty"`
 }
 
 // ReadModelTrial reads the trial from the runs that took part in it, against
@@ -37,6 +55,7 @@ type ModelTrial struct {
 func ReadModelTrial(sources Sources) ModelTrial {
 	setting := sources.CheaperFirst
 	trial := ModelTrial{ObservedAt: sources.now(), Enabled: setting.Enabled, Figures: runstate.CheaperFirstTrialFigures{Target: setting.TrialTarget()}}
+	trial.readConflicts(sources)
 	runs, ok := sources.Runs.(ModelTrialRuns)
 	if !ok {
 		trial.Problem = "nothing was wired to read the runs that took part in the trial"
@@ -51,10 +70,38 @@ func ReadModelTrial(sources Sources) ModelTrial {
 	return trial
 }
 
-// Speaks reports a trial with anything to say: the setting is on, or runs
-// took part in it while it was.
+// readConflicts reads the trial on small conflicts. A store that cannot read
+// it is a problem only where the setting is set.
+func (t *ModelTrial) readConflicts(sources Sources) {
+	t.ConflictSetting = strings.TrimSpace(string(sources.ConflictResolutionModel))
+	t.Conflicts = runstate.ConflictModelTrialFigures{Target: config.ConflictModelTrialAttempts}
+	runs, ok := sources.Runs.(ConflictModelTrialRuns)
+	if !ok {
+		if t.ConflictSetting != "" {
+			t.ConflictProblem = "nothing was wired to read the runs whose first conflict the setting reached"
+		}
+		return
+	}
+	figures, err := runs.ConflictModelTrialFigures(config.ConflictModelTrialAttempts)
+	if err != nil {
+		t.ConflictProblem = fmt.Sprintf("the runs whose first conflict the setting reached could not be read: %v", err)
+		return
+	}
+	t.Conflicts = figures
+}
+
+// Speaks reports a trial with anything to say: either setting is on, or runs
+// took part in either trial while it was.
 func (t ModelTrial) Speaks() bool {
+	return t.cheaperFirstSpeaks() || t.conflictsSpeak()
+}
+
+func (t ModelTrial) cheaperFirstSpeaks() bool {
 	return t.Enabled || t.Figures.Runs > 0 || t.Problem != ""
+}
+
+func (t ModelTrial) conflictsSpeak() bool {
+	return t.ConflictSetting != "" || t.Conflicts.Attempts > 0 || t.ConflictProblem != ""
 }
 
 // Render is the trial in ordinary words, the comparison as a table.
@@ -93,7 +140,51 @@ func (t ModelTrial) Render() string {
 	for _, defect := range figures.Defects {
 		fmt.Fprintf(&out, "Defect after landing: run %s (%s, started %s): %s\n", defect.RunID, defect.WorkItemID, defect.Arm, defect.Note)
 	}
+	if t.conflictsSpeak() {
+		out.WriteString("\n")
+		t.renderConflicts(&out)
+	}
 	return strings.TrimRight(out.String(), "\n")
+}
+
+// renderConflicts is the trial on small conflicts, as a table of its two
+// sides.
+func (t ModelTrial) renderConflicts(out *strings.Builder) {
+	setting := "not set"
+	if t.ConflictSetting != "" {
+		setting = "the " + t.ConflictSetting + " model"
+	}
+	figures := t.Conflicts
+	fmt.Fprintf(out, "First attempts at a small conflict (execution.conflict_resolution_model): %s. %d of %d trial attempts so far.\n", setting, figures.Attempts, figures.Target)
+	if t.ConflictProblem != "" {
+		fmt.Fprintf(out, "Not everything could be read: %s.\n", t.ConflictProblem)
+	}
+	if figures.StoppedBy != "" {
+		fmt.Fprintf(out, "The trial is stopped: run %s resolved its conflict on the cheaper model and its change had a defect after landing (%s). Every eligible attempt since asks for the run's own model.\n", figures.StoppedBy, figures.StopNote)
+	} else if figures.Attempts >= figures.Target {
+		out.WriteString("The trial has had its attempts; the comparison below is due for a decision.\n")
+	}
+	out.WriteString("\n")
+	row := func(label, cheaper, stronger string) {
+		fmt.Fprintf(out, "%-26s %12s %12s\n", label, cheaper, stronger)
+	}
+	c, s := figures.Cheaper, figures.Stronger
+	dollars := func(side runstate.ConflictModelSideFigures) string {
+		if side.Landed == 0 {
+			return "-"
+		}
+		return fmt.Sprintf("$%.2f", side.CostPerLandedUSD)
+	}
+	row("", "cheaper", "stronger")
+	row("attempts", fmt.Sprint(c.Attempts), fmt.Sprint(s.Attempts))
+	row("changes landed", fmt.Sprint(c.Landed), fmt.Sprint(s.Landed))
+	row("cost per landed change", dollars(c), dollars(s))
+	row("checks failed", fmt.Sprint(c.ChecksFailed), fmt.Sprint(s.ChecksFailed))
+	row("review refused", trialShare(c.Refused, c.Reviewed), trialShare(s.Refused, s.Reviewed))
+	row("defects after landing", fmt.Sprint(c.DefectsAfterLanding), fmt.Sprint(s.DefectsAfterLanding))
+	if c.Unpriced+s.Unpriced > 0 {
+		fmt.Fprintf(out, "\n%d run(s) could not be priced and are left out of the cost.\n", c.Unpriced+s.Unpriced)
+	}
 }
 
 // PassSection is what a development manager pass opens with while the trial
@@ -103,7 +194,7 @@ func (t ModelTrial) PassSection() string {
 		return ""
 	}
 	return "# The trial of starting developers on the cheaper model\n\n" +
-		"Read as this pass was taken, from the run records. Keeping execution.developer_cheaper_first on once the trial has its run count, or turning it off, is your decision on these figures. A defect traced to a landed run's change is recorded with the block that records a defect after landing, which stops the trial at once when that run started on the cheaper model.\n\n" +
+		"Read as this pass was taken, from the run records. Keeping execution.developer_cheaper_first on once the trial has its run count, or turning it off, is your decision on these figures, and so is keeping execution.conflict_resolution_model set once its trial has its attempts. A defect traced to a landed run's change is recorded with the block that records a defect after landing, which stops the trial at once when that run started on the cheaper model; a defect traced to the resolution of a run's conflict is recorded with `yoyo model-trial defect <run> --resolution`, which stops that trial at once when the resolution was made on the cheaper model.\n\n" +
 		"```\n" + t.Render() + "\n```"
 }
 

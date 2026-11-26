@@ -1261,6 +1261,12 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		if entry.ResolvedHead != "" && handback.Review != nil && state.ConfinedRefused == "" {
 			state.ConfinedRefused = oneline.Fold(fmt.Sprintf("the merge queue's review of the candidate carrying resolved head %s refused it", entry.ResolvedHead), runstate.MaxMergeQueueTextBytes)
 		}
+		// A candidate's review that refused a resolution nothing reviewed
+		// before it rejoined is that resolution's first review, for the trial
+		// of resolving small conflicts on the cheaper model (conflictmodel.go).
+		if handback.Review != nil {
+			state.NoteConflictModelQueueReview(handback.Review.Decision)
+		}
 	}
 	state.Blocker = runstate.RecordBlocker(notes)
 	if state.HarnessAuthored() {
