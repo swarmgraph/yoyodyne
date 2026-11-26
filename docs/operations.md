@@ -1833,6 +1833,11 @@ that is on neither the list of ways work starts nor a list of calls that start
 none, with why. It also fails on any other code that uses the review behind
 `yoyo review`, or that runs that command as a process.
 
+`start` refuses an epic whose description is empty, because the check of the whole
+epic compares the finished work with what the description asks. It refuses no other
+description. An epic still open keeps the description it was named with, so `start`
+turning epic mode back on for it is not refused.
+
 `start` records every open item below the epic as its members, and prints that
 list. The members are that list and what you add. An item moved below the epic
 afterwards, or created directly under it, may not start until you add it, and the
@@ -2167,8 +2172,16 @@ is the one shown:
   provider, the forge, another person or an item outside the epic. Anything that also
   waits on you is named with it.
 
-The check of the whole epic is not built yet, so an epic whose members are all done
-shows Working and says so. A member that was closed with nothing landed, or whose pull
+The reviewer session that makes the check of the whole epic is not built yet, so an
+epic whose members are all done shows Working and says the check is owed. When a check
+is made, its entry in `epic-progress.json` keeps the commit it read and, for each
+thing the epic's description asks, one answer: met, with where it looked; taken out
+by you, naming the item you took out; not met, with what is missing; or cannot be
+told, with why. An answer of taken out that names no item you took out is refused.
+Only where every answer is met or taken out is the epic's delivery written, with when
+and on what evidence, and status then names each item you took out beside the
+delivered epic, with your words. The call is written down before it is made, so a
+harness stopped partway looks it up before making it again. A member that was closed with nothing landed, or whose pull
 request a person closed unmerged, waits on the Lead Product Manager until it is
 admitted again, replaced by a piece that is done, or taken out with `yoyo epic remove`.
 A member whose run ended complete with no change, and whose summary the reviewer

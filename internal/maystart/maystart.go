@@ -96,6 +96,7 @@ const (
 	messageReading
 	teamBranchUpdate
 	joiningJudgment
+	wholeEpicCheck
 	operatorConversation
 	roleQuestion
 )
@@ -155,6 +156,13 @@ func UpdateFromTeam(target string) Start {
 // is kept of a refusal: the piece itself is kept, and status says it is not judged.
 func JudgmentOfAPiece(naming epicprogress.Naming) Start {
 	return Start{path: JoiningJudgment, what: joiningJudgment, naming: naming}
+}
+
+// CheckOfTheEpic is the check of one naming of an epic as a whole. Nothing is
+// kept of a refusal: a naming that has ended owes no check, and status already
+// names one whose progress cannot be read.
+func CheckOfTheEpic(naming epicprogress.Naming) Start {
+	return Start{path: WholeEpicCheck, what: wholeEpicCheck, naming: naming}
 }
 
 // OperatorConversation is the operator's own conversation with a role. It is on
@@ -262,7 +270,7 @@ func decide(view epicprogress.View, start Start) Decision {
 			return Decision{Answer: May}
 		}
 		return noEpic(view)
-	case joiningJudgment:
+	case joiningJudgment, wholeEpicCheck:
 		return decideJudgment(view, start.naming)
 	default:
 		return couldNotTell("nothing says what is about to start")
@@ -295,6 +303,8 @@ func (s Start) problem() string {
 		fits = starts == startsTeamBranchUpdate
 	case joiningJudgment:
 		fits = starts == startsJoiningJudgment
+	case wholeEpicCheck:
+		fits = starts == startsWholeEpicCheck
 	}
 	if !fits {
 		return fmt.Sprintf("what is about to start is not something %q starts", s.path)
@@ -305,14 +315,17 @@ func (s Start) problem() string {
 	if s.what == joiningJudgment && (!beads.ValidIssueID(s.naming.WorkItemID) || s.naming.NamedAt.IsZero()) {
 		return "nothing says which naming of an epic the piece would join"
 	}
+	if s.what == wholeEpicCheck && (!beads.ValidIssueID(s.naming.WorkItemID) || s.naming.NamedAt.IsZero()) {
+		return "nothing says which naming of an epic is to be checked"
+	}
 	if s.what == workItemRun && !beads.ValidIssueID(s.items[0]) {
 		return fmt.Sprintf("the run is for %q, which is not a work item identifier", s.items[0])
 	}
 	return ""
 }
 
-// decideJudgment lets a piece be judged only for a naming that has not ended and
-// whose progress can be read.
+// decideJudgment lets a piece be judged, or an epic be checked whole, only for a
+// naming that has not ended and whose progress can be read.
 func decideJudgment(view epicprogress.View, naming epicprogress.Naming) Decision {
 	for _, epic := range view.Record.OpenEpics() {
 		open := epicprogress.Of(epic)

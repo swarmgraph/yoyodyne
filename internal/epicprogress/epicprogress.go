@@ -192,12 +192,69 @@ const (
 // Passed reports a check that found everything met or taken out.
 func (c Check) Passed() bool { return c.Found == FoundAllMet }
 
-// Check is one check of the whole epic.
+// Check is one check of the whole epic: the commit it read and, for each thing
+// the description asks, one answer. Found is worked out from the answers.
 type Check struct {
-	ID     string    `json:"id"`
-	Commit string    `json:"commit"`
-	Found  string    `json:"found"`
-	At     time.Time `json:"at"`
+	ID       string    `json:"id"`
+	Commit   string    `json:"commit"`
+	Found    string    `json:"found"`
+	At       time.Time `json:"at"`
+	Findings []Finding `json:"findings,omitempty"`
+}
+
+// CheckAnswer is the answer a check gives one thing the description asks.
+type CheckAnswer string
+
+const (
+	Met          CheckAnswer = "met"
+	TakenOut     CheckAnswer = "taken out"
+	NotMet       CheckAnswer = "not met"
+	CannotBeTold CheckAnswer = "cannot be told"
+)
+
+// Finding is one thing the description asks and the answer to it. Says is where
+// the session looked for met, what is missing for not met, and why for cannot be
+// told. Removal is the item the operator took out, for taken out, which is an
+// answer only for what that item would have given. ForAPerson is a cannot be told
+// because the description itself reserves the step for a person.
+type Finding struct {
+	Asks       string      `json:"asks"`
+	Answer     CheckAnswer `json:"answer"`
+	Says       string      `json:"says,omitempty"`
+	Removal    string      `json:"removal,omitempty"`
+	ForAPerson bool        `json:"for_a_person,omitempty"`
+}
+
+func (f Finding) valid() bool {
+	if strings.TrimSpace(f.Asks) == "" || f.ForAPerson && f.Answer != CannotBeTold {
+		return false
+	}
+	switch f.Answer {
+	case TakenOut:
+		return beads.ValidIssueID(f.Removal)
+	case Met, NotMet, CannotBeTold:
+		return strings.TrimSpace(f.Says) != "" && f.Removal == ""
+	}
+	return false
+}
+
+// FoundOf is what a check found from its answers: something missing first,
+// because a correction is written for it; then what cannot be told; then a step
+// the description reserves for a person; and all met only where every answer is
+// met or taken out.
+func FoundOf(findings []Finding) string {
+	found := FoundAllMet
+	for _, finding := range findings {
+		switch {
+		case finding.Answer == NotMet:
+			return FoundNotMet
+		case finding.Answer == CannotBeTold && !finding.ForAPerson:
+			found = FoundCannotTell
+		case finding.Answer == CannotBeTold && found == FoundAllMet:
+			found = FoundPersonsStep
+		}
+	}
+	return found
 }
 
 // Delivery is the epic having been delivered, and on what evidence.
@@ -291,7 +348,8 @@ func (e Entry) validate() error {
 		part("comment", c.ID, c.Became != "" && !c.At.IsZero())
 	}
 	for _, c := range e.Checks {
-		part("check", c.ID, c.Commit != "" && c.Found != "" && !c.At.IsZero())
+		part("check", c.ID, c.Commit != "" && c.Found != "" && !c.At.IsZero() &&
+			(len(c.Findings) == 0 || c.Found == FoundOf(c.Findings) && !slices.ContainsFunc(c.Findings, func(f Finding) bool { return !f.valid() })))
 	}
 	for _, d := range e.Deliveries {
 		part("delivery", d.At.String(), d.Evidence != "" && !d.At.IsZero())

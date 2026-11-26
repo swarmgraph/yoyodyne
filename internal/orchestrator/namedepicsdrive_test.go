@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epiccheck"
 	"github.com/mason-bryant/yoyodyne/internal/epicjoin"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
@@ -52,6 +53,7 @@ var drivenBy = map[maystart.Path][]drive{
 	maystart.MessagesForWork:  {driveMessages},
 	maystart.TeamBranchUpdate: {driveTeamBranchUpdate},
 	maystart.JoiningJudgment:  {driveJoiningJudgment},
+	maystart.WholeEpicCheck:   {driveWholeEpicCheck},
 }
 
 // Every path on the closed list that asks is driven with an item outside the
@@ -447,6 +449,38 @@ func driveJoiningJudgment(t *testing.T, decide StartDecision) int {
 			return backend.RunResult{SessionID: "session-1", FinalText: `{"answer":"inside","why":"it is asked for"}`}, nil
 		}}
 	if err := joiner.Round(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return sent
+}
+
+// driveWholeEpicCheck checks the whole of an epic that is open in its own records,
+// with a recorded answer.
+func driveWholeEpicCheck(t *testing.T, decide StartDecision) int {
+	root := t.TempDir()
+	operator, err := epicscope.ForOperator(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := operator.Start(epicscope.Naming{Epic: "yoyodyne-ep", From: "terminal", Description: "Do it.", Members: []string{"yoyodyne-ep.1"}}, baseTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress, err := epicprogress.Open(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decide == nil {
+		decide = func(start maystart.Start) maystart.Decision { return maystart.Decide(root, "yoyodyne", start) }
+	}
+	sent := 0
+	checker := epiccheck.Checker{Progress: progress, MayStart: decide,
+		LookUp: func(string) (string, epicprogress.Looked, error) { return "", epicprogress.NotSent, nil },
+		Judge: func(context.Context, epiccheck.Request) (string, error) {
+			sent++
+			return `{"findings":[{"asks":"it","answer":"met","says":"the test"}]}`, nil
+		}}
+	if _, _, err := checker.Check(context.Background(), epicprogress.Of(started.Epic), "check-1", "abc"); err != nil {
 		t.Fatal(err)
 	}
 	return sent

@@ -464,6 +464,26 @@ func TestTakingAnItemOutChangesWhatTheEpicOwes(t *testing.T) {
 	delivered.wants(EpicIntegrated)
 }
 
+// What the operator took out is shown beside the delivered epic, open or ended,
+// with the operator's words, and is not shown while the epic is not delivered.
+func TestWhatWasTakenOutIsShownBesideTheDeliveredEpic(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.landed(stateOne)
+	b.remove(stateTwo, hours(2))
+	took := "Delivered without " + stateTwo + ", which you took out at "
+	if standing := b.wants(EpicWorking, "the check of the whole epic is owed"); len(standing.TakenOut) != 0 || strings.Contains(standing.render(), took) {
+		t.Fatalf("an epic not delivered shows %+v", standing.TakenOut)
+	}
+	b.deliver(hours(3))
+	standing := b.wants(EpicIntegrated, took, ": not needed\n")
+	if len(standing.TakenOut) != 1 || standing.TakenOut[0].WorkItemID != stateTwo || !standing.TakenOut[0].At.Equal(hours(2)) {
+		t.Fatalf("taken out %+v, want %s", standing.TakenOut, stateTwo)
+	}
+	b.end(hours(4))
+	b.wants(EpicIntegrated, took)
+}
+
 func TestASuggestionFoundDuringAnEpicIsCountedAndStartsNothing(t *testing.T) {
 	t.Parallel()
 	b := newStateBench(t)

@@ -184,6 +184,9 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 		return c.fail(fmt.Errorf("the tracker has no work item %s", id))
 	}
 	titles := c.titlesOf(items)
+	if err := c.describes(epic); err != nil {
+		return c.refused(titles, err, id)
+	}
 	below := beads.UnfinishedBelow(id, items)
 	naming := epicscope.Naming{Epic: id, From: viaCommandLine, Words: c.words, Description: epic.Description}
 	for _, item := range below {
@@ -255,6 +258,23 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 		}
 	}
 	return 0
+}
+
+// describes refuses to name an epic whose description is empty, because the
+// check of the whole epic reads what the copied description asks and there would
+// be nothing to read. It refuses no other description: no code can tell whether
+// words ask for something that can be checked. An epic still open keeps the copy
+// it was named with, so turning epic mode back on for it is not refused here.
+func (c epicCommand) describes(epic beads.WorkItem) error {
+	if strings.TrimSpace(epic.Description) != "" {
+		return nil
+	}
+	if record, err := epicscope.Read(c.stateRoot, c.product); err == nil {
+		if named, found := record.Named(epic.ID); found && named.Open() {
+			return nil
+		}
+	}
+	return fmt.Errorf("epic %s has an empty description, so it cannot be named: when it is done, the check of the whole epic compares the work with what its description asks, and there would be nothing to compare it with. Write what the epic is for in its description, then name it again with yoyo epic start", epic.ID)
 }
 
 func (c epicCommand) add(ctx context.Context, operator *epicscope.Operator, epic, item string) int {

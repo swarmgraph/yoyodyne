@@ -79,6 +79,33 @@ type EpicStanding struct {
 	CostProblem string             `json:"cost_problem,omitempty"`
 	// epic is the epic's identifier, which the cost line names its command with.
 	epic string
+	// TakenOut is each item the operator took out of a delivered epic, with the
+	// operator's words, shown beside the delivery.
+	TakenOut []EpicTakenOut `json:"taken_out,omitempty"`
+}
+
+// EpicTakenOut is one item the operator took out and has not put back.
+type EpicTakenOut struct {
+	WorkItemID string    `json:"work_item_id"`
+	At         time.Time `json:"at"`
+	Words      string    `json:"words"`
+}
+
+// takenOut is each item the operator took out of the epic and has not put back,
+// with the last removal's words.
+func takenOut(epic epicscope.Epic) []EpicTakenOut {
+	var out []EpicTakenOut
+	for _, removal := range slices.Backward(epic.Removed) {
+		if epic.TakenOut(removal.WorkItemID) && !slices.ContainsFunc(out, func(kept EpicTakenOut) bool { return kept.WorkItemID == removal.WorkItemID }) {
+			out = append(out, EpicTakenOut{WorkItemID: removal.WorkItemID, At: removal.RemovedAt, Words: removal.Words})
+		}
+	}
+	slices.Reverse(out)
+	return out
+}
+
+func (s EpicStanding) delivered() bool {
+	return s.State == EpicIntegrated || s.State == EpicHandedOver
 }
 
 // EndedEpic is an epic the operator ended.
@@ -101,6 +128,11 @@ func (s EpicStanding) render() string {
 	}
 	if s.DeliveredBefore != nil {
 		fmt.Fprintf(&rendered, "    It was delivered at %s and opened again since.\n", localMoment(*s.DeliveredBefore))
+	}
+	if s.delivered() {
+		for _, out := range s.TakenOut {
+			fmt.Fprintf(&rendered, "    Delivered without %s, which you took out at %s: %s\n", out.WorkItemID, localMoment(out.At), out.Words)
+		}
 	}
 	switch {
 	case s.Cost != nil:
@@ -293,7 +325,11 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		if err != nil {
 			return fail(err.Error())
 		}
-		return EpicStanding{State: state}
+		ended := EpicStanding{State: state}
+		if ended.delivered() {
+			ended.TakenOut = takenOut(epic)
+		}
+		return ended
 	}
 	for _, delivery := range entry.Deliveries {
 		if !delivery.At.After(opened) {
@@ -343,6 +379,7 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		}
 		if wait == nil {
 			standing.State, standing.Budget = delivered, ""
+			standing.TakenOut = takenOut(epic)
 			return standing
 		}
 		standing.Waits = append(standing.Waits, *wait)

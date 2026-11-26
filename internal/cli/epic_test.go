@@ -50,9 +50,10 @@ func newEpicBench(t *testing.T) *epicBench {
 		{ID: "yoyodyne-a", Title: "Epic A", Status: "open", Description: "What A is.\nAll of it."},
 		{ID: "yoyodyne-a.1", Title: "Done", Status: "closed", Parent: "yoyodyne-a"},
 		{ID: "yoyodyne-a.2", Title: "Linked", Status: "blocked", Dependencies: []beads.Dependency{{ID: "yoyodyne-a", Type: "parent-child"}}},
-		{ID: "yoyodyne-b", Title: "Epic B", Status: "open"},
+		{ID: "yoyodyne-b", Title: "Epic B", Status: "open", Description: "What B is."},
 		{ID: "yoyodyne-b.1", Title: "Other", Status: "open", Parent: "yoyodyne-b"},
-		{ID: "yoyodyne-loose", Title: "Loose", Status: "open"},
+		{ID: "yoyodyne-loose", Title: "Loose", Status: "open", Description: "?"},
+		{ID: "yoyodyne-blank", Title: "Blank", Status: "open", Description: " \n\t"},
 	}
 	return bench
 }
@@ -135,6 +136,28 @@ func TestEpicStartRecordsTheListItPrints(t *testing.T) {
 	}
 	says(t, bench.does("list"), "epic mode is on, with 1 epic(s) open", "(P0) Epic A (yoyodyne-a): open", "only this", "(P1, reliability) Deep (yoyodyne-a.1.1), on the list", "    All of it.")
 	bench.refuses([]string{"start", "yoyodyne-gone"}, "no work item yoyodyne-gone")
+}
+
+// An epic whose description is empty is refused, in words that say why and what
+// to do, and no other description is: a single mark is accepted.
+func TestEpicStartRefusesAnEmptyDescriptionAndNoOther(t *testing.T) {
+	bench := newEpicBench(t)
+	for _, empty := range []string{"", " \n\t"} {
+		(*bench.items)[len(*bench.items)-1].Description = empty
+		bench.refuses([]string{"start", "yoyodyne-blank"}, "yoyodyne-blank (P0: Blank) has an empty description, so it cannot be named", "Write what the epic is for in its description")
+	}
+	if record := bench.record(); record.On() || len(record.Epics) != 0 {
+		t.Fatalf("record = %+v, want nothing named", record)
+	}
+	says(t, bench.does("start", "yoyodyne-loose"), "named epic (P0) Loose (yoyodyne-loose)")
+	if epic := bench.record().Epics[0]; epic.Description != "?" {
+		t.Fatalf("the description kept is %q", epic.Description)
+	}
+	// An epic still open keeps the copy it was named with, so epic mode is turned
+	// back on for it even where its description has since been emptied.
+	bench.does("off")
+	(*bench.items)[len(*bench.items)-2].Description = ""
+	says(t, bench.does("start", "yoyodyne-loose"), "epic mode is on again")
 }
 
 func TestMovingItemsAfterwardsChangesNothingInTheRecord(t *testing.T) {
