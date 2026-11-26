@@ -18,7 +18,7 @@ func TestACompactBoundaryIsOnTheResult(t *testing.T) {
 		`{"type":"system","subtype":"compact_boundary","session_id":"s"}` + "\n" +
 		`{"type":"result","subtype":"success","session_id":"s","is_error":false,"result":"done","total_cost_usd":0.01}` + "\n"
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
-	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	result, err := (Backend{StateRoot: testState, Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleArchitect, WorkingDirectory: "/repository", Prompt: "the pass",
 	})
 	if err != nil {

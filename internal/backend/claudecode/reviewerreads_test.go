@@ -23,7 +23,7 @@ import (
 func TestAReviewerIsGivenReadsAndNothingThatWrites(t *testing.T) {
 	t.Parallel()
 
-	encoded, err := reviewerSettings("/worktree under review")
+	encoded, err := reviewerSettings("/worktree under review", "/state/services")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestAReviewerSessionReadsAFileItWasNotHanded(t *testing.T) {
 	}
 	cli := &readingCLI{file: "caller.go"}
 	var events []execution.Event
-	result, err := (Backend{Runner: cli, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	result, err := (Backend{StateRoot: testState, Runner: cli, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree,
 		Prompt:    "review the change to Store.Save; the patch is all you are handed",
 		EventSink: func(event execution.Event) error { events = append(events, event); return nil },

@@ -77,10 +77,9 @@ type RunRequest struct {
 	// developer's sandbox may write it and nothing else in the state directory;
 	// every adapter confirms it is that one folder
 	// (execution.ConfirmScratchDirectory) and refuses to start the run where it
-	// is not, rather than granting something wider. The services folder beside
-	// scratch/ is what a developer's sandbox refuses, found from this one
-	// (execution.ServicesDirectoryDeniedTo), so an adapter refuses a developer
-	// invocation that can read files or run commands and carries none.
+	// is not, rather than granting something wider. A developer's services
+	// folder is found from it, and a developer carrying none is not started
+	// (ServicesDirectory).
 	ScratchDirectory string
 	Prompt           string
 	SystemPrompt     string

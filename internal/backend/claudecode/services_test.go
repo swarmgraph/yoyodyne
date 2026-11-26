@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -335,4 +338,175 @@ func TestAServerOnAPortTheSystemChoosesAnswersUnderADevelopersSettings(t *testin
 	if found, stderr, err := probe(binary); err != nil || found.Server != probeSucceeded {
 		t.Fatalf("the server did not answer: %+v, %v: %s", found, err, stderr)
 	}
+}
+
+// servicesBeside is the services folder of the state directory a run's scratch
+// folder was cut in.
+func servicesBeside(scratch string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(scratch)), "services")
+}
+
+// sessionServicesSettings is the settings a session with no run folder is
+// launched with over a state directory, and the tools it is given.
+func sessionServicesSettings(t *testing.T, state string, request backendapi.RunRequest) (encoded string, settings servicesSettings, tools string) {
+	t.Helper()
+	runner := &fakeRunner{results: claudeCompletedTurn()}
+	if _, err := (Backend{Runner: runner, Clock: fixedClock{}, StateRoot: state}).Run(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ = optionValue(runner.commands[0].Args, "--settings")
+	if err := json.Unmarshal([]byte(encoded), &settings); err != nil {
+		t.Fatal(err)
+	}
+	tools, _ = optionValue(runner.commands[0].Args, "--tools")
+	return encoded, settings, tools
+}
+
+// Every session of a role other than the developer -- a review, a management
+// conversation, a helper answering for a role -- is refused the services folder
+// of the adapter's state directory, fresh and resumed. A reviewer, which has
+// tools, is refused it by its shell's sandbox too; every other one has none, and
+// the deny rules are what stop its prompt naming a file there. Nothing else is
+// refused for reading that was not before. One whose folder cannot be found is
+// not started.
+func TestEverySessionOfAnyOtherRoleIsRefusedTheServicesFolder(t *testing.T) {
+	t.Parallel()
+	state, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := filepath.Join(state, "services")
+	denied := []string{"Read(/" + services + ")", "Read(/" + services + "/**)"}
+	for _, role := range domain.Roles() {
+		if role == domain.RoleDeveloper {
+			continue
+		}
+		for name, request := range map[string]backendapi.RunRequest{
+			"a fresh session":   {},
+			"a resumed session": {SessionID: "session-one"},
+			// As repositoryask launches the reading helper.
+			"a helper": {AllowedTools: []string{}},
+		} {
+			request.RunID, request.Role, request.WorkingDirectory, request.Prompt = testRunID, role, t.TempDir(), "answer"
+			encoded, settings, tools := sessionServicesSettings(t, state, request)
+			var reads []string
+			for _, rule := range settings.Permissions.Deny {
+				if strings.HasPrefix(rule, "Read(") {
+					reads = append(reads, rule)
+				}
+			}
+			if !slices.Equal(reads, denied) {
+				t.Errorf("%s, %s: reading is refused by %q, want %q", role, name, reads, denied)
+			}
+			if role == domain.RoleReviewer {
+				network := settings.Sandbox.Network
+				if tools != "Read,Glob,Grep,Bash" || !slices.Equal(settings.Sandbox.Filesystem.DenyRead, []string{services}) || len(settings.Sandbox.Filesystem.AllowRead) != 0 {
+					t.Errorf("%s: tools = %q and settings = %s, want its reads kept and its shell refused %q alone", name, tools, encoded, services)
+				}
+				if network.AllowLocalBinding || network.AllowAllUnixSockets == nil || *network.AllowAllUnixSockets || len(network.AllowUnixSockets) != 0 {
+					t.Errorf("%s: sandbox network = %+v, want no socket file allowed", name, network)
+				}
+			} else if tools != "" || len(settings.Permissions.Allow) != 0 {
+				t.Errorf("%s, %s: tools = %q and settings = %s, want no tool", role, name, tools, encoded)
+			}
+			for _, missing := range []string{"", filepath.Join(state, "state*"), filepath.Join(state, "absent")} {
+				refused := &fakeRunner{}
+				if _, err := (Backend{Runner: refused, StateRoot: missing}).Run(context.Background(), request); err == nil || len(refused.commands) != 0 {
+					t.Errorf("%s, %s: Run() over state directory %q = %v, commands = %v, want a refusal", role, name, missing, err, refused.commands)
+				}
+			}
+		}
+	}
+	if info, err := os.Stat(services); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("services folder = %v, %v; want it made for its owner only", info, err)
+	}
+}
+
+// The installed CLI is asked, against a local stand-in for the provider, what it
+// sends when a prompt names a file in the services folder and one outside it:
+// the second, and nothing of the first, in a session with no tools, and in a
+// reviewer's. The control drops the deny rules and has to see the first sent,
+// since without that the check would pass on a CLI that never read either. It
+// skips where Claude Code is not installed.
+func TestTheInstalledCLIIsRefusedTheServicesFolderInAPrompt(t *testing.T) {
+	t.Parallel()
+	binary, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skipf("Claude Code is not installed, so what it reads cannot be asked here: %v", err)
+	}
+	state, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(state, "outside")
+	if err := os.WriteFile(outside, []byte("text-of-the-other-file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	services, err := execution.PrepareServicesDirectory(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := filepath.Join(services, "token")
+	if err := os.WriteFile(token, []byte("text-of-the-credential"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []domain.AgentRole{domain.RoleProductManager, domain.RoleReviewer} {
+		worktree := t.TempDir()
+		if err := os.Symlink(token, filepath.Join(worktree, "link")); err != nil {
+			t.Fatal(err)
+		}
+		request := backendapi.RunRequest{RunID: testRunID, Role: role, WorkingDirectory: worktree, Prompt: "answer"}
+		runner := &fakeRunner{results: claudeCompletedTurn()}
+		if _, err := (Backend{Runner: runner, Clock: fixedClock{}, StateRoot: state}).Run(context.Background(), request); err != nil {
+			t.Fatal(err)
+		}
+		args := slices.Clone(runner.commands[0].Args)
+		prompt := fmt.Sprintf("judge @%s and @link and @%s now", token, outside)
+		sent, output := sentToTheProvider(t, binary, worktree, prompt, args)
+		if !strings.Contains(sent, "text-of-the-other-file") || strings.Contains(sent, "text-of-the-credential") {
+			t.Errorf("%s: sent the other file %t and the credential %t, want only the other file: %s", role,
+				strings.Contains(sent, "text-of-the-other-file"), strings.Contains(sent, "text-of-the-credential"), output)
+		}
+		settings := slices.Index(args, "--settings") + 1
+		args[settings] = strings.ReplaceAll(args[settings], services, filepath.Join(state, "elsewhere"))
+		if sent, output := sentToTheProvider(t, binary, worktree, prompt, args); !strings.Contains(sent, "text-of-the-credential") {
+			t.Errorf("%s: without the denial the credential was not sent either, so this check shows nothing: %s", role, output)
+		}
+	}
+}
+
+// sentToTheProvider runs the installed CLI once with a provider that is a local
+// server refusing every request, and is every request body it was sent.
+func sentToTheProvider(t *testing.T, binary, directory, prompt string, args []string) (string, string) {
+	t.Helper()
+	var mutex sync.Mutex
+	var sent strings.Builder
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("no local server can be started to stand in for the provider: %v", err)
+	}
+	server := &httptest.Server{Listener: listener, Config: &http.Server{Handler: http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		mutex.Lock()
+		sent.Write(body)
+		mutex.Unlock()
+		response.Header().Set("content-type", "application/json")
+		response.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(response, `{"type":"error","error":{"type":"invalid_request_error","message":"stand-in"}}`)
+	})}}
+	server.Start()
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, binary, args...)
+	command.Dir = directory
+	command.Stdin = strings.NewReader(prompt)
+	command.Env = append(execution.ExplicitEnvironment(nil), "CLAUDE_CONFIG_DIR="+t.TempDir(), "ANTHROPIC_BASE_URL="+server.URL,
+		"ANTHROPIC_API_KEY=stand-in", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "NO_PROXY=127.0.0.1", "no_proxy=127.0.0.1")
+	// The CLI exits with a failure, the stand-in having refused it; what it sent
+	// first is the answer.
+	output, _ := command.CombinedOutput()
+	mutex.Lock()
+	defer mutex.Unlock()
+	return sent.String(), string(output)
 }

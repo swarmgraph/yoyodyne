@@ -116,14 +116,10 @@ const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"
 // reopensServices says what stands against the repository's own settings.
 //
 // The scratch folder is confirmed to be the one cut for this run before it is granted
-// (execution.ConfirmScratchDirectory); one that is not is refused with the
-// reason, and the run does not start, rather than the grant being widened or
-// dropped.
-func developerSettingsFor(scratch, runID, repositoryRoot string) (string, error) {
-	services, err := execution.ServicesDirectoryDeniedTo(scratch, runID, repositoryRoot)
-	if err != nil {
-		return "", fmt.Errorf("confine the developer's sandbox to its scratch directory: %w", err)
-	}
+// (execution.ConfirmScratchDirectory) where services is found
+// (backend.ServicesDirectory); one that is not is refused with the reason, and
+// the run does not start, rather than the grant being widened or dropped.
+func developerSettingsFor(scratch, services string) (string, error) {
 	return withSandboxFolders(developerSettings, scratch, services)
 }
 
@@ -186,11 +182,34 @@ func withSandboxFolders(settings, writable, refused string) (string, error) {
 		return "", errors.New("the settings a developer is given carry no sandbox to grant a scratch directory in")
 	}
 	sandbox["filesystem"] = map[string]any{"allowWrite": []string{writable}, "denyRead": []string{refused}}
-	// A path rule reads a leading `//` as an absolute path.
-	decoded["permissions"] = map[string]any{"deny": []string{"Read(/" + refused + ")", "Read(/" + refused + "/**)"}}
+	decoded["permissions"] = map[string]any{"deny": readDenyRules(refused)}
 	encoded, err := json.Marshal(decoded)
 	if err != nil {
 		return "", fmt.Errorf("encode the settings a developer is given: %w", err)
+	}
+	return string(encoded), nil
+}
+
+// readDenyRules refuse the file tools a folder and everything in it. A path rule
+// reads a leading `//` as an absolute path.
+func readDenyRules(folder string) []string {
+	return []string{"Read(/" + folder + ")", "Read(/" + folder + "/**)"}
+}
+
+// toolFreeSettings is the settings a session with no tools is launched with:
+// the services folder refused for reading.
+//
+// Holding no tool is not enough. The CLI reads a file its prompt names with an
+// @ in front, wherever it is, and sends what it holds to the model, under
+// `--tools ""` and `--safe-mode` as under anything else, and a prompt carries
+// text the harness did not write. A Read deny rule refuses that however the path
+// is spelled: through a link, in another case, quoted, or relative. Claude Code
+// 2.1.332 was found to do both against a local stand-in for the provider, and
+// TestTheInstalledCLIIsRefusedTheServicesFolderInAPrompt asks the installed one.
+func toolFreeSettings(services string) (string, error) {
+	encoded, err := json.Marshal(map[string]any{"permissions": map[string]any{"deny": readDenyRules(services)}})
+	if err != nil {
+		return "", fmt.Errorf("encode the settings a session with no tools is given: %w", err)
 	}
 	return string(encoded), nil
 }
@@ -341,7 +360,9 @@ var reviewerRefusedPatterns = []string{
 }
 
 // reviewerSettings is the settings a reviewer is launched with in directory:
-// the sandbox its shell runs in and the commands it may run there.
+// the sandbox its shell runs in, the commands it may run there, and the services
+// folder refused as a developer is refused it, to its shell, its file tools, and
+// every socket file.
 //
 // The sandbox refuses writes to the worktree, which it would otherwise allow
 // as the working directory, and allows no network. It is required to be running
@@ -351,7 +372,7 @@ var reviewerRefusedPatterns = []string{
 // absolute path takes -- the leading `//` the CLI's own path rules use and the
 // plain one its sandbox runtime reads -- so the refusal does not rest on which
 // of them this version applies; the other names a path that does not exist.
-func reviewerSettings(directory string) (string, error) {
+func reviewerSettings(directory, services string) (string, error) {
 	worktree, err := filepath.Abs(directory)
 	if err != nil {
 		return "", fmt.Errorf("resolve the worktree a reviewer reads: %w", err)
@@ -364,13 +385,15 @@ func reviewerSettings(directory string) (string, error) {
 	for _, pattern := range reviewerRefusedPatterns {
 		deny = append(deny, "Bash("+pattern+")")
 	}
+	deny = append(deny, readDenyRules(services)...)
 	encoded, err := json.Marshal(map[string]any{
 		"sandbox": map[string]any{
 			"enabled":                  true,
 			"failIfUnavailable":        true,
 			"allowUnsandboxedCommands": false,
 			"autoAllowBashIfSandboxed": false,
-			"filesystem":               map[string]any{"denyWrite": []string{"/" + worktree, worktree}},
+			"network":                  map[string]any{"allowAllUnixSockets": false},
+			"filesystem":               map[string]any{"denyWrite": []string{"/" + worktree, worktree}, "denyRead": []string{services}},
 		},
 		"permissions": map[string]any{"allow": allow, "deny": deny},
 	})
@@ -698,6 +721,10 @@ type Backend struct {
 	// CheckAvailability takes no request, so the account it is asking about has to
 	// be on the value being asked. Empty is the machine's own provider home.
 	ConfigDir string
+	// StateRoot is the harness's state directory, where the services folder every
+	// session is refused is found for one with no run folder of its own. A session
+	// that needs it and has none is not started (backend.ServicesDirectory).
+	StateRoot string
 	// Context is the skills and instruction files the project's configuration
 	// names. Nothing else the CLI could find is given to a role: see context.go.
 	Context backend.NamedContext
@@ -931,20 +958,23 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		return backend.RunResult{}, err
 	}
 	var settingsSources, plugins []backend.LoadedItem
-	baseSettings := ""
-	if request.Role == domain.RoleReviewer {
-		if baseSettings, err = reviewerSettings(request.WorkingDirectory); err != nil {
-			return backend.RunResult{}, err
-		}
+	services, err := backend.ServicesDirectory(request, b.StateRoot)
+	if err != nil {
+		return backend.RunResult{}, fmt.Errorf("refuse the session the harness's %s folder: %w", execution.ServicesDirectoryName, err)
+	}
+	var baseSettings string
+	switch {
+	case !readOnly:
+		baseSettings, err = developerSettingsFor(request.ScratchDirectory, services)
+	case request.Role == domain.RoleReviewer:
+		baseSettings, err = reviewerSettings(request.WorkingDirectory, services)
+	default:
+		baseSettings, err = toolFreeSettings(services)
+	}
+	if err != nil {
+		return backend.RunResult{}, err
 	}
 	if !readOnly {
-		repository := request.RepositoryRoot
-		if repository == "" {
-			repository = request.WorkingDirectory
-		}
-		if baseSettings, err = developerSettingsFor(request.ScratchDirectory, request.RunID, repository); err != nil {
-			return backend.RunResult{}, err
-		}
 		if err := reopensServices(request.WorkingDirectory); err != nil {
 			return backend.RunResult{}, err
 		}

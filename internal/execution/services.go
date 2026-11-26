@@ -12,8 +12,8 @@ import (
 // ServicesDirectoryName is the folder under the harness's state directory that
 // holds what is needed to reach a service the harness runs for itself: every
 // socket file such a service listens on, and every password or token one
-// checks, and nothing of either is kept anywhere else. A developer run is
-// refused the whole folder by its provider's sandbox
+// checks, and nothing of either is kept anywhere else. Every session the harness
+// starts that can read files or run commands is refused the whole folder
 // (docs/decisions/developer-runs-and-local-services.md).
 const ServicesDirectoryName = "services"
 
@@ -48,16 +48,14 @@ func PrepareServicesDirectory(stateRoot string) (string, error) {
 	return created, nil
 }
 
-// ServicesDirectoryDeniedTo is the services folder a developer run's sandbox
-// has to refuse, worked out from the scratch folder cut for the run: the two
+// ServicesDirectoryDeniedTo is the services folder a run with a scratch folder
+// has to be refused, worked out from the scratch folder cut for the run: the two
 // are under one state directory, so no caller can name one and not the other.
 // The folder is made if it is not there, because a sandbox on Linux can only
 // refuse a path that exists.
 //
 // A run with no scratch folder of its own has no state directory to find the
 // folder in and is refused, so there is no developer run without the refusal.
-// So is one whose path holds a character a provider's path rules give a meaning
-// to, since the rule would then refuse something else.
 func ServicesDirectoryDeniedTo(scratch, runID, repositoryRoot string) (string, error) {
 	if strings.TrimSpace(scratch) == "" {
 		return "", fmt.Errorf("run %s was given no scratch directory, so the %s folder its sandbox has to refuse cannot be found", runID, ServicesDirectoryName)
@@ -65,7 +63,15 @@ func ServicesDirectoryDeniedTo(scratch, runID, repositoryRoot string) (string, e
 	if err := ConfirmScratchDirectory(scratch, runID, repositoryRoot); err != nil {
 		return "", err
 	}
-	services, err := PrepareServicesDirectory(filepath.Dir(filepath.Dir(scratch)))
+	return ServicesDirectoryDenied(filepath.Dir(filepath.Dir(scratch)))
+}
+
+// ServicesDirectoryDenied is the services folder under stateRoot, made if it is
+// not there, for a session to be refused. One whose path holds a character a
+// provider's path rules give a meaning to is an error, since the rule would then
+// refuse something else.
+func ServicesDirectoryDenied(stateRoot string) (string, error) {
+	services, err := PrepareServicesDirectory(stateRoot)
 	if err != nil {
 		return "", err
 	}

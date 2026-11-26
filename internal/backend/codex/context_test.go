@@ -283,7 +283,7 @@ func TestAReviewerIsGivenTheTrustedCopyOfANamedFileNotTheCandidates(t *testing.T
 		// As the harness builds it: the configured paths anchored to its own
 		// checkout, and a review request that names no checkout of its own.
 		runner := &fakeRunner{results: completedTurn()}
-		result, err := (Backend{Runner: runner, ConfigDir: personalHome(t), Context: named.Anchored(repository)}).Run(context.Background(), backend.RunRequest{
+		result, err := (Backend{StateRoot: testState, Runner: runner, ConfigDir: personalHome(t), Context: named.Anchored(repository)}).Run(context.Background(), backend.RunRequest{
 			RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree,
 			Prompt: "review", Model: "gpt-6-astra", SessionID: session,
 		})
@@ -307,7 +307,7 @@ func TestAnUnanchoredNamedPathIsNeverReadFromTheRepositoryAReviewerInspects(t *t
 	_, worktree := sandboxRepository(t, true)
 	writeFiles(t, worktree, map[string]string{"docs/agent-notes.md": "CANDIDATE_NOTES\n"})
 	runner := &fakeRunner{results: completedTurn()}
-	_, err := (Backend{Runner: runner, ConfigDir: personalHome(t), Context: backend.NamedContext{
+	_, err := (Backend{StateRoot: testState, Runner: runner, ConfigDir: personalHome(t), Context: backend.NamedContext{
 		Instructions: []backend.ContextFile{{Path: "docs/agent-notes.md"}},
 	}}).Run(context.Background(), backend.RunRequest{
 		RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree, Prompt: "review", Model: "gpt-6-astra",
@@ -416,7 +416,7 @@ func TestTheStartingEventSaysWhatWasLoaded(t *testing.T) {
 	repository, worktree := sandboxRepository(t, true)
 	var events []execution.Event
 	runner := &fakeRunner{results: completedTurn()}
-	if _, err := (Backend{Runner: runner, ConfigDir: personalHome(t)}).Run(context.Background(), backend.RunRequest{
+	if _, err := (Backend{StateRoot: testState, Runner: runner, ConfigDir: personalHome(t)}).Run(context.Background(), backend.RunRequest{
 		RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree, RepositoryRoot: repository,
 		Prompt: "review", Model: "gpt-6-astra",
 		EventSink: func(event execution.Event) error { events = append(events, event); return nil },

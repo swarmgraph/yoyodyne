@@ -12,12 +12,16 @@ import (
 // about it: every developer invocation has to carry one.
 var testScratch string
 
+// testState is the state directory it is cut in, for a session of any other role.
+var testState string
+
 func TestMain(m *testing.M) {
 	if handled := actAsLocalServiceProbe(); handled {
 		return
 	}
 	state, err := os.MkdirTemp("", "yoyodyne-claudecode-test-")
 	if err == nil {
+		testState = state
 		testScratch, err = execution.PrepareScratchDirectory(state, testRunID)
 	}
 	if err != nil {
