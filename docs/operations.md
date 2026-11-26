@@ -819,11 +819,24 @@ approvals:
   releases: automatic   # the harness cuts; "human", the default, leaves it to you
 ```
 
+**The release item stays open until its tag is on origin.** The run that lands
+the notes does not close the item, whatever its developer claims: the tag is
+cut after the notes land, so the item is left open and parked with a reason
+beginning "The notes for `<version>` landed through run …", which keeps any
+other run from being started on it. Under either setting, the maintenance
+pass's release step closes the item once origin holds the tag, and the close
+records the tag and the commit it names. A release the Lead Product Manager
+parks for any other reason carries her reason instead and is left alone.
+
 **Under `human`** the cut is yours, exactly as
 [cutting a release](developing-yoyo.md#cutting-a-release) describes:
 `make release VERSION=<version>` in the primary checkout, then the
 `git push origin <version>` it prints. The maintenance pass's release step
-says so and does nothing else.
+runs and tags nothing. For each release whose notes have landed and whose tag
+origin does not hold, it says once, in a note on the item, that cutting it is a
+step only you can take, naming those two commands. It also files one warning
+opening `human-gate:`, which the Lead Product Manager records as yours, so it
+is listed with the other things waiting on you.
 
 **Under `automatic`** the maintenance pass cuts it. On a pass with nothing
 else in the way, the step:
@@ -875,7 +888,9 @@ else in the way, the step:
    origin back to confirm it holds the tag on that commit;
 7. records the push on the release item, in a note naming the commit, the
    gates, and the readiness verdict, and on the pass, and files a `warning` so
-   the channel says it. The Lead Product Manager closes the item on that note.
+   the channel says it. Where the run that landed the notes left the item open
+   for its tag, the next pass closes it, recording the tag and its commit;
+   otherwise the Lead Product Manager closes it on that note.
 
 The tag push is what [the release workflow](../.github/workflows/release.yml)
 publishes from, so the archives that ship are built by the workflow from the

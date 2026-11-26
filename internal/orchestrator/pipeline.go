@@ -974,6 +974,10 @@ type Outcome struct {
 	LandingBlockedBy         string          `json:"landing_blocked_by,omitempty"`
 	LandingImpedimentProblem string          `json:"landing_impediment_problem,omitempty"`
 	LandingProblem           string          `json:"landing_problem,omitempty"`
+	// ReleaseTagOwed is the version of the release this run's item is for, which
+	// keeps the item open after its notes land until the tag is on the remote,
+	// for the reason its durable twin gives.
+	ReleaseTagOwed string `json:"release_tag_owed,omitempty"`
 	// Cost is what every run made for this work item has cost, as the provider
 	// reported it: this run and every earlier one, the attempts that failed as
 	// well as the one that finished. It is absent when nothing priced the item,
@@ -11011,6 +11015,7 @@ func (a *activeRun) carryReviewEvidence() {
 	a.outcome.LandingBlockedBy = state.LandingBlockedBy
 	a.outcome.LandingImpedimentProblem = state.LandingImpedimentProblem
 	a.outcome.LandingProblem = state.LandingProblem
+	a.outcome.ReleaseTagOwed = state.ReleaseTagOwed
 }
 
 // reportedFindings converts durable findings back into the reviewer's own

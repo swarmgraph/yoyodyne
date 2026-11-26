@@ -94,6 +94,13 @@ const (
 	// approved the document itself. An item a revision names is never closed this
 	// way, only noted.
 	kindFiledForPublication closureKind = "filed-for-publication"
+	// kindReleaseTagged is the release step closing a release item its own run
+	// left open only because the release's tag was still owed, once the remote
+	// holds that tag. The run's settlement already asked whether the change
+	// discharges the item, and parked it rather than closing it only where both
+	// readers said it would (runstate.State.OwesReleaseTag); what is read here is
+	// that parking, and the tag on the remote, which is the rest of the work.
+	kindReleaseTagged closureKind = "release-tagged"
 )
 
 // closureSite is one declaration that closes a work item, and what makes it safe
@@ -122,6 +129,11 @@ func (s closureSite) key() string { return s.File + "\t" + s.Declaration }
 // auditedClosures is the audit itself: every place this repository closes a work
 // item, and what makes each one safe.
 var auditedClosures = []closureSite{
+	{
+		File: "internal/releasecut/owed.go", Declaration: "(*Cutter) settleOwed", Calls: 1,
+		ConsultsDischarge: false, Kind: kindReleaseTagged,
+		Why: "the maintenance pass's release step closing a decided release whose run left it parked under releasecut.TagOwedParking, once the remote holds the tag, recording the tag and the commit it names. That parking is written only by a run's settlement, and only where the developer's claim and the reviewer's approval would both have discharged the item and the tag alone was owed, so the discharge was asked there; a release parked for any other reason carries another reason and is never closed here.",
+	},
 	{
 		File: "internal/chat/tracker.go", Declaration: "(*Session) carryOutTrackerAction", Calls: 2,
 		ConsultsDischarge: false, Kind: kindHuman,
