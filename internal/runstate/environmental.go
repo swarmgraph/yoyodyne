@@ -273,6 +273,16 @@ const (
 	//
 	// It ends the round unjudged for CauseInstallUnavailable's reason.
 	CauseInstallNeverWorked EnvironmentalCause = "install-never-worked"
+	// CauseGitLockHeld is a Git lock file in the run's own checkout that the
+	// harness found before writing there and left alone, because a live process
+	// was using it or because whether one was could not be established
+	// (gitworktree.ErrGitLockHeld). A lock no live process is using is removed
+	// and recorded on the run instead, and stops nothing. Any Git process killed
+	// part-way through a write leaves one, the harness's own included, and the
+	// stop is the machine's: no check or reviewer has judged what the round left.
+	//
+	// It ends the round unjudged for CauseCheckStageBound's reason.
+	CauseGitLockHeld EnvironmentalCause = "git-lock-held"
 )
 
 // Valid reports a cause this harness recognizes. A record naming anything else
@@ -285,7 +295,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CausePersonMergeBehind, CauseMergeQueueBehind, CauseCheckStageBound,
 		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
-		CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked,
+		CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld,
 	}
 }
 
@@ -336,12 +346,13 @@ func (c EnvironmentalCause) HarnessResumes() bool {
 // could judge what it holds, so the round is refused without the worktree
 // being asked whether it delivered: the provider's usage window, the check
 // stage stopped at its bound, a check stopped at its own limit, a change no
-// check could run on, and an install step held for the development manager. See
-// CauseUsageWindow, CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan,
-// CauseInstallUnavailable, and CauseInstallNeverWorked.
+// check could run on, an install step held for the development manager, and a
+// Git lock in the checkout the harness would not remove. See CauseUsageWindow,
+// CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan,
+// CauseInstallUnavailable, CauseInstallNeverWorked, and CauseGitLockHeld.
 func (c EnvironmentalCause) EndsTheRoundUnjudged() bool {
 	switch c {
-	case CauseUsageWindow, CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked:
+	case CauseUsageWindow, CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld:
 		return true
 	}
 	return false
@@ -394,6 +405,8 @@ func (c EnvironmentalCause) Title() string {
 		return "a declared install step kept failing on dependency files that installed on this machine before, most likely because the network or the package registry could not be reached"
 	case CauseInstallNeverWorked:
 		return "a declared install step failed on dependency files that have never installed on this machine, so the step or the machine needs fixing rather than the change"
+	case CauseGitLockHeld:
+		return "a Git lock file in the run's checkout was in use by a live process, or could not be shown to be left over, so the harness left it alone"
 	default:
 		return string(c)
 	}

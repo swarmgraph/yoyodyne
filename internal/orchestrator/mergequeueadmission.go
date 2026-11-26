@@ -136,7 +136,7 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context) (Outcome, bool, error
 	// What was approved is committed, so the queue merges a commit rather than
 	// a worktree: a published run's change is committed already, and a local
 	// one's is committed here with nothing about its content changed.
-	head, err := p.Worktrees.CommitAttempt(ctx, a.worktree, integrationMessage(a.item, a.outcome))
+	head, err := p.Worktrees.CommitAttempt(a.recordingGitLocks(ctx), a.worktree, integrationMessage(a.item, a.outcome))
 	if err != nil {
 		return end(fmt.Errorf("commit the approved change for the merge queue: %w", err))
 	}

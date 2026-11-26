@@ -132,7 +132,7 @@ func (a *activeRun) commitAttempt(ctx context.Context) error {
 	// the stop that follows is the restart's (finishingStep).
 	ctx, finished := finishingStep(ctx, redeployCommitTimeout)
 	defer finished()
-	commit, err := a.pipeline.Worktrees.CommitAttempt(ctx, a.worktree, attemptMessage(a.item, a.outcome))
+	commit, err := a.pipeline.Worktrees.CommitAttempt(a.recordingGitLocks(ctx), a.worktree, attemptMessage(a.item, a.outcome))
 	if commit != "" {
 		// Recorded the moment it exists, for the reason the publishing commit below
 		// is: the commit is what permits this worktree's HEAD to have moved, and a
