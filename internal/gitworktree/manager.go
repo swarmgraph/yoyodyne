@@ -259,6 +259,9 @@ type Manager struct {
 	// asked, and empty before; see commonGitDirectory.
 	commonDirectoryMu sync.Mutex
 	commonDirectory   string
+	// lockUsers answers whether a live process is using a Git lock file left in
+	// a run's checkout; nil asks lsof (see leftoverlock.go).
+	lockUsers gitLockUsers
 }
 
 type Options struct {
@@ -2669,6 +2672,9 @@ func (m *Manager) CommitAttempt(ctx context.Context, worktree Worktree, message 
 	if message == "" {
 		message = defaultCommitMessage(worktree)
 	}
+	if err := m.clearLeftoverGitLocks(ctx, worktree); err != nil {
+		return "", err
+	}
 	path, head, err := m.verifyOwnedHead(ctx, worktree)
 	if err != nil {
 		return "", err
@@ -2775,6 +2781,9 @@ func (m *Manager) prepareIntegration(ctx context.Context, worktree Worktree, mes
 		message = defaultCommitMessage(worktree)
 	}
 
+	if err := m.clearLeftoverGitLocks(ctx, worktree); err != nil {
+		return Integration{}, false, err
+	}
 	// Ownership, registration, the expected branch, and a HEAD carrying only
 	// harness commits are all revalidated here rather than trusted from run
 	// state.
@@ -2858,6 +2867,9 @@ func (m *Manager) RebaseOntoTarget(ctx context.Context, worktree Worktree, messa
 	message = strings.TrimSpace(message)
 	if message == "" {
 		message = defaultCommitMessage(worktree)
+	}
+	if err := m.clearLeftoverGitLocks(ctx, worktree); err != nil {
+		return Rebase{}, err
 	}
 	path, head, err := m.verifyOwnedHead(ctx, worktree)
 	if err != nil {
@@ -3064,6 +3076,11 @@ func (m *Manager) ReplayForRepair(ctx context.Context, worktree Worktree, messag
 	message = strings.TrimSpace(message)
 	if message == "" {
 		message = defaultCommitMessage(worktree)
+	}
+	// A move killed part-way leaves Git's lock behind it, and so does any Git
+	// command killed while it wrote; see leftoverlock.go.
+	if err := m.clearLeftoverGitLocks(ctx, worktree); err != nil {
+		return Rebase{}, err
 	}
 	path, head, err := m.verifyOwnedHead(ctx, worktree)
 	if err != nil {
@@ -3314,6 +3331,11 @@ func killedReplay(status execution.ProcessStatus) (string, bool) {
 func (m *Manager) abandonKilledReplay(ctx context.Context, path string, worktree Worktree, targetCommit, stopped string) error {
 	account := fmt.Sprintf("replay %s onto %s at %s %s", worktree.Branch, worktree.TargetBranch, targetCommit, stopped)
 	cleanup := context.WithoutCancel(ctx)
+	// The rebase this killed can have died holding Git's index lock, and the
+	// abort below needs it; see leftoverlock.go.
+	if err := m.clearLeftoverGitLocks(cleanup, worktree); err != nil {
+		return errors.Join(fmt.Errorf("%s; the worktree is left part-way through it", account), err)
+	}
 	started, err := m.replayInProgress(cleanup, path)
 	if err != nil {
 		return errors.Join(errors.New(account), err)

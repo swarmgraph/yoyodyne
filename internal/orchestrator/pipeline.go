@@ -3560,7 +3560,7 @@ var replayKilledWaits = [replayKilledRetries]time.Duration{time.Minute, 2 * time
 func (a *activeRun) replayOntoTarget(ctx context.Context) (gitworktree.Rebase, error) {
 	message := integrationMessage(a.item, a.outcome)
 	for retry := 0; ; retry++ {
-		rebase, err := a.pipeline.Worktrees.RebaseOntoTarget(gitworktree.WithReplayRetry(ctx, retry), a.worktree, message)
+		rebase, err := a.pipeline.Worktrees.RebaseOntoTarget(gitworktree.WithReplayRetry(a.recordingGitLocks(ctx), retry), a.worktree, message)
 		if !errors.Is(err, gitworktree.ErrReplayKilled) || ctx.Err() != nil {
 			return rebase, err
 		}
@@ -3867,7 +3867,7 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 func (a *activeRun) moveOntoTargetForRepair(ctx context.Context) error {
 	a.keepApproved()
 	a.clearReviewEvidence()
-	rebase, err := a.pipeline.Worktrees.ReplayForRepair(ctx, a.worktree, integrationMessage(a.item, a.outcome))
+	rebase, err := a.pipeline.Worktrees.ReplayForRepair(a.recordingGitLocks(ctx), a.worktree, integrationMessage(a.item, a.outcome))
 	if err != nil {
 		if recordErr := a.recordRebase(rebase); recordErr != nil {
 			return errors.Join(err, recordErr)
@@ -4729,9 +4729,30 @@ func environmentalCauseOf(failure error) (runstate.EnvironmentalCause, bool) {
 		return runstate.CauseWorktreeCheckoutKilled, true
 	case errors.Is(failure, execution.ErrProcessNotStarted):
 		return runstate.CauseSandboxSpawnFailure, true
+	case errors.Is(failure, gitworktree.ErrGitLockHeld):
+		return runstate.CauseGitLockHeld, true
 	default:
 		return "", false
 	}
+}
+
+// recordingGitLocks is ctx carrying where the worktree manager says what it
+// did about each Git lock file it found left in this run's checkout before
+// writing there, onto the run's record (runstate.State.GitLocks). Nothing is
+// saved here: the step that called the manager saves the record, or ends the
+// run and saves it then.
+func (a *activeRun) recordingGitLocks(ctx context.Context) context.Context {
+	return gitworktree.WithGitLockClearings(ctx, func(clearing gitworktree.GitLockClearing) {
+		if len(a.state.GitLocks) >= runstate.MaxGitLocks {
+			return
+		}
+		a.state.GitLocks = append(a.state.GitLocks, runstate.GitLock{
+			Path:    clearing.Path,
+			Removed: clearing.Removed,
+			Why:     singleLine(clearing.Why, runstate.MaxGitLockWhyBytes),
+			At:      clearing.At,
+		})
+	})
 }
 
 // stopAndFailedRecord is a step's own failure and the failure of the write the
@@ -4837,6 +4858,8 @@ func integrationStopCauseOf(failure error) (runstate.EnvironmentalCause, bool) {
 		return runstate.CauseRemoteAuthRefused, true
 	case errors.Is(failure, ErrMergeQueueHeld):
 		return runstate.CauseMergeQueueHeld, true
+	case errors.Is(failure, gitworktree.ErrGitLockHeld):
+		return runstate.CauseGitLockHeld, true
 	// The same cause where it did not come through a Git remote command: the
 	// GitHub command line tool not logged in, or the machine unable to name the
 	// user the harness runs as, in the words recovery reads them by.
@@ -8241,7 +8264,7 @@ func (a *activeRun) integrate(ctx context.Context) error {
 		promote = p.Worktrees.PrepareLanding
 		a.landingAt("preparing the commit to land on "+target+" through its pull request", landingAsksNothing)
 	}
-	integration, err := promote(ctx, a.worktree, integrationMessage(a.item, a.outcome))
+	integration, err := promote(a.recordingGitLocks(ctx), a.worktree, integrationMessage(a.item, a.outcome))
 	if err != nil {
 		// A refused promotion may already have committed what the developer left,
 		// and that commit is what this worktree's HEAD is now. It is recorded

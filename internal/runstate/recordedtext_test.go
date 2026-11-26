@@ -304,6 +304,7 @@ var structuredStrings = map[string]string{
 	"integration_resumptions[].superseded_refusal.provider_stop":                             "an enumeration",
 	"integration_resumptions[].superseded_refusal.round_charged_by":                          "a run id",
 	"sweep_continuations[].cause":                                                            "the pause cause, an enumeration",
+	"git_locks[].path":                                                                       "a lock file path the harness found in the run's checkout",
 	"retries[].boundary":                                                                     "a boundary from the harness's fixed vocabulary",
 	"usage_limit_model":                                                                      "a model selector",
 	"pause_cause":                                                                            "an enumeration",

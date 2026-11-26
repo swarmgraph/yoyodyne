@@ -112,13 +112,13 @@ stop changes its cause; a run picked up again and stopped again gets a second
 entry. The development manager's list entry for a stopped run carries its
 current stop.
 
-The set of causes outside the work currently has twenty-one values. A named cause alone does not forgive a
+The set of causes outside the work currently has twenty-two values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
 present it spends as an ordinary round does. `usage-window`,
-`check-stage-bound`, `check-time-limit`, `no-check-ran`, `install-unavailable`, and `install-never-worked` are the exceptions: they stopped before judgment, so they
+`check-stage-bound`, `check-time-limit`, `no-check-ran`, `install-unavailable`, `install-never-worked`, and `git-lock-held` are the exceptions: they stopped before judgment, so they
 settle without treating the preserved change as delivery. A round charged by a
 previous process is not returned by this process; a return that could not be
-written is reported explicitly. These causes are classifications, not twenty-one
+written is reported explicitly. These causes are classifications, not twenty-two
 more timers. Stops keep what remains of the branch and checkout; the table says
 when a usable checkout may never have existed.
 
@@ -145,6 +145,7 @@ when a usable checkout may never have existed.
 | `no-check-ran` | Every configured check could not run, whether it said so itself or the machine refused to start its tool, so nothing verified the change. | Fails before review with the item blocked naming each check and its reason, branch and worktree kept, and the stoppage docketed for the development manager; owed current round/grant returned regardless of diff, no repair attempt spent. The session that started it starts no new work for `execution.usage_limit_unknown_reset_pause`, then starts one run, and nothing beside it until it ends, to find out whether the checks can run. |
 | `install-unavailable` | A declared install step failed on dependency files unchanged from the run's starting target that the same step has installed on this machine before, most likely because the network or the package registry could not be reached, and failed again on each of three tries five minutes apart. | Fails with the item blocked naming the step, how many times it was tried, and the end of its output; branch and worktree kept, and the stoppage docketed for the development manager; owed current round/grant returned regardless of diff, no repair attempt spent. While it waits between tries the run stays in flight, and the status line and dashboard name the step and the local time of the next try. |
 | `install-never-worked` | A declared install step failed on dependency files unchanged from the run's starting target that no run on this machine has ever installed, so the step as declared or the machine is wrong rather than the change. | Fails before any developer turn with the item blocked naming the step and the end of its output; not tried again; branch and worktree kept, and the stoppage docketed for the development manager; no repair attempt spent. |
+| `git-lock-held` | Before writing to a run's own checkout — committing, moving the change onto its target, or replaying it — the harness found a Git lock file such as `index.lock` in the checkout's own Git directory, and either a live process was using it or the harness could not find out whether one was. A lock no live process has open, with no Git process working in the checkout (asked of `lsof`), is removed instead and stops nothing. | Fails with the lock left exactly where it was and the reason naming the file and the process using it, or what could not be asked; branch and worktree kept. Owed current round and grant returned regardless of diff, no repair attempt spent. Every lock the harness looked at, removed or left alone, is listed with why under `git_locks` on the run's record. Only the checkout's own locks are looked at: those in the repository's shared Git directory are left to whoever holds them. |
 
 ## Pauses that keep a run in flight
 
@@ -416,6 +417,7 @@ describes the pass that applies those rules.
 | `internal/runstate/environmental.go` | `CauseNoCheckRan` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseInstallUnavailable` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseInstallNeverWorked` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
+| `internal/runstate/environmental.go` | `CauseGitLockHeld` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/runupdate.go` | `(QueuedRunCompleted).apply` | `status-write` | 1 | Ends a run succeeded once its approved change is admitted to the merge queue, as a narrow update of the run as stored: the item stays claimed, the branch and worktree are kept for a handback, and no developer slot is held while the queue lands the change. Refused on a run with no admission recorded or one already ended another way. |
 | `internal/runstate/runupdate.go` | `(RaisedForDesignCompleted).apply` | `status-write` | 1 | Ends a run succeeded and complete, with the stop reason `work-item-needs-design`, once its developer raised that the item waits on the architect's design and the item is back in the backlog labelled `needs-design`, as a narrow update of the run as stored: nothing is integrated, and the branch and worktree are kept. Refused on a run already ended another way. |
 | `internal/runstate/runupdate.go` | `(MergeQueueEntryLost).apply` | `status-write` | 1 | Fails a run that ended waiting on the merge queue once the sweep finds its entry gone, or let go without landing and without a handback reaching the run, as a narrow update of the run as stored: records the reason and the blocker the item was given, keeps the branch and worktree, and is docketed for the development manager (`(Reconciler).stopLeftByMergeQueue` in `internal/orchestrator/mergequeuewait.go`). Changes nothing on a run whose change landed or that already ended another way. |

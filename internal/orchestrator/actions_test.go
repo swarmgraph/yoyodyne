@@ -993,6 +993,10 @@ var notAStep = map[string]string{
 	// the clean-up step that removed its worktree (cleanUp), not a step of its
 	// own: it follows that removal and decides nothing.
 	"removeScratch": "part of clean-up: removes the run's scratch directory once its worktree is gone",
+	// Recording what the worktree manager did about a Git lock file left in the
+	// run's checkout is part of the commit, replay, or promotion it is wired
+	// into, not a step of its own.
+	"recordingGitLocks": "part of the step that writes to the checkout: notes on the run's record each Git lock file the worktree manager removed or left alone, and decides nothing",
 	// Checks on CI (cichecks.go): the round's checks are still candidate.check's
 	// verify, and the push and wait are parks of the same run rather than steps
 	// a definition could route.
