@@ -182,10 +182,13 @@ harness's own cut works the other way round: it reads the notes from `main`,
 where they may have landed after the commit they name, and tags that commit.
 
 The notes and their stamp on `main` are the preparation, not the release. A
-release is its tag on origin. When the harness cuts one, the tag's push is
-recorded on the release item, naming the commit the tag names and the gates
-that passed on it. That note, not the notes file, is what the Lead Product
-Manager closes the item on.
+release is its tag on origin, so the run that lands the notes does not close
+the release item: it leaves the item open and parked until the tag is there.
+When the harness cuts one, the tag's push is recorded on the release item,
+naming the commit the tag names and the checks that passed on it. Under either
+`approvals.releases` setting, the maintenance pass's release step closes the
+item once origin holds the tag, recording the tag and the commit it names; a
+release item parked for any other reason is left for the Lead Product Manager.
 [Cutting a decided release](../operations.md#cutting-a-decided-release) is the
 harness's path, and [cutting a release](../developing-yoyo.md#cutting-a-release)
 is the manual one.

@@ -784,7 +784,7 @@ func (c *Cutter) announce(ctx context.Context, cut runstate.ReleaseCut) (runstat
 func (c *Cutter) note(cut runstate.ReleaseCut) string {
 	switch {
 	case cut.State == runstate.ReleaseCutPushed:
-		return fmt.Sprintf("The harness cut %s and pushed its tag to %s at %s, under its own identity, on commit %s. Every gate a person's cut runs passed on that commit first: %s. The notes' readiness stamp ended in %s, pinned to %s, and matched a fresh reading. Cut by %s. This is the evidence this item's done condition asks for; the release step closes this item on its next pass where the run that landed its notes left it open for the tag, and otherwise the Lead Product Manager closes it.",
+		return fmt.Sprintf("The harness cut %s and pushed its tag to %s at %s, under its own identity, on commit %s. Every check a person's cut runs passed on that commit first: %s. The notes' readiness stamp ended in %s, pinned to %s, and matched a fresh reading. Cut by %s. This is the evidence this item's done condition asks for; the release step closes this item on its next pass where the run that landed its notes left it open for the tag, and otherwise the Lead Product Manager closes it.",
 			cut.Version, c.remote(), local(cut.UpdatedAt), cut.Commit, strings.Join(cut.Gates, "; "), orNone(cut.ReadinessVerdict), orNone(cut.ReadinessDefinition), orNone(cut.CutBy))
 	case cut.State == runstate.ReleaseCutBlocked:
 		return fmt.Sprintf("The harness did not finish cutting %s, and the release is held for the Lead Product Manager: %s.", cut.Version, cut.Detail)
@@ -804,7 +804,7 @@ func (c *Cutter) report(cut runstate.ReleaseCut) error {
 	var message string
 	switch {
 	case cut.State == runstate.ReleaseCutPushed:
-		message = fmt.Sprintf("The harness cut %s and pushed its tag to %s on %s, after every release gate passed. The release workflow publishes it from that tag, and the release step closes %s where the run that landed its notes left it open for the tag.",
+		message = fmt.Sprintf("The harness cut %s and pushed its tag to %s on %s, after every release check passed. The release workflow publishes it from that tag, and the release step closes %s where the run that landed its notes left it open for the tag.",
 			cut.Version, c.remote(), short(cut.Commit), cut.WorkItemID)
 	case cut.State == runstate.ReleaseCutBlocked:
 		message = fmt.Sprintf("The harness stopped cutting %s: %s. The Lead Product Manager has to choose what happens to the release on %s.",
