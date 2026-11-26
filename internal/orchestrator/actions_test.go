@@ -1048,6 +1048,7 @@ var notAStep = map[string]string{
 	"holdForDirective":          "waits out a directive that pauses this work",
 	"holdForDependency":         "waits out work this item was made to depend on",
 	"holdForEpic":               "waits, before a call to a provider, while this item is in no epic the operator named",
+	"holdForPieceText":          "waits, before a developer session, while a piece that joined an epic has text no judgment found inside it",
 	"pauseForUsageLimit":        "waits out a provider usage limit",
 	"pauseForServerOverload":    "waits out a provider that could not serve the invocation",
 	"pauseForProviderOutage":    "waits out a provider nobody is logged into or nobody can reach, spending nothing",

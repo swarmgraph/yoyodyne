@@ -1932,6 +1932,25 @@ piece joins and may start. Where it answers that the piece asks for more, or can
 tell, the piece does not join and starts nothing, and it is a question about scope for
 the Lead Product Manager, which `yoyo status` names.
 
+A question about scope is a report the harness files to the Lead Product Manager,
+naming the epic, the piece and the text judged. Her handling of that report is her
+answer, and nothing else counts: not a note, and not what the item says. Until her
+handling is recorded, an edit to the piece is judged by nobody; after it, the first edit
+seen is judged again. Where the epic can be delivered without the piece, she handles the
+report as needing you, for the reason of lifting a hold you placed: the piece waits,
+nothing more is judged, and `yoyo status` shows the step as yours, with the
+`yoyo epic remove` command that takes it out. While a piece waits on its text it does not
+count as work ready to start.
+
+A piece that joined starts a developer only on a title, description and acceptance
+criteria that a judgment found inside the epic. A change to its notes, priority or
+labels changes nothing. When that text changes, no developer session starts on it, and a
+run already under way waits before its next one with its work kept; the new text is
+judged in the same way, and goes on once it is judged inside. A text judged inside once
+is never judged again, so a piece put back to it goes on at once. A piece that joined
+before this rule is judged once before its next developer session. An item you named or
+added is never compared.
+
 At most twelve pieces join one naming of an epic, and nothing raises that. A piece you
 took out still counts and cannot join again; an item you add yourself is not counted.
 No other item joins: not one created under the epic itself, moved below it, made a

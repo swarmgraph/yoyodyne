@@ -127,6 +127,9 @@ func (s *Store) Judged(naming Naming, item string, outcome Outcome) error {
 			outcome.At = s.now().UTC()
 			joins := outcome.Answer == AnswerInside
 			switch holders := view.Holders(item); {
+			case entry.Has(item):
+				// A later judgment of a piece that joined keeps its one place.
+				joins = false
 			case !joins:
 			case len(holders) > 0:
 				joins = false
@@ -147,6 +150,93 @@ func (s *Store) Judged(naming Naming, item string, outcome Outcome) error {
 			}
 			return nil
 		})
+	})
+}
+
+// Rejudge begins a new judgment of a piece's text, under a new reservation, once
+// its latest judgment is settled and no judgment judged that text. The latest is
+// kept among the earlier ones.
+func (s *Store) Rejudge(naming Naming, item, judgment, digest string) error {
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		if _, _, err := s.open(record, naming); err != nil {
+			return err
+		}
+		return s.changePiece(naming, item, func(piece *Piece) error {
+			if piece.Outcome == nil {
+				return fmt.Errorf("the judgment of work item %s is not settled", item)
+			}
+			if _, judged := piece.JudgedAs(digest); judged || digest == "" || judgment == "" {
+				return errUnchanged
+			}
+			piece.Earlier = append(piece.Earlier, EarlierJudgment{Judgment: piece.Judgment, Digest: piece.Digest, Outcome: *piece.Outcome, Question: piece.Question})
+			piece.Judgment, piece.Digest, piece.Outcome, piece.Question, piece.Answered, piece.Seen = judgment, digest, nil, "", nil, nil
+			return nil
+		})
+	})
+}
+
+// Questioned writes the identifier of the report that puts a piece's latest
+// judgment to the Lead Product Manager, before that report is filed. It answers
+// the identifier that stands, which is this one or one written before.
+func (s *Store) Questioned(naming Naming, item, judgment, report string) (string, error) {
+	standing := report
+	err := s.changePiece(naming, item, func(piece *Piece) error {
+		if piece.Judgment != judgment || piece.Outcome == nil || !piece.Outcome.Answer.Asks() {
+			return fmt.Errorf("the latest judgment of work item %s is not %s of outside or cannot tell", item, judgment)
+		}
+		if piece.Question != "" {
+			standing = piece.Question
+			return errUnchanged
+		}
+		piece.Question = report
+		return nil
+	})
+	return standing, err
+}
+
+// ScopeAnswered writes the Lead Product Manager's recorded handling of the
+// question about scope a piece's latest judgment put to her: when it was
+// recorded, and the operator's reason and what it said, where it recorded that
+// only he can act. An answer already written is left as it is.
+func (s *Store) ScopeAnswered(naming Naming, item, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error {
+	if recorded.IsZero() || operator.Valid() && strings.TrimSpace(reason) == "" {
+		return errors.New("when the handling was recorded, and its reason where it names the operator, are required")
+	}
+	return s.changePiece(naming, item, func(piece *Piece) error {
+		switch {
+		case piece.Question != reportID || reportID == "":
+			return fmt.Errorf("the latest judgment of work item %s did not ask its question in %s", item, reportID)
+		case piece.Answered != nil:
+			return errUnchanged
+		}
+		answer := ScopeAnswer{At: recorded.UTC()}
+		if operator.Valid() {
+			answer.Operator, answer.Says = operator, strings.TrimSpace(reason)
+		}
+		piece.Answered = &answer
+		return nil
+	})
+}
+
+// SawText writes when a text no judgment judged was first seen, while the piece
+// waits on its question. A text already seen keeps its first time.
+func (s *Store) SawText(naming Naming, item, digest string) error {
+	return s.changePiece(naming, item, func(piece *Piece) error {
+		if _, seen := piece.SeenAt(digest); seen || digest == "" {
+			return errUnchanged
+		}
+		piece.Seen = append(piece.Seen, Seen{Digest: digest, At: s.now().UTC()})
+		return nil
+	})
+}
+
+func (s *Store) changePiece(naming Naming, item string, apply func(*Piece) error) error {
+	return s.change(naming, func(entry *Entry) error {
+		at := entry.piece(item)
+		if at < 0 {
+			return fmt.Errorf("work item %s was not asked about", item)
+		}
+		return apply(&entry.Pieces[at])
 	})
 }
 

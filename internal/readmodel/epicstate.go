@@ -776,6 +776,10 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 		switch {
 		case budgetRefuses:
 			return epicMember{refusedByBudget: true}, nil
+		case s.view.TextWait(s.items[id]) != "":
+			// A piece whose text no judgment found inside starts nothing, and the
+			// step it waits on is named with the pieces asked about (piecesAsked).
+			return epicMember{}, nil
 		case stalled && (group.Mover.IsOperator() || EpicWait{Owner: group.Mover}.outside()):
 			return waits(group.Mover, "is ready, and nothing starts: %s", group.WaitsOn)
 		}
@@ -939,7 +943,24 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 	var waits []EpicWait
 	for _, piece := range entry.Pieces {
 		id := piece.WorkItemID
-		if s.done(id) || s.gone(id) || s.inside(id) || epic.TakenOut(id) {
+		if s.done(id) || s.gone(id) || epic.TakenOut(id) {
+			continue
+		}
+		// A piece that joined starts no developer on a text no judgment found inside.
+		if item, read := s.items[id]; read && entry.Has(id) && !epic.Has(id) {
+			if why := s.view.TextWait(item); why != "" {
+				owner := MoverOf(domain.RoleReviewer)
+				if answer, judged := piece.JudgedAs(epicprogress.TextDigest(item)); judged && answer.Asks() {
+					owner = MoverProductManager
+				}
+				says := "starts no developer: " + why
+				if answered, said, ok := s.scopeStep(epic, piece); ok {
+					owner, says = answered, "starts no developer: it "+said
+				}
+				waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), s.name(piece.From, ""), says)})
+			}
+		}
+		if s.inside(id) {
 			continue
 		}
 		owner, says := MoverOf(domain.RoleReviewer), "has not been judged yet"
@@ -947,6 +968,9 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 		switch {
 		case piece.Outcome != nil:
 			owner, says = MoverProductManager, "is a question about scope and does not start: "+scopeQuestion(*piece.Outcome)
+			if answered, said, ok := s.scopeStep(epic, piece); ok {
+				owner, says = answered, "does not start: it "+said
+			}
 		case reserved.Result != nil && reserved.Result.Unknown:
 			owner, says = MoverDevelopmentManager, "was sent to be judged and has no known answer ("+singleLine(reserved.Result.Says, maxEpicReasonBytes)+"): decide what becomes of it"
 		}
@@ -957,6 +981,34 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 		waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), from, says)})
 	}
 	return waits
+}
+
+// scopeStep is whose step a piece waits on once the Lead Product Manager has
+// answered the question about scope its latest judgment put to her, and what it
+// says; ok is false until she has. Where her handling recorded that only the
+// operator can act, the epic can be delivered without the piece and only he can
+// take it out, so the step is his, as the ownership registry resolves it.
+// Otherwise the development manager rewrites the piece, and an edit seen after
+// her answer waits to be judged.
+func (s *epicStandings) scopeStep(epic epicscope.Epic, piece epicprogress.Piece) (owner Mover, says string, ok bool) {
+	answer := piece.Answered
+	if piece.Outcome == nil || !piece.Outcome.Answer.Asks() || answer == nil {
+		return "", "", false
+	}
+	if answer.Operator != "" {
+		owner = resolved(Attention{Kind: AttentionOperatorAction, OperatorAction: &OperatorAction{Needs: answer.Says, Reason: answer.Operator, ReportID: piece.Question}}).Ownership.Owner
+		return owner, fmt.Sprintf("was judged not to be asked for by the epic, and the Lead Product Manager's answer to %s is that the epic can be delivered without it (%s); only the operator can take it out, with `yoyo epic remove %s %s --words ...`",
+			piece.Question, singleLine(answer.Says, maxEpicReasonBytes), epic.WorkItemID, piece.WorkItemID), true
+	}
+	if item, read := s.items[piece.WorkItemID]; read {
+		digest := epicprogress.TextDigest(item)
+		if _, judged := piece.JudgedAs(digest); !judged {
+			if at, seen := piece.SeenAt(digest); !seen || !at.Before(answer.At) {
+				return MoverOf(domain.RoleReviewer), fmt.Sprintf("was rewritten after the Lead Product Manager answered %s, and its new text waits to be judged", piece.Question), true
+			}
+		}
+	}
+	return MoverDevelopmentManager, fmt.Sprintf("was judged not to be asked for by the epic, and the Lead Product Manager answered %s: rewrite it to fit, and the first edit after her answer is judged again", piece.Question), true
 }
 
 func scopeQuestion(outcome epicprogress.Outcome) string {

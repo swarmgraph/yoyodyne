@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -67,8 +68,11 @@ func pausedForEpic(state runstate.State) bool {
 
 // waitForEpic is asked of every run the pipeline adopts, before it takes a
 // developer slot or resumes anything. A refusal leaves the run waiting.
-func (p Pipeline) waitForEpic(ctx context.Context, state runstate.State) error {
+func (p Pipeline) waitForEpic(ctx context.Context, state runstate.State, item beads.WorkItem) error {
 	refused := p.MayStart.refuseContinuing(state)
+	if refused == nil {
+		refused = p.PieceTexts.refuseContinuing(state, item)
+	}
 	if refused == nil {
 		return nil
 	}
@@ -96,6 +100,23 @@ func (e epicPause) Error() string { return e.refused.Error() }
 // on, and does nothing otherwise.
 func (a *activeRun) holdForEpic(ctx context.Context) error {
 	refused := a.pipeline.MayStart.refuseContinuing(a.state)
+	if refused == nil {
+		return nil
+	}
+	waiting, err := recordEpicWait(ctx, a.pipeline.Store, a.state, a.pipeline.clock().Now())
+	if err != nil {
+		return err
+	}
+	a.state = waiting
+	return epicPause{refused: refused}
+}
+
+// holdForPieceText stops a run before a developer session where the item as this
+// run read it, which is what the developer is given, is a piece whose text no
+// judgment found inside its epic. It waits as a run outside the named epics does,
+// with its work kept, and is taken up again once its text is judged inside.
+func (a *activeRun) holdForPieceText(ctx context.Context) error {
+	refused := a.pipeline.PieceTexts.refuseContinuing(a.state, a.item)
 	if refused == nil {
 		return nil
 	}

@@ -268,6 +268,14 @@ func (c components) epicStarts() orchestrator.EpicStarts {
 	}
 }
 
+// pieceTexts compares the text of a piece that joined a named epic with the texts
+// judged inside it.
+func (c components) pieceTexts() orchestrator.PieceTexts {
+	return func(item beads.WorkItem) (string, error) {
+		return epicprogress.TextWaits(c.stateRoot, c.config.Product.ID, item)
+	}
+}
+
 // epicProgress opens what is kept of the named epics' progress for the harness's
 // own writes.
 func (c components) epicProgress() (*epicprogress.Store, error) {
@@ -846,6 +854,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	return orchestrator.Pipeline{
 		MayStart:   parts.mayStart(),
 		EpicStarts: parts.epicStarts(),
+		PieceTexts: parts.pieceTexts(),
 		// A document that no longer waits is no longer one the named epics hold out.
 		EndRefusedDocument: func(id string) {
 			sayNotKept(maystart.DocumentEnded(parts.stateRoot, parts.config.Product.ID, id))
