@@ -1692,7 +1692,7 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 // a new developer session on the same run, rather than ending the run. The change is moved onto the target with the disagreement left as
 // Git's markers, the developer settles it, and the settlement passes through the
 // same gate as any repair — the checks again and a fresh independent verdict —
-// before it is promoted. The cost is the run's one reconciliation attempt, which
+// before it is promoted. The cost is the first of the run's reconciliation attempts, which
 // is no repair attempt and no fresh run (yoyodyne-ifd.429.96).
 func TestAReplayConflictIsReconciledInANewSessionAndLands(t *testing.T) {
 	t.Parallel()

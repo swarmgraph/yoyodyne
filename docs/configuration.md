@@ -7644,36 +7644,36 @@ operation — and it goes back to a developer before it goes to anybody else. Th
 change is moved onto where the target went, with whatever would not merge left in the worktree between Git's own conflict
 markers, and a developer session is handed the conflict to settle: the
 branch it could not be replayed onto, the commit that branch is at, and the
-paths the replay stopped on. The first conflict a run meets is handed back as
-the run's one **reconciliation attempt**, whatever repair attempts remain: it is
-recorded on the run (`reconciliation`) before the developer is invoked, and it
-spends neither a repair attempt nor the integration budget, because a run whose
-review rounds used up its repair attempts would otherwise stop with approved work
-it never got to bring level with the target. That attempt is made in a new
-developer session rather than the one that wrote the change. It is given the
+paths the replay stopped on. Each of the first three conflicts a run meets is
+handed back as one of the run's three **reconciliation attempts**, whatever
+repair attempts remain: each is numbered and recorded on the run
+(`reconciliation`) before the developer is invoked, and none spends a repair
+attempt or the integration budget, because a run whose review rounds used up its
+repair attempts would otherwise stop with approved work it never got to bring
+level with the target. Each attempt after the first also records the commit it
+conflicted with and why holding the entries that change the same files did not
+prevent it. Each attempt is made in a new developer session rather than the one
+that wrote the change. It is given the
 work item with its goals and invariants, the approved change as a diff with the
 reviewer's approval, the conflicts as Git left them in the worktree, and the
 target's commits since the change's base that touch the conflicting files, and is
 told to keep what the target and the change each do and change nothing else
 unless the resolved code would not otherwise build or pass its tests. An
 interrupted attempt resumes the new session once it has reported itself. The
-session that wrote the change and the one that resolved the conflict are both
+session that wrote the change and each one that resolved a conflict are all
 recorded as its authors (`author_sessions`), and neither the run nor the merge
-queue lands it on the review of either. A later conflict is handed back as
-a repair attempt in the run's current session, spent from
-`execution.repair_attempts_before_replan` like any other. Either way, what the developer produces goes through the whole gate again
+queue lands it on the review of any of them. What the developer produces goes through the whole gate again
 — the protected-path refusal, the checks, and a fresh independent review — before
 it is promoted by the same fast-forward. A replay conflict on an approved change
 therefore costs a developer attempt on the same run rather than a fresh run. The target
 keeps every commit it has; what the move drops is only the run's own commits,
 whose content is what the developer is handed back as uncommitted work.
 
-A conflict after the reconciliation attempt is also a replay that stopped on
-the change, so it is charged to the integration budget above at the same moment,
-and a run past either budget — no repair attempt left, or more conflicting
-replays than `integration_retries_before_reconciliation` permits — stops
-instead, with a stop reason saying the reconciliation attempt was already used,
-as every conflict did before:
+A fourth conflict is never handed back to a developer. It is charged to the
+integration budget above as a replay that stopped on the change, and the run
+stops for the development manager whatever repair attempts remain, with a stop
+reason saying the three reconciliation attempts were already used and listing
+each with the commit it conflicted with:
 the replay is abandoned, the branch and worktree are left exactly as they were,
 both sides survive, and the blocker on the item names the paths and the target
 commit. The conflict stays on the run's record, so a repair the development
