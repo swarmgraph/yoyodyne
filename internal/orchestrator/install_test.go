@@ -192,10 +192,21 @@ func TestAnNpmProjectsDeveloperFindsItsPackagesInstalledOnItsFirstCheck(t *testi
 	}
 }
 
+// npmOffline is what every npm command in these tests carries so that it makes
+// no network connection. --offline alone does not do that: npm still asks
+// registry.npmjs.org whether a newer npm exists, once per fresh cache, and each
+// test's cache is fresh. Inside a developer run's sandbox that request is
+// refused, and npm's own defaults wait five minutes for a fetch and retry it,
+// which held `make test` for about ten minutes on this one test. So the update
+// check is turned off, and any fetch a later npm adds fails at once rather
+// than waiting, which fails this test naming the npm step.
+const npmOffline = "--offline --no-update-notifier --fetch-retries=0 --fetch-timeout=10000 --no-audit --no-fund"
+
 // The same project, installed by npm itself, offline, from a package the
 // project carries: what the operator's own projects declare. It needs npm, so
 // a machine without it skips it; the test above holds the harness's side of it
-// either way.
+// either way. It needs no network, so it runs the same inside a developer
+// run's sandbox as anywhere else.
 func TestAnNpmCiStepInstallsBeforeTheDeveloperStarts(t *testing.T) {
 	t.Parallel()
 
@@ -205,6 +216,8 @@ func TestAnNpmCiStepInstallsBeforeTheDeveloperStarts(t *testing.T) {
 	}
 	// The lock file npm itself writes for the project, made offline with a
 	// cache of the test's own so nothing in the user's npm cache is touched.
+	// It is given a minute, so a step that waits on something is ended and
+	// named rather than holding the package's tests.
 	scratch := t.TempDir()
 	project := filepath.Join(scratch, "lock")
 	if err := os.MkdirAll(filepath.Join(project, "vendor", "greeting"), 0o755); err != nil {
@@ -219,9 +232,13 @@ func TestAnNpmCiStepInstallsBeforeTheDeveloperStarts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	lock := exec.Command(npm, "install", "--package-lock-only", "--offline", "--no-audit", "--no-fund", "--cache", filepath.Join(scratch, "cache"))
+	lockContext, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	lock := exec.CommandContext(lockContext, npm, append([]string{"install", "--package-lock-only", "--cache", filepath.Join(scratch, "cache")}, strings.Fields(npmOffline)...)...)
 	lock.Dir = project
-	if output, err := lock.CombinedOutput(); err != nil {
+	if output, err := lock.CombinedOutput(); lockContext.Err() != nil {
+		t.Fatalf("npm install --package-lock-only did not finish within a minute offline; it should need no network: %s", output)
+	} else if err != nil {
 		t.Skipf("npm could not write a lock file offline here, so npm ci cannot be asked: %v: %s", err, output)
 	}
 	lockFile, err := os.ReadFile(filepath.Join(project, "package-lock.json"))
@@ -234,7 +251,11 @@ func TestAnNpmCiStepInstallsBeforeTheDeveloperStarts(t *testing.T) {
 	var firstCheck string
 	var firstCheckErr error
 	provider := orchestratortest.RoleBackend(developerRunsItsFirstCheck(&firstCheck, &firstCheckErr), approveVerdict)
-	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, `npm ci --cache "$YOYODYNE_INSTALL_CACHE" --prefer-offline --no-audit --no-fund`)
+	pipeline, store := npmProjectPipeline(t, repository, tracker, provider, `npm ci --cache "$YOYODYNE_INSTALL_CACHE" `+npmOffline)
+	// The step's own limit is five minutes, which is the operator's figure for a
+	// real install; an offline install of one carried package takes well under a
+	// second, so this one is held to a minute.
+	pipeline.Config.Install[0].TimeLimit = config.Duration(time.Minute)
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
