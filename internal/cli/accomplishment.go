@@ -185,6 +185,9 @@ func printAccomplishment(writer io.Writer, reading readmodel.Accomplishment) {
 		}
 		fmt.Fprintf(writer, "  prevented a defect: %s on %s, %d finding(s), %s\n", review.WorkItemID, review.At.In(readmodel.DeliveryZone()).Format("2006-01-02 15:04"), review.Findings, dollars(review.CostUSD))
 	}
+	if reading.ComparisonsSays != "" {
+		fmt.Fprintf(writer, "%s\n", reading.ComparisonsSays)
+	}
 
 	fmt.Fprintln(writer)
 	fmt.Fprintf(writer, "completed items: %s\n", completedPhrase(len(reading.Completed), reading.CostPerCompletedItem))

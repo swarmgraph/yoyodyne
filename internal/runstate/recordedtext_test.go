@@ -501,6 +501,7 @@ var structuredStrings = map[string]string{
 	"review_comparisons[].deciding_decision": "a review decision from the fixed vocabulary",
 	"review_comparisons[].cheaper_model":     "a model selector from the configuration",
 	"review_comparisons[].cheaper_decision":  "a review decision from the fixed vocabulary",
+	"review_comparisons[].sessions[]":        "a provider session id",
 }
 
 var timeType = reflect.TypeOf(time.Time{})

@@ -419,7 +419,16 @@ where it asked for a repair and nothing later accepted the change; it
 verdict** where the reviewer was paid and recorded none. A document's second
 review, made only to [compare a cheaper model's
 verdict](configuration.md#the-reviewers-model-by-kind-of-change), is not counted
-among these; what it cost stays in the reviewer's spend.
+among these, and its cost is in no verdict's. It is listed on its own, under the
+reviews, with what it cost: each of its lines in the cost log is marked as a
+comparison and names the provider session it ran in, and the run's record of
+that second review names the same session, so the cost is matched to the review
+by that session rather than by when it was spent. A marked line whose session
+no recorded second review names — one recorded before the sessions were kept,
+or on a run whose record could not be read — is still counted as a second
+review's cost, and the line says how much could not be tied to one review.
+`--json` carries each one under `comparisons`. All of it is still in the
+reviewer's spend, so no total changes.
 
 A completed item is one whose change merged in the range, read as the delivery
 measures read a merge; a run that published a document served no item and is
