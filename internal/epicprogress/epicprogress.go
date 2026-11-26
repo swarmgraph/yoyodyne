@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -439,6 +440,39 @@ func (v View) Precedes(naming Naming, runID string, startedAt time.Time) bool {
 	entry, kept := v.Entry(naming)
 	return !kept || startedAt.Before(entry.BegunAt) &&
 		!slices.ContainsFunc(entry.Reservations, func(r Reservation) bool { return r.ID == runReservation(runID) })
+}
+
+// RunsReserved is each run whose start was reserved for a naming, once, in the
+// order they were reserved. A run's record holds its reservation, so these are
+// the runs made for the epic, those of items taken out since included.
+func (e Entry) RunsReserved() []string {
+	var runs []string
+	for _, reserved := range e.Reservations {
+		if id, isRun := strings.CutPrefix(reserved.ID, runReservation("")); isRun && reserved.HeldBy != "" && !slices.Contains(runs, id) {
+			runs = append(runs, id)
+		}
+	}
+	return runs
+}
+
+// CallsReserved is each paid call reserved for a naming that is not a run's
+// start: a joining judgment or a check of the whole epic.
+func (e Entry) CallsReserved() []Reservation {
+	return slices.DeleteFunc(slices.Clone(e.Reservations), func(reserved Reservation) bool {
+		return strings.HasPrefix(reserved.ID, runReservation("")) && reserved.HeldBy != ""
+	})
+}
+
+// RunSharedBy is how many namings a run's start was reserved for: a document
+// may answer items of two epics, and its cost is then shared between them.
+func (v View) RunSharedBy(runID string) int {
+	shared := 0
+	for _, entry := range v.progress.Entries {
+		if slices.Contains(entry.RunsReserved(), runID) {
+			shared++
+		}
+	}
+	return shared
 }
 
 // Items is every item in an epic, the members first, each once.

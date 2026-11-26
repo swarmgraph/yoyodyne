@@ -15,11 +15,13 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epiccost"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -77,7 +79,7 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 		return 0
 	}
 	verb := args[0]
-	takes := map[string]int{"start": 1, "add": 2, "end": 1, "remove": 2, "list": 0, "off": 0}
+	takes := map[string]int{"start": 1, "add": 2, "end": 1, "remove": 2, "budget": 2, "list": 0, "off": 0}
 	count, known := takes[verb]
 	if !known {
 		fmt.Fprintf(c.stderr, "unknown epic command %q\n\n", verb)
@@ -137,6 +139,8 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 		return c.remove(ctx, operator, named[0], named[1])
 	case "end":
 		return c.end(ctx, operator, named[0])
+	case "budget":
+		return c.budget(ctx, operator, named[0], named[1])
 	default:
 		return c.off(ctx, operator)
 	}
@@ -321,6 +325,27 @@ func (c epicCommand) remove(ctx context.Context, operator *epicscope.Operator, e
 	return 0
 }
 
+// budget sets the limit on what an open epic may spend before it starts nothing
+// new. It is the only way a limit is set or raised.
+func (c epicCommand) budget(ctx context.Context, operator *epicscope.Operator, epic, amount string) int {
+	limit, err := strconv.ParseFloat(strings.TrimPrefix(strings.TrimSpace(amount), "$"), 64)
+	if err != nil {
+		return c.fail(fmt.Errorf("%q is not an amount of US dollars, such as 25 or 12.50", amount))
+	}
+	record, err := operator.SetBudget(epic, limit, time.Now())
+	if err != nil {
+		return c.refused(c.titles(ctx), err, epic)
+	}
+	c.settle()
+	if c.jsonOutput {
+		return writeJSON(c.stdout, c.stderr, epicOutput{Record: &record})
+	}
+	fmt.Fprintf(c.stdout, "epic %s may spend %s in provider reported cost before nothing new starts in it; what is under way always finishes\n",
+		c.titles(ctx).Name(epic), epiccost.Dollars(limit))
+	fmt.Fprintln(c.stdout, "`yoyo status` shows what it has spent")
+	return 0
+}
+
 func (c epicCommand) end(ctx context.Context, operator *epicscope.Operator, epic string) int {
 	record, err := operator.End(epic, c.words, time.Now())
 	if err != nil {
@@ -393,6 +418,9 @@ func (c epicCommand) list(ctx context.Context, stateRoot string) int {
 				how = "added at " + localTime(member.AddedAt)
 			}
 			fmt.Fprintf(c.stdout, "    %s, %s\n", titles.Name(member.WorkItemID), how)
+		}
+		if epic.Budget != nil {
+			fmt.Fprintf(c.stdout, "  budget: %s in provider reported cost, set at %s\n", epiccost.Dollars(epic.Budget.LimitUSD), localTime(epic.Budget.SetAt))
 		}
 		for _, removal := range epic.Removed {
 			printIndented(c.stdout, fmt.Sprintf("%s, taken out at %s:", titles.Name(removal.WorkItemID), localTime(removal.RemovedAt)), titles.Cite(removal.Words))
@@ -480,7 +508,7 @@ func (c epicCommand) fail(err error) int {
 }
 
 func printEpicUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo epic <start|add|remove|end|list|off> [options]
+	fmt.Fprintln(writer, `Usage: yoyo epic <start|add|remove|budget|end|list|off> [options]
 
 Name the epics the factory works only on. While epic mode is on, only the members
 of an open epic and the pieces that joined it are to start. The members are the list
@@ -500,6 +528,10 @@ start, and the refusal names each one that does not yet.
   remove <epic> <item>
                      take an item out of an open epic, a member or a piece that
                      joined it; --words is required. "add" puts it back
+  budget <epic> <dollars>
+                     set the limit on what an open epic may spend, in provider
+                     reported cost. Once it is reached nothing new starts in the
+                     epic, and what is under way finishes. There is none unless set
   end <epic>         end an open epic; its record is kept, and epic mode stays on
   list               show the record
   off                return the factory to goal mode; no epic is ended

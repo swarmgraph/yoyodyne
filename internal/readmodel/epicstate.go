@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epiccost"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
@@ -72,6 +73,12 @@ type EpicStanding struct {
 	// DeliveredBefore is a delivery that no longer counts, because the epic opened
 	// again afterwards.
 	DeliveredBefore *time.Time `json:"delivered_before,omitempty"`
+	// Cost is what this naming of the epic has cost beside its limit, and
+	// CostProblem why that could not be read.
+	Cost        *epiccost.Standing `json:"cost,omitempty"`
+	CostProblem string             `json:"cost_problem,omitempty"`
+	// epic is the epic's identifier, which the cost line names its command with.
+	epic string
 }
 
 // EndedEpic is an epic the operator ended.
@@ -95,6 +102,12 @@ func (s EpicStanding) render() string {
 	if s.DeliveredBefore != nil {
 		fmt.Fprintf(&rendered, "    It was delivered at %s and opened again since.\n", localMoment(*s.DeliveredBefore))
 	}
+	switch {
+	case s.Cost != nil:
+		fmt.Fprintf(&rendered, "    %s\n", s.Cost.Says(s.epic))
+	case s.CostProblem != "":
+		fmt.Fprintf(&rendered, "%swhat it has cost could not be read: %s\n", partialRead, s.CostProblem)
+	}
 	for _, wait := range s.Waits {
 		if wait.Owner == MoverNobody {
 			fmt.Fprintf(&rendered, "    %s\n", wait.Says)
@@ -106,10 +119,17 @@ func (s EpicStanding) render() string {
 }
 
 // EpicBudgets is the epic's budget refusing its next start, as why, and empty
-// where it does not. It is an optional capability of EpicRecords: no budget is
-// kept until piece 12 of the design is built.
+// where it does not. It is an optional capability of EpicRecords, which a test
+// gives in place of EpicCosts.
 type EpicBudgets interface {
 	RefusesStart(naming epicprogress.Naming) (string, error)
+}
+
+// EpicCosts is what a naming of an epic has cost beside its limit. It is an
+// optional capability of EpicRecords, satisfied by the records the harness
+// wires; the budget's refusal of a start is then read from it.
+type EpicCosts interface {
+	Cost(view epicprogress.View, epic epicscope.Epic) (epiccost.Standing, error)
 }
 
 // epicStandings is what the states are worked out from.
@@ -125,6 +145,7 @@ type epicStandings struct {
 	exchanges  []exchange.Exchange
 	directives []directive.Directive
 	budgets    EpicBudgets
+	costs      EpicCosts
 	unfinished map[string]struct{}
 	problem    string
 	// conversations is read for the questions put to the operator, and asked is
@@ -142,6 +163,7 @@ func newEpicStandings(facts epicFacts, sources Sources, standing Standing, needs
 		held: map[string]Refused{}, capacity: map[string]bool{}, paused: map[string]bool{}, unfinished: map[string]struct{}{}}
 	s.runs, _ = sources.Runs.(itemRuns)
 	s.budgets, _ = sources.Epics.(EpicBudgets)
+	s.costs, _ = sources.Epics.(EpicCosts)
 	for _, err := range []error{progressErr, s.readExchanges(sources), s.readDirectives(sources)} {
 		if err != nil {
 			s.problem = joinProblems(s.problem, singleLine(err.Error(), maxEpicReasonBytes))
@@ -218,7 +240,25 @@ type epicMember struct {
 	waits                                   []EpicWait
 }
 
+// of is where an epic stands, with what it has cost.
 func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
+	var cost *epiccost.Standing
+	var costProblem string
+	if s.costs != nil && s.view.Unreadable(epicprogress.Of(epic)) == "" {
+		read, err := s.costs.Cost(s.view, epic)
+		if err != nil {
+			costProblem = singleLine(err.Error(), maxEpicReasonBytes)
+		} else if read.Budget != nil || read.Runs > 0 || read.UnpricedCalls > 0 {
+			// An epic with no limit that nothing was spent on has no cost to say.
+			cost = &read
+		}
+	}
+	standing := s.stateOf(epic, cost, costProblem)
+	standing.Cost, standing.CostProblem, standing.epic = cost, costProblem, epic.WorkItemID
+	return standing
+}
+
+func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, costProblem string) EpicStanding {
 	var standing EpicStanding
 	naming := epicprogress.Of(epic)
 	entry, _ := s.view.Entry(naming)
@@ -235,6 +275,11 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 			return fail(fmt.Sprintf("its budget could not be read: %v", err))
 		}
 		standing.Budget = why
+	} else if epic.Open() && s.costs != nil && epic.Budget != nil {
+		if cost == nil {
+			return fail("what it has cost, beside its budget, could not be read: " + costProblem)
+		}
+		standing.Budget = cost.Why()
 	}
 	if epic.Ended != nil && len(entry.Deliveries) == 0 {
 		return EpicStanding{State: EpicCancelled}

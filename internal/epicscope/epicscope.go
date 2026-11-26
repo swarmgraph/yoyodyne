@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -92,6 +93,9 @@ type Epic struct {
 	// Removed is each item the operator took out, oldest first. One put back is a
 	// member again, and its removal is kept here as history.
 	Removed []Removal `json:"removed,omitempty"`
+	// Budget is the limit the operator set on what the epic may spend before it
+	// starts nothing new, and is absent where none was set.
+	Budget *Budget `json:"budget,omitempty"`
 	// Ended is absent while the epic is open.
 	Ended *Ending `json:"ended,omitempty"`
 }
@@ -112,6 +116,27 @@ type Removal struct {
 	// that joined was in no list of this record and has neither.
 	AddedAt *time.Time `json:"added_at,omitempty"`
 	Act     Act        `json:"act,omitempty"`
+}
+
+// Budget is a limit on an epic's spending, in the cost the provider reports, in
+// US dollars. Only `yoyo epic budget` sets it. Reaching it stops new starts only:
+// see internal/epiccost.
+type Budget struct {
+	LimitUSD float64   `json:"limit_usd"`
+	SetAt    time.Time `json:"set_at"`
+}
+
+// MaxBudgetUSD bounds a limit, so that a mistyped amount is refused rather than
+// kept as no limit at all.
+const MaxBudgetUSD = 1_000_000
+
+// ValidBudget refuses an amount that is not a positive number of dollars within
+// MaxBudgetUSD.
+func ValidBudget(limitUSD float64) error {
+	if math.IsNaN(limitUSD) || limitUSD <= 0 || limitUSD > MaxBudgetUSD {
+		return fmt.Errorf("a budget is a number of US dollars above 0 and at most %d", MaxBudgetUSD)
+	}
+	return nil
 }
 
 // Ending is the operator ending an epic.
@@ -258,6 +283,14 @@ func (e Epic) validate() error {
 		wasMember := removal.AddedAt != nil && !removal.AddedAt.IsZero() && (removal.Act == ActStart || removal.Act == ActAdd)
 		if !wasMember && (removal.AddedAt != nil || removal.Act != "") {
 			problems = append(problems, fmt.Errorf("removed item %q needs both when and by which act it had been put in, or neither", removal.WorkItemID))
+		}
+	}
+	if e.Budget != nil {
+		if err := ValidBudget(e.Budget.LimitUSD); err != nil {
+			problems = append(problems, err)
+		}
+		if e.Budget.SetAt.IsZero() {
+			problems = append(problems, errors.New("when its budget was set is required"))
 		}
 	}
 	if e.Ended != nil {
