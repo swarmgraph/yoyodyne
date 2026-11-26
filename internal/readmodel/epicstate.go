@@ -665,21 +665,10 @@ func closedUnmerged(run runstate.State) *time.Time {
 // passed. One that did not pass is made again after a removal, and is then not a
 // round of correction.
 func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) *EpicWait {
-	removedAfter := func(check epicprogress.Check) bool {
-		return slices.ContainsFunc(epic.Removed, func(removal epicscope.Removal) bool {
-			return removal.RemovedAt.After(check.At) && !slices.ContainsFunc(entry.Joined, func(joined epicprogress.Joined) bool {
-				return joined.At.After(check.At) && joined.At.Before(removal.RemovedAt)
-			})
-		})
-	}
 	var last *epicprogress.Check
-	rounds := 0
 	for _, check := range entry.Checks {
-		if !check.Passed() && removedAfter(check) {
+		if entry.Superseded(epic, check) {
 			continue
-		}
-		if check.Found == epicprogress.FoundNotMet {
-			rounds++
 		}
 		if check.At.After(opened) && (check.Passed() || !slices.ContainsFunc(epic.Removed, func(r epicscope.Removal) bool { return r.RemovedAt.After(check.At) })) {
 			last = &check
@@ -690,16 +679,32 @@ func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry,
 		return &EpicWait{Owner: MoverOf(domain.RoleReviewer), Says: "every member is done and the check of the whole epic is owed; that check is not built yet"}
 	case last.Passed():
 		return nil
-	case last.Found == epicprogress.FoundNotMet && rounds > 2:
-		return &EpicWait{Owner: MoverProductManager, Says: "the check of the whole epic found something missing a third time: decide on one more round or ask about scope"}
-	case last.Found == epicprogress.FoundNotMet:
+	case last.Owed != nil:
+		return correctionOwed(entry, *last)
+	case last.Found == epicprogress.FoundNotMet && entry.Rounds(epic) <= epicprogress.MaxRounds:
 		return &EpicWait{Owner: MoverDevelopmentManager, Says: "write the piece that corrects what the check of the whole epic found missing"}
+	case last.Found == epicprogress.FoundNotMet:
+		return &EpicWait{Owner: MoverProductManager, Says: "the check of the whole epic found something missing a third time, after two rounds of correction, so no correction starts by itself: decide on one more round or ask about scope"}
 	case last.Found == epicprogress.FoundPersonsStep:
 		answer := humanGateAttention("", HumanGateWait{}).Ownership
 		return &EpicWait{Owner: answer.Owner, Says: "the epic's description reserves a step for a person, and it has not been taken"}
 	default:
 		return &EpicWait{Owner: MoverProductManager, Says: "say what evidence the check of the whole epic lacked, for the development manager to have written"}
 	}
+}
+
+// correctionOwed is who owes the next step of the correction a check owes: the
+// development manager writes the piece, a reviewer session judges whether it
+// joins, and a piece judged anything but inside is a question about scope.
+func correctionOwed(entry epicprogress.Entry, check epicprogress.Check) *EpicWait {
+	owed := check.Owed
+	if owed.Piece == "" {
+		return &EpicWait{Owner: MoverDevelopmentManager, Says: fmt.Sprintf("write the piece that corrects the check %s of the whole epic, naming that check: %s", check.ID, owed.Missing)}
+	}
+	if piece, asked := entry.Asked(owed.Piece); asked && piece.Outcome != nil && piece.Outcome.Answer != epicprogress.AnswerInside {
+		return &EpicWait{Owner: MoverProductManager, Says: fmt.Sprintf("the correction owed by the check %s waits on the question about scope its piece %s is", check.ID, owed.Piece)}
+	}
+	return &EpicWait{Owner: MoverOf(domain.RoleReviewer), Says: fmt.Sprintf("judge whether the correcting piece %s joins the epic", owed.Piece)}
 }
 
 // member is where one item stands.
@@ -915,7 +920,11 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 		case reserved.Result != nil && reserved.Result.Unknown:
 			owner, says = MoverDevelopmentManager, "was sent to be judged and has no known answer ("+singleLine(reserved.Result.Says, maxEpicReasonBytes)+"): decide what becomes of it"
 		}
-		waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), s.name(piece.From, ""), says)})
+		from := s.name(piece.From, "")
+		if check, correcting := entry.Correcting(id); correcting && piece.From == epicprogress.FromCheck(check.ID) {
+			from = piece.From + " of the whole epic"
+		}
+		waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), from, says)})
 	}
 	return waits
 }

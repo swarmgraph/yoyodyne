@@ -200,6 +200,82 @@ type Check struct {
 	Found    string    `json:"found"`
 	At       time.Time `json:"at"`
 	Findings []Finding `json:"findings,omitempty"`
+	// Owed is the one correction owed for this check, where one is: for what it
+	// found missing, or for the evidence the Lead Product Manager named that a check
+	// of cannot be told lacked.
+	Owed *Correction `json:"owed,omitempty"`
+}
+
+// Correction is the one correcting piece owed for a check of the whole epic. The
+// development manager writes it, naming the check, and the harness writes the
+// piece's identifier here before the note on the item. A piece is a correction
+// only where a correction names it: the note is for people to read.
+type Correction struct {
+	// Missing is what the piece has to give: what the check found missing, or the
+	// evidence it lacked.
+	Missing string    `json:"missing"`
+	At      time.Time `json:"at"`
+	Piece   string    `json:"piece,omitempty"`
+	// Noted is that the note naming the epic, the check and its commit is on the
+	// piece. A stop between the two writes leaves it false, and the note is
+	// written at the next reading.
+	Noted bool `json:"noted,omitempty"`
+}
+
+func (c *Correction) valid(epic string) bool {
+	return c == nil || strings.TrimSpace(c.Missing) != "" && !c.At.IsZero() &&
+		(c.Piece == "" && !c.Noted || beads.ValidIssueID(c.Piece) && c.Piece != epic)
+}
+
+// FromCheck is what a correcting piece is recorded as made from: the check, in
+// the place a split records the member.
+func FromCheck(check string) string { return "the check " + check }
+
+// Correcting is the check whose owed correction names the item, where one does.
+func (e Entry) Correcting(item string) (Check, bool) {
+	if at := slices.IndexFunc(e.Checks, func(check Check) bool { return check.Owed != nil && check.Owed.Piece == item }); item != "" && at >= 0 {
+		return e.Checks[at], true
+	}
+	return Check{}, false
+}
+
+// correctsFrom reports a piece made from a check whose owed correction names it.
+func (e Entry) correctsFrom(item, from string) bool {
+	check, correcting := e.Correcting(item)
+	return correcting && FromCheck(check.ID) == from
+}
+
+// Superseded reports a check that did not pass and was made again because the
+// operator took an item out after it, with nothing joined in between. It is not a
+// round of correction.
+func (e Entry) Superseded(epic epicscope.Epic, check Check) bool {
+	return !check.Passed() && slices.ContainsFunc(epic.Removed, func(removal epicscope.Removal) bool {
+		return removal.RemovedAt.After(check.At) && !slices.ContainsFunc(e.Joined, func(joined Joined) bool {
+			return joined.At.After(check.At) && joined.At.Before(removal.RemovedAt)
+		})
+	})
+}
+
+// Rounds is how many checks of the naming found something missing, each a round
+// of correction.
+func (e Entry) Rounds(epic epicscope.Epic) int {
+	rounds := 0
+	for _, check := range e.Checks {
+		if check.Found == FoundNotMet && !e.Superseded(epic, check) {
+			rounds++
+		}
+	}
+	return rounds
+}
+
+// MaxRounds is how many rounds of correction the harness starts by itself. A
+// check that finds something missing after them goes to the Lead Product Manager.
+const MaxRounds = 2
+
+// CorrectionNote is the note of fixed form written on a correcting piece, for
+// people to read. Nothing reads it to decide anything.
+func CorrectionNote(epic string, check Check) string {
+	return fmt.Sprintf("Written as the correction owed by the check of the whole epic %s, %s, which read commit %s.", epic, check.ID, check.Commit)
 }
 
 // CheckAnswer is the answer a check gives one thing the description asks.
@@ -350,6 +426,11 @@ func (e Entry) validate() error {
 	for _, c := range e.Checks {
 		part("check", c.ID, c.Commit != "" && c.Found != "" && !c.At.IsZero() &&
 			(len(c.Findings) == 0 || c.Found == FoundOf(c.Findings) && !slices.ContainsFunc(c.Findings, func(f Finding) bool { return !f.valid() })))
+	}
+	for _, c := range e.Checks {
+		if c.Owed != nil && c.Owed.Piece != "" {
+			part("correcting piece", c.Owed.Piece, true)
+		}
 	}
 	for _, d := range e.Deliveries {
 		part("delivery", d.At.String(), d.Evidence != "" && !d.At.IsZero())

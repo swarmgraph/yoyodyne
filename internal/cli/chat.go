@@ -1040,6 +1040,8 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		Intake: parts.intake,
 		// And his epic mode, which a request to him about his own hold may name.
 		Epics: readmodel.NewEpicRecords(parts.stateRoot, cfg.Product.ID),
+		// Where a piece correcting a check of a named epic is linked to that check.
+		EpicCorrections: conversationEpicCorrections(parts),
 		// Where she records which version of an item stands when two machines'
 		// versions of it could not be merged.
 		TrackerMerge: conversationTrackerMerge(parts),
@@ -2148,6 +2150,17 @@ func conversationTrackerMerge(parts components) chat.TrackerMergeDecisions {
 		return nil
 	}
 	store, err := runstate.NewTrackerMergeStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return nil
+	}
+	return store
+}
+
+// conversationEpicCorrections is the epics' progress, where a correcting piece the
+// development manager writes is linked to its check, or nil where it cannot be
+// opened, which refuses such a piece.
+func conversationEpicCorrections(parts components) chat.EpicCorrections {
+	store, err := parts.epicProgress()
 	if err != nil {
 		return nil
 	}

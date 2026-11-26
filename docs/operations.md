@@ -2181,7 +2181,25 @@ told, with why. An answer of taken out that names no item you took out is refuse
 Only where every answer is met or taken out is the epic's delivery written, with when
 and on what evidence, and status then names each item you took out beside the
 delivered epic, with your words. The call is written down before it is made, so a
-harness stopped partway looks it up before making it again. A member that was closed with nothing landed, or whose pull
+harness stopped partway looks it up before making it again.
+
+An answer of not met writes, beside that check, that one correction is owed for it and
+what is missing, and status says the development manager owes the piece. She writes
+it with a `create` whose parent is the epic and whose `epic_check` names the check;
+the harness refuses that where no correction is owed for the check or one has already
+been written, writes the new item into the owed correction, and then adds a note to
+the item naming the epic, the check and the commit it read. Only that link in
+`epic-progress.json` makes a piece a correction: a note in the same words that no
+owed correction names makes nothing join. The piece then joins only once a reviewer
+session that did not write it judges it inside the epic's description, and the check
+is owed again once it lands. Two rounds of correction start this way. A third answer
+of not met owes no correction: it waits on the Lead Product Manager, who decides on
+one more round or asks you about scope. An answer of cannot be told waits on you
+where the description reserves the step for a person, and otherwise on the Lead
+Product Manager to name the evidence the check lacked. Once the harness records that
+evidence, a correction is owed for it and the development manager's piece giving it
+joins the same way; the way her answer reaches that record is not built yet, so until
+it is the epic keeps waiting on her. A member that was closed with nothing landed, or whose pull
 request a person closed unmerged, waits on the Lead Product Manager until it is
 admitted again, replaced by a piece that is done, or taken out with `yoyo epic remove`.
 A member whose run ended complete with no change, and whose summary the reviewer

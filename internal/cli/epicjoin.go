@@ -72,6 +72,10 @@ func (e epicJoins) joiner(spent func(runstate.Spend)) (epicjoin.Joiner, error) {
 		Log:       e.parts.branchReviews,
 		NewID:     runstate.NewBranchReviewID,
 		SplitFrom: chat.SplitByDevelopmentManager,
+		Note: func(ctx context.Context, item, note string) error {
+			_, err := e.parts.tracker().Update(ctx, item, beads.WorkItemChange{AppendNotes: note})
+			return err
+		},
 		Items: func(ctx context.Context) ([]beads.WorkItem, error) {
 			if err := e.parts.tracker().RefreshExportIfDue(ctx); err != nil {
 				return nil, fmt.Errorf("refresh the tracker's item export: %w", err)
