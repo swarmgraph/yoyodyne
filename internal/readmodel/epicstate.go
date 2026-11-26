@@ -383,16 +383,16 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		delivered = EpicHandedOver
 	}
 	if allDone {
-		wait := s.checkOwed(epic, entry, opened)
-		if wait == nil && s.needsProblem != "" {
+		waits := s.checkOwed(epic, entry, opened)
+		if len(waits) == 0 && s.needsProblem != "" {
 			return fail("whether a question about it is open could not be read: " + s.needsProblem)
 		}
-		if wait == nil {
+		if len(waits) == 0 {
 			standing.State, standing.Budget = delivered, ""
 			standing.TakenOut = takenOut(epic)
 			return standing
 		}
-		standing.Waits = append(standing.Waits, *wait)
+		standing.Waits = append(standing.Waits, waits...)
 	}
 	if len(standing.Waits) == 0 && !underway && !refused {
 		standing.Waits = append(standing.Waits, EpicWait{Owner: MoverDevelopmentManager, Says: "its members wait only for each other, so none can start: decide what to change"})
@@ -671,10 +671,49 @@ func closedUnmerged(run runstate.State) *time.Time {
 	return nil
 }
 
-// checkOwed is what the check of the whole epic still needs, and nil where it
+// checkOwed is what the check of the whole epic still needs, and nothing where it
 // passed. One that did not pass is made again after a removal, and is then not a
-// round of correction.
-func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) *EpicWait {
+// round of correction. Each step the check found the description reserves for a
+// person waits on the operator beside whatever else the check owes, so a
+// question to the Lead Product Manager or a correction never hides it.
+func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) []EpicWait {
+	last := s.lastCheck(epic, entry, opened)
+	if last == nil {
+		if id, underway := entry.CheckUnderway(); underway {
+			return []EpicWait{{Owner: MoverOf(domain.RoleReviewer), Says: fmt.Sprintf("every member is done and the check of the whole epic is under way, as %s", id), CheckUnderway: true}}
+		}
+		return []EpicWait{{Owner: MoverOf(domain.RoleReviewer), Says: "every member is done and the check of the whole epic is owed", CheckOwed: true}}
+	}
+	if last.Passed() {
+		return nil
+	}
+	waits := personsSteps(*last)
+	if rest := checkRest(epic, entry, *last); rest != nil {
+		waits = append(waits, *rest)
+	}
+	return waits
+}
+
+// personsSteps is a wait on the operator for each step a check found the
+// description reserves for a person, naming the step and what the check said of
+// it. A check recorded without its answers that found only such a step still
+// waits on him, for a step it cannot name.
+func personsSteps(check epicprogress.Check) []EpicWait {
+	owner := humanGateAttention("", HumanGateWait{}).Ownership.Owner
+	const says = "the epic's description reserves a step for a person, and it has not been taken"
+	var waits []EpicWait
+	for _, step := range epicprogress.PersonsSteps(check) {
+		waits = append(waits, EpicWait{Owner: owner, Says: fmt.Sprintf("%s: %s (%s)", says, singleLine(step.Asks, maxEpicReasonBytes), singleLine(step.Says, maxEpicReasonBytes))})
+	}
+	if len(waits) == 0 && check.Found == epicprogress.FoundPersonsStep {
+		waits = append(waits, EpicWait{Owner: owner, Says: says})
+	}
+	return waits
+}
+
+// lastCheck is the check of the whole epic that counts, and nil where none has
+// been made since the epic last opened to more work.
+func (s *epicStandings) lastCheck(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) *epicprogress.Check {
 	var last *epicprogress.Check
 	for _, check := range entry.Checks {
 		if entry.Superseded(epic, check) {
@@ -684,25 +723,23 @@ func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry,
 			last = &check
 		}
 	}
+	return last
+}
+
+// checkRest is what a check that did not pass owes besides the steps reserved for
+// a person, and nil where it owes nothing else.
+func checkRest(epic epicscope.Epic, entry epicprogress.Entry, last epicprogress.Check) *EpicWait {
 	switch {
-	case last == nil:
-		if id, underway := entry.CheckUnderway(); underway {
-			return &EpicWait{Owner: MoverOf(domain.RoleReviewer), Says: fmt.Sprintf("every member is done and the check of the whole epic is under way, as %s", id), CheckUnderway: true}
-		}
-		return &EpicWait{Owner: MoverOf(domain.RoleReviewer), Says: "every member is done and the check of the whole epic is owed", CheckOwed: true}
-	case last.Passed():
-		return nil
 	case last.Owed != nil:
-		return correctionOwed(entry, *last)
+		return correctionOwed(entry, last)
 	case last.Found == epicprogress.FoundNotMet && entry.Rounds(epic) <= epicprogress.MaxRounds:
 		return &EpicWait{Owner: MoverDevelopmentManager, Says: "write the piece that corrects what the check of the whole epic found missing"}
 	case last.Found == epicprogress.FoundNotMet:
 		return &EpicWait{Owner: MoverProductManager, Says: "the check of the whole epic found something missing a third time, after two rounds of correction, so no correction starts by itself: decide on one more round or ask about scope"}
 	case last.Found == epicprogress.FoundPersonsStep:
-		answer := humanGateAttention("", HumanGateWait{}).Ownership
-		return &EpicWait{Owner: answer.Owner, Says: "the epic's description reserves a step for a person, and it has not been taken"}
+		return nil
 	default:
-		return evidenceAsked(*last)
+		return evidenceAsked(last)
 	}
 }
 

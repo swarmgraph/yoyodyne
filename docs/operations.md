@@ -1820,7 +1820,7 @@ nothing else. Naming an epic is your act alone:
 ./bin/yoyo epic add yoyodyne-ab1 yoyodyne-ab1.9                  # adds an item to it
 ./bin/yoyo epic remove yoyodyne-ab1 yoyodyne-ab1.9 --words "not needed now"   # takes it out
 ./bin/yoyo epic budget yoyodyne-ab1 40                           # sets or raises its limit, in dollars
-./bin/yoyo epic list                                             # shows the record
+./bin/yoyo epic list                                             # shows the record, and where each epic stands as status shows it
 ./bin/yoyo epic end yoyodyne-ab1                                 # ends it; its record is kept
 ./bin/yoyo epic off                                              # back to goal mode
 ```
@@ -2232,9 +2232,13 @@ session that did not write it judges it inside the epic's description, and the c
 is owed again once it lands. Two rounds of correction start this way. A third answer
 of not met owes no correction: it waits on the Lead Product Manager, who decides on
 one more round or asks you about scope. An answer of cannot be told waits on you
-where the description reserves the step for a person. Otherwise the harness files the
+where the description reserves the step for a person, and status and `yoyo epic list`
+name each such step and what the check said of it. For anything else it could not
+tell, the harness files the
 Lead Product Manager one report for that check, naming the epic, the check, its commit
-and what could not be told, and writes the report's identifier beside the check before
+and what could not be told, leaving out the steps reserved for a person. A check that
+owes both shows both: your step stays named beside her question and the correction
+that follows it, and neither hides the other. The harness writes the report's identifier beside the check before
 filing it. Her recorded handling of that report is her answer, and nothing else counts.
 Until it is recorded, or while the handlings cannot be read, nothing is owed and status
 names the step as hers. A handling that records that only you can act, for a reason on

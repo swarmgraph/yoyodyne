@@ -429,6 +429,20 @@ func CouldNotTell(check Check) string {
 	return strings.Join(said, "; ")
 }
 
+// PersonsSteps is each step a check found the description reserves for a person,
+// in the order it answered them. A check can owe these beside what it could not
+// tell for another reason, and the epic waits on the operator for each of them
+// whatever else it owes.
+func PersonsSteps(check Check) []Finding {
+	var steps []Finding
+	for _, finding := range check.Findings {
+		if finding.Answer == CannotBeTold && finding.ForAPerson {
+			steps = append(steps, finding)
+		}
+	}
+	return steps
+}
+
 // FromCheck is what a correcting piece is recorded as made from: the check, in
 // the place a split records the member.
 func FromCheck(check string) string { return "the check " + check }
