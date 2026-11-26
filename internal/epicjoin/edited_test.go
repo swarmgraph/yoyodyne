@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -83,7 +84,7 @@ func (b *bench) handles(id string, needsOperator bool) {
 	handling := report.Handling{SchemaVersion: report.HandlingSchemaVersion, ReportID: id, Role: domain.RoleProductManager, RunID: "chat-0a1b",
 		ProductID: product, RepositoryID: "yoyodyne", Reason: "rewrite it to fit the description", RecordedAt: b.now}
 	if needsOperator {
-		handling.NeedsOperator, handling.Reason = true, "the epic can be delivered without it; only the operator can take it out"
+		handling.NeedsOperator, handling.OperatorReason, handling.Reason = true, ownership.OperatorOwnHold, "the epic can be delivered without it; only the operator can take it out"
 	}
 	b.must(b.reports().Handle(handling))
 }
@@ -193,6 +194,9 @@ func TestAQuestionAboutScopeIsAnsweredOnlyByTheLeadProductManagersHandling(t *te
 			b.handles(asked.Question, false)
 			b.now = b.now.Add(time.Minute)
 			b.round()
+			if answered, _ := b.entry().Asked(piece); answered.Answered == nil || answered.Answered.Operator != "" {
+				t.Fatalf("her answer is kept as %+v", answered.Answered)
+			}
 			if len(b.requests) != 2 || b.waits(piece) == "" {
 				t.Fatalf("the edit seen before her handling was judged: %d calls", len(b.requests))
 			}
@@ -221,7 +225,13 @@ func TestAFirstJudgmentOfOutsideIsAQuestionAndAnAnswerForTheOperatorJudgesNothin
 	b.round()
 	b.now = b.now.Add(time.Hour)
 	b.handles(questions[0].ID, true)
+	answeredAt := b.now
 	b.now = b.now.Add(time.Hour)
+	b.round()
+	asked, _ := b.entry().Asked(piece)
+	if answer := asked.Answered; answer == nil || !answer.At.Equal(answeredAt) || answer.Operator != ownership.OperatorOwnHold || !strings.Contains(answer.Says, "only the operator") {
+		t.Fatalf("her answer is kept as %+v", answer)
+	}
 	b.edit(piece, func(item *beads.WorkItem) { item.Title = "edited after an answer that leaves it to the operator" })
 	b.round()
 	if len(b.requests) != 1 || b.owed() {

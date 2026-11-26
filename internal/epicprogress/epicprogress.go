@@ -127,12 +127,32 @@ type Piece struct {
 	// Question is the report that put the latest judgment, of outside or cannot
 	// tell, to the Lead Product Manager as a question about scope.
 	Question string `json:"question,omitempty"`
+	// Answered is the Lead Product Manager's answer to Question, once the harness
+	// has read her recorded handling of it.
+	Answered *ScopeAnswer `json:"answered,omitempty"`
 	// Seen is when each text that no judgment judged was first seen while the
 	// piece waited on its question, so that only an edit seen after her answer
 	// is judged.
 	Seen []Seen `json:"seen,omitempty"`
 	// Earlier is each judgment of an earlier text, oldest first.
 	Earlier []EarlierJudgment `json:"earlier,omitempty"`
+}
+
+// ScopeAnswer is what the Lead Product Manager's handling of a question about
+// scope recorded: when, and, where it recorded that only the operator can act,
+// the reason from his closed list and what it said he has to do. That is how she
+// says the epic can be delivered without the piece, which only the operator can
+// then take out; the piece waits and is judged no more. Any other answer has the
+// development manager rewrite the piece, and the first edit seen after it is
+// judged.
+type ScopeAnswer struct {
+	At       time.Time                `json:"at"`
+	Operator ownership.OperatorReason `json:"operator,omitempty"`
+	Says     string                   `json:"says,omitempty"`
+}
+
+func (a *ScopeAnswer) valid() bool {
+	return a == nil || !a.At.IsZero() && (a.Operator == "" && a.Says == "" || a.Operator.Valid() && strings.TrimSpace(a.Says) != "")
 }
 
 // Seen is a text first seen at a time.
@@ -207,12 +227,19 @@ func (v View) TextWait(item beads.WorkItem) string {
 		if epic.Has(item.ID) || !entry.Has(item.ID) || epic.TakenOut(item.ID) {
 			continue
 		}
-		piece, _ := entry.Asked(item.ID)
+		// Every piece the harness lets join was asked about first. One the record
+		// says joined without that has nothing a judgment could be added to.
+		piece, asked := entry.Asked(item.ID)
+		if !asked {
+			continue
+		}
 		digest := TextDigest(item)
 		answer, judged := piece.JudgedAs(digest)
 		switch {
 		case judged && answer == AnswerInside:
 			return ""
+		case piece.Outcome != nil && piece.Outcome.Answer.Asks() && piece.Answered != nil && piece.Answered.Operator != "":
+			return fmt.Sprintf("the Lead Product Manager's answer to %s is that epic %s can be delivered without it, so it waits, and only the operator can take it out with `yoyo epic remove`", piece.Question, epic.WorkItemID)
 		case judged:
 			question := ""
 			if piece.Digest == digest && piece.Question != "" {
@@ -594,6 +621,7 @@ func (e Entry) validate() error {
 	for _, p := range e.Pieces {
 		part("piece", p.WorkItemID, beads.ValidIssueID(p.WorkItemID) && p.WorkItemID != e.WorkItemID && p.From != "" && p.Judgment != "" && !p.At.IsZero() &&
 			(p.Outcome == nil || p.Outcome.valid()) && (p.Question == "" || p.Outcome != nil && p.Outcome.Answer.Asks()) &&
+			p.Answered.valid() && (p.Answered == nil || p.Question != "") &&
 			!slices.ContainsFunc(p.Earlier, func(earlier EarlierJudgment) bool { return earlier.Judgment == "" || !earlier.Outcome.valid() }) &&
 			!slices.ContainsFunc(p.Seen, func(seen Seen) bool { return seen.Digest == "" || seen.At.IsZero() }))
 	}

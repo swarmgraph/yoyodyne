@@ -169,7 +169,7 @@ func (s *Store) Rejudge(naming Naming, item, judgment, digest string) error {
 				return errUnchanged
 			}
 			piece.Earlier = append(piece.Earlier, EarlierJudgment{Judgment: piece.Judgment, Digest: piece.Digest, Outcome: *piece.Outcome, Question: piece.Question})
-			piece.Judgment, piece.Digest, piece.Outcome, piece.Question, piece.Seen = judgment, digest, nil, "", nil
+			piece.Judgment, piece.Digest, piece.Outcome, piece.Question, piece.Answered, piece.Seen = judgment, digest, nil, "", nil, nil
 			return nil
 		})
 	})
@@ -192,6 +192,30 @@ func (s *Store) Questioned(naming Naming, item, judgment, report string) (string
 		return nil
 	})
 	return standing, err
+}
+
+// ScopeAnswered writes the Lead Product Manager's recorded handling of the
+// question about scope a piece's latest judgment put to her: when it was
+// recorded, and the operator's reason and what it said, where it recorded that
+// only he can act. An answer already written is left as it is.
+func (s *Store) ScopeAnswered(naming Naming, item, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error {
+	if recorded.IsZero() || operator.Valid() && strings.TrimSpace(reason) == "" {
+		return errors.New("when the handling was recorded, and its reason where it names the operator, are required")
+	}
+	return s.changePiece(naming, item, func(piece *Piece) error {
+		switch {
+		case piece.Question != reportID || reportID == "":
+			return fmt.Errorf("the latest judgment of work item %s did not ask its question in %s", item, reportID)
+		case piece.Answered != nil:
+			return errUnchanged
+		}
+		answer := ScopeAnswer{At: recorded.UTC()}
+		if operator.Valid() {
+			answer.Operator, answer.Says = operator, strings.TrimSpace(reason)
+		}
+		piece.Answered = &answer
+		return nil
+	})
 }
 
 // SawText writes when a text no judgment judged was first seen, while the piece

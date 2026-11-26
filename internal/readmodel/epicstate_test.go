@@ -19,6 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -604,6 +605,18 @@ func TestAPieceThatHasNotJoinedIsAStepOwed(t *testing.T) {
 			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(2), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
 			b.entry.Pieces[0].Digest, b.entry.Pieces[0].Question = epicprogress.TextDigest(b.items[statePiece]), "report-0123456789abcdef0123456789abcdef"
 		}, "waits as a question about scope for the Lead Product Manager (report report-0123456789abcdef0123456789abcdef)", EpicWorking},
+		"joined, judged outside, and answered that only the operator can take it out": {func(b *stateBench) {
+			b.join(statePiece, stateOne, hours(1))
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(2), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
+			b.entry.Pieces[0].Digest, b.entry.Pieces[0].Question = epicprogress.TextDigest(b.items[statePiece]), "report-0123456789abcdef0123456789abcdef"
+			b.entry.Pieces[0].Answered = &epicprogress.ScopeAnswer{At: hours(3), Operator: ownership.OperatorOwnHold, Says: "the epic is delivered without it"}
+			b.ready = []string{statePiece}
+		}, "only the operator can take it out, with `yoyo epic remove " + stateEpic + " " + statePiece + " --words ...`", EpicWaitsOnOperator},
+		"judged outside and answered with a rewrite": {func(b *stateBench) {
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(2), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
+			b.entry.Pieces[0].Digest, b.entry.Pieces[0].Question = epicprogress.TextDigest(b.items[statePiece]), "report-0123456789abcdef0123456789abcdef"
+			b.entry.Pieces[0].Answered = &epicprogress.ScopeAnswer{At: hours(3)}
+		}, "the Lead Product Manager answered report-0123456789abcdef0123456789abcdef: rewrite it to fit", EpicWorking},
 		"joined on the text it has": {func(b *stateBench) {
 			b.join(statePiece, stateOne, hours(1))
 			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerInside, Why: "it is asked for"}
@@ -626,6 +639,12 @@ func TestAPieceThatHasNotJoinedIsAStepOwed(t *testing.T) {
 			standing := b.wants(test.state)
 			if test.says != "" && !strings.Contains(standing.render(), test.says) {
 				t.Errorf("it says\n%s\nwant %q", standing.render(), test.says)
+			}
+			operator := resolved(Attention{Kind: AttentionOperatorAction, OperatorAction: &OperatorAction{Needs: "x", Reason: ownership.OperatorOwnHold}}).Ownership.Owner
+			for answered, owner := range map[string]Mover{"joined, judged outside, and answered that only the operator can take it out": operator, "judged outside and answered with a rewrite": MoverDevelopmentManager} {
+				if name == answered && (len(standing.Waits) != 1 || standing.Waits[0].Owner != owner || owner == MoverProductManager) {
+					t.Errorf("waits = %+v, want one owed by %v", standing.Waits, owner)
+				}
 			}
 			if name == "joined on the text it has" && strings.Contains(standing.render(), "starts no developer") {
 				t.Errorf("a piece on the text judged inside waits:\n%s", standing.render())

@@ -59,6 +59,7 @@ type Progress interface {
 	Rejudge(naming epicprogress.Naming, item, judgment, digest string) error
 	Questioned(naming epicprogress.Naming, item, judgment, report string) (string, error)
 	SawText(naming epicprogress.Naming, item, digest string) error
+	ScopeAnswered(naming epicprogress.Naming, item, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error
 	Call(naming epicprogress.Naming, id, purpose string, lookUp func() (string, epicprogress.Looked, error), send func() (string, error)) (string, error)
 	Alone() (release func() error, held bool, err error)
 	Noted(epic, check string) error
@@ -131,6 +132,7 @@ const (
 	judgeIt step = iota
 	judgeAgain
 	putQuestion
+	noteAnswer
 	noteSeen
 )
 
@@ -302,8 +304,8 @@ func joinedHere(view epicprogress.View, epic epicscope.Epic, item string) bool {
 // judgment answered inside goes on. A new text of a piece judged inside is judged
 // again. One judged outside, or that could not be told, is first put to the Lead
 // Product Manager, and a new text is judged only where it was first seen after
-// her recorded handling of that question, and her handling does not leave the
-// piece to the operator.
+// her recorded handling of that question, which is written into the piece first,
+// and where her handling does not leave the piece to the operator.
 func (j Joiner) next(entry epicprogress.Entry, piece epicprogress.Piece, item beads.WorkItem, pile *pile) (step, bool, error) {
 	if piece.Outcome == nil {
 		return judgeIt, j.due(entry, piece), nil
@@ -316,6 +318,13 @@ func (j Joiner) next(entry epicprogress.Entry, piece epicprogress.Piece, item be
 		if err != nil || !filed {
 			return putQuestion, err == nil, err
 		}
+		// Her answer is written down once it is recorded, whatever the text is now,
+		// so status can say whose the next step is.
+		if piece.Answered == nil {
+			if _, answered, err := pile.answer(piece.Question); err != nil || answered {
+				return noteAnswer, err == nil, err
+			}
+		}
 	}
 	digest := epicprogress.TextDigest(item)
 	if _, judged := piece.JudgedAs(digest); judged {
@@ -324,14 +333,11 @@ func (j Joiner) next(entry epicprogress.Entry, piece epicprogress.Piece, item be
 	if piece.Outcome.Answer == epicprogress.AnswerInside {
 		return judgeAgain, true, nil
 	}
-	handling, answered, err := pile.answer(piece.Question)
 	seenAt, seen := piece.SeenAt(digest)
-	switch {
-	case err != nil:
-		return 0, false, err
-	case !answered:
+	switch answer := piece.Answered; {
+	case answer == nil:
 		return noteSeen, !seen, nil
-	case handling.NeedsOperator, seen && seenAt.Before(handling.RecordedAt):
+	case answer.Operator != "", seen && seenAt.Before(answer.At):
 		return 0, false, nil
 	}
 	return judgeAgain, true, nil
@@ -423,6 +429,32 @@ func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.Work
 		return j.askScope(naming, piece.WorkItemID)
 	case noteSeen:
 		return j.Progress.SawText(naming, piece.WorkItemID, epicprogress.TextDigest(one.item))
+	case noteAnswer:
+		handling, answered, err := (&pile{reports: j.Evidence.Reports}).answer(piece.Question)
+		if err != nil || !answered {
+			return err
+		}
+		// As for the question about evidence, only a reason from the operator's
+		// closed list makes it his (evidence.go).
+		operator := handling.OperatorReason
+		if !handling.NeedsOperator || !operator.Valid() {
+			operator = ""
+		}
+		if err := j.Progress.ScopeAnswered(naming, piece.WorkItemID, piece.Question, handling.Reason, handling.RecordedAt, operator); err != nil {
+			return err
+		}
+		// An edit seen after her answer is judged in the same round.
+		view, err := j.read()
+		if err != nil {
+			return err
+		}
+		entry, _ := view.Entry(naming)
+		now, _ := entry.Asked(piece.WorkItemID)
+		if next, due, err := j.next(entry, now, one.item, &pile{reports: j.Evidence.Reports}); err != nil || !due || next != judgeAgain {
+			return err
+		}
+		one.piece, one.step = now, judgeAgain
+		return j.judge(ctx, one, items)
 	case judgeAgain:
 		id, err := j.NewID()
 		if err != nil {
@@ -513,8 +545,8 @@ func (j Joiner) askScope(naming epicprogress.Naming, item string) error {
 			return err
 		}
 	}
-	message := fmt.Sprintf("A question about scope: %s, made from %s, was judged %q for epic %s (judgment %s of the text with digest %s): %s. It starts no developer. Record your handling of this report as the answer: say that the development manager should rewrite it to fit, and its next edit after your handling is judged again; or that the epic can be delivered without it, which only the operator can then act on with `yoyo epic remove %s %s`.",
-		item, piece.From, piece.Outcome.Answer, naming.WorkItemID, piece.Judgment, piece.Digest, piece.Outcome.Why, naming.WorkItemID, item)
+	message := fmt.Sprintf("A question about scope: %s, made from %s, was judged %q for epic %s (judgment %s of the text with digest %s): %s. It starts no developer. Record your handling of this report as the answer: say that the development manager should rewrite it to fit, and its next edit after your handling is judged again; or, where the epic can be delivered without it, handle it as needing the operator for the reason %s, because only he can take it out, with `yoyo epic remove %s %s --words ...`; the piece then waits and nothing more is judged.",
+		item, piece.From, piece.Outcome.Answer, naming.WorkItemID, piece.Judgment, piece.Digest, piece.Outcome.Why, ownership.OperatorOwnHold, naming.WorkItemID, item)
 	return j.Evidence.Reports.Append(report.Report{
 		SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter, RunID: "epic-join:" + piece.Judgment,
 		WorkItemID: item, DuringEpic: naming.WorkItemID, Build: j.Evidence.Build, ProductID: j.Product, RepositoryID: j.Evidence.RepositoryID,

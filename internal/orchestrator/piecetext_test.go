@@ -79,6 +79,22 @@ func TestAPieceWhoseTextWasNotJudgedInsideStartsNoRun(t *testing.T) {
 	}
 }
 
+// An item the tracker cannot read starts no session, and its text is never
+// compared, because there is no reading to compare.
+func TestAnItemThatCannotBeReadStartsNoSession(t *testing.T) {
+	t.Parallel()
+	tracker, provider, pipeline, _ := pieceFixture(t, "judged")
+	texts := &judgedTexts{}
+	pipeline.PieceTexts = texts.wait
+	tracker.ShowFailures, tracker.TransientShowErr = 1000, errors.New("the tracker could not read the item")
+	if _, err := pipeline.Run(context.Background(), "yoyodyne-task"); err == nil || !strings.Contains(err.Error(), "could not read the item") {
+		t.Fatalf("Run() = %v, want the reading's failure", err)
+	}
+	if tracker.Claimed || len(provider.Requests) != 0 || len(texts.asked) != 0 {
+		t.Fatalf("claimed %t, %d calls, compared %d readings; want nothing", tracker.Claimed, len(provider.Requests), len(texts.asked))
+	}
+}
+
 // The text is compared again before each developer session, and a run already
 // under way waits with its work kept until the text it is given was judged inside.
 func TestARunUnderWayWaitsForItsTextToBeJudgedWithItsWorkKept(t *testing.T) {
@@ -108,6 +124,13 @@ func TestARunUnderWayWaitsForItsTextToBeJudgedWithItsWorkKept(t *testing.T) {
 	if again := waitsForEpic(t, store, paused.RunID); !again.UpdatedAt.Equal(waiting.UpdatedAt) || len(provider.Requests) != 0 {
 		t.Fatal("a second look changed the wait or called a provider")
 	}
+
+	// A waiting run whose item cannot be read is not taken up either.
+	tracker.ShowFailures, tracker.TransientShowErr = 1, errors.New("the tracker could not read the item")
+	if _, err := pipeline.Run(context.Background(), "yoyodyne-task"); err == nil || len(provider.Requests) != 0 {
+		t.Fatalf("Run() of the waiting run with its item unreadable = %v after %d calls, want it refused", err, len(provider.Requests))
+	}
+	waitsForEpic(t, store, paused.RunID)
 
 	// Its text judged inside, or put back to one that was, the same run goes on.
 	tracker.Item.Description = "judged"
