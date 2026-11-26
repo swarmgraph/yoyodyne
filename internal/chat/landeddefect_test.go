@@ -121,3 +121,66 @@ func TestOnlyTheDevelopmentManagerMayRecordADefectAfterLanding(t *testing.T) {
 		t.Error("the architect's contract offers the block that records a defect after landing")
 	}
 }
+
+// fakeResolutionDefects also records defects traced to a conflict's
+// resolution, answering with the side the resolution was made on.
+type fakeResolutionDefects struct {
+	fakeLandedDefects
+	resolutions []string
+	side        runstate.ConflictModelArm
+}
+
+func (f *fakeResolutionDefects) RecordResolutionDefect(_ context.Context, runID, note string, _ time.Time) (runstate.State, error) {
+	f.resolutions = append(f.resolutions, runID)
+	return runstate.State{RunID: runID, ConflictModel: &runstate.ConflictModel{Arm: f.side, DefectAfterLanding: &runstate.LandedDefect{Note: note}}}, nil
+}
+
+// A defect traced to a conflict's resolution on the cheaper model stops the
+// trial of resolving small conflicts on it, and goes nowhere near the other
+// trial's record.
+func TestADefectOnACheaperResolutionIsRecordedAndStopsThatTrial(t *testing.T) {
+	t.Parallel()
+
+	defects := &fakeResolutionDefects{side: runstate.ConflictModelCheaper}
+	session, provider := landedDefectSession(t, domain.RoleDevelopmentManager, defects,
+		"The merge lost the target's side.\n\n"+landedDefectBlock(`{"run":"run-0123456789abcdef0123456789abcdef","note":"lost the target's side","resolution":true}`),
+		"Noted.",
+	)
+	reply, err := session.Send(context.Background(), "Anything landed badly?")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if reply.LandedDefect == nil || !reply.LandedDefect.Recorded || !reply.LandedDefect.StoppedTrial {
+		t.Fatalf("reply.LandedDefect = %+v, want it recorded and the trial stopped", reply.LandedDefect)
+	}
+	if len(defects.resolutions) != 1 || len(defects.runs) != 0 {
+		t.Fatalf("recorded resolutions %v and changes %v; want the resolution alone", defects.resolutions, defects.runs)
+	}
+	if _, err := session.Send(context.Background(), "And now?"); err != nil {
+		t.Fatalf("second Send() error = %v", err)
+	}
+	if next := provider.requests[1].Prompt; !strings.Contains(next, "the trial of resolving small conflicts on the cheaper model is stopped") {
+		t.Fatalf("the role was not told the trial stopped:\n%s", next)
+	}
+	if !strings.Contains(provider.requests[0].SystemPrompt, `"resolution":true`) {
+		t.Error("the development manager's contract does not say how to record a defect on a resolution")
+	}
+}
+
+// A recorder that cannot record a resolution's defect refuses the block rather
+// than writing it against the change.
+func TestADefectOnAResolutionIsRefusedWhereNothingCanRecordIt(t *testing.T) {
+	t.Parallel()
+
+	defects := &fakeLandedDefects{arm: runstate.CheaperFirstCheaper}
+	session, _ := landedDefectSession(t, domain.RoleDevelopmentManager, defects,
+		"Recording it.\n\n"+landedDefectBlock(`{"run":"run-0123456789abcdef0123456789abcdef","note":"lost a side","resolution":true}`),
+	)
+	reply, err := session.Send(context.Background(), "Anything landed badly?")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if reply.LandedDefect == nil || reply.LandedDefect.Recorded || !strings.Contains(reply.LandedDefect.Failure, "conflict's resolution") || len(defects.runs) != 0 {
+		t.Fatalf("reply.LandedDefect = %+v, recorded %v; want it refused and nothing written", reply.LandedDefect, defects.runs)
+	}
+}

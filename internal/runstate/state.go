@@ -2486,6 +2486,12 @@ func (s *State) recordedTexts() []recordedText {
 			unstated("cheaper_first.defect_after_landing.note", "cheaper_first.defect_after_landing.note", &s.CheaperFirst.DefectAfterLanding.Note, MaxLandedDefectNoteBytes)
 		}
 	}
+	if s.ConflictModel != nil {
+		unstated("conflict_model.reason", "conflict_model.reason", &s.ConflictModel.Reason, MaxRecordedTextBytes)
+		if s.ConflictModel.DefectAfterLanding != nil {
+			unstated("conflict_model.defect_after_landing.note", "conflict_model.defect_after_landing.note", &s.ConflictModel.DefectAfterLanding.Note, MaxLandedDefectNoteBytes)
+		}
+	}
 	for index := range s.ReviewComparisons {
 		unstated("review_comparisons[].cheaper_summary", at("review_comparisons", index, "cheaper_summary"), &s.ReviewComparisons[index].CheaperSummary, MaxReviewSummaryBytes)
 		unstated("review_comparisons[].problem", at("review_comparisons", index, "problem"), &s.ReviewComparisons[index].Problem, MaxRecordedTextBytes)
@@ -4095,6 +4101,10 @@ type State struct {
 	// model, its one move to the stronger, and the trial comparing the two
 	// (cheaperfirst.go). Absent on every run that was not eligible.
 	CheaperFirst *CheaperFirst `json:"cheaper_first,omitempty"`
+	// ConflictModel is the record of the run's first attempt at a conflict
+	// where execution.conflict_resolution_model reached it (conflictmodel.go).
+	// Absent on every run it did not reach.
+	ConflictModel *ConflictModel `json:"conflict_model,omitempty"`
 	// ReviewComparisons is each review of a document publication made a second
 	// time on the cheaper model, beside the review that decided
 	// (reviewcomparison.go). It never decides anything. Absent unless

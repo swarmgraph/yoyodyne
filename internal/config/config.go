@@ -692,6 +692,11 @@ type Execution struct {
 	// document publication, both the stronger by default; a code review is
 	// never set below it (reviewermodels.go).
 	ReviewerModels ReviewerModels `yaml:"reviewer_models,omitempty" json:"reviewer_models,omitzero"`
+	// ConflictResolutionModel is execution.conflict_resolution_model: the model
+	// kind a run's first attempt at a small conflict is tried on, with the
+	// trial that compares it (conflictmodel.go). Empty, the default, leaves the
+	// model chosen exactly as before.
+	ConflictResolutionModel ModelKind `yaml:"conflict_resolution_model,omitempty" json:"conflict_resolution_model,omitempty"`
 	// RepositoryAsk bounds the reading helper a conversation role asks one
 	// question of (repositoryask.go): how long its session may run and how much
 	// of its answer comes back.
@@ -1442,6 +1447,7 @@ func (c Config) Validate() error {
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	problems = append(problems, cheaperFirstProblems(c)...)
 	problems = append(problems, reviewerModelProblems(c)...)
+	problems = append(problems, conflictModelProblems(c)...)
 	problems = append(problems, repositoryAskProblems(c)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")

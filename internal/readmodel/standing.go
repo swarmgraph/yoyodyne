@@ -273,6 +273,10 @@ type Sources struct {
 	// starting developers on the cheaper model (modeltrial.go). The zero value
 	// is the setting off with the default run count.
 	CheaperFirst config.DeveloperCheaperFirst
+	// ConflictResolutionModel is execution.conflict_resolution_model, read for
+	// the trial of resolving small conflicts on the cheaper model
+	// (modeltrial.go). Empty is the setting not set.
+	ConflictResolutionModel config.ModelKind
 	// CompareDocumentReviews is execution.reviewer_models.compare_documents,
 	// read for the listing of document reviews made on both models
 	// (reviewcomparison.go).

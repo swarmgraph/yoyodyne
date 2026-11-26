@@ -59,8 +59,9 @@ const (
 	// 3 added the TeamMerge flag: an older index never flagged the runs waiting
 	// for the team's merge, so it would name none of them. Format 4 added the
 	// KeptCheckout flag for the same reason, format 5 the CheaperFirst flag,
-	// format 6 ConflictAt, and format 7 SlotAskedAt.
-	runIndexVersion = 7
+	// format 6 ConflictAt, format 7 SlotAskedAt, and format 8 the ConflictModel
+	// flag.
+	runIndexVersion = 8
 	runIndexName    = ".run-index.json"
 	runIndexLock    = ".run-index.lock"
 	// maxEncodedRunIndexBytes bounds what reading the index will take in. An
@@ -106,23 +107,29 @@ type runIndexEntry struct {
 	// SlotAskedAt is when a change handed back for a conflict last asked for a
 	// developer slot (conflictSlotAsked). Format 6 did not hold it.
 	SlotAskedAt time.Time `json:"slot_asked_at,omitzero"`
+	// ConflictModel is a run whose first conflict
+	// execution.conflict_resolution_model reached (State.ConflictModel), which
+	// a new eligible attempt reads to find its place in the trial. Format 7 did
+	// not hold it.
+	ConflictModel bool `json:"conflict_model,omitempty"`
 }
 
 func runIndexEntryOf(state State) runIndexEntry {
 	return runIndexEntry{
-		WorkItemID:   state.WorkItemID,
-		Status:       state.Status,
-		StartedAt:    state.StartedAt.UTC(),
-		InFlight:     state.Status.InFlight(),
-		Outstanding:  state.Outstanding(),
-		AccountAlias: state.AccountAlias,
-		PersonMerge:  state.WaitingForPersonMerge(),
-		TeamMerge:    state.WaitingForTeamMerge(),
-		KeptCheckout: state.KeptCheckout != "",
-		Document:     documentOf(state),
-		CheaperFirst: state.CheaperFirst != nil,
-		ConflictAt:   lastConflictHandback(state),
-		SlotAskedAt:  conflictSlotAsked(state),
+		WorkItemID:    state.WorkItemID,
+		Status:        state.Status,
+		StartedAt:     state.StartedAt.UTC(),
+		InFlight:      state.Status.InFlight(),
+		Outstanding:   state.Outstanding(),
+		AccountAlias:  state.AccountAlias,
+		PersonMerge:   state.WaitingForPersonMerge(),
+		TeamMerge:     state.WaitingForTeamMerge(),
+		KeptCheckout:  state.KeptCheckout != "",
+		Document:      documentOf(state),
+		CheaperFirst:  state.CheaperFirst != nil,
+		ConflictAt:    lastConflictHandback(state),
+		SlotAskedAt:   conflictSlotAsked(state),
+		ConflictModel: state.ConflictModel != nil,
 	}
 }
 
@@ -146,6 +153,7 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 		(e.TeamMerge || !next.TeamMerge) &&
 		(e.KeptCheckout || !next.KeptCheckout) &&
 		(e.CheaperFirst || !next.CheaperFirst) &&
+		(e.ConflictModel || !next.ConflictModel) &&
 		!e.ConflictAt.Before(next.ConflictAt) &&
 		!e.SlotAskedAt.Before(next.SlotAskedAt)
 }
@@ -158,6 +166,7 @@ func (e runIndexEntry) widened(next runIndexEntry) runIndexEntry {
 	next.TeamMerge = next.TeamMerge || e.TeamMerge
 	next.KeptCheckout = next.KeptCheckout || e.KeptCheckout
 	next.CheaperFirst = next.CheaperFirst || e.CheaperFirst
+	next.ConflictModel = next.ConflictModel || e.ConflictModel
 	if next.ConflictAt.Before(e.ConflictAt) {
 		next.ConflictAt = e.ConflictAt
 	}

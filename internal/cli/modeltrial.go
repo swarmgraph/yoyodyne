@@ -59,6 +59,7 @@ func recordTrialDefect(ctx context.Context, args []string, stdout, stderr io.Wri
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
 	note := flags.String("note", "", "what the defect is and where it was found")
+	resolution := flags.Bool("resolution", false, "the defect is traced to the resolution of the run's first conflict (execution.conflict_resolution_model)")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
@@ -73,6 +74,15 @@ func recordTrialDefect(ctx context.Context, args []string, stdout, stderr io.Wri
 		fmt.Fprintf(stderr, "model-trial defect failed: %v\n", err)
 		return 1
 	}
+	if *resolution {
+		state, err := parts.store.Update(ctx, positional[0], runstate.RecordResolutionDefect{Note: *note, At: time.Now().UTC()})
+		if err != nil {
+			fmt.Fprintf(stderr, "model-trial defect failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, resolutionDefectSays(state))
+		return 0
+	}
 	state, err := parts.store.Update(ctx, positional[0], runstate.RecordDefectAfterLanding{Note: *note, At: time.Now().UTC()})
 	if err != nil {
 		fmt.Fprintf(stderr, "model-trial defect failed: %v\n", err)
@@ -84,6 +94,15 @@ func recordTrialDefect(ctx context.Context, args []string, stdout, stderr io.Wri
 	}
 	fmt.Fprintf(stdout, "Recorded the defect on run %s. It started on the stronger model, so the trial goes on.\n", state.RunID)
 	return 0
+}
+
+// resolutionDefectSays is what recording a defect on a conflict's resolution
+// did to the trial of resolving small conflicts on the cheaper model.
+func resolutionDefectSays(state runstate.State) string {
+	if state.ConflictModel != nil && state.ConflictModel.Arm == runstate.ConflictModelCheaper {
+		return fmt.Sprintf("Recorded the defect on run %s. Its conflict was resolved on the cheaper model, so the trial of resolving small conflicts on the cheaper model is stopped: every eligible attempt from now on asks for the run's own model.", state.RunID)
+	}
+	return fmt.Sprintf("Recorded the defect on run %s. Its conflict was not resolved on the cheaper model, so that trial goes on.", state.RunID)
 }
 
 // showReviewComparison lists each document publication reviewed both on the
@@ -116,7 +135,7 @@ func showReviewComparison(args []string, stdout, stderr io.Writer) int {
 
 func printModelTrialUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `Usage: yoyo model-trial [show] [options]
-       yoyo model-trial defect <run-id> --note <text> [options]
+       yoyo model-trial defect <run-id> --note <text> [--resolution] [options]
        yoyo model-trial reviews [options]
 
 Shows the trial of starting developer runs on the cheaper model: with
@@ -127,9 +146,20 @@ checks. For each half it shows the runs, the changes merged, the cost per
 merged change, how often the first review approved, the repair rounds, how
 many runs moved to the stronger model, and the defects found after landing.
 
+It also shows the trial of resolving small conflicts on the cheaper model:
+with execution.conflict_resolution_model naming the cheaper model, a run's
+first attempt at a small conflict alternates between the cheaper and the
+stronger model for 20 attempts. For each side it shows the attempts, the
+changes landed, the cost per landed change, how often the resolved change
+failed its checks, how often its first review refused it, and the defects
+found after landing.
+
 "defect" records a defect traced to a run's change after it landed. On a run
 that started on the cheaper model it stops the trial at once: every eligible
-run after it starts on the developer's configured model.
+run after it starts on the developer's configured model. With --resolution it
+records a defect traced to the resolution of the run's first conflict
+instead; where that resolution was made on the cheaper model it stops that
+trial at once.
 
 "reviews" lists each document publication whose review was made a second
 time on the cheaper model, with execution.reviewer_models.compare_documents
@@ -154,4 +184,13 @@ func (r landedDefectRecorder) RecordDefectAfterLanding(ctx context.Context, runI
 		return runstate.State{}, fmt.Errorf("no run store is wired to record a defect on run %s", runID)
 	}
 	return r.store.Update(ctx, runID, runstate.RecordDefectAfterLanding{Note: note, At: at.UTC()})
+}
+
+// RecordResolutionDefect records a defect traced to the resolution of a run's
+// first conflict, for the same block with "resolution" set.
+func (r landedDefectRecorder) RecordResolutionDefect(ctx context.Context, runID, note string, at time.Time) (runstate.State, error) {
+	if r.store == nil {
+		return runstate.State{}, fmt.Errorf("no run store is wired to record a defect on run %s", runID)
+	}
+	return r.store.Update(ctx, runID, runstate.RecordResolutionDefect{Note: note, At: at.UTC()})
 }

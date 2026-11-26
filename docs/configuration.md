@@ -5114,6 +5114,78 @@ provider names no cheaper model.
 of the product still running a build from before them refuses a file that
 carries them until it moves onto a newer build.
 
+### The model a small first conflict is resolved on
+
+[Getting an approved change that no longer merges back onto main](designs/approved-changes-that-no-longer-merge.md),
+decision 5. The development manager's to set:
+
+```yaml
+execution:
+  conflict_resolution_model: cheaper   # cheaper or stronger; default not set
+```
+
+**Not set**, which is the default, every attempt to bring an approved change
+level with main asks for the model the run would have asked for anyway.
+
+**Set**, it chooses the model for one attempt only: the run's first attempt at
+a conflict on its approved change, whether the conflict was found as the run
+landed its change or by the merge queue. It reaches that attempt only when all
+of these hold, and the run's record says why it did or did not:
+
+- the conflicts lie in at most 3 files and 200 conflicting lines, counted on
+  either side; a conflict whose lines could not be counted is not reached;
+- the item is not priority 0 and carries no high risk label (the four fixed
+  ones and [`high_risk_labels`](#developers-that-start-on-the-cheaper-model));
+- the run has not already moved to the stronger model after a failed review or
+  failed checks. A run that moved stays on the stronger model for every
+  attempt after, so it is never moved back.
+
+A second or third attempt at a conflict is never reached and asks for the
+run's own model. Nor is a run whose model was chosen for it: one
+`execution.developer_models` maps to a model, one on a slot with an
+[endpoint pair](#developer-slot-endpoints), and one recorded on another
+provider. These bounds are held in code and no file reaches them.
+
+The model asked for holds for that attempt alone. Once the resolved change has
+been checked, the run asks for its own model again. Where the resolved change
+fails its checks or its review, the run moves to the stronger model, as any
+failed review or failed checks moves a run that
+[started on the cheaper model](#developers-that-start-on-the-cheaper-model);
+every other run is already on its own model, which is the stronger one unless
+the developer agent is configured otherwise.
+
+**`stronger`** asks for the stronger model the provider names in
+`model_kinds`, or the developer agent's own model where it names none.
+
+**`cheaper`, and its trial.** Eligible attempts alternate the cheaper and the
+stronger model, cheaper first, for 20 attempts, so the two sides can be
+compared on the same kind of conflict; after the 20th, each eligible attempt
+asks for the cheaper model. `yoyo model-trial`, the read model's `model-trial`
+query and every development manager pass show, for each side, the attempts,
+the changes landed, the cost per landed change (what the side's runs cost,
+divided by the changes they landed), how often the resolved change failed its
+checks, how often its first review refused it, and the defects found after
+landing. The first review is the run's own review of the resolved change
+before it rejoins the merge queue, or, where it rejoins with none, the queue's
+review of its candidate.
+
+A defect traced to a resolution after its change landed is recorded with
+`yoyo model-trial defect <run-id> --resolution --note "<what it is>"`, or by
+the development manager with the block that records a defect after landing,
+carrying `"resolution":true`. Where that resolution was made on the cheaper
+model, the trial stops at once: every eligible attempt after it asks for the
+run's own model, for as long as the setting stays. Keeping the setting once
+the trial has its attempts, or removing it, is the development manager's
+decision on those figures.
+
+**What the file refuses at load.** Any value but `cheaper` or `stronger`,
+because the lightest model has never been compared with the stronger on any
+work, and `cheaper` while a developer agent's provider names no cheaper model.
+
+`conflict_resolution_model` is a new key: a part of the product still running
+a build from before it refuses a file that carries it until it moves onto a
+newer build.
+
 ### The reading helper
 
 [Reducing what the factory costs](designs/reducing-what-the-factory-costs.md),

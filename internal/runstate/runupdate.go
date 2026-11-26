@@ -525,6 +525,12 @@ func (u IntegrationRecorded) apply(state *State) (bool, error) {
 		state.Integration = &integration
 		changed = true
 	}
+	// The queue lands only a candidate its review approved, so a resolution
+	// nothing reviewed before it rejoined was approved by that review
+	// (conflictmodel.go).
+	if state.NoteConflictModelQueueReview(string(ReviewApprove)) {
+		changed = true
+	}
 	if changed {
 		state.UpdatedAt = u.At
 	}
