@@ -23,6 +23,10 @@ revisions:
       by: architect
       at: 2026-11-26T11:06:05.815236Z
       reason: 'yoyodyne-9k1y.12: rules the three questions the development manager''s split of piece 10 left open (report-3245043b, report-3ad72097). The harness runs the configured checks on the commit the check reads where no result for it exists. A correcting piece joins by an owed correction in the progress record, linked by the action that creates it, never by a note''s words. The answer on scope is the Lead Product Manager''s recorded handling of a report the harness files. The rest of the section is copied unchanged from main deaa4fd73275, read whole.'
+    - action: amended
+      by: architect
+      at: 2026-11-26T15:21:04.932043Z
+      reason: 'Two reviewer notes on piece 10b (report-27a85a17a1883639a00ad95379887b60, report-ee8afe0e8d903a4dcea74ead97df0090): the first sentence of this section says status calls the check of the whole epic not built until piece 10 lands, which piece 10b makes untrue. It now says what status shows before and after that piece lands. The other two paragraphs are copied unchanged from main e8814efbc71c, read whole.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -44,6 +48,11 @@ approvals:
       by: harness
       at: 2026-11-26T11:06:05.815236Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4119, for document-4119.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-11-26T15:21:04.932043Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4137, for document-4137.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -146,7 +155,7 @@ A record without removals is written exactly as today. A build older than this p
 
 ### The rest of piece 8
 
-Until piece 10 lands, an epic whose members are all done shows Working and says the check of the whole epic is not built yet.
+Until piece 10b (yoyodyne-9k1y.12.2) lands, an epic whose members are all done shows Working and says the check of the whole epic is not built yet. Once it lands, status names that check as owed or under way instead.
 
 The delivered entry in the progress record is evidence, and the state is still worked out from all the records. An epic opens again when the operator adds a member after it was delivered, or when a person closes one of its pull requests unmerged. The old delivered entry is then kept as history and no longer counts.
 
