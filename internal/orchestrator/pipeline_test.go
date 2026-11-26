@@ -1545,14 +1545,15 @@ func TestRunFailsAStoppedProviderItCannotContinueWithoutBlamingTheDeveloper(t *t
 	}
 }
 
-// conflictsTwiceAtLanding is a developer whose approved change to relative
-// conflicts at landing twice. Each attempt writes mine into the worktree, and
+// conflictsAtEveryLanding is a developer whose approved change to relative
+// conflicts at every landing. Each attempt writes mine into the worktree, and
 // while it is out the target moves onto the same line: to theirs the first
-// time, and to theirsAgain on every attempt after it. So the first conflict is
-// answered by the run's one reconciliation attempt, which keeps this run's
-// answer, and the second meets a run whose reconciliation attempt is already
-// used — the conflict a run with no repair attempt left still stops on.
-func conflictsTwiceAtLanding(t *testing.T, repository, relative, mine, theirs, theirsAgain string) func(backend.RunRequest) error {
+// time, to theirsAgain the second, and to theirsAgain numbered by the attempt
+// after that, so every landing meets a target the change has not yet seen. So
+// the first runstate.MaxReconciliations conflicts are answered by the run's
+// reconciliation attempts, and the one after them meets a run whose attempts
+// are all used — the conflict a run stops on whatever repair attempts remain.
+func conflictsAtEveryLanding(t *testing.T, repository, relative, mine, theirs, theirsAgain string) func(backend.RunRequest) error {
 	t.Helper()
 	attempts := 0
 	return func(request backend.RunRequest) error {
@@ -1561,8 +1562,11 @@ func conflictsTwiceAtLanding(t *testing.T, repository, relative, mine, theirs, t
 			return err
 		}
 		answer := theirs
-		if attempts > 1 {
+		switch {
+		case attempts == 2:
 			answer = theirsAgain
+		case attempts > 2:
+			answer = theirsAgain + strconv.Itoa(attempts) + "\n"
 		}
 		writePipelineFile(t, repository, relative, answer)
 		runPipelineGit(t, repository, "add", relative)
@@ -1572,6 +1576,11 @@ func conflictsTwiceAtLanding(t *testing.T, repository, relative, mine, theirs, t
 }
 
 const somebodyElsesSecondAnswer = "somebody else's second answer\n"
+
+// somebodyElsesLastAnswer is what the target holds after a developer that
+// conflicts at every landing has had every reconciliation attempt: the answer
+// the conflict that stops the run met.
+var somebodyElsesLastAnswer = somebodyElsesSecondAnswer + strconv.Itoa(1+runstate.MaxReconciliations) + "\n"
 
 // yoyodyne-ifd.441's shape: the replay onto main conflicts, and the blocker
 // write about it then times out at the tracker, so the error that ends the run
@@ -1589,12 +1598,11 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	// which is in the recovery package's closed set of transport failures and is
 	// what the classifier matched on 441's tail.
 	tracker.BlockErr = errors.New("bd update failed with status timed_out and exit code -1: ")
-	provider := orchestratortest.RoleBackend(conflictsTwiceAtLanding(t, repository, filepath.Join("docs", "design.md"),
+	provider := orchestratortest.RoleBackend(conflictsAtEveryLanding(t, repository, filepath.Join("docs", "design.md"),
 		"this run's answer\n", "somebody else's answer\n", somebodyElsesSecondAnswer), approveVerdict)
 	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
-	// The run's reconciliation attempt answers the first conflict, and no repair
-	// attempt is left to hand the second back to its developer (yoyodyne-ifd.132),
-	// so the second goes straight to the blocker write.
+	// The run's reconciliation attempts answer the first three conflicts, and the
+	// fourth goes straight to the blocker write whatever repair attempts remain.
 	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
@@ -1623,7 +1631,7 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 		t.Fatalf("item notes do not name the conflict as what stopped the run:\n%s", tracker.Notes)
 	}
 	// Both sides of the change survive, untouched.
-	if content := readPipelineFile(t, repository, filepath.Join("docs", "design.md")); content != somebodyElsesSecondAnswer {
+	if content := readPipelineFile(t, repository, filepath.Join("docs", "design.md")); content != somebodyElsesLastAnswer {
 		t.Fatalf("target content = %q", content)
 	}
 	if content := readPipelineFile(t, outcome.WorktreePath, filepath.Join("docs", "design.md")); content != "this run's answer\n" {
@@ -1633,7 +1641,7 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if state.Status != runstate.StatusFailed || state.Integration != nil || state.IntegrationRetries != 2 || state.Blocker != "" {
+	if state.Status != runstate.StatusFailed || state.Integration != nil || state.IntegrationRetries != 1+runstate.MaxReconciliations || state.Blocker != "" {
 		t.Fatalf("state = status %s, integration %#v, retries %d, blocker %q; want the run failed on its first replay with no blocker recorded", state.Status, state.Integration, state.IntegrationRetries, state.Blocker)
 	}
 	if state.IntegrationStop != nil || state.ResumableIntegration() {

@@ -247,10 +247,14 @@ records 2, the same as an ordinary repair round, and a reader expecting a replay
 to be free of that counter should read the trace rather than this sentence.
 Each lost race is also recorded in `lost_landings`, and a replay that applied
 cleanly and passed its checks is counted in `clean_replays`. A replay that
-conflicts is never resolved by the harness: the first conflict is handed to a
-new developer session as the run's one reconciliation attempt (`reconciliation`), charging
-no repair attempt, and a later one with nothing left to hand it back with leaves
-both sides intact and blocks the item.
+conflicts is never resolved by the harness: each of the first three conflicts is
+handed to a new developer session as one of the run's reconciliation attempts
+(`reconciliation` is the latest, `earlier_reconciliations` the ones before it,
+each numbered in `attempt`), charging no repair attempt, and the fourth leaves
+both sides intact and blocks the item for the development manager. Every attempt
+after the first records the commit it conflicted with and, in `hold_missed`,
+why holding the entries that change the same files did not prevent it; until
+the merge queue holds such entries, that is always `no_hold`.
 
 ## The pause cases
 

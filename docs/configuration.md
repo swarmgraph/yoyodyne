@@ -3926,10 +3926,10 @@ change onto it. Where nothing conflicts, the short local check runs, the new hea
 is pushed, and the wait starts again on it; a short check that fails there goes
 back to the developer as any failing check does, and the repaired head is the one
 that replaces the old head. Where something does, the change goes
-back to the same run's developer as the run's one attempt to bring its change up
-to date, the attempt a conflict in the merge queue gets, but made in the session
-that wrote the change, because no review has approved it yet; a run that has already
-used it stops for the development manager. Neither spends a repair attempt or a
+back to the same run's developer as one of the run's three attempts to bring its
+change up to date, the attempts a conflict in the merge queue gets, but made in
+the session that wrote the change, because no review has approved it yet; a run
+that has already used all three stops for the development manager. Neither spends a repair attempt or a
 review round, and neither the full local checks nor a review runs on the
 conflicting head. Where GitHub cannot be reached while the target is being read,
 the run gives its slot back and tries again five minutes later. The run's record,
@@ -4346,10 +4346,10 @@ target the forge protects, replayed the same way and then landed through its
 pull request rather than by a local fast-forward
 ([a protected target lands through its pull request](#a-protected-target-lands-through-its-pull-request)).
 A replay that conflicts is handed back to a developer to reconcile on top of
-the target, and the result is checked and reviewed again. The first conflict is
-the run's one reconciliation attempt, made in a new session and spending no
-repair attempt; a later one is a repair attempt, and the run blocks only once a
-budget is spent. Nothing is ever forced.
+the target, and the result is checked and reviewed again. Each of the first
+three conflicts is one of the run's reconciliation attempts, made in a new
+session and spending no repair attempt; the fourth stops the run for the
+development manager, whatever repair attempts are left. Nothing is ever forced.
 
 Thirteen things keep an item out of a pass, reported at two different grains. The
 first ten are named against the item, because nothing else would report that
@@ -7851,14 +7851,14 @@ files for that check on that branch is found or filed, nothing is charged to the
 change, and the entry steps aside for the entries behind it — one of which may
 be the fix — and is built afresh once the target moves. A head that will not
 merge onto the target at all, because the target moved while it waited, is
-first given its run's one reconciliation attempt rather than a stop: the run is
+first given one of its run's three reconciliation attempts rather than a stop: the run is
 put back live at its developer attempt, the reconciling sweep hosts it, a
 new developer session reconciles the conflict on top of the target, and the change is
 checked and reviewed again and rejoins the queue by itself, charged no repair
 attempt and no fresh run (`merge-queue-behind` in
 [run stops](run-stops.md)); while every developer slot is taken, the queue
-gives it at a later pass. A run that already used that attempt, or cannot take
-it, is handed back the way a replay conflict is, saying why, so the repair
+gives it at a later pass. A run that already used all three, or cannot take
+one, is handed back the way a replay conflict is, saying why, so the repair
 continuation moves the change onto the target and asks its developer to
 reconcile it. A handback no single run can take up goes on the development
 manager's docket. GitHub holds a candidate's merge only where a build from

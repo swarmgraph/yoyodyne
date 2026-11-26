@@ -278,11 +278,11 @@ execution:
   # one whose replay conflicted or was stopped on the change, with its branch
   # and worktree kept for the development manager to decide on. This bounds
   # only the replays that stop on the change -- one that fails its checks or
-  # draws a repair verdict, or a conflict after the first -- and the one past it
+  # draws a repair verdict, or a conflict after the third -- and the one past it
   # stops the run there; at 0 no replay may stop on the change. A replay that
-  # conflicts is never resolved automatically: it goes back to its developer,
-  # first as the run's one reconciliation attempt, which spends no repair
-  # attempt, then as a repair while one is left, and only then stops the run.
+  # conflicts is never resolved automatically: it goes back to its developer as
+  # one of the run's three reconciliation attempts, which spend no repair
+  # attempt, and a fourth conflict stops the run for the development manager.
   integration_retries_before_reconciliation: %d
   # A provider invocation that dies without judging the work -- an API error its
   # own retries did not outlast, or a response cut off mid-flight -- is reissued

@@ -10,10 +10,10 @@ package orchestrator
 // target level with the remote's, and replays its change onto it
 // (bringTargetIn). A change that replays cleanly is checked by the short local
 // check, pushed, and waited on at its new head. One that does not is handed to
-// the same run's developer (handCIWaitConflict) as the run's one reconciliation
-// attempt, which is the one a conflict the merge queue hands back gets
-// (mergequeuecatchup.go); a run that has used it stops for the development
-// manager. Neither counts a repair attempt or a review round, and neither the
+// the same run's developer (handCIWaitConflict) as the run's next
+// reconciliation attempt, drawn from the same ones a conflict the merge queue
+// hands back gets (mergequeuecatchup.go); a run that has used them all stops
+// for the development manager. Neither counts a repair attempt or a review round, and neither the
 // full local checks nor a review runs on the head that conflicts.
 
 import (
@@ -115,8 +115,8 @@ func (a *activeRun) bringTargetIn(ctx context.Context, wait runstate.CIWait) (bo
 	}
 	var done string
 	switch {
-	case errors.Is(err, gitworktree.ErrRebaseConflict) && a.state.ReconciliationUsed():
-		done = "the change conflicts with it and this run already used its one attempt to bring its change up to date, so the development manager decides what happens next"
+	case errors.Is(err, gitworktree.ErrRebaseConflict) && a.state.ReconciliationsSpent():
+		done = fmt.Sprintf("the change conflicts with it and this run already used its %d attempts to bring its change up to date, so the development manager decides what happens next", runstate.MaxReconciliations)
 	case errors.Is(err, gitworktree.ErrRebaseConflict):
 		done = "the change conflicts with it" + ciConflictPaths(err) + ", so it went back to its developer to settle, which counts no repair attempt"
 	case err != nil:
@@ -183,13 +183,13 @@ func ciConflictPaths(err error) string {
 }
 
 // handCIWaitConflict hands a change that conflicts with its target, found while
-// it waited for the forge's checks, to its developer as the run's one
+// it waited for the forge's checks, to its developer as the run's next
 // reconciliation attempt. The attempt and the run being at its developer are
 // saved before the change is moved, so a process that stops anywhere after
 // finds the move or the attempt still owed, and only once.
 func (a *activeRun) handCIWaitConflict(ctx context.Context, conflict ciWaitConflict) error {
 	a.recordReplayConflict(recordedReplayConflict(a.worktree, conflict.cause, runstate.PhaseChecking, a.pipeline.clock().Now().UTC()), conflict.cause)
-	if a.state.ReconciliationUsed() {
+	if a.state.ReconciliationsSpent() {
 		a.observeCheckEnded(ctx, conflict, budgetSpent)
 		return a.blockOnCIWaitConflict(conflict)
 	}
@@ -198,8 +198,8 @@ func (a *activeRun) handCIWaitConflict(ctx context.Context, conflict ciWaitConfl
 }
 
 // blockOnCIWaitConflict stops a run whose change conflicts with its target
-// after its one reconciliation attempt was used, as a second conflict in the
-// merge queue does.
+// after every reconciliation attempt it gets was used, as the conflict after
+// them in the merge queue does.
 func (a *activeRun) blockOnCIWaitConflict(conflict ciWaitConflict) error {
 	a.outcome.ReplayConflict = a.state.ReplayConflict
 	a.syncLandingAttempts()

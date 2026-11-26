@@ -215,7 +215,7 @@ func (s *State) NoteHarnessResumeRefused(why string, at time.Time) bool {
 // That decision is asked of a developer first (yoyodyne-ifd.132). The record is
 // the input it is handed: the change is moved onto the target with the
 // disagreement left in the worktree, and a developer reconciles the two — in a
-// new session for the run's one reconciliation attempt, and in the run's current
+// new session for each of the run's reconciliation attempts, and in the run's current
 // session for a conflict handed back as a repair — after which the
 // change re-earns the whole gate. It is cleared by the checks passing on the
 // reconciled change, because a change that passes on top of the target is the
@@ -261,7 +261,7 @@ type ReplayConflict struct {
 	// know whether the move is still owed before it invokes anybody.
 	Moved bool `json:"moved,omitempty"`
 	// Reconciliation says this conflict was handed to the developer as the
-	// run's one reconciliation attempt (State.Reconciliation) rather than as a
+	// run's reconciliation attempts (State.Reconciliation) rather than as a
 	// repair, so a run picked up part-way through it asks for it in the same
 	// words and charges no repair attempt for it.
 	Reconciliation bool `json:"reconciliation,omitempty"`

@@ -79,7 +79,7 @@ func TestAConflictAtLandingWithNoRepairAttemptLeftIsReconciledAndLands(t *testin
 	// The run's summary says the reconciliation was used and what the lost
 	// landing made of the change.
 	for _, want := range []string{
-		"Reconciliation attempt: used.",
+		"Reconciliation attempt 1 of 3: used.",
 		"that attempt was not counted against the repair attempts",
 		"Landing attempts lost to other work: 1. 0 of them were replayed cleanly",
 		"Lost landing 1: other work landed on main first",

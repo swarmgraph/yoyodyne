@@ -62,9 +62,9 @@ func assertLandingStop(t *testing.T, tracker *orchestratortest.Tracker, store *r
 
 // The shape all three stops of October 11 had: the change was approved on a
 // protected main, another change merged into the same file first, and the
-// replay conflicted with no repair left. The first conflict is answered by the
-// run's one reconciliation attempt, and main takes another conflicting change
-// while it is out, so the second conflict is the stop. Nothing was asked of the
+// replay conflicted with no repair left. The first three conflicts are
+// answered by the run's reconciliation attempts, and main takes another
+// conflicting change while each is out, so the fourth conflict is the stop. Nothing was asked of the
 // forge, and the note says so last instead of ending on the protection line.
 func TestALandingStoppedByAReplayConflictSaysTheForgeWasNeverAsked(t *testing.T) {
 	t.Parallel()
@@ -82,7 +82,7 @@ func TestALandingStoppedByAReplayConflictSaysTheForgeWasNeverAsked(t *testing.T)
 	developed := 0
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		if developed++; developed > 1 {
-			mergeConflictingRemoteAnswer(t, remote, "feature.txt", "a third change's answer\n")
+			mergeConflictingRemoteAnswer(t, remote, "feature.txt", fmt.Sprintf("change %d's answer\n", developed))
 		}
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("this run's answer\n"), 0o600)
 	}, testharness.ApproveVerdict)
@@ -103,8 +103,8 @@ func TestALandingStoppedByAReplayConflictSaysTheForgeWasNeverAsked(t *testing.T)
 	if !strings.Contains(tracker.BlockReason, "main is protected on the forge") {
 		t.Errorf("blocker lost the protection line:\n%s", tracker.BlockReason)
 	}
-	if !strings.Contains(tracker.BlockReason, "after the run's one reconciliation attempt was already used") {
-		t.Errorf("blocker does not say the reconciliation attempt was already used:\n%s", tracker.BlockReason)
+	if !strings.Contains(tracker.BlockReason, "after the run's 3 reconciliation attempts were already used") {
+		t.Errorf("blocker does not say the reconciliation attempts were already used:\n%s", tracker.BlockReason)
 	}
 }
 
