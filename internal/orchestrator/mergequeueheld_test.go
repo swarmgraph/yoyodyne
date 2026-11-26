@@ -64,7 +64,7 @@ func TestHeldChangesAreTakenUpInTheOrderTheyWereApprovedOnceTheirQueueClears(t *
 		Docket: docket, Runs: runs, Refusals: refusals, Enabled: true, ProductID: "yoyodyne",
 		Harness: queuemode.Harness{PullRequests: true},
 		Forge:   heldForge(required),
-		Resume: func(_ context.Context, runID string) (IntegrationResumeResult, error) {
+		Resume: func(_ context.Context, runID, _ string) (IntegrationResumeResult, error) {
 			if full {
 				return IntegrationResumeResult{CapacityFull: &runstate.CapacityError{Active: 1, Limit: 1}}, nil
 			}
@@ -104,7 +104,7 @@ func TestATurnedOffSwitchClearsEveryHoldWithoutAskingTheForge(t *testing.T) {
 	pass := MergeQueueHeldChanges{
 		Docket: docket, Runs: heldRuns{run.RunID: run}, Refusals: &clearedRefusals{}, Enabled: false, ProductID: "yoyodyne",
 		Forge: heldForge(map[string]bool{"main": true}),
-		Resume: func(context.Context, string) (IntegrationResumeResult, error) {
+		Resume: func(context.Context, string, string) (IntegrationResumeResult, error) {
 			resumed++
 			return IntegrationResumeResult{Resumed: true}, nil
 		},

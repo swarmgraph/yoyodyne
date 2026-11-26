@@ -139,23 +139,38 @@ func (stopsRewrite) apply(state *State) (bool, error) {
 	return true, nil
 }
 
-// A stop reason the code does not recognise is about the work: it is
-// charged, and the stop names the reason as unrecognised.
-func TestAnUnrecognisedStopReasonIsChargedAndNamed(t *testing.T) {
+// A stop reason the code does not recognise is outside the work, as ruled on
+// November 18 for stopped-run recovery: it charges no repair attempt and no
+// review round, keeps the change, and is named as unrecognised; and the hold on
+// new work, which reads the reason rather than the cause, still counts it.
+func TestAnUnrecognisedStopReasonIsUnchargedNamedAndCountedTowardTheHold(t *testing.T) {
 	t.Parallel()
 
+	// This build refuses to store a reason it does not know, so the reason
+	// reaches it only on a record a newer build wrote; the stop is decided as
+	// that record is written, which is what this exercises.
+	_, running := stoppingStore(t)
 	invented := StopClass("a-reason-no-build-has-written")
-	state := stopAt(testState(t, StatusRunning), time.Date(2026, 8, 14, 13, 0, 0, 0, time.UTC), invented)
-	if cause := StopCauseOf(state); cause != StopCauseWork {
-		t.Fatalf("StopCauseOf() = %q, want about the work", cause)
+	if StopRecognised(invented) {
+		t.Fatalf("StopRecognised(%q) = true, want an invented reason unrecognised", invented)
 	}
-	recorded := state.withStopRecorded(stopHistory{})
-	if len(recorded.Stops) != 1 {
-		t.Fatalf("stops = %#v, want one", recorded.Stops)
+	stopped := stopAt(running, running.StartedAt.Add(time.Hour), invented)
+	if cause := StopCauseOf(stopped); cause != StopCauseOutside || cause.Charges() {
+		t.Fatalf("StopCauseOf() = %q, want outside the work and uncharged", cause)
 	}
-	stop := recorded.Stops[0]
-	if stop.Cause != StopCauseWork || !stop.Charged || !stop.Unrecognised || stop.Reason != invented {
-		t.Fatalf("stop = %#v, want it charged and named as unrecognised", stop)
+	recorded := stopped.withStopRecorded(stopHistory{})
+	stop, ok := recorded.CurrentStop()
+	if !ok {
+		t.Fatalf("stops = %#v, want the stop recorded", recorded.Stops)
+	}
+	if stop.Cause != StopCauseOutside || stop.Charged || !stop.Unrecognised || stop.Reason != invented || !stop.Kept {
+		t.Fatalf("stop = %#v, want it outside the work, uncharged, kept, and named as unrecognised", stop)
+	}
+	if err := stop.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if StopKeptOutOfHold(invented) || StopKeptOutOfHoldAfter(invented, nil) {
+		t.Fatalf("the hold on new work leaves %q out, want it counted", invented)
 	}
 }
 
@@ -180,6 +195,7 @@ func TestAStopsCauseIsOneOfThree(t *testing.T) {
 		StopRedeploy:                    StopCauseOutside,
 		StopHarness:                     StopCauseOutside,
 		StopDeadClaim:                   StopCauseOutside,
+		CauseMergeQueueFull.StopClass(): StopCauseOutside,
 		StopChecks:                      StopCauseWork,
 		StopReview:                      StopCauseWork,
 		StopIntegration:                 StopCauseWork,

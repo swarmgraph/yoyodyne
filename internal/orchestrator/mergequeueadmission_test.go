@@ -9,7 +9,10 @@ package orchestrator
 // the requirement is removed or the switch is turned off.
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -184,6 +187,8 @@ type heldQueueRun struct {
 	reports    *fakeReports
 	required   bool
 	unread     error
+	// developed counts the developer's invocations.
+	developed int
 }
 
 func newHeldQueueRun(t *testing.T, queue *runstate.MergeQueueStore, reports *fakeReports) *heldQueueRun {
@@ -195,6 +200,7 @@ func newHeldQueueRun(t *testing.T, queue *runstate.MergeQueueStore, reports *fak
 		forge:   &orchestratortest.Forge{Remote: remote},
 	}
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		r.developed++
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict, approveVerdict)
 	r.pipeline, r.runs = newPublishingPipeline(t, repository, r.tracker, provider, switchableForgeQueue{Forge: r.forge, required: &r.required, unread: &r.unread}, []string{"test -f feature.txt"})
@@ -226,9 +232,9 @@ func (r *heldQueueRun) held(t *testing.T, outcome Outcome) MergeQueueHeldPass {
 	}
 	forge := switchableForgeQueue{Forge: r.forge, required: &r.required, unread: &r.unread}
 	return MergeQueueHeldChanges{
-		Docket: docket, Runs: r.runs, Refusals: r.queue, Forge: forge,
+		Docket: docket, Runs: r.runs, Refusals: r.queue, Room: r.queue, Forge: forge,
 		Harness: queuemode.Harness{PullRequests: true}, Enabled: r.pipeline.Config.Execution.MergeQueue, ProductID: "yoyodyne",
-		Resume: func(ctx context.Context, runID string) (IntegrationResumeResult, error) {
+		Resume: func(ctx context.Context, runID, _ string) (IntegrationResumeResult, error) {
 			return resumer.Resume(ctx, IntegrationResumeRequest{Run: runID})
 		},
 	}.Take(context.Background())
@@ -367,5 +373,98 @@ func TestASwitchTurnedOffWhileAChangeIsHeldIntegratesItTheOldWay(t *testing.T) {
 	}
 	if entries, err := queue.Entries(mainQueueKey); err != nil || len(entries) != 0 {
 		t.Fatalf("entries = %#v, %v; want nothing admitted with the switch off", entries, err)
+	}
+}
+
+// overfillMergeQueue writes a queue record for main past the size limit the
+// harness sets for it, as a queue that has seen many admissions comes to be,
+// and returns a function that takes it away again.
+func overfillMergeQueue(t *testing.T, queue *runstate.MergeQueueStore) func() {
+	t.Helper()
+	sum := sha256.Sum256([]byte(mainQueueKey.Repository + "\x00" + mainQueueKey.TargetBranch))
+	directory := filepath.Join(queue.Root(), hex.EncodeToString(sum[:16]))
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(directory, "queue.json")
+	if err := os.WriteFile(record, bytes.Repeat([]byte(" "), 16<<20+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if room, says, err := queue.RoomForAdmission(mainQueueKey); err != nil || room {
+		t.Fatalf("RoomForAdmission() = %t, %q, %v; want the overfilled record to leave no room", room, says, err)
+	}
+	return func() {
+		if err := os.Remove(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A merge queue whose own record is over the harness's size limit for it
+// refuses the approved change for a reason that is not about the change: the
+// stop charges no repair attempt or review round, the hold on new work leaves
+// it out, and the change is held at its promotion with its approval and review
+// standing. Nothing tries it again, and no AI provider is asked anything,
+// while the record has no room; once it has, the next look admits the change.
+func TestAMergeQueueOverItsOwnSizeLimitHoldsTheApprovedChangeUnchargedUntilItHasRoom(t *testing.T) {
+	t.Parallel()
+
+	queue, err := runstate.NewMergeQueueStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newHeldQueueRun(t, queue, &fakeReports{})
+	r.required = false
+	emptied := overfillMergeQueue(t, queue)
+
+	outcome, err := r.pipeline.Run(context.Background(), "yoyodyne-task")
+	if !errors.Is(err, runstate.ErrMergeQueueFull) {
+		t.Fatalf("Run() error = %v, want the queue's own size limit named", err)
+	}
+	if outcome.IntegrationStop == nil || outcome.IntegrationStop.Cause != runstate.CauseMergeQueueFull || len(r.forge.Merges) != 0 {
+		t.Fatalf("integration stop = %#v with %d merges, want the change held at its promotion and nothing merged", outcome.IntegrationStop, len(r.forge.Merges))
+	}
+	stopped, err := r.runs.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop, ok := stopped.CurrentStop()
+	if !ok || stop.Reason != runstate.CauseMergeQueueFull.StopClass() || stop.Cause != runstate.StopCauseOutside || stop.Charged || !stop.Kept || stop.Unrecognised {
+		t.Fatalf("stop = %#v (%t), want it outside the work, uncharged, with the change kept", stop, ok)
+	}
+	if runstate.StopKeptOutOfHoldAfter(stopped.RecordedStopClass(), stopped.Retries) == false {
+		t.Fatalf("the hold on new work counts a stop of %q, want it left out", stopped.RecordedStopClass())
+	}
+	if !stopped.ResumableIntegration() || stopped.ReviewDecision != runstate.ReviewApprove || stopped.RepairAttempts != 0 {
+		t.Fatalf("run = approved %v, resumable %t, %d repair attempts; want the approval and review standing and no repair spent",
+			stopped.ReviewDecision, stopped.ResumableIntegration(), stopped.RepairAttempts)
+	}
+	if r.developed != 1 {
+		t.Fatalf("developer invoked %d times, want once", r.developed)
+	}
+
+	// While the record has no room the change stays held and nothing is paid
+	// for: the same refusal would end any try.
+	for look := 1; look <= 2; look++ {
+		if pass := r.held(t, outcome); pass.Held != 1 || pass.Resumed != 0 || !strings.Contains(pass.Says, "no room") {
+			t.Fatalf("look %d with the record full = %#v, want the change held, saying there is no room", look, pass)
+		}
+	}
+	if again, err := r.runs.Load(outcome.RunID); err != nil || len(again.IntegrationResumptions) != 0 || r.developed != 1 {
+		t.Fatalf("resumptions = %d, %v, developer invoked %d times; want nothing tried while the record is full", len(again.IntegrationResumptions), err, r.developed)
+	}
+
+	// Once the record has room the next look takes the change up at its
+	// promotion and admits it, with no developer invoked and nothing replayed.
+	emptied()
+	if pass := r.held(t, outcome); pass.Held != 1 || pass.Resumed != 1 {
+		t.Fatalf("look once the record has room = %#v, want the change taken up", pass)
+	}
+	resumed, err := r.runs.Load(outcome.RunID)
+	if err != nil || !resumed.AwaitingMergeQueue() || resumed.IntegrationRetries != 0 || resumed.RepairAttempts != 0 || r.developed != 1 {
+		t.Fatalf("run = %#v, %v, developer invoked %d times; want it admitted to the queue, unreplayed and uncharged", resumed.MergeQueue, err, r.developed)
+	}
+	if entries, err := queue.Entries(mainQueueKey); err != nil || len(entries) != 1 || entries[0].RunID != outcome.RunID {
+		t.Fatalf("entries = %#v, %v; want the held change admitted", entries, err)
 	}
 }
