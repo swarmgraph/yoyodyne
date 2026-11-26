@@ -15,6 +15,10 @@ revisions:
       by: architect
       at: 2026-11-25T19:16:46.277714Z
       reason: 'yoyodyne-9k1y.10: settles the three cases the developer of piece 8 reported: which state a mixed wait takes, how an item judged by its summary is recognised, and how an ended epic treats a question put to the operator whose record holds no time. It adds the reviewer''s checks for them. Read whole at main 529de40314b7.'
+    - action: amended
+      by: architect
+      at: 2026-11-25T21:35:41.557476Z
+      reason: 'yoyodyne-9k1y.12: adds the rule for a piece edited after it joined a named epic, answering report-dd30c959 and report-38f40667: it starts a developer only on text a reviewer session judged inside the epic. Piece 10 builds it. The rest of the section is copied unchanged from main 0f35eeff1e4a, read whole. An earlier send was refused for lack of room.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -26,6 +30,11 @@ approvals:
       by: harness
       at: 2026-11-25T19:16:46.277714Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4048, for document-4048.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-25T21:35:41.557476Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4067, for document-4067.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -152,6 +161,24 @@ Twelve is a limit in code, and no command or setting raises it. The operator may
 Anything else stays outside: an item attached under the epic, made a prerequisite of a member, moved under it, or made by any other act. Where the reviewer answers that a piece is outside, or cannot tell, or twelve have joined, it does not join, starts nothing, and is a question about scope.
 
 The judgment is a paid call. It is reserved before it is made, and looked up before it is sent again. This piece builds the judgment, its limit, and the split that uses it. Pieces 10 and 11 use it for the other two acts.
+
+### A piece edited after it joined
+
+Built by piece 10 (yoyodyne-9k1y.12), so that the building of piece 9 is not disturbed. A piece that joined may start a developer only on text that a reviewer session has judged inside the epic. Without this, an edit made after the judgment could widen the work without the operator.
+
+1. The text judged is the piece's title, description and acceptance criteria. Notes, priority and labels are not part of it. The judgment's entry in the progress record keeps a digest of that text.
+2. The harness compares the digest before each developer session that is given the piece's text, the first and any later one. The code that starts the session compares it, from the same reading of the item that it gives to the developer. The one decision is not changed: it is given an item's identifier and reads no tracker.
+3. Where the text differs from every text judged inside, no developer session starts. The new text is judged as rule 3 above says, and that call is reserved as any judgment is. Judged inside, its digest is added and the piece goes on. A run already under way waits with its work kept.
+4. Where it is judged outside, or the reviewer cannot tell, the piece waits and is a question about scope. It is not judged again until the development manager has rewritten it after the Lead Product Manager's answer. An edit made in between starts no judgment.
+5. One text is judged once for one naming. A piece put back to a text already judged inside goes on with no new call.
+6. The piece keeps its one place among the twelve, however often it is judged.
+7. An item the operator named or added is not compared, because the operator's own act put it in. A joined piece the operator then adds with `yoyo epic add` is such an item.
+8. A piece that joined before this rule landed has no digest. Its text as it stands is judged once, before its next developer session.
+9. Where the item cannot be read, no session starts, and the reading is tried again as any tracker reading is.
+
+Status names a piece that waits for such a judgment, and one that was judged outside. The code that starts a developer session and the change that builds piece 9 were not read for this rule. A builder who finds either differing from it stops and asks the architect.
+
+A reviewer can check: a piece edited after joining starts no developer until it is judged; judged inside it goes on, and judged outside it is a question about scope and a further edit makes no call; a piece put back to a judged text makes no call; a change to its notes or priority makes none; an edit during a run holds the next session and keeps the work; an item the operator added is never compared; a restart between the reservation and the answer makes no second call before looking the first one up.
 
 ## The check of the whole epic: piece 10 (yoyodyne-9k1y.12)
 
