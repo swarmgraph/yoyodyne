@@ -1280,14 +1280,13 @@ stops.
 bd opens the tracker's store afresh for every command. The supervisor can
 instead run one server that keeps the store open (`dolt sql-server`, from the
 harness's own dolt), and every tracker command the harness makes is then answered
-through it. **It is built and not switched on.** dolt always opens a network port
-on this machine, so the server is reached with a password, kept in a folder every
-session the harness starts is refused
-([runs](configuration/runs.md)). A real install of dolt 2.7.6 by the harness's
-setup has also to be recorded as checked. Until it is, this build starts no server,
-and no configuration key turns it on.
-
-Once it is switched on:
+through it. dolt always opens a network port on this machine, so the server is
+reached with a password, kept in a folder every session the harness starts is
+refused ([runs](configuration/runs.md)). That a real dolt 2.7.6 refuses a
+connection without the password and leaves no secret under the store is
+recorded in [the check against a real dolt](diagnoses/yoyodyne-real-dolt-check.md).
+No configuration key turns the server off; until the harness's own dolt is
+installed, the supervisor starts none and records why.
 
 - The supervisor starts the server, starts it again if it dies, and moves it onto
   each new build. `yoyo stop` stops it after every other part. It is started and

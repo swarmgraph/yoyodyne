@@ -47,11 +47,14 @@ import (
 // ServerHold is why the tracker's server is not run, and empty when it may be.
 // The supervisor starts no server while it is set, and stops one it finds.
 //
-// dolt always opens a TCP port, so the server cannot listen on a socket file
-// alone and has to be reached with a password
-// (docs/decisions/developer-runs-and-local-services.md), in a folder every
-// session on both providers is refused (backend.ServicesDirectory).
-const ServerHold = "no real install of dolt 2.7.6 by the harness's setup has been recorded as checked"
+// It is empty. dolt always opens a TCP port, so the server cannot listen on a
+// socket file alone and has to be reached with a password
+// (docs/decisions/developer-runs-and-local-services.md), kept in a folder every
+// session on both providers is refused (backend.ServicesDirectory). That a
+// real dolt 2.7.6 refuses a connection without the password and leaves no
+// secret under the store is recorded in docs/diagnoses/yoyodyne-real-dolt-check.md.
+// Setting a reason here again turns the server off on every machine.
+const ServerHold = ""
 
 // The states a server's record is in. Starting is written before the server's
 // process is started, so a supervisor that died between the two leaves a record
