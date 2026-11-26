@@ -44,7 +44,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    in-flight run via `resumeRun`, or refuse with `ExistingRunError`),
    `holdIntake`, `MayStart` (the one decision on what may start under the epics
    the operator named, asked of every selection, the operator's own included;
-   `namedepics.go`), `refuseNeedsDesign` (an item labelled needs-design is refused
+   `namedepics.go`), `PieceTexts.refuse` (a piece that joined a named epic starts
+   no run on a text no judgment found inside it; asked again of an adopted run in
+   `waitForEpic` and before every developer session in `holdForPieceText`,
+   `epicwait.go`), `refuseNeedsDesign` (an item labelled needs-design is refused
    for every selection but the operator's, `NeedsDesignError`, and an operator's
    run records the override), `refuseSubstitutedHandback`, `validateReadyItem`,
    `refuseUngrantedCondition`, `loadInvariants`, `Worktrees.ValidateReady`,

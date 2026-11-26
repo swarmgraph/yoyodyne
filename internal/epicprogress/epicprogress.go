@@ -11,6 +11,8 @@ package epicprogress
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,13 +112,146 @@ type Joined struct {
 const MaxJoined = 12
 
 // Piece is one made by an act that may let it join, and whether it did. Judgment
-// is the reservation of its judgment, and Outcome is nil until it is judged.
+// is the reservation of its latest judgment, and Outcome is nil until it is
+// judged. docs/designs/epic-mode-second-part.md says under piece 9 how a piece
+// edited after it was judged is judged again.
 type Piece struct {
 	WorkItemID string    `json:"work_item_id"`
 	From       string    `json:"from"`
 	Judgment   string    `json:"judgment"`
 	At         time.Time `json:"at"`
 	Outcome    *Outcome  `json:"outcome,omitempty"`
+	// Digest is of the text the latest judgment judges (TextDigest). A piece
+	// recorded before texts were kept has none.
+	Digest string `json:"digest,omitempty"`
+	// Question is the report that put the latest judgment, of outside or cannot
+	// tell, to the Lead Product Manager as a question about scope.
+	Question string `json:"question,omitempty"`
+	// Answered is the Lead Product Manager's answer to Question, once the harness
+	// has read her recorded handling of it.
+	Answered *ScopeAnswer `json:"answered,omitempty"`
+	// Seen is when each text that no judgment judged was first seen while the
+	// piece waited on its question, so that only an edit seen after her answer
+	// is judged.
+	Seen []Seen `json:"seen,omitempty"`
+	// Earlier is each judgment of an earlier text, oldest first.
+	Earlier []EarlierJudgment `json:"earlier,omitempty"`
+}
+
+// ScopeAnswer is what the Lead Product Manager's handling of a question about
+// scope recorded: when, and, where it recorded that only the operator can act,
+// the reason from his closed list and what it said he has to do. That is how she
+// says the epic can be delivered without the piece, which only the operator can
+// then take out; the piece waits and is judged no more. Any other answer has the
+// development manager rewrite the piece, and the first edit seen after it is
+// judged.
+type ScopeAnswer struct {
+	At       time.Time                `json:"at"`
+	Operator ownership.OperatorReason `json:"operator,omitempty"`
+	Says     string                   `json:"says,omitempty"`
+}
+
+func (a *ScopeAnswer) valid() bool {
+	return a == nil || !a.At.IsZero() && (a.Operator == "" && a.Says == "" || a.Operator.Valid() && strings.TrimSpace(a.Says) != "")
+}
+
+// Seen is a text first seen at a time.
+type Seen struct {
+	Digest string    `json:"digest"`
+	At     time.Time `json:"at"`
+}
+
+// EarlierJudgment is a judgment of a piece's text that a later one followed.
+type EarlierJudgment struct {
+	Judgment string  `json:"judgment"`
+	Digest   string  `json:"digest,omitempty"`
+	Outcome  Outcome `json:"outcome"`
+	Question string  `json:"question,omitempty"`
+}
+
+// TextDigest is the digest of what a joining judgment judges of an item: its
+// title, description and acceptance criteria. Its notes, priority and labels are
+// not part of it.
+func TextDigest(item beads.WorkItem) string {
+	sum := sha256.New()
+	for _, part := range []string{item.Title, item.Description, item.AcceptanceCriteria} {
+		fmt.Fprintf(sum, "%d:%s\n", len(part), part)
+	}
+	return hex.EncodeToString(sum.Sum(nil))
+}
+
+// JudgedAs is the answer a judgment gave the text with this digest, where one
+// did. A piece recorded before texts were kept has judged no text.
+func (p Piece) JudgedAs(digest string) (Answer, bool) {
+	if p.Outcome != nil && p.Digest == digest && digest != "" && p.Outcome.Answer.judges() {
+		return p.Outcome.Answer, true
+	}
+	for _, earlier := range slices.Backward(p.Earlier) {
+		if earlier.Digest == digest && digest != "" && earlier.Outcome.Answer.judges() {
+			return earlier.Outcome.Answer, true
+		}
+	}
+	return "", false
+}
+
+// SeenAt is when a text was first seen while the piece waited on its question.
+func (p Piece) SeenAt(digest string) (time.Time, bool) {
+	at := slices.IndexFunc(p.Seen, func(seen Seen) bool { return seen.Digest == digest })
+	if at < 0 {
+		return time.Time{}, false
+	}
+	return p.Seen[at].At, true
+}
+
+// TextWaits reads the records and answers TextWait for one reading of an item.
+// While epic mode is off nothing waits, and records that cannot be read are an
+// error, on which nothing starts.
+func TextWaits(stateRoot string, product domain.ProductID, item beads.WorkItem) (string, error) {
+	record, err := epicscope.Read(stateRoot, product)
+	if err != nil || !record.On() {
+		return "", err
+	}
+	view, err := Read(stateRoot, product, record)
+	if err != nil {
+		return "", err
+	}
+	return view.TextWait(item), nil
+}
+
+// TextWait is why a piece that joined an open epic starts no developer on its
+// text as it reads now, and empty where it may. An item the operator named or
+// added is never compared, and one that did not join is the one decision's.
+func (v View) TextWait(item beads.WorkItem) string {
+	for _, epic := range v.Record.OpenEpics() {
+		entry, _ := v.Entry(Of(epic))
+		if epic.Has(item.ID) || !entry.Has(item.ID) || epic.TakenOut(item.ID) {
+			continue
+		}
+		// Every piece the harness lets join was asked about first. One the record
+		// says joined without that has nothing a judgment could be added to.
+		piece, asked := entry.Asked(item.ID)
+		if !asked {
+			continue
+		}
+		digest := TextDigest(item)
+		answer, judged := piece.JudgedAs(digest)
+		switch {
+		case judged && answer == AnswerInside:
+			return ""
+		case piece.Outcome != nil && piece.Outcome.Answer.Asks() && piece.Answered != nil && piece.Answered.Operator != "":
+			return fmt.Sprintf("the Lead Product Manager's answer to %s is that epic %s can be delivered without it, so it waits, and only the operator can take it out with `yoyo epic remove`", piece.Question, epic.WorkItemID)
+		case judged:
+			question := ""
+			if piece.Digest == digest && piece.Question != "" {
+				question = " (report " + piece.Question + ")"
+			}
+			return fmt.Sprintf("its text as it reads now was judged not to be asked for by epic %s, so it waits as a question about scope for the Lead Product Manager%s", epic.WorkItemID, question)
+		case piece.Outcome != nil && !piece.Outcome.Answer.judges():
+			return fmt.Sprintf("it is kept in epic %s as %s, and no judgment of its text was made", epic.WorkItemID, piece.Outcome.Answer)
+		}
+		return fmt.Sprintf("its title, description or acceptance criteria changed since a reviewer judged it inside epic %s, so it waits for the new text to be judged", epic.WorkItemID)
+	}
+	return ""
 }
 
 // Answer is what decided whether a piece joined.
@@ -136,6 +271,15 @@ func (a Answer) Valid() bool {
 	return slices.Contains([]Answer{AnswerInside, AnswerOutside, AnswerCannotTell, AnswerLimit, AnswerTakenOut}, a)
 }
 
+// judges reports an answer a reviewer session gave a piece's text, as opposed to
+// one the harness kept without a judgment.
+func (a Answer) judges() bool {
+	return a == AnswerInside || a == AnswerOutside || a == AnswerCannotTell
+}
+
+// Asks reports an answer that is a question about scope.
+func (a Answer) Asks() bool { return a == AnswerOutside || a == AnswerCannotTell }
+
 // Outcome is what became of a piece. Session is the judging session's, where one
 // answered.
 type Outcome struct {
@@ -144,6 +288,8 @@ type Outcome struct {
 	Why     string    `json:"why"`
 	Session string    `json:"session,omitempty"`
 }
+
+func (o Outcome) valid() bool { return o.Answer.Valid() && o.Why != "" && !o.At.IsZero() }
 
 // Asked is what is kept of a piece that may join, where anything is.
 func (e Entry) Asked(item string) (Piece, bool) {
@@ -474,7 +620,10 @@ func (e Entry) validate() error {
 	}
 	for _, p := range e.Pieces {
 		part("piece", p.WorkItemID, beads.ValidIssueID(p.WorkItemID) && p.WorkItemID != e.WorkItemID && p.From != "" && p.Judgment != "" && !p.At.IsZero() &&
-			(p.Outcome == nil || p.Outcome.Answer.Valid() && p.Outcome.Why != "" && !p.Outcome.At.IsZero()))
+			(p.Outcome == nil || p.Outcome.valid()) && (p.Question == "" || p.Outcome != nil && p.Outcome.Answer.Asks()) &&
+			p.Answered.valid() && (p.Answered == nil || p.Question != "") &&
+			!slices.ContainsFunc(p.Earlier, func(earlier EarlierJudgment) bool { return earlier.Judgment == "" || !earlier.Outcome.valid() }) &&
+			!slices.ContainsFunc(p.Seen, func(seen Seen) bool { return seen.Digest == "" || seen.At.IsZero() }))
 	}
 	for _, c := range e.Comments {
 		part("comment", c.ID, c.Became != "" && !c.At.IsZero())
