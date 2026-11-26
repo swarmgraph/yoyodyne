@@ -2705,6 +2705,9 @@ func (s *State) recordedTexts() []recordedText {
 	for index := range s.Retries {
 		nested("retries[].failure", at("retries", index, "failure"), &s.Retries[index].Failure, MaxRetryFailureBytes)
 	}
+	for index := range s.GitLocks {
+		nested("git_locks[].why", at("git_locks", index, "why"), &s.GitLocks[index].Why, MaxGitLockWhyBytes)
+	}
 	// The usage limit's kind is the provider's own name for the limit, read off
 	// its refusal rather than chosen from a set this harness keeps, so it is held
 	// to a bound like any other text the provider wrote.
@@ -3718,6 +3721,45 @@ func (r Retry) Validate() error {
 	return errors.Join(problems...)
 }
 
+// MaxGitLocks bounds how many Git lock decisions one run records. A run meets
+// one after a Git process the harness killed; this is a backstop against a
+// checkout that keeps gaining locks, not a budget.
+const MaxGitLocks = 64
+
+// MaxGitLockWhyBytes bounds one recorded reason. It is the harness's own
+// sentence naming the file and, for a lock left alone, the process using it.
+const MaxGitLockWhyBytes = 1 << 10
+
+// GitLock is one Git lock file the harness found in a run's checkout before
+// writing there, and what it did about it (gitworktree.GitLockClearing).
+type GitLock struct {
+	// Path is the lock file.
+	Path string `json:"path"`
+	// Removed says the harness removed it; false is a lock it left alone.
+	Removed bool `json:"removed,omitempty"`
+	// Why is the harness's reason in plain words.
+	Why string    `json:"why"`
+	At  time.Time `json:"at"`
+}
+
+// Validate reports every contract violation in one recorded lock at once.
+func (l GitLock) Validate() error {
+	var problems []error
+	if strings.TrimSpace(l.Path) == "" {
+		problems = append(problems, errors.New("path is required"))
+	}
+	if strings.TrimSpace(l.Why) == "" {
+		problems = append(problems, errors.New("why is required"))
+	}
+	if len(l.Why) > MaxGitLockWhyBytes {
+		problems = append(problems, fmt.Errorf("why is %d bytes, which exceeds the %d byte bound", len(l.Why), MaxGitLockWhyBytes))
+	}
+	if l.At.IsZero() {
+		problems = append(problems, errors.New("at is required"))
+	}
+	return errors.Join(problems...)
+}
+
 // Integration is the durable evidence of a completed promotion: exactly which
 // commit the harness created and which commit the target moved from and to.
 type Integration struct {
@@ -4614,6 +4656,12 @@ type State struct {
 	// comes back to the recovery it had already spent rather than to a fresh
 	// window.
 	Retries []Retry `json:"retries,omitempty"`
+	// GitLocks are the Git lock files the harness found left in this run's own
+	// checkout before it wrote there, oldest first: each one it removed because
+	// no live process was using it, and each one it left alone, with why. A
+	// removal is recorded because it is the harness taking away a file Git
+	// wrote, which a reader of the record should be able to see it did.
+	GitLocks []GitLock `json:"git_locks,omitempty"`
 	// UsageLimitResetsAt is the deadline a run paused for an exhausted provider
 	// usage limit is waiting on. It is written before the wait begins, so a
 	// process that dies during the wait does not lose the deadline and a restart
@@ -5504,6 +5552,14 @@ func (s State) Validate() error {
 	for index, retry := range s.Retries {
 		if err := retry.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("retries[%d]: %w", index, err))
+		}
+	}
+	if len(s.GitLocks) > MaxGitLocks {
+		problems = append(problems, fmt.Errorf("git_locks holds %d entries, which exceeds the %d entry bound", len(s.GitLocks), MaxGitLocks))
+	}
+	for index, lock := range s.GitLocks {
+		if err := lock.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("git_locks[%d]: %w", index, err))
 		}
 	}
 	if s.UsageLimitResetsAt != nil {
