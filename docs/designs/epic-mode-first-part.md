@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-11-25T09:23:12.344538Z
       reason: 'yoyodyne-9k1y: sends document-4011.1 again with both review findings answered. States the decision on yoyo review here as well as pointing at the rulings, which now carry it on main; says what is kept for a refused work item and a refused team branch update, from refusals.go at 365b9591b2e9, and limits the sentence about the rulings to the kinds they cover; settles that turning epic mode off does not by itself clear a refused update.'
+    - action: amended
+      by: architect
+      at: 2026-11-26T09:15:18.468737Z
+      reason: 'yoyodyne-9k1y.11: approves amendment-fd4f3397e758a3caa03bb6cfd85d799f. Names the rule for the judgment of whether a piece joins a named epic, and the same rule for the check of the whole epic (yoyodyne-9k1y.12) and the judgment of a review comment (yoyodyne-9k1y.13), which the reviewer''s report-2dea6e6f says would meet the same gap. Read whole at 0f35eeff1e4a.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-25T09:23:12.344538Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4014, for document-4014.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-26T09:15:18.468737Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4084, for document-4084.1 under the automatic approval policy
 ---
 # Epic mode, first part
 
@@ -122,6 +131,27 @@ The closed list is `Paths` in `internal/maystart/paths.go`. At f29e37efdefc it h
 A path in the fourth rule may also start a run that publishes a document, and that run is judged by the fifth.
 
 Code that starts work in a way not listed here adds its path to the list, and the architect rules on which rule judges it. While any path is marked as not wired, `yoyo epic start` is refused.
+
+### The paid sessions the second part adds
+
+The second part adds three reviewer sessions that judge an epic and belong to no run. Each adds its own path to the closed list in the piece that builds it, and one further rule judges all three. It stands after the third rule, beside the five that follow.
+
+| Session | Piece |
+| --- | --- |
+| the judgment of whether a piece joins a named epic | 9 (yoyodyne-9k1y.11) |
+| the check of the whole epic | 10 (yoyodyne-9k1y.12) |
+| the judgment of a review comment | 11 (yoyodyne-9k1y.13) |
+
+- Such a session may start only for a naming that has not ended and whose progress can be read. Where the naming has ended, it may not start. Where its progress cannot be read, the decision could not tell.
+- Being allowed to start is not the reservation. The call is still reserved in the epic's progress before it is made, as the second part says. So with epic mode off, where the second rule answers first, nothing is paid for a naming that has ended or whose progress cannot be read.
+- Nothing is kept of a refusal. A naming that has ended owes no judgment, and status already names an epic whose progress cannot be read. The piece stays outside the epic, the check stays owed, or the comment starts no repair.
+- A path is marked as wired by the piece that builds it, in the same change.
+
+Ruled on November 25, 2026, approving the change proposed by the developer of piece 9 (amendment-fd4f3397e758a3caa03bb6cfd85d799f) and extending it to the other two sessions. The code of the three pieces was not on main when this was written, and was not read.
+
+Rejected: judging them by the fourth rule, because they belong to no run and the epic itself is not a member; judging them by the sixth, because an open epic elsewhere says nothing about the one being judged; keeping each refusal, because nothing would be waiting for it to clear.
+
+A reviewer checks, for each of the three: with the naming open and its progress readable it may start; with the naming ended it may not; with the progress unreadable it could not tell; in the last two no call is made and nothing is kept, whether epic mode is on or off.
 
 ## What status says
 
