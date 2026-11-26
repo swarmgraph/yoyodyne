@@ -844,7 +844,7 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			lease.Release()
 			result.Detail = "the run is no longer waiting at its promotion, so it is left as it stands"
 		case catchUpNotTakenUp(state):
-			// The merge queue put this run back for its one attempt to catch up
+			// The merge queue put this run back for one of its attempts to catch up
 			// with its target and nothing has taken it up yet: this is its first
 			// hosting, not a lost one, so the item already carries the queue's note.
 			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)

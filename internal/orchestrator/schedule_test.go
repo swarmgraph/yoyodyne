@@ -128,7 +128,7 @@ func TestSchedulerRunsSeveralEligibleItemsAtOnceInWorktreesOfTheirOwn(t *testing
 // reachable at all: two runs started from the same base, both approved, both
 // changing the same line. One of them promotes; the other finds its target
 // moved and cannot replay onto it, and the conflict goes back to the developer
-// that wrote the losing change, as the run's one reconciliation attempt, rather
+// that wrote the losing change, as the first of the run's reconciliation attempts, rather
 // than to a person. It settles it in its own
 // session and lands too.
 //
@@ -182,7 +182,7 @@ func TestSchedulerReturnsAConflictToTheLoserRatherThanForcingIt(t *testing.T) {
 		t.Fatalf("neither run reconciled anything, so nothing contended: %s", schedule.Render())
 	}
 	// One continuation, not a fresh run and not a person: the conflict cost the
-	// loser its one reconciliation attempt and no repair attempt.
+	// loser the first of its reconciliation attempts and no repair attempt.
 	if reconciled.Outcome.RepairAttempts != 0 {
 		t.Fatalf("%s spent %d repair attempt(s) on one conflict", reconciled.WorkItemID, reconciled.Outcome.RepairAttempts)
 	}

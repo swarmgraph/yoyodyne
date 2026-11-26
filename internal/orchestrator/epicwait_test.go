@@ -594,7 +594,7 @@ func TestARunPutBackToBeBroughtUpToDateOutsideTheNamedEpicsWaits(t *testing.T) {
 	epics.refused()
 }
 
-// A run the merge queue put back for its one attempt to catch up with its target
+// A run the merge queue put back for one of its attempts to catch up with its target
 // before epic mode was turned on waits with its attempt kept, and goes on to
 // rejoin the queue once its item is added.
 func TestACatchUpOutsideTheNamedEpicsWaitsWithItsAttemptKept(t *testing.T) {

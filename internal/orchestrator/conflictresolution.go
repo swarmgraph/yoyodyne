@@ -5,8 +5,8 @@ package orchestrator
 // This is for a change a review approved; a conflict found before review goes
 // on in the session that wrote the change (ciconflict.go).
 //
-// A run's one attempt to bring its approved change up to date is made in a new
-// developer session rather than the one that wrote the change: after hours in
+// Each attempt a run gets to bring its approved change up to date is made in a
+// new developer session rather than the one that wrote the change: after hours in
 // the queue the provider no longer keeps that session's text, so resuming it
 // pays to write all of it again. The new session is given what the old one would
 // have known and this attempt needs: the work item with its goals and
@@ -74,7 +74,8 @@ func (a *activeRun) conflictResolutionPrompt(ctx context.Context) string {
 	prompt.WriteString("# Integration conflict: bring the change level with the target\n\n")
 	fmt.Fprintf(&prompt, "The change for the work item below was written by another session, passed its checks and was approved by an independent reviewer. %s moved before the change landed, and the two no longer merge. The change has been moved onto %s for you, and the parts that would not merge are in your worktree between Git's conflict markers.\n\n", conflict.TargetBranch, conflict.TargetBranch)
 	prompt.WriteString("Resolve every conflict, keeping what the target branch does and what the change does, and leave no conflict markers behind. Change nothing else, unless the resolved code would not otherwise build or pass its tests. Do not start the work over: everything else the change does is already in your worktree, and so is everything the target did.\n\n")
-	prompt.WriteString("This is the run's one attempt to bring the approved change level with the target branch. It is not counted against your repair attempts, and a second conflict after it is not given another one of these. The checks and an independent review both run again on what you produce. If the two cannot both stand, because the target did this work differently or made it unnecessary, say so plainly in your summary rather than forcing a resolution.\n\n")
+	fmt.Fprintf(&prompt, "This is attempt %d of the %d this run gets to bring the approved change level with the target branch. It is not counted against your repair attempts, and a conflict after the last of them stops the run for the development manager. ", max(a.state.ReconciliationsUsed(), 1), runstate.MaxReconciliations)
+	prompt.WriteString("The checks and an independent review both run again on what you produce. If the two cannot both stand, because the target did this work differently or made it unnecessary, say so plainly in your summary rather than forcing a resolution.\n\n")
 	fmt.Fprintf(&prompt, "Target branch: %s\n", conflict.TargetBranch)
 	if conflict.TargetCommit != "" {
 		fmt.Fprintf(&prompt, "Your worktree now sits on: %s\n", conflict.TargetCommit)
