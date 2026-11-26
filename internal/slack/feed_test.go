@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -985,6 +987,50 @@ func TestABrakedLineIsSaidOncePerHold(t *testing.T) {
 	harness.braking(t, "watch-0123456789abcdef0123456789abcdef", moment.Add(22*time.Minute), 2)
 	cursors = harness.poll(t, roundTrip(t, cursors), notify.KindWatchBraked, notify.KindIntakeHeld)
 	harness.braking(t, "watch-0123456789abcdef0123456789abcdef", moment.Add(23*time.Minute), 3)
+	harness.poll(t, roundTrip(t, cursors))
+}
+
+// A hold that cannot be read leaves the sink unable to say which hold a braked
+// line is about. It still says one line, and then reads every later one past
+// for as long as the hold stays unreadable, across passes and cursor files.
+// Once the hold can be read again, that line counts as said for the hold then
+// standing, so the hold is not said a second time in the watch stream.
+func TestABrakedLineIsSaidOnceWhileTheHoldCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	harness.hold(t, "the queue is being reordered", moment)
+	file := filepath.Join(harness.intake.Root(), "intake-hold.json")
+	stored, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read the hold: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("{not a hold"), 0o600); err != nil {
+		t.Fatalf("break the hold: %v", err)
+	}
+
+	session := "watch-0123456789abcdef0123456789abcdef"
+	harness.braking(t, session, moment.Add(time.Minute), 1)
+	harness.braking(t, session, moment.Add(2*time.Minute), 2)
+	cursors := harness.poll(t, harness.start(), notify.KindWatchBraked)
+	for pass := range 3 {
+		harness.braking(t, session, moment.Add(time.Duration(pass+3)*time.Minute), pass+3)
+		cursors = harness.poll(t, roundTrip(t, cursors))
+	}
+
+	if err := os.WriteFile(file, stored, 0o600); err != nil {
+		t.Fatalf("mend the hold: %v", err)
+	}
+	harness.braking(t, session, moment.Add(10*time.Minute), 7)
+	cursors = harness.poll(t, roundTrip(t, cursors), notify.KindIntakeHeld)
+	hold, _, err := harness.intake.Held()
+	if err != nil {
+		t.Fatalf("Held() error = %v", err)
+	}
+	if marks := cursors.Streams[watchStream].Delivered; len(marks) != 1 || marks[0] != brakedMark+stamp(hold.HeldAt) {
+		t.Fatalf("watch cursor marks = %v, want the line said while unreadable taken as said for the standing hold", marks)
+	}
+	harness.braking(t, session, moment.Add(11*time.Minute), 8)
 	harness.poll(t, roundTrip(t, cursors))
 }
 

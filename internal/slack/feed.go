@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -946,8 +947,12 @@ func (f *HarnessFeed) watchDeliveries(cursors Cursors, streams map[string]struct
 }
 
 // brakedMark is the watch stream's mark for the hold whose braked line has been
-// said, by the moment the hold was placed.
-const brakedMark = "braked:"
+// said, by the moment the hold was placed. brakedUnreadMark is a line said on a
+// pass that could not read which hold was standing.
+const (
+	brakedMark       = "braked:"
+	brakedUnreadMark = brakedMark + "unread"
+)
 
 // brakedOnce keeps one braked line per hold out of what the watch log read
 // this pass, and carries the stream's marks on every cursor it hands back.
@@ -956,9 +961,15 @@ const brakedMark = "braked:"
 // after that hold was placed. One written before it, or read while no hold
 // stands, is about a hold that has since been lifted: that hold was said when
 // it was placed and its lifting is said by the product's stream, so the line is
-// read past rather than said late. Where the hold could not be read, a line is
-// said only if no hold's line has been, so a store that will not answer costs
-// at most one line rather than one per change of count.
+// read past rather than said late.
+//
+// Where the hold could not be read, a line is said only if no braked line has
+// been said for the hold before, and saying it leaves brakedUnreadMark, so
+// every later line is read past for as long as the hold stays unreadable. The
+// next pass that can read the hold takes that mark as said for the hold then
+// standing, since a session only writes braked lines while a hold stands, and
+// forgets it where none does. A store that will not answer costs at most one
+// line.
 //
 // The marks are forgotten with the hold, so the cursor holds at most one.
 func brakedOnce(cursor Cursor, deliveries []Delivery, held switches, switched bool) []Delivery {
@@ -969,12 +980,16 @@ func brakedOnce(cursor Cursor, deliveries []Delivery, held switches, switched bo
 			current = brakedMark + stamp(held.intake.HeldAt)
 		}
 		for _, mark := range cursor.Delivered {
-			if strings.HasPrefix(mark, brakedMark) && mark != current {
-				marks = marks.Without(mark)
+			if !strings.HasPrefix(mark, brakedMark) || mark == current {
+				continue
+			}
+			marks = marks.Without(mark)
+			if mark == brakedUnreadMark && current != "" {
+				marks = marks.With(current)
 			}
 		}
 	}
-	forgot := len(marks.Delivered) != len(cursor.Delivered)
+	changed := !slices.Equal(marks.Delivered, cursor.Delivered)
 	kept := make([]Delivery, 0, len(deliveries)+1)
 	for _, delivery := range deliveries {
 		if delivery.Notification.Event.Kind == notify.KindWatchBraked && delivery.Posts() {
@@ -983,6 +998,7 @@ func brakedOnce(cursor Cursor, deliveries []Delivery, held switches, switched bo
 			case !switched && anySaid:
 				delivery.Notification = notify.Notification{}
 			case !switched:
+				marks = marks.With(brakedUnreadMark)
 			case current == "" || delivery.Notification.Event.At.Before(held.intake.HeldAt) || marks.Has(current):
 				delivery.Notification = notify.Notification{}
 			default:
@@ -992,7 +1008,7 @@ func brakedOnce(cursor Cursor, deliveries []Delivery, held switches, switched bo
 		delivery.Cursor.Delivered = marks.Delivered
 		kept = append(kept, delivery)
 	}
-	if forgot && len(kept) == 0 {
+	if changed && len(kept) == 0 {
 		kept = append(kept, Delivery{Stream: watchStream, Cursor: Cursor{Position: cursor.Position, Delivered: marks.Delivered}})
 	}
 	return kept
