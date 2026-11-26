@@ -4586,11 +4586,13 @@ type State struct {
 	// started again: the base the change was checked on, where the replay moved
 	// it, and what the replay made of it. See landingattempts.go.
 	LostLandings []LostLanding `json:"lost_landings,omitempty"`
-	// Reconciliation is the one attempt this run had to bring its approved change
-	// level with the target branch after it conflicted there at landing, which is
-	// never counted against the repair attempts. Absent is a run that has not
-	// used it.
-	Reconciliation *Reconciliation `json:"reconciliation,omitempty"`
+	// Reconciliation is the latest of the attempts this run had to bring its
+	// approved change level with the target branch after it conflicted there at
+	// landing, which are never counted against the repair attempts, and
+	// EarlierReconciliations are the ones before it, oldest first. Absent is a
+	// run that has used none. See landingattempts.go.
+	Reconciliation         *Reconciliation  `json:"reconciliation,omitempty"`
+	EarlierReconciliations []Reconciliation `json:"earlier_reconciliations,omitempty"`
 	// ConflictHandbacks is each time this run's change was handed back because it
 	// no longer merged, and ConflictSpending which of them the run's spending is
 	// being made for. See conflicthandback.go.

@@ -320,7 +320,7 @@ func (h MergeQueueRunHandback) recordRejoined(ctx context.Context, entry runstat
 		return nil
 	}
 	return h.noteCatchUp(ctx, entry, strings.Join([]string{
-		fmt.Sprintf("The merge queue handed this change back because it conflicted with %s as entry %d (conflicting: %s). It merges onto %s again without a conflict, so it is back in the queue as entry %d with the same approved head. No developer session was started and its one attempt to bring it up to date is still unused.",
+		fmt.Sprintf("The merge queue handed this change back because it conflicted with %s as entry %d (conflicting: %s). It merges onto %s again without a conflict, so it is back in the queue as entry %d with the same approved head. No developer session was started, and none of its attempts to bring it up to date was used.",
 			entry.TargetBranch, entry.Order, nonEmpty(conflictPathsSay(handback.Conflict.Paths, handback.Conflict.Omitted), "no paths named"), entry.TargetBranch, rejoined.Order),
 		marker,
 	}, "\n"))

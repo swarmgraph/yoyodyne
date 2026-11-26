@@ -7,11 +7,12 @@ package orchestrator
 // wrong since: the queue could not build a candidate because the approved head
 // no longer merges onto the target as it now stands. Stopping its run for the
 // development manager would spend a decision and a repair attempt, or a fresh
-// run, on what is one round of bringing the change up to date. So the first
-// time it happens to a run, the hand-back gives the run the one reconciliation
-// attempt a run's own landing gets for a conflict (State.Reconciliation,
-// continueOnRebaseConflict in pipeline.go): the run is put back live at its
-// developer attempt with the conflict recorded as that attempt, before any
+// run, on what is one round of bringing the change up to date. So each of the
+// first runstate.MaxReconciliations times it happens to a run, the hand-back
+// gives the run a reconciliation attempt, as a run's own landing gets for a
+// conflict (State.UseReconciliation, continueOnRebaseConflict in pipeline.go):
+// the run is put back live at its developer attempt with the conflict recorded
+// as that attempt, before any
 // developer is invoked, and the reconciling sweep hosts it (ContinueUpdates).
 // The resumed run moves the change onto the target with the disagreement left
 // in the worktree, hands it to a new developer session (conflictresolution.go),
@@ -26,9 +27,9 @@ package orchestrator
 // earns both again exactly as a repaired one does. What follows the attempt is
 // what follows any developer attempt: a failing check or a review that does
 // not approve goes round the repair loop under the run's repair attempts, and a
-// run with none left stops for the development manager as it always has. A
-// second conflict in the queue finds the reconciliation used and is handed back
-// as before, with the stop saying so (catchUpRefusal).
+// run with none left stops for the development manager as it always has. The
+// conflict after the last attempt finds them all used and is handed back as
+// before, with the stop saying so (catchUpRefusal).
 //
 // A change can wait in the queue long enough for the maintenance sweep to
 // remove its run's checkout, and those long waits are the ones most likely to
@@ -79,12 +80,12 @@ type MergeQueueCatchUpWaiting struct {
 }
 
 func (e MergeQueueCatchUpWaiting) Error() string {
-	return fmt.Sprintf("run %s is owed its one attempt to bring its change up to date with %s, and %s, so the queue gives it at a later pass",
+	return fmt.Sprintf("run %s is owed its next attempt to bring its change up to date with %s, and %s, so the queue gives it at a later pass",
 		e.RunID, e.TargetBranch, e.Why)
 }
 
 // catchUpRefusal says why a hand-back of a head that would not merge does not
-// get the run's one attempt to catch up with the target, and is empty where
+// get the run's next attempt to catch up with the target, and is empty where
 // it does. It reads only the run's record and the hand-back; the item and the
 // slot are asked where the attempt is made. rebuildable is whether a checkout
 // the sweep removed can be rebuilt here; where it can, a missing checkout is
@@ -93,8 +94,8 @@ func catchUpRefusal(state runstate.State, handback runstate.MergeQueueHandback, 
 	switch {
 	case handback.Conflict == nil:
 		return "the queue handed it back for something other than the target moving under it"
-	case state.ReconciliationUsed():
-		return fmt.Sprintf("this run already used its one attempt to bring its change up to date%s", reconciliationWhen(state.Reconciliation))
+	case state.ReconciliationsSpent():
+		return fmt.Sprintf("this run already used its %d attempts to bring its change up to date%s", runstate.MaxReconciliations, reconciliationWhen(state.Reconciliation))
 	case state.HarnessAuthored() || state.Document != nil:
 		return "the run has no developer to bring the change up to date"
 	case state.Status != runstate.StatusSucceeded:
@@ -137,7 +138,7 @@ func reconciliationWhen(used *runstate.Reconciliation) string {
 	return " (at " + used.UsedAt.UTC().Format(time.RFC3339) + ")"
 }
 
-// catchUpNotTakenUp reports a run the merge queue put back for its one attempt
+// catchUpNotTakenUp reports a run the merge queue put back for an attempt
 // to catch up with its target that no process has taken up yet: the conflict
 // is recorded as its reconciliation and not yet moved onto the target.
 func catchUpNotTakenUp(state runstate.State) bool {
@@ -154,14 +155,14 @@ func mergeQueueCatchUpNotes(entry runstate.MergeQueueEntry, handback runstate.Me
 	return strings.Join([]string{
 		fmt.Sprintf("The merge queue handed this change back because %s moved while it waited as entry %d, and the approved change no longer merges onto it (conflicting: %s).",
 			entry.TargetBranch, entry.Order, nonEmpty(conflictPathsSay(conflict.Paths, conflict.Omitted), "no paths named")),
-		fmt.Sprintf("Run %s gets its one attempt to bring the change up to date with %s: a new developer session reconciles the conflict on top of %s, the change is checked and reviewed again, and it rejoins the queue by itself. This attempt is not a repair attempt and not a fresh run. If it does not pass its checks and review, the run goes on as any run does, and stops for the development manager once its repair attempts are spent.",
-			entry.RunID, entry.TargetBranch, entry.TargetBranch),
+		fmt.Sprintf("Run %s gets one of its %d attempts to bring the change up to date with %s: a new developer session reconciles the conflict on top of %s, the change is checked and reviewed again, and it rejoins the queue by itself. This attempt is not a repair attempt and not a fresh run. If it does not pass its checks and review, the run goes on as any run does, and stops for the development manager once its repair attempts are spent. A conflict after its last attempt stops the run for the development manager.",
+			entry.RunID, runstate.MaxReconciliations, entry.TargetBranch, entry.TargetBranch),
 		marker,
 	}, "\n")
 }
 
 // catchUp gives a run whose queued head would not merge onto its moved target
-// its one attempt to bring the change up to date, and reports whether it did.
+// its next attempt to bring the change up to date, and reports whether it did.
 // false with no error is a hand-back that does not get it, which goes on to
 // the stop it always got; why not is returned for that stop to say, and is
 // empty where no catch-up was ever on offer.
@@ -282,7 +283,7 @@ func (h MergeQueueRunHandback) rebuildCheckout(ctx context.Context, state runsta
 }
 
 // catchUpState is the run put back live at its developer attempt with the
-// conflict recorded as its one reconciliation, ahead of any developer being
+// conflict recorded as its next reconciliation, ahead of any developer being
 // invoked, so an interrupted attempt is still the one the run had. The move
 // itself is the run store's (runstate.State.PutBackToCatchUpWithMergeQueue);
 // this says what the conflict was and why.
@@ -295,7 +296,7 @@ func catchUpState(state runstate.State, entry runstate.MergeQueueEntry, handback
 		Phase:  runstate.PhaseIntegrating, RecordedAt: now.UTC(),
 		Handback: state.RecordConflictHandback(queueConflictHandback(entry, *conflict, now)),
 	}
-	reason := fmt.Sprintf("the merge queue could not merge entry %d onto %s at %s because %s moved under it (conflicting: %s), so the run was put back for its one attempt to bring the change up to date, checked and reviewed again, and admitted to the queue again; it is not a repair attempt and not a fresh run",
+	reason := fmt.Sprintf("the merge queue could not merge entry %d onto %s at %s because %s moved under it (conflicting: %s), so the run was put back for an attempt to bring the change up to date, checked and reviewed again, and admitted to the queue again; it is not a repair attempt and not a fresh run",
 		entry.Order, entry.TargetBranch, shortCommit(conflict.TargetBase), entry.TargetBranch, nonEmpty(conflictPathsSay(paths, omitted), "no paths named"))
 	return state.PutBackToCatchUpWithMergeQueue(recorded, boundedReason(reason), now)
 }
