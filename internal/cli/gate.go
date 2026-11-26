@@ -170,8 +170,7 @@ func listGates(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "%s on %s  waiting on a person\n", entry.Name, entry.Subject)
 		fmt.Fprintf(stdout, "    what has to happen: %s\n", entry.Statement)
-		fmt.Fprintf(stdout, "    record it with: yoyo gate record %s --for %s --by <you> --did \"<what you did>\"\n",
-			entry.Name, entry.Subject)
+		fmt.Fprintf(stdout, "    record it with: %s\n", readmodel.GateRecordCommand(entry.Name, entry.Subject))
 	}
 	for _, broken := range unreadable {
 		fmt.Fprintf(stdout, "%s  declares a step nothing could read, and is held by it\n", broken.WorkItemID)
