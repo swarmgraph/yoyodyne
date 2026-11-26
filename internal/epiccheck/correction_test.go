@@ -1,7 +1,6 @@
 package epiccheck
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -26,10 +25,15 @@ func refused(t *testing.T, err error, says string) {
 	}
 }
 
-// checkOnce makes one check under the identifier with the answers given.
+// checkOnce keeps one check under the identifier with the answers given, reserved
+// and answered as the checker does.
 func checkOnce(t *testing.T, root string, naming epicprogress.Naming, id string, findings ...epicprogress.Finding) epicprogress.Check {
 	t.Helper()
-	check, _, err := checkerAt(t, root, answering(findings...)).Check(context.Background(), naming, id, commit)
+	store := storeOf(t, root)
+	_, err := store.CallWhileOpen(naming, id, "the check of the whole epic "+id, func() (string, epicprogress.Looked, error) { return "", epicprogress.NotSent, nil },
+		func() (string, error) { return answering(findings...), nil })
+	must(t, err)
+	check, err := store.Checked(naming, epicprogress.Check{ID: id, Commit: commit, Findings: findings})
 	must(t, err)
 	return check
 }
