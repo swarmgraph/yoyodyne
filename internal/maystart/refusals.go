@@ -282,6 +282,9 @@ func (r *Refusals) note(start Start, decision Decision, at time.Time) bool {
 		if start.what == documentRun {
 			return r.noteDocument(start, decision, at)
 		}
+		if decision.ByBudget {
+			return false
+		}
 		for _, id := range start.items {
 			if !beads.ValidIssueID(id) || start.path == "" {
 				continue

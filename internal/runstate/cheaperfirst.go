@@ -325,6 +325,18 @@ func (s *Store) CheaperFirstTrialFigures(target int) (CheaperFirstTrialFigures, 
 	return SummarizeCheaperFirstTrial(runs, costs, target), nil
 }
 
+// PriceRun is what one recorded run has cost, read through the tolerant door
+// and priced from its own event log exactly as `yoyo cost` prices it. A run
+// whose record cannot be read is an error; one whose log cannot price it is a
+// price that says it is unknown.
+func (s *Store) PriceRun(runID string) (RunPrice, error) {
+	state, err := s.Read(runID)
+	if err != nil {
+		return RunPrice{}, err
+	}
+	return s.priceRun(state), nil
+}
+
 // RunSpentSoFar is what a run has cost up to now, priced from the run's own
 // event log exactly as `yoyo cost` prices it (priceRun). It is what a developer
 // run records when it moves to the stronger model. The read is the one run's

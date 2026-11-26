@@ -1818,6 +1818,7 @@ nothing else. Naming an epic is your act alone:
 ./bin/yoyo epic start yoyodyne-ab1 --words "finish this first"   # names it and turns epic mode on
 ./bin/yoyo epic add yoyodyne-ab1 yoyodyne-ab1.9                  # adds an item to it
 ./bin/yoyo epic remove yoyodyne-ab1 yoyodyne-ab1.9 --words "not needed now"   # takes it out
+./bin/yoyo epic budget yoyodyne-ab1 40                           # sets or raises its limit, in dollars
 ./bin/yoyo epic list                                             # shows the record
 ./bin/yoyo epic end yoyodyne-ab1                                 # ends it; its record is kept
 ./bin/yoyo epic off                                              # back to goal mode
@@ -1851,6 +1852,27 @@ command that takes it out. It refuses an epic that was never named or has ended,
 an item that is not in it; where the epic's progress cannot be read it takes out only
 an item in its recorded list. A build older than `remove` refuses a record that has a
 removal, and so starts nothing.
+
+`budget` sets the limit on what an open epic may spend, in the cost the provider
+reports, in US dollars. There is none unless you set one, and running it again
+replaces it, to raise or to lower it. It is kept in the record of named epics with
+when you set it, and `list` shows it. Once what the epic has spent reaches the limit,
+nothing new starts in it: the scheduler does not pull its members, and neither a run
+you name nor a fresh run the development manager decides after a stop begins. Work
+already started finishes its repairs, its review and its landing, so the epic may end
+above its limit, and `yoyo status` says by how much. A build older than `budget`
+refuses a record that has one, and so starts nothing.
+
+What an epic has spent is the provider reported cost of every run whose start was
+written down for that naming of it, each run's developer, reviewer and repairs
+included. A run written down for two epics, such as a document answering both, is
+shared equally between them, so nothing is counted twice, and what an item cost
+before you took it out stays counted. A run that cannot be priced from all of its
+record, and any other paid call written down for the epic, such as the judgment of a
+piece, is counted beside the figure as unknown, and is never counted toward the limit.
+`yoyo status` shows the figure for each epic that has spent anything or has a limit,
+says when it reaches four fifths of the limit, and gives the command that changes it.
+The cost of role passes, and of the check of the whole epic, is not counted yet.
 
 `end` leaves epic mode on, the last epic included, and `off` ends no epic. While
 epic mode is off you can still add to an epic or end it. `start` on an epic you
@@ -2138,7 +2160,8 @@ is the one shown:
   not been judged, or is a question about scope, is one, until it joins, you add it or
   it is closed.
 - **Out of budget:** nothing is under way and the epic's budget refuses the next
-  start. No budget can be set yet.
+  start. A member that is ready only because the budget refuses it does not count as
+  ready for Working.
 - **Waiting on the operator:** everything left waits on you.
 - **Blocked outside the factory:** what is left waits on something else, such as the
   provider, the forge, another person or an item outside the epic. Anything that also
