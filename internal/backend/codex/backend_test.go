@@ -1254,7 +1254,7 @@ func TestReadOnlyLaunchCleanupAndRelativeRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{errors: []error{errors.New("provider failed")}}
-	_, err = (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: relative, Prompt: "review"})
+	_, err = (Backend{StateRoot: testState, Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: relative, Prompt: "review"})
 	if err == nil || !strings.Contains(err.Error(), "provider failed") {
 		t.Fatalf("error = %v", err)
 	}
@@ -1334,7 +1334,7 @@ func TestReadOnlyRelativeProviderHomeKeepsRepositoryResolution(t *testing.T) {
 	t.Parallel()
 	repository := t.TempDir()
 	runner := &fakeRunner{errors: []error{errors.New("provider failed")}}
-	_, _ = (Backend{Runner: runner, ConfigDir: "account-home"}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: repository, Prompt: "review"})
+	_, _ = (Backend{StateRoot: testState, Runner: runner, ConfigDir: "account-home"}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: repository, Prompt: "review"})
 	if len(runner.commands) != 1 {
 		t.Fatal("provider did not start")
 	}

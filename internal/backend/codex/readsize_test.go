@@ -23,8 +23,9 @@ func completedCommands(t *testing.T, stream string) map[string]completedPayload 
 	t.Helper()
 	completed := map[string]completedPayload{}
 	_, err := (Backend{
-		Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}},
-		Clock:  fixedClock{},
+		StateRoot: testState,
+		Runner:    &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}},
+		Clock:     fixedClock{},
 	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleReviewer,

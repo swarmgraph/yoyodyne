@@ -71,7 +71,7 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 			if !built || adapter == nil {
 				t.Fatal("adapter not built")
 			}
-			result, err := adapter.Run(context.Background(), backend.RunRequest{RunID: "run-boundary", Role: domain.RoleReviewer, Model: "gpt-6.1-sol", Effort: test.effort, WorkingDirectory: repo, Prompt: "Review the repository.", SessionID: test.session})
+			result, err := adapter.Run(context.Background(), backend.RunRequest{RunID: "run-fixture", Role: domain.RoleReviewer, ScratchDirectory: testScratch, Model: "gpt-6.1-sol", Effort: test.effort, WorkingDirectory: repo, Prompt: "Review the repository.", SessionID: test.session})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -83,7 +83,7 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 				t.Fatalf("binary=%q", command.Name)
 			}
 			args := strings.Join(command.Args, "\n")
-			for _, want := range []string{"--config\n" + `default_permissions="yoyodyne-read-only-`, `.filesystem={":root"="read"}` + "\n", ".network.enabled=false\n", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
+			for _, want := range []string{"--config\n" + `default_permissions="yoyodyne-read-only-`, `.filesystem={":root"="read","` + filepath.Join(filepath.Dir(filepath.Dir(testScratch)), "services") + `"="deny"}` + "\n", ".network.enabled=false\n", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
 				if !strings.Contains(args, want) {
 					t.Errorf("launch lacks %q: %v", want, command.Args)
 				}

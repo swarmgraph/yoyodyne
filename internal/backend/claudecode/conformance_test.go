@@ -103,7 +103,7 @@ func conformanceBackend(t *testing.T) Backend {
 	if os.Getenv("YOYODYNE_CLAUDE_CONFORMANCE") != "1" {
 		t.Skip("set YOYODYNE_CLAUDE_CONFORMANCE=1 to run against the installed Claude Code CLI")
 	}
-	provider := Backend{Runner: execution.OSProcessRunner{}}
+	provider := Backend{Runner: execution.OSProcessRunner{}, StateRoot: testState}
 	availability, err := provider.CheckAvailability(context.Background())
 	if err != nil {
 		t.Fatalf("CheckAvailability() error = %v", err)

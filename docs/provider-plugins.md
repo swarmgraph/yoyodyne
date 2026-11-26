@@ -337,6 +337,8 @@ The two kinds of tool access are:
   says), because the CLI otherwise reads any file its prompt names with an `@`
   in front and sends it to the model, tools or none, and such a prompt carries
   text the harness did not write.
+  Both refuse every role the harness's own `services/` folder
+  ([runs](configuration/runs.md)).
 - `worktree-write` — the agent's work is editing a worktree, and the provider
   must be able to scope writes to it. The developer needs this.
 

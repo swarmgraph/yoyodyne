@@ -134,7 +134,7 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 		filepath.Join(oldRepository, ".git"), filepath.Join(newRepository, ".git")}
 	freshProof := nativeProbeReply + ": fresh launch"
 	freshDenied := append(denied, append(newPaths, newWorktree)...)
-	model.begin(nativeProbeCommand(t, oldWorktree, oldPaths, freshDenied, freshProof))
+	model.begin(nativeProbeCommand(t, oldWorktree, filepath.Join(state, "old"), oldPaths, freshDenied, freshProof))
 	fresh := nativeProbeTurn(t, provider, request, freshProof, model)
 	if fresh.SessionID == "" {
 		t.Fatal("the fresh CLI invocation did not create a resumable session")
@@ -146,7 +146,7 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	request.RepositoryRoot, request.WorkingDirectory, request.ScratchDirectory = newRepository, newWorktree, newPaths[1]
 	resumeProof := nativeProbeReply + ": changed grants"
 	resumeDenied := append(denied, append(oldPaths, oldWorktree)...)
-	model.begin(nativeProbeCommand(t, newWorktree, newPaths, resumeDenied, resumeProof))
+	model.begin(nativeProbeCommand(t, newWorktree, filepath.Join(state, "new"), newPaths, resumeDenied, resumeProof))
 	resumed := nativeProbeTurn(t, provider, request, resumeProof, model)
 	if resumed.SessionID != fresh.SessionID {
 		t.Fatalf("resume created session %q instead of restoring %q", resumed.SessionID, fresh.SessionID)
@@ -161,7 +161,11 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	allDenied := append(append(denied, oldPaths...), newPaths...)
 	allDenied = append(allDenied, oldWorktree, newWorktree)
 	reviewProof := nativeProbeReply + ": reviewer resume"
-	model.begin(nativeProbeCommand(t, newWorktree, nil, allDenied, reviewProof))
+	// As a reviewer is launched: no scratch folder, so the services folder it is
+	// refused is found from the adapter's state directory.
+	request.ScratchDirectory = ""
+	provider.StateRoot = filepath.Join(state, "new")
+	model.begin(nativeProbeCommand(t, newWorktree, filepath.Join(state, "new"), nil, allDenied, reviewProof))
 	readOnly := nativeProbeTurn(t, provider, request, reviewProof, model)
 	if readOnly.SessionID != fresh.SessionID {
 		t.Fatalf("read-only resume created session %q instead of restoring %q", readOnly.SessionID, fresh.SessionID)
@@ -205,7 +209,7 @@ func nativeProbeDirectories(t *testing.T, repository, worktree, state string) []
 	if err != nil {
 		t.Fatal(err)
 	}
-	// What the developer's turn has to be refused, though it may read the rest.
+	// What every turn has to be refused, though it may read the rest.
 	services, err := execution.PrepareServicesDirectory(state)
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +224,7 @@ func nativeProbeDirectories(t *testing.T, repository, worktree, state string) []
 	return paths
 }
 
-func nativeProbeCommand(t *testing.T, worktree string, allowed, denied []string, proof string) []string {
+func nativeProbeCommand(t *testing.T, worktree, state string, allowed, denied []string, proof string) []string {
 	t.Helper()
 	physical, err := filepath.EvalSymlinks(worktree)
 	if err != nil {
@@ -231,7 +235,12 @@ func nativeProbeCommand(t *testing.T, worktree string, allowed, denied []string,
 		mode, cache, scratch = "developer", allowed[0], allowed[1]
 	}
 	script := `set -eu
-mode=$1; worktree=$2; cache=$3; scratch=$4; proof=$5; shift 5
+mode=$1; worktree=$2; cache=$3; scratch=$4; proof=$5; token=$6; shift 6
+test -s "$worktree/probe.go"
+cat "$worktree/probe.go" >/dev/null
+if cat "$token" 2>/dev/null; then
+  printf 'unexpected read access to the services folder\n'; exit 22
+fi
 if [ "$mode" = developer ]; then
   test "$(pwd -P)" = "$worktree"
   test "$GOCACHE" = "$cache"
@@ -241,9 +250,6 @@ if [ "$mode" = developer ]; then
     cat "$scratch/check.log"; exit 21
   fi
   test -s "$scratch/check.log"
-  if cat "$(dirname "$(dirname "$scratch")")/services/token" 2>/dev/null; then
-    printf 'unexpected read access to the services folder\n'; exit 22
-  fi
   printf '%s' "$proof" > "$cache/allowed"
   printf '%s' "$proof" > "$worktree/allowed"
 else
@@ -255,7 +261,7 @@ for directory do
   fi
 done
 printf '%s\n' "$proof"`
-	return append([]string{"sh", "-c", script, "sandbox-probe", mode, physical, cache, scratch, proof}, denied...)
+	return append([]string{"sh", "-c", script, "sandbox-probe", mode, physical, cache, scratch, proof, filepath.Join(state, "services", "token")}, denied...)
 }
 
 func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunRequest, proof string, model *sandboxResponses) backendapi.RunResult {

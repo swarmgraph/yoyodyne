@@ -12,6 +12,9 @@ import (
 // tests that are not about it: every developer invocation has to carry one.
 var testScratch string
 
+// testState is the state directory it is cut in, for a session of any other role.
+var testState string
+
 // TestMain gives every test that names no provider home an empty user home, so
 // the Codex home such a test falls back to is an empty one of its own. An
 // invocation whose account home holds an instruction file keeps the home it
@@ -26,6 +29,7 @@ func TestMain(m *testing.M) {
 		err = os.Unsetenv(ProviderHomeVariable)
 	}
 	if err == nil {
+		testState = home
 		testScratch, err = execution.PrepareScratchDirectory(home, testRunID)
 	}
 	if err != nil {
