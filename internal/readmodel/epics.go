@@ -673,6 +673,22 @@ func (s Standing) RenderEpics() string {
 	return s.wording.Render(rendered.String())
 }
 
+// RenderEpicStanding is where one named epic stands and what it waits for, in the
+// lines status prints under that epic, and empty where the epic is not among those
+// read.
+func (s Standing) RenderEpicStanding(id string) string {
+	if s.Epics == nil {
+		return ""
+	}
+	if at := slices.IndexFunc(s.Epics.Open, func(epic OpenEpic) bool { return epic.WorkItemID == id }); at >= 0 {
+		return s.wording.Render(s.Epics.Open[at].render())
+	}
+	if at := slices.IndexFunc(s.Epics.Ended, func(epic EndedEpic) bool { return epic.WorkItemID == id }); at >= 0 {
+		return s.wording.Render(s.Epics.Ended[at].render())
+	}
+	return ""
+}
+
 func sinceSaid(since *time.Time) string {
 	if since == nil {
 		return ""

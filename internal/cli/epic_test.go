@@ -19,6 +19,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -32,6 +34,7 @@ type epicBench struct {
 	items     *listedItems
 	trackerIs error // why the tracker cannot be read, where it cannot
 	paths     []maystart.PathEntry
+	standing  func(context.Context, string) readmodel.Standing
 }
 
 func newEpicBench(t *testing.T) *epicBench {
@@ -62,7 +65,7 @@ func (b *epicBench) run(args ...string) (string, string, int) {
 	b.t.Helper()
 	var stdout, stderr bytes.Buffer
 	command := epicCommand{paths: b.paths, stdout: &stdout, stderr: &stderr,
-		tracker: func(string) (itemLister, error) { return b.items, b.trackerIs }}
+		tracker: func(string) (itemLister, error) { return b.items, b.trackerIs }, standing: b.standing}
 	code := command.run(context.Background(), append(args, "--config", b.config))
 	return stdout.String(), stderr.String(), code
 }
@@ -136,6 +139,25 @@ func TestEpicStartRecordsTheListItPrints(t *testing.T) {
 	}
 	says(t, bench.does("list"), "epic mode is on, with 1 epic(s) open", "(P0) Epic A (yoyodyne-a): open", "only this", "(P1, reliability) Deep (yoyodyne-a.1.1), on the list", "    All of it.")
 	bench.refuses([]string{"start", "yoyodyne-gone"}, "no work item yoyodyne-gone")
+}
+
+// The list prints under each epic where it stands, in the lines status prints, so
+// a step only the operator can take is named there beside a question owed to the
+// Lead Product Manager.
+func TestEpicListSaysWhereEachEpicStandsAsStatusDoes(t *testing.T) {
+	bench := newEpicBench(t)
+	bench.does("start", "yoyodyne-a")
+	step := "the epic's description reserves a step for a person, and it has not been taken: the release is signed (only the operator signs it)"
+	bench.standing = func(context.Context, string) readmodel.Standing {
+		return readmodel.Standing{Epics: &readmodel.Epics{Open: []readmodel.OpenEpic{{WorkItemID: "yoyodyne-a", EpicStanding: readmodel.EpicStanding{
+			State: readmodel.EpicWorking, Waits: []readmodel.EpicWait{
+				{Owner: ownership.MoverOperator, Says: step},
+				{Owner: readmodel.MoverProductManager, Says: "say what evidence the check of the whole epic lacked"},
+			}}}}}}
+	}
+	says(t, bench.does("list"), "  where it stands, as status shows it:\n    Working\n",
+		"    Waiting on the operator: "+step+"\n",
+		"    Waiting on the Lead Product Manager: say what evidence the check of the whole epic lacked\n")
 }
 
 // An epic whose description is empty is refused, in words that say why and what

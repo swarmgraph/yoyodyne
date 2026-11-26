@@ -34,6 +34,9 @@ import (
 type epicCommand struct {
 	paths   []maystart.PathEntry
 	tracker func(configPath string) (itemLister, error)
+	// standing is where the named epics stand, as status reads it, for list to
+	// print under each; nil prints nothing there.
+	standing func(ctx context.Context, configPath string) readmodel.Standing
 
 	stdout, stderr io.Writer
 	configPath     string
@@ -69,6 +72,9 @@ func runEpic(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return nil, err
 		}
 		return parts.tracker(), nil
+	}
+	command.standing = func(ctx context.Context, configPath string) readmodel.Standing {
+		return readmodel.ReadStanding(ctx, standingSources(configPath))
 	}
 	return command.run(ctx, args)
 }
@@ -419,6 +425,10 @@ func (c epicCommand) list(ctx context.Context, stateRoot string) int {
 		return 0
 	}
 	titles := c.titles(ctx)
+	var standing readmodel.Standing
+	if c.standing != nil {
+		standing = c.standing(ctx, c.configPath)
+	}
 	for _, epic := range record.Epics {
 		state := "open"
 		if !epic.Open() {
@@ -447,6 +457,9 @@ func (c epicCommand) list(ctx context.Context, stateRoot string) int {
 		}
 		if strings.TrimSpace(epic.Description) != "" {
 			printIndented(c.stdout, "its description when it was named:", titles.Cite(epic.Description))
+		}
+		if stands := standing.RenderEpicStanding(epic.WorkItemID); stands != "" {
+			fmt.Fprintf(c.stdout, "  where it stands, as status shows it:\n%s", stands)
 		}
 	}
 	return 0
