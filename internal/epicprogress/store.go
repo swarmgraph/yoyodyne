@@ -14,6 +14,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -84,7 +86,10 @@ func (s *Store) Ask(naming Naming, piece Piece) error {
 		if err != nil {
 			return err
 		}
-		if !slices.Contains(view.Items(epic), piece.From) {
+		entry, _ := view.Entry(naming)
+		if check, correcting := entry.Correcting(piece.WorkItemID); correcting {
+			piece.From = FromCheck(check.ID)
+		} else if !slices.Contains(view.Items(epic), piece.From) {
 			return fmt.Errorf("work item %s is not in epic %s, so a piece of it cannot join", piece.From, epic.WorkItemID)
 		}
 		if len(view.Holders(piece.WorkItemID)) > 0 {
@@ -129,7 +134,7 @@ func (s *Store) Judged(naming Naming, item string, outcome Outcome) error {
 			case epic.TakenOut(item):
 				joins = false
 				outcome.Answer, outcome.Why = AnswerTakenOut, "the operator took it out, so it cannot join"
-			case !slices.Contains(view.Items(epic), piece.From):
+			case !slices.Contains(view.Items(epic), piece.From) && !entry.correctsFrom(item, piece.From):
 				joins = false
 				outcome.Answer, outcome.Why = AnswerOutside, piece.From+", which it was made from, is no longer in the epic"
 			case entry.Full() != "":
@@ -352,7 +357,7 @@ func (s *Store) Checked(naming Naming, check Check) (Check, error) {
 				return fmt.Errorf("the answer to %q is that the operator took it out, and the operator's record holds no removal of %s from epic %s", finding.Asks, finding.Removal, naming.WorkItemID)
 			}
 		}
-		check.Found, check.At = FoundOf(check.Findings), s.now().UTC()
+		check.Found, check.At, check.Owed = FoundOf(check.Findings), s.now().UTC(), nil
 		return s.change(naming, func(entry *Entry) error {
 			if at := slices.IndexFunc(entry.Checks, func(kept Check) bool { return kept.ID == check.ID }); at >= 0 {
 				check = entry.Checks[at]
@@ -360,6 +365,11 @@ func (s *Store) Checked(naming Naming, check Check) (Check, error) {
 			}
 			if reserved, found := entry.Reservation(check.ID); !found || reserved.Result == nil || reserved.Result.Unknown {
 				return fmt.Errorf("the check %s was not reserved and answered", check.ID)
+			}
+			// Something missing owes one correction, for the first rounds only. After
+			// them the Lead Product Manager decides, and nothing is owed.
+			if check.Found == FoundNotMet && entry.Rounds(epic) < MaxRounds {
+				check.Owed = &Correction{Missing: missing(check.Findings), At: check.At}
 			}
 			entry.Checks = append(entry.Checks, check)
 			if check.Passed() {
@@ -369,6 +379,187 @@ func (s *Store) Checked(naming Naming, check Check) (Check, error) {
 		})
 	})
 	return check, err
+}
+
+// missing is what a check found missing, each thing asked with what is missing.
+func missing(findings []Finding) string {
+	var said []string
+	for _, finding := range findings {
+		if finding.Answer == NotMet {
+			said = append(said, finding.Asks+": "+finding.Says)
+		}
+	}
+	return strings.Join(said, "; ")
+}
+
+// AskEvidence writes the identifier of the report asking the Lead Product Manager
+// what evidence a check that could not tell lacked, before the report is filed.
+// Writing the same report again changes nothing; a second report for the check,
+// and a check that did not answer cannot be told, are refused.
+func (s *Store) AskEvidence(naming Naming, checkID, reportID string) error {
+	if !report.ValidID(reportID) {
+		return fmt.Errorf("%q is not a report's identifier", reportID)
+	}
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		if _, _, err := s.open(record, naming); err != nil {
+			return err
+		}
+		return s.change(naming, func(entry *Entry) error {
+			check, err := entry.check(checkID)
+			switch {
+			case err != nil:
+				return err
+			case check.Found != FoundCannotTell:
+				return fmt.Errorf("the check %s found %s, and evidence is asked for only for one that could not tell", checkID, check.Found)
+			case check.Asked != nil && check.Asked.Report == reportID:
+				return errUnchanged
+			case check.Asked != nil:
+				return fmt.Errorf("the check %s already asked for its evidence, in %s", checkID, check.Asked.Report)
+			}
+			check.Asked = &Asked{Report: reportID, At: s.now().UTC()}
+			return nil
+		})
+	})
+}
+
+// EvidenceAnswered records the Lead Product Manager's handling of the report a
+// check asked its evidence in: its reason and when it was recorded, and the
+// operator's reason where it recorded that only he can act. A handling naming the
+// operator owes nothing; any other owes one correction naming its reason as the
+// evidence. An answer already recorded is left as it is.
+func (s *Store) EvidenceAnswered(naming Naming, checkID, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error {
+	if strings.TrimSpace(reason) == "" || recorded.IsZero() {
+		return errors.New("the handling's reason and when it was recorded are required")
+	}
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		if _, _, err := s.open(record, naming); err != nil {
+			return err
+		}
+		return s.change(naming, func(entry *Entry) error {
+			check, err := entry.check(checkID)
+			switch {
+			case err != nil:
+				return err
+			case check.Asked == nil || check.Asked.Report != reportID:
+				return fmt.Errorf("the check %s did not ask for its evidence in %s", checkID, reportID)
+			case check.Asked.Answered != nil:
+				return errUnchanged
+			}
+			at := recorded.UTC()
+			check.Asked.Answered = &at
+			if operator.Valid() {
+				check.Asked.Operator, check.Asked.Says = operator, strings.TrimSpace(reason)
+				return nil
+			}
+			check.Owed = &Correction{Missing: strings.TrimSpace(reason), At: s.now().UTC(), Answered: &at}
+			return nil
+		})
+	})
+}
+
+// check is the check of the entry with the identifier, to change in place.
+func (e *Entry) check(id string) (*Check, error) {
+	at := slices.IndexFunc(e.Checks, func(check Check) bool { return check.ID == id })
+	if at < 0 {
+		return nil, fmt.Errorf("epic %s has no check %s", e.WorkItemID, id)
+	}
+	return &e.Checks[at], nil
+}
+
+// owedFor is why a piece may not be written for the check of an open epic, and nil
+// where a correction is owed for it that names no piece, or names this one.
+func owedFor(view View, epic epicscope.Epic, checkID, piece string) error {
+	entry, _ := view.Entry(Of(epic))
+	at := slices.IndexFunc(entry.Checks, func(check Check) bool { return check.ID == checkID })
+	switch {
+	case at < 0:
+		return fmt.Errorf("epic %s has no check %s", epic.WorkItemID, checkID)
+	case entry.Checks[at].Owed == nil:
+		return fmt.Errorf("no correction is owed for the check %s of epic %s", checkID, epic.WorkItemID)
+	case entry.Checks[at].Owed.Piece != "" && entry.Checks[at].Owed.Piece != piece:
+		return fmt.Errorf("the correction owed for the check %s of epic %s has already been written, as %s", checkID, epic.WorkItemID, entry.Checks[at].Owed.Piece)
+	}
+	return nil
+}
+
+// openNamed is the open epic the operator named, and a reading of its progress.
+func (s *Store) openNamed(record epicscope.Record, epic string) (View, epicscope.Epic, error) {
+	named, found := record.Named(epic)
+	if !found || !named.Open() {
+		return View{}, named, fmt.Errorf("%s is not an open epic the operator named", epic)
+	}
+	view, err := Read(s.stateRoot, s.product, record)
+	return view, named, err
+}
+
+// MayCorrect is why a piece correcting a check of the epic may not be written, and
+// nil where it may: the epic is open and a correction is owed for the check that
+// no piece has been written for.
+func (s *Store) MayCorrect(epic, checkID string) error {
+	record, err := epicscope.Read(s.stateRoot, s.product)
+	if err != nil {
+		return err
+	}
+	view, named, err := s.openNamed(record, epic)
+	if err != nil {
+		return err
+	}
+	return owedFor(view, named, checkID, "")
+}
+
+// Correcting writes the piece written for a check's owed correction into that
+// correction, and answers the note of fixed form to write on the piece after it.
+// Writing the same piece again changes nothing.
+func (s *Store) Correcting(epic, checkID, piece string) (note string, err error) {
+	err = epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		view, named, err := s.openNamed(record, epic)
+		if err != nil {
+			return err
+		}
+		if err := owedFor(view, named, checkID, piece); err != nil {
+			return err
+		}
+		if holders := view.Holders(piece); len(holders) > 0 {
+			return fmt.Errorf("work item %s is already in epic %s", piece, holders[0].WorkItemID)
+		}
+		return s.change(Of(named), func(entry *Entry) error {
+			check, err := entry.check(checkID)
+			if err != nil {
+				return err
+			}
+			note = CorrectionNote(epic, *check)
+			if check.Owed.Piece == piece {
+				return errUnchanged
+			}
+			check.Owed.Piece = piece
+			return nil
+		})
+	})
+	return note, err
+}
+
+// Noted writes that the note of fixed form is on the piece a correction of the
+// open epic's check names.
+func (s *Store) Noted(epic, checkID string) error {
+	record, err := epicscope.Read(s.stateRoot, s.product)
+	if err != nil {
+		return err
+	}
+	named, found := record.Named(epic)
+	if !found || !named.Open() {
+		return fmt.Errorf("%s is not an open epic the operator named", epic)
+	}
+	return s.change(Of(named), func(entry *Entry) error {
+		check, err := entry.check(checkID)
+		if err != nil {
+			return err
+		}
+		if check.Owed == nil || check.Owed.Piece == "" || check.Owed.Noted {
+			return errUnchanged
+		}
+		check.Owed.Noted = true
+		return nil
+	})
 }
 
 // evidence is what a delivery rests on, in words: the check, the commit it read,
