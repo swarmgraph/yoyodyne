@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -681,14 +682,10 @@ func TestASchedulerThatHasNotBegunADueMoveIsMovedOntoTheDeployedBuild(t *testing
 	}
 
 	// Past its grace and not winding down: restarted into the deployed build,
-	// as a restart rather than a death.
+	// as a restart rather than a death. The grace is counted from the moment
+	// the move fell due, so it is not given again for having wound down.
 	windingDown = false
 	clock.advance(DeployEvery)
-	supervisor.Tick(context.Background())
-	if scheduler.stopCount() != 0 {
-		t.Fatalf("stops = %d, want the grace counted again from the first look that found the move overdue and not begun", scheduler.stopCount())
-	}
-	clock.advance(20*time.Minute + DeployEvery)
 	supervisor.Tick(context.Background())
 	if scheduler.stopCount() != 1 || scheduler.startCount() != 2 {
 		t.Fatalf("stops = %d starts = %d, want the scheduler stopped once and started from the deployed binary", scheduler.stopCount(), scheduler.startCount())
@@ -708,7 +705,8 @@ func TestASchedulerThatHasNotBegunADueMoveIsMovedOntoTheDeployedBuild(t *testing
 
 // A machine that sleeps across the moment a move fell due and the whole grace
 // past it wakes with the scheduler's own loop yet to run: the first look after
-// waking must not stop it, and a look the grace later, awake, must.
+// waking must not stop it, and a look the grace after the wake the operating
+// system records, awake, must.
 func TestASchedulerIsNotRestartedAtTheFirstLookAfterTheMachineSleptThroughItsMove(t *testing.T) {
 	t.Parallel()
 
@@ -723,26 +721,90 @@ func TestASchedulerIsNotRestartedAtTheFirstLookAfterTheMachineSleptThroughItsMov
 		windingDown:         &windingDown,
 	}
 	supervisor := deploySupervisor(t, store, clock, binary, scheduler)
+	var mu sync.Mutex
+	var power []runstate.PowerEvent
+	supervisor.PowerHistory = func(context.Context) ([]runstate.PowerEvent, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(power), nil
+	}
 	supervisor.Tick(context.Background())
 	binary.deploy(t, "2222222222222222")
 	clock.advance(DeployEvery)
 	supervisor.Tick(context.Background())
 
 	// Asleep for three hours: due, and far past the grace, at the first look.
+	asleep := clock.now.Add(time.Minute)
 	clock.advance(3 * time.Hour)
+	mu.Lock()
+	power = []runstate.PowerEvent{
+		{At: asleep, Source: "pmset: Sleep"},
+		{At: clock.now, Awake: true, Source: "pmset: Wake"},
+	}
+	mu.Unlock()
 	supervisor.Tick(context.Background())
 	if scheduler.stopCount() != 0 {
 		t.Fatalf("stops = %d, want the scheduler left to begin its move after the machine woke", scheduler.stopCount())
 	}
 	got := child(t, loaded(t, store), config.ServiceScheduler)
-	if !got.MoveBy.After(clock.now) {
-		t.Fatalf("scheduler = %+v, want its restart time still ahead of %s", got, clock.now)
+	if !got.MoveBy.Equal(clock.now.Add(20 * time.Minute)) {
+		t.Fatalf("scheduler = %+v, want its restart the whole grace after the wake at %s", got, clock.now)
 	}
 
 	clock.advance(20*time.Minute + DeployEvery)
 	supervisor.Tick(context.Background())
 	if scheduler.stopCount() != 1 {
 		t.Fatalf("stops = %d, want the scheduler restarted once it had its whole grace awake", scheduler.stopCount())
+	}
+}
+
+// The deadline for a move that has not begun is worked out from what the
+// records hold — the scheduler's last move and when the build was installed —
+// so a supervisor restarted while the move is overdue, as it is onto every
+// build installed, keeps the deadline the one before it had and restarts the
+// scheduler at it, rather than giving the scheduler its whole grace again.
+func TestASupervisorRestartedWhileAMoveIsOverdueKeepsTheOriginalDeadline(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 11, 22, 20, 30, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	next := clock.now.Add(32 * time.Minute)
+	windingDown := false
+	scheduler := scheduledScheduler{
+		selfRestartingChild: selfRestartingChild{newDeployable(config.ServiceScheduler, binary, nil)},
+		next:                &next,
+		windingDown:         &windingDown,
+	}
+	first := deploySupervisor(t, store, clock, binary, scheduler)
+	first.Tick(context.Background())
+	binary.deploy(t, "2222222222222222")
+	deadline := next.Add(20 * time.Minute)
+
+	// Due, and not begun: the first supervisor names the deadline.
+	clock.advance(40 * time.Minute)
+	first.Tick(context.Background())
+	if got := child(t, loaded(t, store), config.ServiceScheduler); !got.MoveDue.Equal(next) || !got.MoveBy.Equal(deadline) {
+		t.Fatalf("scheduler = %+v, want its move due at %s and the restart at %s", got, next, deadline)
+	}
+
+	// The supervisor restarts. The one in its place names the same deadline,
+	// and leaves the scheduler alone until then.
+	clock.advance(5 * time.Minute)
+	restarted := deploySupervisor(t, store, clock, binary, scheduler)
+	restarted.Tick(context.Background())
+	if got := child(t, loaded(t, store), config.ServiceScheduler); !got.MoveDue.Equal(next) || !got.MoveBy.Equal(deadline) {
+		t.Fatalf("after the supervisor restarted, scheduler = %+v; want the move still due at %s and the restart still at %s", got, next, deadline)
+	}
+	if scheduler.stopCount() != 0 {
+		t.Fatalf("stops = %d, want the scheduler left to move itself before its deadline", scheduler.stopCount())
+	}
+
+	// At the deadline, not twenty minutes after the restart: moved.
+	clock.advance(deadline.Sub(clock.Now()))
+	restarted.Tick(context.Background())
+	if scheduler.stopCount() != 1 {
+		t.Fatalf("stops = %d at %s, want the scheduler restarted at the deadline the first supervisor named", scheduler.stopCount(), clock.Now())
 	}
 }
 

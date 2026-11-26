@@ -98,6 +98,7 @@ func (s *Supervisor) observeMachine(ctx context.Context, now time.Time) {
 	if err != nil {
 		observation.PowerProblem = err.Error()
 	}
+	s.noteWake(events, now)
 	for _, event := range events {
 		if !s.seenPower[powerKey(event)] {
 			observation.Power = append(observation.Power, event)
@@ -110,6 +111,17 @@ func (s *Supervisor) observeMachine(ctx context.Context, now time.Time) {
 	s.lastMachineLook = now
 	for _, event := range observation.Power {
 		s.seenPower[powerKey(event)] = true
+	}
+}
+
+// noteWake keeps the latest wake in the operating system's account that is not
+// later than now. The account includes what happened while the supervisor was
+// down, so a supervisor started afresh knows the same wake as the one before.
+func (s *Supervisor) noteWake(events []runstate.PowerEvent, now time.Time) {
+	for _, event := range events {
+		if event.Awake && !event.At.After(now) && event.At.After(s.awakeSince) {
+			s.awakeSince = event.At
+		}
 	}
 }
 
