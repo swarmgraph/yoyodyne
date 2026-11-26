@@ -3472,7 +3472,24 @@ pulling:
 		var continuationCandidates []pausedContinuation
 		var continuationsRead error
 		var continuationsFirst func(CarryOutTask) []string
-		_, declining := drain.declinesDeveloperStarts(pull.Poll, s.now())
+		// drainDeclinesNow asks the drain whether a start made now would only be
+		// stopped, against the clock as it stands rather than as it stood when the
+		// pull began. One pull can take longer than the whole bound: its tracker
+		// reads and writes are each allowed two minutes, and the decisions it fires
+		// are each waited on to begin. The bound is applied only at the top of the
+		// loop, so a pull that had asked once, near its start, went on starting
+		// work past the bound and kept the session from the top of the loop until
+		// it was done, which could be past the five minutes the supervisor gives a
+		// session past its bound before it stops it
+		// (docs/diagnoses/yoyodyne-ifd-428-192-scheduler-past-its-wind-down-limit.md).
+		// So the pull asks again before every start it makes, and once the answer
+		// is yes it starts nothing more and goes back to the top, where the bound
+		// is applied.
+		drainDeclinesNow := func() bool {
+			_, declined := drain.declinesDeveloperStarts(pull.Poll, s.now())
+			return declined
+		}
+		declining := drainDeclinesNow()
 		stopsEnded := s.endStoppedCIWaits(ctx, pull, mine)
 		if !paused && !declining {
 			var itemOf func(string) (beads.WorkItem, bool)
@@ -3637,6 +3654,11 @@ pulling:
 					break
 				}
 			}
+			// Each round waits for its runs to begin, so the drain is asked again
+			// before the next round is fired; see drainDeclinesNow.
+			if drainDeclinesNow() {
+				break
+			}
 			tasks, passedCarryOuts, pendingCarryOuts, slotBound = s.nextCarryOutsExcept(&schedule, pull, occupied, mine, handedBack, waitingOn, closed, free, remaining, outranked, precedence, continuationsFirst, attempted)
 			for _, task := range tasks {
 				schedule.unwaitCarryOut(task)
@@ -3647,6 +3669,10 @@ pulling:
 		// say it carried one out.
 		if firedCarryOuts > 0 && unstartedCarryOuts == firedCarryOuts {
 			carrying = false
+		}
+		// The rounds above can take minutes, so what follows asks the drain again.
+		if !declining {
+			declining = drainDeclinesNow()
 		}
 		// With no slot free this pull never walks the queue, so a decision held back
 		// for outranking work is written up now, beside the ones passed over.
@@ -4183,11 +4209,20 @@ pulling:
 		// is not waiting on anything, so each is named only once the slots are
 		// filled.
 		capacityHeld := map[string]string{}
+		// stoppedForMove is the walk having stopped because the drain declined a
+		// start partway through it (drainDeclinesNow): reading the queue and
+		// asking each entry whether it may start both read the harness, and the
+		// bound can run out while they do.
+		stoppedForMove := false
 		fill := func(slot developerslot.Slot, labelled bool) (walk, error) {
 			var past []walkedPast
 			for _, entry := range queue.Entries {
 				if startedNow[entry.ID] || racedNow[entry.ID] {
 					continue
+				}
+				if drainDeclinesNow() {
+					stoppedForMove = true
+					return walkStopped, nil
 				}
 				preferred := slot.Prefers(read.items[entry.ID].Labels)
 				if labelled && !preferred {
@@ -4253,6 +4288,10 @@ pulling:
 			// only its label's work leaves it for the fallback walk, which asks the
 			// whole order first.
 			if !labelled {
+				if drainDeclinesNow() {
+					stoppedForMove = true
+					return walkStopped, nil
+				}
 				if _, fired := firePending(0, true); fired {
 					return walkStarted, nil
 				}
@@ -4292,6 +4331,33 @@ pulling:
 					// over them because they are in flight.
 					continue pulling
 				}
+			}
+		}
+		// A walk the drain stopped leaves what it did not reach to the session
+		// that comes back, as a pull the drain declines outright does: nothing it
+		// walked past is written up as left for another slot, no decision as
+		// unattempted, and a walk that started nothing waits a poll at most and
+		// goes back to the top, where the bound is applied.
+		if stoppedForMove {
+			leftBehind = nil
+			for _, pending := range pendingCarryOuts {
+				schedule.waitCarryOut(pending.task, "this session is stepping down to restart on a newly deployed build and starts nothing new before then; the session that replaces it attempts it at its first pull")
+			}
+			pendingCarryOuts = nil
+			drain.paused(s.now())
+			if started == 0 && firedInWalk == 0 && !carrying && startedDocuments == 0 {
+				pullSlots.say(pullSlots.ruleAccount("the session is restarting onto a newly deployed build, so it starts nothing new into a free slot and the session that comes back fills it"))
+				schedule.Drain.Skipped++
+				skipped := drain.record(running)
+				skipped.PullSkipped = true
+				session.draining(skipped)
+				reason := fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound came within a poll while this pull was reading the queue, so the session that comes back pulls them; %s",
+					len(unfilledSlots(freeSlots, filled)), skipped.Says())
+				if !wait(pull, runstate.WatchIdle, account{reason: reason, running: len(occupied)}) {
+					schedule.Stopped = ScheduleCancelled
+					break
+				}
+				continue
 			}
 		}
 		for _, entry := range queue.Entries {
