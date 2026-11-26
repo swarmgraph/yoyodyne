@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -222,10 +223,12 @@ func TestAReportedConflictWithNothingToBringInKeepsTheWait(t *testing.T) {
 	}
 }
 
-// A conflict goes to the same run's developer as its one reconciliation
-// attempt, spending no repair attempt, and the settled change waits again. A
-// second conflict stops the run for the development manager.
-func TestAConflictInTheWaitGoesToTheDeveloperOnceAndThenStops(t *testing.T) {
+// A conflict goes to the same run's developer as one of its reconciliation
+// attempts, spending no repair attempt, and the settled change waits again. The
+// second and third conflicts get the run's other two attempts, each recording
+// the commit it conflicted with and that no hold applied, and the fourth
+// stops the run for the development manager.
+func TestAConflictInTheWaitGoesToTheDeveloperThreeTimesAndThenStops(t *testing.T) {
 	t.Parallel()
 	f := newCIFixture(t)
 	_, parked := f.park(t)
@@ -266,19 +269,34 @@ func TestAConflictInTheWaitGoesToTheDeveloperOnceAndThenStops(t *testing.T) {
 		t.Fatalf("the wait says %q", says)
 	}
 
-	f.targetGains(t, "feature.txt", "a third answer\n")
+	for attempt := 2; attempt <= runstate.MaxReconciliations; attempt++ {
+		f.targetGains(t, "feature.txt", fmt.Sprintf("answer %d from somebody else\n", attempt))
+		again, _ := f.conflicting(t, state.CIWait.Commit)
+		if outcome, err := again.Run(context.Background(), f.tracker.Item.ID); err != nil || outcome.PausedByCIWait == nil {
+			t.Fatalf("conflict %d: Run() = %#v, %v, want the settled change waiting", attempt, outcome, err)
+		}
+		if state, err = f.store.Load(outcome.RunID); err != nil {
+			t.Fatal(err)
+		}
+		used := state.Reconciliation
+		if state.RepairAttempts != 0 || used == nil || used.Attempt != attempt || used.HoldMissed != runstate.HoldMissedNoHold || used.TargetCommit == "" {
+			t.Fatalf("conflict %d: attempts %d, reconciliation %#v; want attempt %d naming its commit and no hold", attempt, state.RepairAttempts, used, attempt)
+		}
+	}
+
+	f.targetGains(t, "feature.txt", "a fourth answer\n")
 	again, _ := f.conflicting(t, state.CIWait.Commit)
 	if _, err := again.Run(context.Background(), f.tracker.Item.ID); err == nil {
-		t.Fatal("a second conflict did not stop the run")
+		t.Fatal("a fourth conflict did not stop the run")
 	}
 	stopped, err := f.store.Load(outcome.RunID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stopped.Status != runstate.StatusFailed || stopped.ReplayConflict == nil || !stopped.ReplayConflict.BeforeReview() || stopped.CIWait != nil || !strings.Contains(stopped.Blocker, "already used its one attempt") {
+	if stopped.Status != runstate.StatusFailed || stopped.ReplayConflict == nil || !stopped.ReplayConflict.BeforeReview() || stopped.CIWait != nil || !strings.Contains(stopped.Blocker, "already used its 3 attempts") {
 		t.Fatalf("status %q, conflict %#v, wait %#v, blocker %q", stopped.Status, stopped.ReplayConflict, stopped.CIWait, stopped.Blocker)
 	}
-	if f.developed != 2 || f.reviewed() != 0 || logLines(t, f.fullLog) != 0 || stopped.RepairAttempts != 0 {
+	if f.developed != 1+runstate.MaxReconciliations || f.reviewed() != 0 || logLines(t, f.fullLog) != 0 || stopped.RepairAttempts != 0 || stopped.ReconciliationsUsed() != runstate.MaxReconciliations {
 		t.Fatalf("developed=%d reviews=%d full=%d attempts=%d", f.developed, f.reviewed(), logLines(t, f.fullLog), stopped.RepairAttempts)
 	}
 	if says := stopped.ReplayConflict.Says(stopped.RunID); strings.Contains(says, "approved") {
@@ -312,11 +330,11 @@ func TestAnInterruptedConflictAttemptIsMadeAgainAndNotCountedTwice(t *testing.T)
 		t.Fatalf("the attempt was made again in session %q, want the writer's", session)
 	}
 	prompts := f.developerPrompts()
-	if last := prompts[len(prompts)-1]; !strings.Contains(last, "one attempt to bring your change level") || strings.Contains(last, "was approved") {
+	if last := prompts[len(prompts)-1]; !strings.Contains(last, "attempts this run gets to bring your change level") || strings.Contains(last, "was approved") {
 		t.Fatalf("the attempt made again was told:\n%s", last)
 	}
 	after, _ := f.store.Load(parked.RunID)
-	if after.RepairAttempts != 1 || after.BaseCommit == parked.BaseCommit || f.developed != 2 || logLines(t, f.fullLog) != 0 {
+	if after.RepairAttempts != 1 || after.ReconciliationsUsed() != 1 || after.BaseCommit == parked.BaseCommit || f.developed != 2 || logLines(t, f.fullLog) != 0 {
 		t.Fatalf("attempts=%d developed=%d full=%d", after.RepairAttempts, f.developed, logLines(t, f.fullLog))
 	}
 }

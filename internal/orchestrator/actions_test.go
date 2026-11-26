@@ -1001,7 +1001,7 @@ var notAStep = map[string]string{
 	// verify, and the push and wait are parks of the same run rather than steps
 	// a definition could route.
 	"checkRound":         "chooses between verify and settling a recorded wait for the forge's checks; the step it performs is candidate.check",
-	"handCIWaitConflict": "hands a change that conflicts with its target while it waits for the forge's checks back to candidate.develop as the run's one reconciliation attempt, or stops the run where that attempt was used",
+	"handCIWaitConflict": "hands a change that conflicts with its target while it waits for the forge's checks back to candidate.develop as the run's next reconciliation attempt, or stops the run where every attempt was used",
 	"ciFlow":             "reads whether checks on CI is on for this run, so verify runs only the short local check; it decides nothing a definition could route",
 	// How a run ends. None of these advances the work; they turn a stopped,
 	// refused, or finished step into the outcome the run reports, and a definition

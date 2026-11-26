@@ -92,13 +92,12 @@ func TestEveryEndingTheHarnessHandsToAPersonIsReadBackAsStopped(t *testing.T) {
 				tracker := newOutcomeTracker()
 				// The target moves onto the same line, so replaying is a decision
 				// rather than something the harness may take, and it moves again
-				// while the run's one reconciliation attempt is out.
-				provider := orchestratortest.RoleBackend(conflictsTwiceAtLanding(t, repository, filepath.Join("docs", "design.md"),
+				// while each of the run's reconciliation attempts is out.
+				provider := orchestratortest.RoleBackend(conflictsAtEveryLanding(t, repository, filepath.Join("docs", "design.md"),
 					"this run's answer\n", "somebody else's answer\n", somebodyElsesSecondAnswer), approveVerdict)
 				pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
-				// The first conflict is the reconciliation attempt and a later one goes
-				// to its own developer while an attempt is left, so the ending handed
-				// to a person is the second conflict with none.
+				// The first three conflicts are the reconciliation attempts, so the
+				// ending handed to a person is the fourth.
 				pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 				return pipeline, store, tracker
 			},

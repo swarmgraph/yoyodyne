@@ -188,8 +188,8 @@ const (
 	// CauseMergeQueueBehind is an approved change in the harness's merge queue
 	// whose head would no longer merge onto the target branch because the target
 	// moved while it waited. Nothing about the change was judged wrong, so the
-	// queue hands it back to its own run for the run's one reconciliation
-	// attempt (State.Reconciliation) rather than stopping it: the developer
+	// queue hands it back to its own run for one of the run's reconciliation
+	// attempts (State.Reconciliation) rather than stopping it: the developer
 	// brings it level with the target, it earns its checks and review again,
 	// and it rejoins the queue by itself. No repair attempt and no fresh run is
 	// spent. Only the queue's hand-back records it, on the resumption it makes

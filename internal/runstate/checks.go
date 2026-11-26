@@ -515,8 +515,8 @@ func (s State) UpdatingQueuedHead() bool {
 // PutBackToCatchUpWithMergeQueue is a run that ended waiting on the harness's
 // merge queue, put back live at its developer attempt because the queue could
 // not merge its change onto a target that moved under it
-// (CauseMergeQueueBehind). The conflict is recorded as the run's one
-// reconciliation attempt before any developer is invoked, so an interrupted
+// (CauseMergeQueueBehind). The conflict is recorded as the run's next
+// reconciliation attempt (UseReconciliation) before any developer is invoked, so an interrupted
 // attempt is still the one the run had: it becomes the run's only repair
 // input, the checks the change passed before the target moved are cleared,
 // and no repair attempt is counted. The caller saves it through
@@ -533,11 +533,11 @@ func (s State) PutBackToCatchUpWithMergeQueue(conflict ReplayConflict, reason st
 	// The attempt is made in a new session, so the one that wrote the change is
 	// recorded before it can be replaced.
 	resumed.RecordWritingSession(s.ProviderSessionID, at)
-	resumed.Reconciliation = &Reconciliation{
+	resumed.UseReconciliation(Reconciliation{
 		TargetBranch: conflict.TargetBranch, TargetCommit: conflict.TargetCommit,
 		Paths: append([]string(nil), conflict.Paths...), Omitted: conflict.Omitted,
 		UsedAt: at.UTC(), Handback: conflict.Handback,
-	}
+	})
 	resumed.IntegrationResumptions = append(append([]IntegrationResumption{}, s.IntegrationResumptions...),
 		IntegrationResumption{
 			Cause:             CauseMergeQueueBehind,
@@ -558,7 +558,7 @@ func (s State) PutBackToCatchUpWithMergeQueue(conflict ReplayConflict, reason st
 
 // CatchingUpWithMergeQueueTarget reports a run the harness's merge queue handed
 // back because the target moved under its change, which the queue put back
-// live for its one reconciliation attempt (CauseMergeQueueBehind), and which
+// live for a reconciliation attempt (CauseMergeQueueBehind), and which
 // is still in flight on that attempt or on the checks and review after it. It
 // is a pending continuation in the claim audit's sense for the reason
 // UpdatingQueuedHead is: the reconciling sweep hosts it, and a record gone

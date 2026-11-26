@@ -13,7 +13,7 @@ import (
 )
 
 // handedBackForAConflict is a run whose approved change the queue handed back
-// because the target moved, put back for its one attempt.
+// because the target moved, put back for one of its attempts.
 func handedBackForAConflict(t *testing.T) (*queueRun, *orchestratortest.Backend, Outcome, runstate.State) {
 	t.Helper()
 	r, provider := newCatchUpRun(t, resolveBothSides)

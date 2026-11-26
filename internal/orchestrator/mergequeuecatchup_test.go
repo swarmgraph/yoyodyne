@@ -1,11 +1,11 @@
 package orchestrator
 
 // A change the harness's merge queue hands back only because the target moved
-// under it gets its run's one attempt to catch up, end to end through a real
+// under it gets one of its run's attempts to catch up, end to end through a real
 // run, a real queue, and a real run store: the run is put back live rather
 // than stopped, a new developer session reconciles the conflict on top of the target,
 // the change is checked and reviewed again and rejoins the queue by itself,
-// and no repair attempt or fresh run is spent. A second conflict, or a
+// and no repair attempt or fresh run is spent. A fourth conflict, or a
 // catch-up whose result fails its checks with no repair attempts left, stops
 // the run for the development manager as before, saying why.
 
@@ -117,7 +117,7 @@ func TestAChangeHandedBackOnlyBecauseTheTargetMovedCatchesUpAndRejoinsTheQueue(t
 	if !catchUpNotTakenUp(put) || !owedUpdateContinuation(put) || !put.CatchingUpWithMergeQueueTarget() {
 		t.Fatal("the run put back is not one the reconciling sweep hosts")
 	}
-	if record := r.tracker.Record(); record.Blocked || !strings.Contains(record.Notes, "gets its one attempt to bring the change up to date") || !strings.Contains(record.Notes, "not a repair attempt and not a fresh run") {
+	if record := r.tracker.Record(); record.Blocked || !strings.Contains(record.Notes, "gets one of its 3 attempts to bring the change up to date") || !strings.Contains(record.Notes, "not a repair attempt and not a fresh run") {
 		t.Fatalf("blocked = %t, notes:\n%s\nwant the item told, not blocked", record.Blocked, record.Notes)
 	}
 	// Giving the same hand-back again (a later pass, after a note that failed)
@@ -133,7 +133,7 @@ func TestAChangeHandedBackOnlyBecauseTheTargetMovedCatchesUpAndRejoinsTheQueue(t
 	if err := r.catchUpDriver().Promoter.Repair.HandBack(context.Background(), entry, *landing.Handback); err != nil {
 		t.Fatalf("HandBack() again error = %v", err)
 	}
-	if notes := r.tracker.Record().Notes; strings.Count(notes, "gets its one attempt to bring the change up to date") != 1 {
+	if notes := r.tracker.Record().Notes; strings.Count(notes, "gets one of its 3 attempts to bring the change up to date") != 1 {
 		t.Fatalf("notes:\n%s\nwant the catch-up said once", notes)
 	}
 
@@ -258,27 +258,56 @@ func TestARepairAfterACatchUpIsRecordedAsUnclear(t *testing.T) {
 	}
 }
 
-func TestASecondConflictInTheQueueStopsTheRunSayingItsCatchUpWasUsed(t *testing.T) {
+// A run gets three attempts to bring its queued change up to date, one for
+// each conflict the queue hands it back for, each spending no repair attempt.
+// The harness is started again between the third conflict and the fourth, and
+// the fourth, read from the run's record by the new process, stops the run for
+// the development manager.
+func TestAFourthConflictInTheQueueStopsTheRunSayingItsCatchUpsWereUsed(t *testing.T) {
 	t.Parallel()
 
 	r, _ := newCatchUpRun(t, resolveBothSides)
 	admitted := r.run(t)
 	key := admitted.MergeQueue.Key()
-	conflictOnTarget(t, r.repository, "something else\n")
-	if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassHandedBack {
-		t.Fatalf("Pass() = %#v, want the first conflict handed back", pass)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	rejoined, err := r.pipeline.Continue(ctx, "yoyodyne-task", admitted.RunID)
-	if err != nil || rejoined.MergeQueue == nil {
-		t.Fatalf("Continue() = %#v, %v; want the change back in the queue", rejoined, err)
+	answers := []string{"something else\n", "a second answer\n", "a third answer\n"}
+	var rejoined Outcome
+	for index, answer := range answers {
+		conflictOnTarget(t, r.repository, answer)
+		if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassHandedBack {
+			t.Fatalf("Pass() = %#v, want conflict %d handed back", pass, index+1)
+		}
+		var err error
+		rejoined, err = r.pipeline.Continue(ctx, "yoyodyne-task", admitted.RunID)
+		if err != nil || rejoined.MergeQueue == nil {
+			t.Fatalf("Continue() after conflict %d = %#v, %v; want the change back in the queue", index+1, rejoined, err)
+		}
+		key = rejoined.MergeQueue.Key()
+		state, err := r.runs.Load(admitted.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		used := state.Reconciliation
+		if state.RepairAttempts != 0 || used == nil || used.Attempt != index+1 || used.TargetCommit == "" {
+			t.Fatalf("after conflict %d: repair attempts %d, reconciliation %#v; want attempt %d naming the commit it conflicted with", index+1, state.RepairAttempts, used, index+1)
+		}
+		if wantHold := runstate.HoldMissedNoHold; index > 0 && used.HoldMissed != wantHold || index == 0 && used.HoldMissed != "" {
+			t.Fatalf("attempt %d hold reason = %q", index+1, used.HoldMissed)
+		}
 	}
 
-	// The target moves under it again.
-	conflictOnTarget(t, r.repository, "a third answer\n")
+	// The harness starts again: a new store over the same records, and a new
+	// queue driver, know only what the run's record says.
+	reopened, err := runstate.NewStore(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(r.runs.Root())))), "yoyodyne")
+	if err != nil || reopened.Root() != r.runs.Root() {
+		t.Fatalf("NewStore() = %v, %v; want the same records reopened", reopened, err)
+	}
+	r.runs, r.pipeline.Store = reopened, reopened
+
+	conflictOnTarget(t, r.repository, "a fourth answer\n")
 	if pass := r.catchUpPass(t, key); pass.Outcome != runstate.MergeQueuePassHandedBack {
-		t.Fatalf("Pass() = %#v, want the second conflict handed back", pass)
+		t.Fatalf("Pass() = %#v, want the fourth conflict handed back", pass)
 	}
 	stopped, err := r.runs.Load(admitted.RunID)
 	if err != nil {
@@ -287,14 +316,17 @@ func TestASecondConflictInTheQueueStopsTheRunSayingItsCatchUpWasUsed(t *testing.
 	if stopped.Status != runstate.StatusFailed || strings.TrimSpace(stopped.Blocker) == "" || stopped.ReplayConflict == nil {
 		t.Fatalf("run = status %q, blocker %q; want it stopped for the development manager with the conflict kept", stopped.Status, stopped.Blocker)
 	}
-	if len(stopped.ConflictHandbacks) != 2 || stopped.ConflictHandbacks[1].ID != rejoined.MergeQueue.EntryID || stopped.ConflictSpending.Handback != rejoined.MergeQueue.EntryID {
-		t.Fatalf("hand-backs = %#v, spending %#v; want the second recorded and charged from here", stopped.ConflictHandbacks, stopped.ConflictSpending)
+	if stopped.ReconciliationsUsed() != runstate.MaxReconciliations || stopped.RepairAttempts != 0 {
+		t.Fatalf("reconciliations %d, repair attempts %d; want three used and no repair spent", stopped.ReconciliationsUsed(), stopped.RepairAttempts)
 	}
-	if !strings.Contains(stopped.Blocker, "already used its one attempt to bring its change up to date") {
-		t.Fatalf("blocker = %q, want it to say the catch-up was already used", stopped.Blocker)
+	if len(stopped.ConflictHandbacks) != 4 || stopped.ConflictHandbacks[3].ID != rejoined.MergeQueue.EntryID || stopped.ConflictSpending.Handback != rejoined.MergeQueue.EntryID {
+		t.Fatalf("hand-backs = %#v, spending %#v; want the fourth recorded and charged from here", stopped.ConflictHandbacks, stopped.ConflictSpending)
+	}
+	if !strings.Contains(stopped.Blocker, "already used its 3 attempts to bring its change up to date") {
+		t.Fatalf("blocker = %q, want it to say the catch-ups were already used", stopped.Blocker)
 	}
 	if record := r.tracker.Record(); !record.Blocked {
-		t.Fatal("the item was not blocked on the second conflict")
+		t.Fatal("the item was not blocked on the fourth conflict")
 	}
 }
 
@@ -393,7 +425,7 @@ func TestAHandedBackChangeWhoseCheckoutWasClearedCatchesUpFromItsKeptBranch(t *t
 	if put.Reconciliation == nil || put.RepairAttempts != 0 || !catchUpNotTakenUp(put) || !owedUpdateContinuation(put) {
 		t.Fatalf("run = reconciliation %#v, repair attempts %d; want its one free catch-up, owed to the sweep", put.Reconciliation, put.RepairAttempts)
 	}
-	if record := r.tracker.Record(); record.Blocked || !strings.Contains(record.Notes, "gets its one attempt to bring the change up to date") {
+	if record := r.tracker.Record(); record.Blocked || !strings.Contains(record.Notes, "gets one of its 3 attempts to bring the change up to date") {
 		t.Fatalf("blocked = %t, notes:\n%s\nwant the item told, not blocked", record.Blocked, record.Notes)
 	}
 

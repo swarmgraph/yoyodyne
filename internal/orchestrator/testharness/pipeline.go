@@ -764,14 +764,15 @@ func StoppingReviewer(inner func(backend.RunRequest) (backend.RunResult, error),
 	}
 }
 
-// ConflictsTwiceAtLanding is a developer whose approved change to relative
-// conflicts at landing twice. Each attempt writes mine into the worktree, and
+// ConflictsAtEveryLanding is a developer whose approved change to relative
+// conflicts at every landing. Each attempt writes mine into the worktree, and
 // while it is out the target moves onto the same line: to theirs the first
-// time, and to theirsAgain on every attempt after it. So the first conflict is
-// answered by the run's one reconciliation attempt, which keeps this run's
-// answer, and the second meets a run whose reconciliation attempt is already
-// used — the conflict a run with no repair attempt left still stops on.
-func ConflictsTwiceAtLanding(t *testing.T, repository, relative, mine, theirs, theirsAgain string) func(backend.RunRequest) error {
+// time, to theirsAgain the second, and to theirsAgain numbered by the attempt
+// after that, so every landing meets a target the change has not yet seen. So
+// the first runstate.MaxReconciliations conflicts are answered by the run's
+// reconciliation attempts, and the one after them meets a run whose attempts
+// are all used — the conflict a run stops on whatever repair attempts remain.
+func ConflictsAtEveryLanding(t *testing.T, repository, relative, mine, theirs, theirsAgain string) func(backend.RunRequest) error {
 	t.Helper()
 	attempts := 0
 	return func(request backend.RunRequest) error {
@@ -780,8 +781,11 @@ func ConflictsTwiceAtLanding(t *testing.T, repository, relative, mine, theirs, t
 			return err
 		}
 		answer := theirs
-		if attempts > 1 {
+		switch {
+		case attempts == 2:
 			answer = theirsAgain
+		case attempts > 2:
+			answer = theirsAgain + strconv.Itoa(attempts) + "\n"
 		}
 		WritePipelineFile(t, repository, relative, answer)
 		RunPipelineGit(t, repository, "add", relative)
@@ -791,6 +795,11 @@ func ConflictsTwiceAtLanding(t *testing.T, repository, relative, mine, theirs, t
 }
 
 const SomebodyElsesSecondAnswer = "somebody else's second answer\n"
+
+// SomebodyElsesLastAnswer is what the target holds after a developer that
+// conflicts at every landing has had every reconciliation attempt: the answer
+// the conflict that stops the run met.
+var SomebodyElsesLastAnswer = SomebodyElsesSecondAnswer + strconv.Itoa(1+runstate.MaxReconciliations) + "\n"
 
 func ReadPipelineFile(t *testing.T, root, relative string) string {
 	t.Helper()

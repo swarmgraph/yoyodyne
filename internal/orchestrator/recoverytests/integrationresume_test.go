@@ -587,9 +587,8 @@ func TestAnApprovedChangeStoppedByTheEnvironmentResumesToAMergedPullRequestCharg
 
 // A replay that conflicts is the one outcome that leaves the resumed path, and
 // it leaves it exactly as a first promotion's conflict does. Its first conflict
-// is answered by the run's one reconciliation attempt, and the target moves
-// again while that is out; with no repair attempt left to hand the second
-// conflict to its developer, the run stops for a person, both sides preserved,
+// three are answered by the run's reconciliation attempts, and the target
+// moves again while each is out; the fourth conflict stops the run for a person, both sides preserved,
 // with nothing charged and no environmental stop recorded for a conflict the
 // environment does not answer for.
 func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *testing.T) {
@@ -605,7 +604,7 @@ func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *
 		// The reconciliation keeps this run's answer, and main moves onto the same
 		// line again while it is out.
 		if developed++; developed > 1 {
-			testharness.WritePipelineFile(t, repository, "feature.txt", "someone else's second version\n")
+			testharness.WritePipelineFile(t, repository, "feature.txt", fmt.Sprintf("someone else's version %d\n", developed))
 			testharness.RunPipelineGit(t, repository, "add", "feature.txt")
 			testharness.RunPipelineGit(t, repository, "commit", "-m", "a second conflicting edit on main")
 		}
@@ -676,8 +675,8 @@ func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if conflicted.Status != runstate.StatusFailed || conflicted.Blocker == "" || conflicted.IntegrationRetries != 2 || conflicted.Reconciliation == nil {
-		t.Fatalf("conflicted run = %s, blocker %q, retries %d, reconciliation %#v; want it stopped on its second replay with its reconciliation used",
+	if conflicted.Status != runstate.StatusFailed || conflicted.Blocker == "" || conflicted.IntegrationRetries != 1+runstate.MaxReconciliations || !conflicted.ReconciliationsSpent() {
+		t.Fatalf("conflicted run = %s, blocker %q, retries %d, reconciliation %#v; want it stopped on its fourth replay with its reconciliations used",
 			conflicted.Status, conflicted.Blocker, conflicted.IntegrationRetries, conflicted.Reconciliation)
 	}
 	// A conflict is a person's, so it is not recorded as a stop the harness can
@@ -688,7 +687,7 @@ func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *
 	if conflicted.WorktreeRemoved || conflicted.BranchRemoved {
 		t.Fatal("the conflicted run's artifacts were removed")
 	}
-	if theirs := testharness.GitLine(t, repository, "show", "main:feature.txt"); theirs != "someone else's second version" {
+	if theirs := testharness.GitLine(t, repository, "show", "main:feature.txt"); theirs != fmt.Sprintf("someone else's version %d", 1+runstate.MaxReconciliations) {
 		t.Fatalf("main feature.txt = %q, want the target left where it was", theirs)
 	}
 	if conflicted.RepairAttempts != 0 || len(conflicted.RepairContinuations) != 0 {
