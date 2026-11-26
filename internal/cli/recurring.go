@@ -126,7 +126,8 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		// one read model the command and the query read, for the development
 		// manager who decides on it.
 		ModelTrial: func() string {
-			return readmodel.ReadModelTrial(readmodel.Sources{Runs: parts.store, CheaperFirst: parts.config.Execution.DeveloperCheaperFirst}).PassSection()
+			return readmodel.ReadModelTrial(readmodel.Sources{Runs: parts.store, CheaperFirst: parts.config.Execution.DeveloperCheaperFirst,
+				ConflictResolutionModel: parts.config.Execution.ConflictResolutionModel}).PassSection()
 		},
 		// The files changes conflicted in, from the run index's account of the
 		// runs handed back for a conflict, so she can link the open items that

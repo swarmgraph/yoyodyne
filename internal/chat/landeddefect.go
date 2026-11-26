@@ -37,10 +37,21 @@ type LandedDefects interface {
 	RecordDefectAfterLanding(ctx context.Context, runID, note string, at time.Time) (runstate.State, error)
 }
 
-// LandedDefectAsk is the run a reply named and what the defect is.
+// ResolutionDefects is where a defect traced to the resolution of a run's first
+// conflict is recorded (runstate.RecordResolutionDefect), for the trial of
+// resolving small conflicts on the cheaper model. A LandedDefects that is not
+// one refuses such a block.
+type ResolutionDefects interface {
+	RecordResolutionDefect(ctx context.Context, runID, note string, at time.Time) (runstate.State, error)
+}
+
+// LandedDefectAsk is the run a reply named and what the defect is. Resolution
+// says it is traced to the resolution of the run's first conflict rather than
+// to the change the run wrote.
 type LandedDefectAsk struct {
-	Run  string `json:"run"`
-	Note string `json:"note"`
+	Run        string `json:"run"`
+	Note       string `json:"note"`
+	Resolution bool   `json:"resolution,omitempty"`
 }
 
 // LandedDefectOutcome is what became of one ask.
@@ -130,6 +141,21 @@ func (s *Session) performLandedDefectWithoutToolAudit(ctx context.Context, ask L
 		outcome.Failure = "nothing is wired to record a defect on a run in this conversation, so nothing was recorded"
 		return outcome
 	}
+	if ask.Resolution {
+		recorder, ok := s.options.LandedDefects.(ResolutionDefects)
+		if !ok {
+			outcome.Failure = "nothing is wired to record a defect on a conflict's resolution in this conversation, so nothing was recorded"
+			return outcome
+		}
+		state, err := recorder.RecordResolutionDefect(ctx, run, ask.Note, s.options.clock().Now())
+		if err != nil {
+			outcome.Failure = singleLine(err.Error(), maxTrackerFailureBytes)
+			return outcome
+		}
+		outcome.Recorded = true
+		outcome.StoppedTrial = state.ConflictModel != nil && state.ConflictModel.Arm == runstate.ConflictModelCheaper
+		return outcome
+	}
 	state, err := s.options.LandedDefects.RecordDefectAfterLanding(ctx, run, ask.Note, s.options.clock().Now())
 	if err != nil {
 		outcome.Failure = singleLine(err.Error(), maxTrackerFailureBytes)
@@ -147,6 +173,10 @@ func renderLandedDefectResult(outcome LandedDefectOutcome) string {
 	switch {
 	case !outcome.Recorded:
 		fmt.Fprintf(&rendered, "Not recorded: %s\n\n", outcome.Failure)
+	case outcome.Ask.Resolution && outcome.StoppedTrial:
+		fmt.Fprintf(&rendered, "Recorded on run %s. Its conflict was resolved on the cheaper model, so the trial of resolving small conflicts on the cheaper model is stopped: every eligible attempt from now on asks for the run's own model.\n\n", strings.TrimSpace(outcome.Ask.Run))
+	case outcome.Ask.Resolution:
+		fmt.Fprintf(&rendered, "Recorded on run %s. Its conflict was not resolved on the cheaper model, so that trial goes on, and the defect is counted against the side it was on.\n\n", strings.TrimSpace(outcome.Ask.Run))
 	case outcome.StoppedTrial:
 		fmt.Fprintf(&rendered, "Recorded on run %s. It started on the cheaper model, so the trial of starting developers on the cheaper model is stopped: every eligible run from now on starts on the developer's configured model while the setting stays on.\n\n", strings.TrimSpace(outcome.Ask.Run))
 	default:
@@ -166,6 +196,10 @@ func (s *Session) reportLandedDefect(out io.Writer, reply Reply) {
 	switch {
 	case !outcome.Recorded:
 		fmt.Fprintf(out, "the %s's record of a defect after landing on run %q was not kept: %s\n\n", title, run, outcome.Failure)
+	case outcome.Ask.Resolution && outcome.StoppedTrial:
+		fmt.Fprintf(out, "the %s recorded a defect after landing on run %s, traced to its conflict's resolution on the cheaper model, so the trial of resolving small conflicts on the cheaper model is stopped\n\n", title, run)
+	case outcome.Ask.Resolution:
+		fmt.Fprintf(out, "the %s recorded a defect after landing on run %s, traced to its conflict's resolution, which was not made on the cheaper model; that trial goes on\n\n", title, run)
 	case outcome.StoppedTrial:
 		fmt.Fprintf(out, "the %s recorded a defect after landing on run %s, which started on the cheaper model, so the trial of starting developers on the cheaper model is stopped\n\n", title, run)
 	default:
@@ -182,4 +216,6 @@ Where a defect is traced to the change a run landed, and that run took part in t
 {"run":"run-…","note":"what the defect is and where it was found"}
 ` + "```" + `
 
-The harness writes it on the run's record. A run that started on the cheaper model stops the trial at once: every eligible run after it starts on the developer's configured model. A run that started on the stronger model is counted against that half and the trial goes on. It is refused for a run that took no part in the trial, for one whose change never landed, and for a note that says nothing, and you are told why. The trial's figures open each of your passes while the trial has anything to say; keeping execution.developer_cheaper_first on, or turning it off, is your decision on them.`
+The harness writes it on the run's record. A run that started on the cheaper model stops the trial at once: every eligible run after it starts on the developer's configured model. A run that started on the stronger model is counted against that half and the trial goes on. It is refused for a run that took no part in the trial, for one whose change never landed, and for a note that says nothing, and you are told why. The trial's figures open each of your passes while the trial has anything to say; keeping execution.developer_cheaper_first on, or turning it off, is your decision on them.
+
+Where the defect is traced instead to how a run's first conflict was resolved, and execution.conflict_resolution_model reached that attempt, add ` + "`" + `"resolution":true` + "`" + ` to the block. A resolution made on the cheaper model stops the trial of resolving small conflicts on the cheaper model at once; one made on the stronger model is counted against that side. Keeping execution.conflict_resolution_model set once its trial has its attempts is your decision on its figures.`

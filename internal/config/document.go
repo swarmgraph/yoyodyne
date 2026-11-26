@@ -190,6 +190,8 @@ type executionDocument struct {
 	HighRiskLabels *[]string `yaml:"high_risk_labels"`
 	// ReviewerModels inherits key by key (reviewermodels.go).
 	ReviewerModels *reviewerModelsDocument `yaml:"reviewer_models"`
+	// ConflictResolutionModel replaces an inherited value (conflictmodel.go).
+	ConflictResolutionModel *ModelKind `yaml:"conflict_resolution_model"`
 	// RepositoryAsk inherits key by key.
 	RepositoryAsk *repositoryAskDocument `yaml:"repository_ask"`
 	// DeclarativeDelivery is absent from every file written before it existed and

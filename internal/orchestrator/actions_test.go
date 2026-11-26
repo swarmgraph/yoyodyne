@@ -988,6 +988,8 @@ var notAStep = map[string]string{
 	"moveToStronger":              "part of the repair it precedes: changes which model that repair asks for and records why",
 	"noteFirstReview":             "part of the review step: notes the first review's decision on the run's record for the model trial",
 	"moveResumedRepairToStronger": "part of the resumed repair attempt it precedes: changes which model that attempt asks for and records why",
+	"settleConflictModel":         "part of the attempt at a conflict it precedes: chooses which model that attempt asks for and records why",
+	"noteConflictModelReview":     "part of the review step: notes the first review's decision on the run's record for the conflict model trial",
 	"noteAttemptModel":            "part of the developer step: notes which model the attempt asks for on the run's record for the model trial",
 	// Removing the run's scratch directory from the state directory is part of
 	// the clean-up step that removed its worktree (cleanUp), not a step of its

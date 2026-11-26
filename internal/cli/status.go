@@ -803,6 +803,7 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.CouldNotRunBeforeStatus = cfg.Execution.CouldNotRunBeforeStatus
 	sources.GateChecks = cfg.GateCheckCommands()
 	sources.CheaperFirst = cfg.Execution.DeveloperCheaperFirst
+	sources.ConflictResolutionModel = cfg.Execution.ConflictResolutionModel
 	sources.CompareDocumentReviews = cfg.Execution.ReviewerModels.CompareDocuments
 	stateRoot, err := productStateRoot(resolved)
 	if err != nil {

@@ -2597,6 +2597,13 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		if err := run.moveResumedRepairToStronger(ctx); err != nil {
 			return run.fail(err, runstate.StatusFailed)
 		}
+		// An attempt the merge queue recorded when it handed the change back is
+		// given its model here, where execution.conflict_resolution_model reaches
+		// it; the developer attempt below saves it before the provider is asked
+		// (conflictmodel.go). One decided before the run was put down is kept.
+		if err := run.settleConflictModel(); err != nil {
+			return run.fail(err, failureStatus(ctx, err))
+		}
 		// The attempt this run was owed is made again, which is the same state
 		// again: the transition a pause or a death takes in the definition, taken
 		// here by whichever process picks the run up rather than by the one that
@@ -3826,6 +3833,12 @@ func (a *activeRun) reconcile(ctx context.Context) error {
 		Handback:     conflict.Handback,
 	})
 	a.syncLandingAttempts()
+	// Which model the attempt asks for, where execution.conflict_resolution_model
+	// reaches it, is saved with the attempt so a resumed attempt asks for the
+	// same one (conflictmodel.go).
+	if err := a.settleConflictModel(); err != nil {
+		return err
+	}
 	a.state.Phase = runstate.PhaseDeveloping
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
@@ -4217,6 +4230,7 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			return err
 		}
 		a.noteFirstReview(decision)
+		a.noteConflictModelReview(decision)
 		if decision == review.DecisionApprove {
 			a.observeReviewEnded(ctx, decision, nil, stillRepairable)
 			handedBack, err := a.checkCandidateWhole(ctx, limit)
@@ -4422,6 +4436,7 @@ func (a *activeRun) recordCheckFailure(failing checkFailure) {
 	a.state.ChecksPassed = nil
 	// A conflict handed back before this attempt has been answered by it: what
 	// is outstanding now is the check the answer fails.
+	a.noteConflictModelChecksFailed()
 	a.state.ReplayConflict = nil
 	a.state.CheckFailure = &runstate.CheckFailure{
 		Command:      result.Command,
@@ -5608,6 +5623,12 @@ func (a *activeRun) account() config.AccountEndpoint {
 func (a *activeRun) developerModel() string {
 	if a.onAnotherBackend() {
 		return recordedModel(a.state)
+	}
+	// The first attempt at a small conflict asks for the model
+	// execution.conflict_resolution_model chose for it, and that attempt only
+	// (conflictmodel.go).
+	if model, chosen := a.state.ConflictModelAsked(); chosen {
+		return model
 	}
 	if model := strings.TrimSpace(a.state.DeveloperModel); model != "" {
 		return model
