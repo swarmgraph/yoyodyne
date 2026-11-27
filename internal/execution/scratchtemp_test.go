@@ -127,9 +127,13 @@ func TestTheEnvironmentPutsTheProgramFirstAndTellsJavaWhereToWrite(t *testing.T)
 
 // Where the caller names no place, the file lands in the run's temporary
 // folder; where it names one, it lands there, exactly as mktemp alone would put
-// it.
+// it. The program is installed only on macOS, and the cases are macOS mktemp's
+// options: GNU mktemp reads `-t` as a flag with no value.
 func TestMktempPutsAFileWithNoPlaceInTheRunsTemporaryFolder(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS != "darwin" {
+		t.Skip("the mktemp program is installed only on macOS, and these are macOS mktemp's options")
+	}
 	requireMktemp(t)
 
 	_, temporary := scratchTemporaryFixture(t)
