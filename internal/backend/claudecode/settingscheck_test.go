@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -432,8 +433,73 @@ func TestASettingsCheckThatTimesOutEveryTryRefusesAndSaysTheLoadAndLimit(t *test
 	if runner.put != settingsCheckTries || timedOut.Tries != settingsCheckTries {
 		t.Fatalf("put %d times, error says %d tries; want %d", runner.put, timedOut.Tries, settingsCheckTries)
 	}
-	want := "timed out under load: no answer in 1m15s, the limit for a load of 40.0 on 16 cores, on 2 tries"
+	want := "timed out under load: no answer in 1m15s, the limit for a load of 40.0 on 16 cores, on 2 tries; asked the settings questions, it wrote nothing"
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+// A CLI that answers all three questions and then leaves a process holding its
+// output open — what keeps the check's process from finishing although the CLI
+// has said everything it will say — is judged on its answers once the short wait
+// after them is over, not timed out at the check's limit. The background process
+// here holds the output for twice the idle limit, so a check that waited for it
+// would have failed; the test bounds itself well under the limit, so one that
+// regressed fails here rather than after half a minute.
+func TestACLIThatAnswersButHoldsItsOutputOpenIsJudgedOnItsAnswers(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	launched, err := checkedDeveloperSettings(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := settingsFor(launched, true, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := t.TempDir()
+	answers := filepath.Join(tools, "answers.jsonl")
+	if err := os.WriteFile(answers, []byte(acceptingCLI(t)(settings)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(tools, "claude")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = --version ]; then echo '2.1.286 (Claude Code)'; exit 0; fi\n" +
+		"cat >/dev/null\n" +
+		"cat '" + answers + "'\n" +
+		"sleep " + strconv.Itoa(int(2*settingsCheckTimeout/time.Second)) + " &\n" +
+		"exit 0\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsCheckTimeout/2)
+	defer cancel()
+	started := time.Now()
+	check, err := (Backend{Binary: binary, Runner: execution.OSProcessRunner{}, MachineLoad: loadOf(1, 16)}).CheckLaunchSettings(ctx, directory)
+	if err != nil {
+		t.Fatalf("CheckLaunchSettings() error = %v after %s; want the answers judged", err, time.Since(started))
+	}
+	if !check.InForce() {
+		t.Fatalf("check says %q, want everything active", check.Says())
+	}
+	if took := time.Since(started); took > settingsCheckAfterAnswers+5*time.Second {
+		t.Fatalf("the check took %s, want it over soon after the answers", took)
+	}
+}
+
+// A timeout says which question was waited on, how many answers had come back,
+// and the CLI's last words, after the figures that have to survive a cut line.
+func TestASettingsCheckTimeoutSaysWhatItWasWaitingOn(t *testing.T) {
+	t.Parallel()
+	silent := &scriptedCLI{version: "2.1.286 (Claude Code)", answers: func(string) string { return "" }}
+	hung := failingSettingsRunner{scriptedCLI: silent, result: execution.ProcessResult{Status: execution.ProcessTimedOut, Stderr: "waiting for the keychain\n"}}
+	_, err := (Backend{Runner: hung, MachineLoad: loadOf(8, 16)}).CheckLaunchSettings(context.Background(), t.TempDir())
+	want := "timed out: no answer in 30s, the limit for a load of 8.0 on 16 cores, on 2 tries; asked the settings questions, it last wrote: waiting for the keychain"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %q", err, want)
+	}
+	partly := SettingsCheckTimedOutError{Limit: settingsCheckLimit{Limit: 30 * time.Second}, Tries: 1, Asked: "the settings questions", Answered: 2}
+	if got := partly.Error(); !strings.HasSuffix(got, "asked the settings questions, 2 of 3 answered, it wrote nothing") {
+		t.Fatalf("error = %q, want how many answers had come back", got)
 	}
 }
