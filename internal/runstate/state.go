@@ -1686,6 +1686,18 @@ type PullRequest struct {
 	// commit the local target branch does not carry.
 	MergeMethod string `json:"merge_method,omitempty"`
 	MergeCommit string `json:"merge_commit,omitempty"`
+	// ForgeMergeCommit is the commit the forge names as this request's merge,
+	// as the sweep that asks the forge about a request somebody merged outside
+	// the harness read it. It is the forge's word and nothing the harness
+	// confirmed, so it never stands for MergeCommit: what reads it asks the
+	// repository whether the target branch holds it. A squash or rebase merge
+	// leaves the head the harness recorded off the target, and this is then the
+	// only commit on the record the target carries.
+	ForgeMergeCommit string `json:"forge_merge_commit,omitempty"`
+	// MergeCommitAsked reports that the sweep recorded the forge's answer to a
+	// merge, with or without a commit named, so a merge the forge named no
+	// commit for is not asked about again on every later sweep.
+	MergeCommitAsked bool `json:"merge_commit_asked,omitempty"`
 	// MergeQueued reports a merge the forge accepted and the harness has not seen
 	// the end of. Ordinarily that is a merge the forge has not performed: it
 	// merges the request itself once the base branch's requirements are met,
@@ -1961,6 +1973,12 @@ func (p PullRequest) Validate() error {
 	}
 	if p.MergeRearms < 0 {
 		problems = append(problems, errors.New("pull_request merge_rearms cannot be negative"))
+	}
+	if p.ForgeMergeCommit != "" && !commitPattern.MatchString(p.ForgeMergeCommit) {
+		problems = append(problems, fmt.Errorf("pull_request forge_merge_commit %q is invalid", p.ForgeMergeCommit))
+	}
+	if (p.ForgeMergeCommit != "" || p.MergeCommitAsked) && !p.Merged {
+		problems = append(problems, errors.New("pull_request forge_merge_commit and merge_commit_asked require a merged request"))
 	}
 	// A re-arm repeats the request the run's own merge asked for, so a
 	// publication that records one and no method could not have been re-armed by

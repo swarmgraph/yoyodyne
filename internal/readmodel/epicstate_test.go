@@ -394,6 +394,8 @@ var (
 	approvedHead = strings.Repeat("a", 40)
 	mergeCommit  = strings.Repeat("b", 40)
 	cutFrom      = strings.Repeat("c", 40)
+	squashCommit = strings.Repeat("d", 40)
+	rebasedTip   = strings.Repeat("e", 40)
 )
 
 // unlanded is a member closed with an approved change that the harness never
@@ -416,6 +418,13 @@ func TestAMemberWhoseRecordedCommitIsOnTheTargetBranchHasLanded(t *testing.T) {
 		run.Status, run.Failure = runstate.StatusFailed, "the merge queue for main would be too large"
 		run.PullRequest = &runstate.PullRequest{Number: 3068, State: "MERGED", Merged: true, MergeCommit: mergeCommit}
 	}
+	// forgeNamed is a pull request a person merged on the forge, which the
+	// harness recorded as merged with no merge commit of its own, and the
+	// commit the forge names for it.
+	forgeNamed := func(run *runstate.State) {
+		mergedOutsideTheQueue(run)
+		run.PullRequest.MergeCommit, run.PullRequest.ForgeMergeCommit = "", squashCommit
+	}
 	for name, test := range map[string]struct {
 		change func(*runstate.State)
 		branch targetBranch
@@ -430,6 +439,19 @@ func TestAMemberWhoseRecordedCommitIsOnTheTargetBranchHasLanded(t *testing.T) {
 			mergedOutsideTheQueue(run)
 			run.PullRequest.MergeCommit = ""
 		}, targetBranch{mergeCommit: true}, EpicWorking, "Waiting on the harness: Title " + stateTwo},
+		// A squash or a rebase leaves the approved head off main, and the commit
+		// the forge names is the only one main holds.
+		"squash merged on the forge, with the commit the forge names on main": {forgeNamed, targetBranch{squashCommit: true}, EpicIntegrated, ""},
+		"rebase merged on the forge, with the commit the forge names on main": {func(run *runstate.State) {
+			forgeNamed(run)
+			run.PullRequest.ForgeMergeCommit = rebasedTip
+		}, targetBranch{rebasedTip: true}, EpicIntegrated, ""},
+		"the forge names a merge commit main does not hold": {forgeNamed, targetBranch{mergeCommit: true}, EpicWorking,
+			"Waiting on the harness: Title " + stateTwo + " (" + stateTwo + ") has a pull request the forge reports merged, and the harness has not yet confirmed that merge"},
+		"the forge names a merge commit only another branch holds": {func(run *runstate.State) {
+			forgeNamed(run)
+			run.TargetBranch = "release"
+		}, targetBranch{squashCommit: true}, EpicWorking, "Waiting on the harness: Title " + stateTwo},
 		"its approved head is not on main": {func(*runstate.State) {}, targetBranch{mergeCommit: true}, EpicWorking,
 			"Waiting on the Lead Product Manager: Title " + stateTwo + " (" + stateTwo + ") was closed without its change having landed"},
 		"only the commit it was cut from is on main": {func(*runstate.State) {}, targetBranch{cutFrom: true}, EpicWorking,

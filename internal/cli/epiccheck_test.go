@@ -113,7 +113,13 @@ func TestAMemberIsGivenWithItsChangeItsReviewAndItsSessions(t *testing.T) {
 	if handed || member.Change != "merge2" || !strings.Contains(member.Review, "it does it") || strings.Join(member.Sessions, ",") != "dev-1,rev-1,dev-2,rev-2" {
 		t.Fatalf("merged: %+v, handed %t", member, handed)
 	}
-	merged.PullRequest.MergeCommit, merged.PullRequest.Merged = "", false
+	// Squashed or rebased on the forge outside the harness: the commit the
+	// forge names is the change, not the head the target never took.
+	merged.PullRequest.MergeCommit, merged.PullRequest.ForgeMergeCommit = "", "squash2"
+	if member, handed := memberOf("yoyodyne-ep.1", "", []runstate.State{merged}); handed || member.Change != "squash2" {
+		t.Fatalf("merged on the forge: %+v, handed %t", member, handed)
+	}
+	merged.PullRequest.ForgeMergeCommit, merged.PullRequest.Merged = "", false
 	if member, handed := memberOf("yoyodyne-ep.1", "", []runstate.State{merged}); !handed || member.Change != "head2" {
 		t.Fatalf("handed over: %+v, handed %t", member, handed)
 	}

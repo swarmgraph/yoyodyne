@@ -335,6 +335,10 @@ func memberOf(id, title string, runs []runstate.State) (epiccheck.Member, bool) 
 		member.Change = work.Integration.TargetCommit
 	case work.PullRequest != nil && work.PullRequest.MergeCommit != "":
 		member.Change = work.PullRequest.MergeCommit
+	case work.PullRequest != nil && work.PullRequest.Merged && work.PullRequest.ForgeMergeCommit != "":
+		// The commit the forge names as a merge made outside the harness, which
+		// after a squash or rebase is the only one of its commits the target holds.
+		member.Change = work.PullRequest.ForgeMergeCommit
 	case work.PullRequest != nil && work.PullRequest.HeadCommit != "":
 		member.Change, handed = work.PullRequest.HeadCommit, !work.PullRequest.Merged
 	case work.ReviewDecision == runstate.ReviewApprove && work.ReviewHeadCommit != "" && work.ReviewHeadCommit != work.ReviewBaseCommit:

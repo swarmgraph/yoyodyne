@@ -2300,9 +2300,13 @@ A member whose run ended complete with no change, and whose summary the reviewer
 approved, counts as done. A closed member counts as landed when a commit the harness
 recorded for it, the head the reviewer approved or the merge commit of its pull request,
 is on its target branch in this repository, however it got there: through the merge
-queue, merged on the forge outside it, or fast-forwarded by hand. One whose pull request
-the forge reports merged, where the target branch does not hold it yet, waits on the
-harness to confirm that merge. A closed member that holds child items in the tracker
+queue, merged on the forge outside it, or fast-forwarded by hand. For a pull request
+somebody merged on the forge outside the harness, the commit the forge names as its merge
+counts too, which is what a squash or rebase merge leaves on the target: the sweep that
+asks the forge about pull requests records it, and asks once more about a merge it
+recorded before it kept that commit. One whose pull request the forge reports merged,
+where the target branch does not hold the commit it names, waits on the harness to
+confirm that merge. A closed member that holds child items in the tracker
 counts as done when every child is done in the same ways, at any depth, and status names
 each child that is not. The children do not become members, start nothing, and do not
 count toward the twelve; the check of the whole epic is given each child's change with

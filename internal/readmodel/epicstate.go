@@ -1000,9 +1000,11 @@ func (s *epicStandings) finished(id string) (bool, error) {
 }
 
 // recordedCommits is each commit the harness recorded for a run that is its
-// change: the head the reviewer approved, and the merge commit of its pull
-// request where the harness recorded the merge. The base it was cut from is
-// never one, because the target holds that whatever became of the change.
+// change: the head the reviewer approved, the merge commit of its pull request
+// where the harness recorded the merge, and the merge commit the forge names
+// for a pull request it reports merged, which after a squash or rebase is the
+// only one of them the target holds. The base it was cut from is never one,
+// because the target holds that whatever became of the change.
 func recordedCommits(run runstate.State) []string {
 	var commits []string
 	if run.ReviewDecision == runstate.ReviewApprove {
@@ -1013,7 +1015,7 @@ func recordedCommits(run runstate.State) []string {
 		commits = append(commits, head)
 	}
 	if run.PullRequest != nil && run.PullRequest.Merged {
-		commits = append(commits, run.PullRequest.MergeCommit)
+		commits = append(commits, run.PullRequest.MergeCommit, run.PullRequest.ForgeMergeCommit)
 	}
 	if run.PersonMerge != nil && run.PersonMerge.Merged() {
 		commits = append(commits, run.PersonMerge.MergeCommit)
@@ -1025,7 +1027,9 @@ func recordedCommits(run runstate.State) []string {
 
 // onTarget reports a run that is the item's work and one of whose recorded
 // commits is on its target branch: through the merge queue, merged on the forge
-// outside it, or merged by hand. The forge's word is not asked.
+// outside it, or merged by hand. A merge the forge reports counts only through
+// the commit it names being on the branch: the forge's word alone is not
+// enough, and nothing is asked of the forge here.
 func (s *epicStandings) onTarget(run runstate.State) (bool, error) {
 	if s.contents == nil || !run.Discharges() || run.TargetBranch == "" {
 		return false, nil
