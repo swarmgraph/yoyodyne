@@ -33,6 +33,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		printUsage(stdout)
 		return 0
 	}
+	// A command that reads runs finds them settled where their process is gone,
+	// as `yoyo reconcile` would settle them, so a project with no watch running
+	// does not go on reading a dead run as running (statusprocessgone.go).
+	settleBeforeCommand(ctx, args, stderr)
 
 	switch args[0] {
 	case "help", "-h", "--help":

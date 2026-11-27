@@ -1,14 +1,16 @@
 package cli
 
-// `yoyo status` settling the runs whose process is gone before it reads them.
+// Settling the runs whose process is gone before a command reads runs.
 //
 // A project run by hand has no watch, and so nothing running `yoyo reconcile`:
-// a run whose process died stood as "running" until somebody typed it. So the
-// status reads the runs in flight first, and each one whose worker's process is
-// shown to be gone is settled exactly as `yoyo reconcile` settles it
-// (orchestrator.Reconciler.SettleProcessGone), and said at the top of the answer
-// with when it was found. Everything else the sweep does — the forge, the
-// docket build, convergence — is still the sweep's.
+// a run whose process died stood as "running" until somebody typed it. So every
+// command that reads runs looks at the runs in flight first, and each one whose
+// worker's process is shown to be gone is settled exactly as `yoyo reconcile`
+// settles it (orchestrator.Reconciler.SettleProcessGone). `yoyo status` does it
+// itself and says so at the top of its answer; every other such command has it
+// done for it by the dispatcher (settleBeforeCommand) and says so on standard
+// error, so its own output is unchanged. Everything else the sweep does — the
+// forge, the docket build, convergence — is still the sweep's.
 
 import (
 	"context"
@@ -74,12 +76,91 @@ func settleRunsWithNoProcess(ctx context.Context, configPath string, store *runs
 	return settlements, ""
 }
 
-// settleRunsWithNoProcessAside is the same settlement for the status modes whose
-// standard output is a listing of finished work (--shipped, --checks): what it
-// settled is said on standard error, so that listing and its JSON stay as they
-// are.
-func settleRunsWithNoProcessAside(configPath string, store *runstate.Store, stderr io.Writer) {
-	settlements, failure := settleRunsWithNoProcess(context.Background(), configPath, store, time.Now())
+// commandsSettlingFirst are the commands, besides `yoyo status`, that read runs
+// and have the runs whose process is gone settled before they do.
+//
+// Left out are the commands that act on a run themselves — `run`, `resume`,
+// `stop`, `work`, and `start` — because settling first would change what they
+// were asked to do: `yoyo run` on an item whose run died continues that run, and
+// `yoyo stop` on one ends it cancelled, where a settlement would have ended it
+// first. `reconcile` is the sweep this settlement is a part of, and `status`
+// settles for itself. Commands that never read runs, such as `goals guard`,
+// which runs before every shell command an agent makes, are left out so they
+// cost nothing more than they did.
+var commandsSettlingFirst = map[string]bool{
+	"agent":        true,
+	"chat":         true,
+	"conformance":  true,
+	"cost":         true,
+	"dashboard":    true,
+	"doctor":       true,
+	"epic":         true,
+	"exchange":     true,
+	"forge-check":  true,
+	"gate":         true,
+	"intervention": true,
+	"invocations":  true,
+	"landing":      true,
+	"merge-check":  true,
+	"model-trial":  true,
+	"project":      true,
+	"pull-request": true,
+	"queue":        true,
+	"slack":        true,
+	"tracker":      true,
+	"triage":       true,
+}
+
+// settleBeforeCommand settles the runs whose process is gone before a command
+// that reads runs is carried out. A command asked only for its help, or one
+// whose project cannot be found, is carried out exactly as before: the command
+// says itself what it cannot find.
+func settleBeforeCommand(ctx context.Context, args []string, stderr io.Writer) {
+	if len(args) == 0 || !commandsSettlingFirst[args[0]] || asksForHelp(args[1:]) {
+		return
+	}
+	configPath := configFlagOf(args[1:])
+	store, _, err := recordedRunStore(configPath)
+	if err != nil {
+		return
+	}
+	settleRunsWithNoProcessAside(ctx, configPath, store, stderr)
+}
+
+// asksForHelp reports arguments that ask a command for its usage.
+func asksForHelp(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "help", "-h", "-help", "--help":
+			return true
+		}
+	}
+	return false
+}
+
+// configFlagOf is the configuration a command was pointed at with --config,
+// wherever among its arguments it was given, and empty for the nearest project
+// configuration, which is what the command itself reads then.
+func configFlagOf(args []string) string {
+	for index, arg := range args {
+		for _, name := range []string{"--config", "-config"} {
+			if arg == name && index+1 < len(args) {
+				return args[index+1]
+			}
+			if value, found := strings.CutPrefix(arg, name+"="); found {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+// settleRunsWithNoProcessAside is the settlement for a command whose standard
+// output is its own answer: what it settled is said on standard error, so that
+// answer and its JSON stay as they are. The status modes that list finished
+// work (--shipped, --checks) use it too.
+func settleRunsWithNoProcessAside(ctx context.Context, configPath string, store *runstate.Store, stderr io.Writer) {
+	settlements, failure := settleRunsWithNoProcess(ctx, configPath, store, time.Now())
 	printProcessGone(stderr, settlements)
 	if failure != "" {
 		fmt.Fprintln(stderr, failure)
@@ -90,7 +171,7 @@ func settleRunsWithNoProcessAside(configPath string, store *runstate.Store, stde
 // what became of it, ahead of everything else the status says.
 func printProcessGone(writer io.Writer, settlements []processGoneSettlement) {
 	for _, settled := range settlements {
-		fmt.Fprintf(writer, "Run %s for %s had no process behind it: %s. This status found that at %s.\n",
+		fmt.Fprintf(writer, "Run %s for %s had no process behind it: %s. This was found at %s.\n",
 			settled.RunID, settled.WorkItemID, strings.TrimSuffix(settled.ProcessWas, "."), settled.FoundAt.Local().Format("2006-01-02 15:04 MST"))
 		switch {
 		case settled.Failure != "":
