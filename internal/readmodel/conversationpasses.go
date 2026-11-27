@@ -40,6 +40,11 @@ type ConversationPass struct {
 	// many of those it took are finished and held for sending rather than ruled.
 	Took int `json:"took"`
 	Held int `json:"held,omitempty"`
+	// NamedLeft is every item after First that the Lead Product Manager named
+	// for this pass to take first and that it did not take, in the order it
+	// was handed them, each with the role's reason. First says the same of
+	// itself, so a named item left is never only in the count.
+	NamedLeft []runstate.DeliveredWork `json:"named_left,omitempty"`
 	// Since is the task's most recent firing where it came after this pass and
 	// gave no account: missed, failed before its first turn, or failed after
 	// it. It is what tells a role whose passes stopped answering from one that
@@ -94,7 +99,10 @@ func ConversationPasses(recorded []runstate.Sweep) []ConversationPass {
 				entry.LeftAgain = leftAgainSince(passes, task, first.ID)
 			}
 		}
-		for _, item := range last.Delivered {
+		for index, item := range last.Delivered {
+			if index > 0 && item.NamedFirst != "" && !item.Taken {
+				entry.NamedLeft = append(entry.NamedLeft, item)
+			}
 			if item.Taken {
 				entry.Took++
 			}
@@ -145,7 +153,7 @@ func (p ConversationPass) Says() string {
 	if p.First == nil {
 		said.WriteString("was handed no waiting work")
 	} else {
-		fmt.Fprintf(&said, "was handed %s; first in its order: %s (P%d), %s", count(p.Handed, "item"), p.First.ID, p.First.Priority, takenSays(*p.First)+p.LeftAgain.Says())
+		fmt.Fprintf(&said, "was handed %s; first in its order: %s (P%d), %s%s", count(p.Handed, "item"), p.First.ID, p.First.Priority, namedSays(*p.First), takenSays(*p.First)+p.LeftAgain.Says())
 		if p.Handed > 1 {
 			fmt.Fprintf(&said, "; it took %d of the %d", p.Took, p.Handed)
 			if p.Held > 0 {
@@ -153,10 +161,22 @@ func (p ConversationPass) Says() string {
 			}
 		}
 	}
+	for _, item := range p.NamedLeft {
+		fmt.Fprintf(&said, "; also %s (P%d), %s%s", item.ID, item.Priority, namedSays(item), takenSays(item))
+	}
 	if p.Since != "" {
 		said.WriteString("; " + p.Since)
 	}
 	return said.String()
+}
+
+// namedSays is, for an item the Lead Product Manager named for the pass to
+// take first, who named it and why, ahead of whether the pass took it.
+func namedSays(item runstate.DeliveredWork) string {
+	if item.NamedFirst == "" {
+		return ""
+	}
+	return item.NamedFirst + ", "
 }
 
 // takenSays is whether a pass took an item, in capitals where it did not, so

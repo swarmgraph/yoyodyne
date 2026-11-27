@@ -105,6 +105,10 @@ type WorkItem struct {
 	// among work of its own priority, and nil where she made none. It is read
 	// through PlacedFirst, which says whether it still orders the item.
 	Placement *Placement `json:",omitempty"`
+	// PassFirst is the Lead Product Manager's request that one role's next
+	// recurring pass take this item first, and nil where she made none. It is
+	// read through FirstInPassOf (passfirst.go).
+	PassFirst *PassFirst `json:",omitempty"`
 	// Labels are the tracker's own labels on the item, in the order bd lists
 	// them, and nil for an item carrying none. They are bd's native field rather
 	// than harness metadata, so whatever else reads the tracker — bd's own
@@ -485,6 +489,10 @@ type WorkItemChange struct {
 	// placement, applied only when it is set: nil leaves the placement alone, a
 	// pointer to the zero placement ends it, and a stated one places the item.
 	Placement *Placement
+	// PassFirst puts the item first in one role's next pass or ends that
+	// request, as Placement does: nil leaves it alone, a pointer to the zero
+	// request ends it, and a stated one makes it.
+	PassFirst *PassFirst
 	// Priority is a pointer because zero is the highest Beads priority rather
 	// than an absent one.
 	Priority *int
@@ -1183,6 +1191,13 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 		}
 		args = append(args, "--set-metadata="+placedKey+"="+value)
 	}
+	if change.PassFirst != nil {
+		value, err := change.PassFirst.encode()
+		if err != nil {
+			return WorkItem{}, err
+		}
+		args = append(args, "--set-metadata="+passFirstKey+"="+value)
+	}
 	if change.Priority != nil {
 		args = append(args, "--priority="+strconv.Itoa(*change.Priority))
 	}
@@ -1263,6 +1278,15 @@ func (change WorkItemChange) heldBy(item WorkItem) error {
 			return fmt.Errorf("work item %s is still placed first among priority %d after its placement was ended", item.ID, item.Placement.Priority)
 		}
 		return fmt.Errorf("work item %s does not carry the placement first among priority %d it was given", item.ID, change.Placement.Priority)
+	}
+	// Read back for the same reason: a request that did not take is a step
+	// the role's pass is never put first, and an ending that did not take
+	// keeps the item ahead of that role's whole order.
+	if change.PassFirst != nil && !samePassFirst(item.PassFirst, change.PassFirst) {
+		if *change.PassFirst == (PassFirst{}) {
+			return fmt.Errorf("work item %s is still named first for the %s's next pass after the request was ended", item.ID, item.PassFirst.Role.Title())
+		}
+		return fmt.Errorf("work item %s is not named first for the %s's next pass as it was asked to be", item.ID, change.PassFirst.Role.Title())
 	}
 	// The labels are read back in both directions. What rests on a label is
 	// whatever filters on it — the seat that watches for one, bd's own listing
@@ -2638,6 +2662,7 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 	item.Executor = executorIn(raw.Metadata)
 	item.Parking = parkingIn(raw.Metadata)
 	item.Placement = placementIn(raw.Metadata)
+	item.PassFirst = passFirstIn(raw.Metadata)
 	item.Landing = metadataString(raw.Metadata, LandingKey)
 	item.ClaimAssignee = claimAssigneeIn(raw.Metadata)
 	item.Origin = originIn(raw.Metadata)
@@ -2896,7 +2921,7 @@ func (c WorkItemChange) validate() error {
 		strings.TrimSpace(c.Description) == "" &&
 		strings.TrimSpace(c.AppendNotes) == "" &&
 		strings.TrimSpace(string(c.Executor)) == "" &&
-		c.RelevantGoals == nil && c.Priority == nil && c.Parent == nil && c.Parking == nil && c.Placement == nil &&
+		c.RelevantGoals == nil && c.Priority == nil && c.Parent == nil && c.Parking == nil && c.Placement == nil && c.PassFirst == nil &&
 		len(c.AddLabels) == 0 && len(c.RemoveLabels) == 0 && c.Kind == "" {
 		problems = append(problems, errors.New("an update must change something"))
 	}
@@ -2909,6 +2934,11 @@ func (c WorkItemChange) validate() error {
 	}
 	if c.Placement != nil && *c.Placement != (Placement{}) {
 		if err := c.Placement.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if c.PassFirst != nil && *c.PassFirst != (PassFirst{}) {
+		if err := c.PassFirst.Validate(); err != nil {
 			problems = append(problems, err)
 		}
 	}
