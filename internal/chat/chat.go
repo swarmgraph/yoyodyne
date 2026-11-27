@@ -562,6 +562,12 @@ type Options struct {
 	// for the reason the goals are. The zero value checks nothing, which is what
 	// every admission did before this existed.
 	ArtifactHomes protectedpath.Homes
+	// Environments are the environments the project declares, which is what an
+	// item's Environments: line is checked against as the item is written or
+	// proposed: a line naming one the project does not declare is refused,
+	// quoting the line (config.EnvironmentsLineProblem). The zero value declares
+	// none, so an item naming any is refused and one with no line is unchanged.
+	Environments []config.Environment
 	// Admission is what this project asks the operator about before work reaches
 	// the queue. Its zero value asks about every item, which is what a
 	// conversation nobody stated a policy for gets: the safe reading of no policy
