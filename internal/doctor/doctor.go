@@ -257,6 +257,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkKeptConfigurationBinding(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkInstall(resolved, repository)...)
+	report.Findings = append(report.Findings, diagnosis.checkEnvironments(resolved)...)
 	report.Findings = append(report.Findings, diagnosis.checkNode(repository)...)
 	if resolved.Config.Product.HasIntentRepository() {
 		report.Findings = append(report.Findings, diagnosis.checkIntentRepository(repository, resolved))
@@ -758,6 +759,41 @@ func (d *diagnosis) checkInstall(resolved config.Resolved, repository string) []
 		findings = append(findings, finding)
 	}
 	return findings
+}
+
+// checkEnvironments shows each environment the project declares, one finding
+// an environment, with every field it was read with. It runs nothing: whether
+// an environment is usable is its check's to say, run where its where says,
+// and never something the doctor finds out by running it here. A project that
+// declares none is told nothing, as before environments existed.
+func (d *diagnosis) checkEnvironments(resolved config.Resolved) []Finding {
+	findings := make([]Finding, 0, len(resolved.Config.Environments))
+	for _, environment := range resolved.Config.Environments {
+		needs := "no install step"
+		if len(environment.Needs) > 0 {
+			needs = "the install steps " + strings.Join(environment.Needs, ", ")
+		}
+		machine := "nothing installed for the whole machine"
+		if environment.Machine {
+			machine = fmt.Sprintf("something a person installs for the whole machine, by: %s", environment.HowToInstall)
+		}
+		findings = append(findings, Finding{
+			Check:  "environment:" + environment.Name,
+			Status: StatusOK,
+			Summary: fmt.Sprintf("environment %q is declared: it needs %s and %s; its check %s and its test %s run %s, and each may take %s",
+				environment.Name, needs, machine, environment.Check, environment.Test, environmentPlace(environment.Place()), environment.Limit()),
+			Detail: fmt.Sprintf("environments in %s", resolved.Path),
+		})
+	}
+	return findings
+}
+
+// environmentPlace says where an environment's check and test run.
+func environmentPlace(place config.EnvironmentPlace) string {
+	if place == config.EnvironmentInHarness {
+		return "where the declared checks run (where: harness)"
+	}
+	return "under the developer session's own restrictions (where: developer)"
 }
 
 // checkNode asks whether this machine can run the dashboard page's script,

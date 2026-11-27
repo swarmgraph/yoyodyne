@@ -756,6 +756,61 @@ write it is refused with that reason.
 [Installing a project's dependencies before a developer run](../designs/project-dependencies-in-runs.md)
 is the design the rest follows.
 
+### Declaring the environments a work item's criteria need
+
+A project whose work items need something a checkout alone does not give, such
+as a test client on one platform or a browser, declares it under
+`environments`:
+
+```yaml
+environments:
+  - name: android client
+    needs: [client library]
+    check: scripts/ready-android.sh
+    test: scripts/integration-android.sh
+  - name: web ui
+    machine: true
+    how_to_install: "npx playwright install chromium"
+    where: harness
+    check: scripts/ready-browser.sh
+    test: scripts/integration-web.sh
+    time_limit: 15m
+```
+
+`environments` is a list, empty by default, and an empty list changes nothing
+about any run. Each entry takes `name`; `needs`, the names of install steps
+above that must have succeeded first; `machine`, false by default, for
+something installed for the whole machine, which a person installs;
+`how_to_install`, the instruction a person follows for it, which the harness
+never runs; `where`, `developer` by default or `harness`; `check`, a short
+command that exits zero when the environment is usable; `test`, the
+integration test that judges the criteria it serves; and `time_limit`, 15
+minutes by default. The configuration is refused when it is read, naming the
+entry, where two entries share a name, `needs` names an install step the
+project does not declare, `how_to_install` is set without `machine: true`, or
+`where` is neither `developer` nor `harness`. `yoyo doctor` lists each entry
+with its fields. Like `install`, it is the operator's to write and never a
+role's.
+
+A work item names the environments its criteria need on one line of its
+description, such as
+`Environments: android client (criteria 1, 2); ios client (criterion 3)`.
+An item whose line names an environment the project does not declare is
+refused where it is created, rewritten, or proposed, with the line quoted. An
+item with no such line is unchanged.
+
+So far the harness reads and checks the setting and the line, and runs no
+environment's check or test. The declared checks run with no sandbox: with the
+network, writing anywhere the harness's user can, and able to use socket files.
+A `developer` environment's check is to run under the restrictions a Claude
+Code developer's own commands run under instead, which the harness reproduces
+on macOS with `sandbox-exec`: no network but localhost, no socket file, writes
+only to the worktree, the session's temporary directory, the repository's Git
+directory and the run's scratch folder, and the harness's `services/` folder
+unreadable.
+[Checking a run's environment before implementation starts](../designs/checking-a-run-environment.md)
+is the design the rest follows.
+
 ### How many of a heavy check may run at once
 
 `execution.heavy_checks` names the checks only so many of may run at once on

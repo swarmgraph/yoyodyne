@@ -69,6 +69,8 @@ type configDocument struct {
 	PathChecks *[]PathCheck `yaml:"path_checks"`
 	// Install replaces an inherited list entirely, for the same reason.
 	Install *[]InstallStep `yaml:"install"`
+	// Environments replaces an inherited list entirely, for the same reason.
+	Environments *[]Environment `yaml:"environments"`
 	// FailingTests replaces an inherited list entirely, for the same reason.
 	FailingTests *[]checks.TestReading    `yaml:"failing_tests"`
 	Agents       map[string]agentDocument `yaml:"agents"`

@@ -1214,6 +1214,9 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// from the repository and the configuration for the reason the goals are,
 		// and it is the same set the run reads before it claims the item.
 		ArtifactHomes: homes,
+		// What an item's Environments: line may name: the environments the
+		// configuration declares, read as the conversation opens like the rest.
+		Environments: cfg.Environments,
 		// What this project asks the operator about before work reaches the queue.
 		// It is read from the configuration rather than decided here, so the same
 		// answer governs a proposal and a direct admission.

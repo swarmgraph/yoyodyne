@@ -164,6 +164,11 @@ type Config struct {
 	// the operator's to write and never a role's. A project that names none
 	// installs nothing, which is what every project did before this existed.
 	Install []InstallStep `yaml:"install,omitempty" json:"install,omitempty"`
+	// Environments are what a run needs to judge its work items' criteria, each
+	// with a command saying whether it is usable and the test that judges them
+	// (environments.go). They are the operator's to write and never a role's. A
+	// project that names none changes nothing about any run.
+	Environments []Environment `yaml:"environments,omitempty" json:"environments,omitempty"`
 	// FailingTests are how the project's checks name their failing tests, each
 	// with the file it is in (failingtests.go). A failed check one of them
 	// names has its failing tests recorded on the run; a check none names is
@@ -1807,6 +1812,7 @@ func (c Config) Validate() error {
 		problems = append(problems, check.problems(index)...)
 	}
 	problems = append(problems, installProblems(c.Install)...)
+	problems = append(problems, environmentProblems(c.Environments, c.Install)...)
 	// Admitting work without asking rests entirely on the operator's approval of
 	// the goal that work serves, so a project that records no goal approvals has
 	// nothing for it to rest on: the setting would read as autonomy and mean

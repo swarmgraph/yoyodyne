@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 )
@@ -43,6 +44,12 @@ import (
 // be admitted, or empty where they name nothing a run may not write. The grants
 // are read from the fields given, which are the ones a grant is honoured from.
 func (s *Session) conditionRefusal(title, description, acceptanceCriteria string, executor domain.WorkItemExecutor, grantedFrom ...string) string {
+	// An item naming an environment the project does not declare is one whose
+	// run could never be given what its criteria need, so it is refused at the
+	// same doors and for the same reason (checking-a-run-environment, section 4).
+	if problem := config.EnvironmentsLineProblem(description, s.options.Environments); problem != "" {
+		return "it names an environment no run can be given, so nothing was written: " + problem
+	}
 	problems := s.options.ArtifactHomes.ConditionProblems(protectedpath.Subject{
 		Title:              title,
 		Description:        description,
@@ -120,6 +127,10 @@ func (e *ProposalConditionError) Unwrap() error { return e.Err }
 func (s *Session) verifyProposalConditions(proposals []Proposal) error {
 	var problems []error
 	for _, proposal := range proposals {
+		if problem := config.EnvironmentsLineProblem(proposal.Description, s.options.Environments); problem != "" {
+			problems = append(problems, fmt.Errorf("%q: %s", strings.TrimSpace(proposal.Title), problem))
+			continue
+		}
 		conditions := s.options.ArtifactHomes.ConditionProblems(protectedpath.Subject{
 			Title:       proposal.Title,
 			Description: proposal.Description,

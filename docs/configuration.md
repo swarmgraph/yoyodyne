@@ -302,6 +302,7 @@ checks: []          # yours to write; a run with none is refused
 landing_checks: []  # what runs whole, once per landing; see "Where the whole suite runs"
 path_checks: []     # checks a change runs only when it touches what they vouch for
 install: []         # what installs the project's dependencies; see configuration/runs.md
+environments: []    # what a run needs to judge an item's criteria; see configuration/runs.md
 document_checks: [] # what a confirmed document's landing runs; see "The document checks"
 main_checks: []     # what runs whole on the branch's head every four hours; see "The checks run on main"
 merge_queue_checks: [] # which of the checks above the merge queue runs; see "The checks the merge queue runs"
