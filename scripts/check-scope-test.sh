@@ -158,9 +158,9 @@ next() {
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
 expect "a change to one package tests that package" test ./pkg \
-	"test: runs over ./pkg, the packages holding the 1 files this change touches" CHANGED_GO_PACKAGES=./pkg
+	"test: runs over ./pkg, the packages it was given and any holding the 1 files this change touches" CHANGED_GO_PACKAGES=./pkg
 expect "a change to one package races that package" race ./pkg \
-	"race: runs over ./pkg, the packages holding the 1 files this change touches" CHANGED_GO_PACKAGES=./pkg
+	"race: runs over ./pkg, the packages it was given and any holding the 1 files this change touches" CHANGED_GO_PACKAGES=./pkg
 
 next
 printf 'changed fixture\n' >"$repo/pkg/testdata/input.txt"
@@ -168,7 +168,7 @@ printf '# Notes, revised\n' >"$repo/pkg/notes.md"
 printf '{"id":"x"}\n' >"$repo/.beads/issues.jsonl"
 git -C "$repo" commit -q -am fixtures
 expect "testdata, a package's Markdown and the tracker export stay in the package" test ./pkg \
-	"test: runs over ./pkg, the packages holding the 3 files" CHANGED_GO_PACKAGES=./pkg
+	"test: runs over ./pkg, the packages it was given and any holding the 3 files" CHANGED_GO_PACKAGES=./pkg
 
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
@@ -181,9 +181,9 @@ printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
 expect_named "a document outside every package tests the package and the tests that read documents" test "./pkg ./reader" \
 	"^(TestReadsTheGuide|TestReadsTheReadme)\$ ./other" \
-	"test: runs over ./pkg, the packages holding the 2 files this change touches since its merge base with main, and the tests that read this checkout, for the 1 files it touches outside every package" CHANGED_GO_PACKAGES=./pkg
+	"test: runs over ./pkg, the packages it was given and any holding the 2 files this change touches since its merge base with main, and the tests that read this checkout, for the 1 files it touches outside every package" CHANGED_GO_PACKAGES=./pkg
 expect "a document outside every package races only the package" race ./pkg \
-	"race: runs over ./pkg, the packages holding the 2 files" CHANGED_GO_PACKAGES=./pkg
+	"race: runs over ./pkg, the packages it was given and any holding the 2 files" CHANGED_GO_PACKAGES=./pkg
 
 next
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
@@ -199,7 +199,7 @@ next
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
 expect_named "the document tests of a package the change runs whole are not run again by name" test "./other ./reader" \
 	"^(TestReadsTheNotes)\$ ./pkg" \
-	"test: runs over ./other, the packages holding the 1 files" CHANGED_GO_PACKAGES=./other
+	"test: runs over ./other, the packages it was given and any holding the 1 files" CHANGED_GO_PACKAGES=./other
 
 next
 printf '# Guide, revised\n' >"$repo/docs/guide.md"
@@ -207,7 +207,7 @@ printf 'package other\n\nvar Y = 1\n' >"$repo/other/other.go"
 printf '\n' >>"$repo/scripts/check-scope.sh"
 expect_named "a document beside a script outside every package tests the package and the tests that read the checkout" test "./other ./reader" \
 	"^(TestReadsTheNotes)\$ ./pkg" \
-	"test: runs over ./other, the packages holding the 3 files this change touches since its merge base with main; it also touches scripts/check-scope.sh outside every Go package, which the whole module's check of the merge candidate judges, and the tests that read this checkout, for the 2 files it touches outside every package" CHANGED_GO_PACKAGES=./other
+	"test: runs over ./other, the packages it was given and any holding the 3 files this change touches since its merge base with main; it also touches scripts/check-scope.sh outside every Go package, which the whole module's check of the merge candidate judges, and the tests that read this checkout, for the 2 files it touches outside every package" CHANGED_GO_PACKAGES=./other
 
 next
 printf '\n' >>"$repo/Makefile"
@@ -217,9 +217,9 @@ expect "an empty scope over the Makefile tests the whole module" test ./... \
 	"test: the change touches Makefile, outside every Go package, which the checks read, and the change names no Go package to run them over, so the whole module runs" CHANGED_GO_PACKAGES=
 expect_named "a scope beside a Makefile change tests only that package and the tests that read the checkout" test "./pkg ./reader" \
 	"^(TestReadsTheGuide|TestReadsTheReadme)\$ ./other" \
-	"test: runs over ./pkg, the packages holding the 1 files this change touches since its merge base with main; it also touches Makefile outside every Go package" CHANGED_GO_PACKAGES=./pkg
+	"test: runs over ./pkg, the packages it was given and any holding the 1 files this change touches since its merge base with main; it also touches Makefile outside every Go package" CHANGED_GO_PACKAGES=./pkg
 expect "a scope beside a Makefile change races only that package" race ./pkg \
-	"race: runs over ./pkg, the packages holding the 1 files this change touches since its merge base with main; it also touches Makefile outside every Go package" CHANGED_GO_PACKAGES=./pkg
+	"race: runs over ./pkg, the packages it was given and any holding the 1 files this change touches since its merge base with main; it also touches Makefile outside every Go package" CHANGED_GO_PACKAGES=./pkg
 
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
@@ -232,14 +232,14 @@ git -C "$repo" add -A
 git -C "$repo" commit -q -m mixed
 expect_named "two packages beside the Makefile, a script and the configuration test only those packages" test "./other ./pkg ./reader" \
 	"none" \
-	"test: runs over ./other ./pkg, the packages holding the 5 files" CHANGED_GO_PACKAGES="./other ./pkg"
+	"test: runs over ./other ./pkg, the packages it was given and any holding the 5 files" CHANGED_GO_PACKAGES="./other ./pkg"
 expect "two packages beside the Makefile, a script and the configuration race only those packages" race "./other ./pkg" \
-	"race: runs over ./other ./pkg, the packages holding the 5 files" CHANGED_GO_PACKAGES="./other ./pkg"
+	"race: runs over ./other ./pkg, the packages it was given and any holding the 5 files" CHANGED_GO_PACKAGES="./other ./pkg"
 
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"
 expect "a scope that leaves out a changed package adds that package" race "./other ./pkg" \
-	"race: runs over ./other ./pkg, the packages holding the 1 files this change touches since its merge base with main, with ./pkg, which the packages it was given (./other) do not name" CHANGED_GO_PACKAGES=./other
+	"race: runs over ./other ./pkg, the packages it was given and any holding the 1 files this change touches since its merge base with main, with ./pkg, which the packages it was given (./other) do not name" CHANGED_GO_PACKAGES=./other
 
 next
 printf 'package pkg\n\nvar X = 1\n' >"$repo/pkg/pkg.go"

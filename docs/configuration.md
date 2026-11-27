@@ -3289,11 +3289,18 @@ every package, a document or the Makefile, belongs to none. The variable is
 `./...` where the harness cannot narrow: a change to `go.mod` or `go.sum` or the
 vendor tree reaches every package, and a repository that is no Go module has
 nothing to narrow within. It is empty where the change touches no Go package at
-all. A check that never mentions it runs exactly as it always has; a check
-written to read it runs over that and nothing else. What the narrowing cannot
-see is a package that depends on a touched one, which is what the whole check
-of the merge candidate below is for. The run's record says what the gate was
-narrowed to, and so do the item's notes; each check's start in the run's event
+all. Beside the packages the change touches, the variable names every package
+in the module that imports one of them, directly or through other packages, so
+a change to a shared package meets the tests of the code that uses it before
+review rather than first at the merge candidate's check. The harness reads that
+from the import lines of the module's Go files, every file whatever its build
+constraints; a package whose tests alone import a changed one is named, and
+does not carry the change on to the packages importing it. Where those imports
+cannot be read, the variable is `./...` and the record says why. A check that
+never mentions the variable runs exactly as it always has; a check written to
+read it runs over that and nothing else. The run's record says what the gate was
+narrowed to, naming which packages the change touches and which are there
+because they import one, and so do the item's notes; each check's start in the run's event
 log says whether it was told the whole module and why, which is what
 `yoyo status --checks` and the delivery page count
 ([how long the heavy checks took](#how-long-the-heavy-checks-took-week-by-week)).
@@ -3483,10 +3490,10 @@ change Git cannot read runs the whole module. An empty variable over a change
 made only of Markdown outside every package runs the race check over nothing
 and `make test` over those tests alone, each saying so; an empty variable over
 any other file outside every package runs the whole module, because there are
-no packages to stand in for it. A package that depends on a changed one, or a
-test that reads a file outside every package and is missing from that list, is
-still run by the whole check of the merge candidate before anything is
-promoted. This project names no `landing_checks`: the whole
+no packages to stand in for it. The packages that import a changed one are
+already in the variable. A test that reads a file outside every package and is
+missing from that list is still run by the whole check of the merge candidate
+before anything is promoted. This project names no `landing_checks`: the whole
 check of the merge candidate is the whole suite on this machine, and CI runs
 the same four checks on every pull request as separate jobs: `test`, `race` and
 `vet`, which `execution.ci_checks.required` names, and formatting in the `build`

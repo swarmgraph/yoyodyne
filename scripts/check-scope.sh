@@ -48,10 +48,11 @@
 # load the disk until nothing else on the machine finishes in time. Narrowing
 # here is safe because it is not the last word: the harness checks the approved
 # merge candidate once more with the whole module before it is promoted
-# (docs/configuration.md, "Where the whole suite runs"), so a package that
-# depends on a changed one, or a test that reads a file outside every package
-# and is missing from DOCUMENT_TESTS, fails there rather than on the target
-# branch.
+# (docs/configuration.md, "Where the whole suite runs"), so a test that reads
+# a file outside every package and is missing from DOCUMENT_TESTS fails there
+# rather than on the target branch. The harness's list already names the
+# packages that import a changed one, directly or through others
+# (internal/checks/narrow.go, WithImporters), so their tests run here too.
 #
 # The change is everything between the merge base with the target branch and
 # the working tree, as scripts/race-skip.sh reads it: committed, staged or not,
@@ -218,7 +219,7 @@ $changed
 EOF
 
 packages=$(echo $given $extra)
-because="the packages holding the $count files this change touches since its merge base with $target"
+because="the packages it was given and any holding the $count files this change touches since its merge base with $target"
 if [ -n "$extra" ]; then
 	because="$because, with$extra, which the packages it was given (${given:-none}) do not name"
 fi
