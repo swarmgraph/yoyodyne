@@ -620,6 +620,12 @@ type RunningRun struct {
 	// empty otherwise. The line says it in place of the bare phase, because a
 	// run waiting out the package registry is not doing what its phase names.
 	Install string `json:"install,omitempty"`
+	// Environments names the environments the run's work item needs whose
+	// checks did not pass before the developer's turn, each with the criteria
+	// it blocks — runstate.State.EnvironmentsStillToCheckSays — and is empty
+	// for a run with none still to be checked. It is said beside the phase
+	// rather than in place of it, because the run goes on.
+	Environments string `json:"environments,omitempty"`
 	// Evidence is the newest result the run's record holds about its current
 	// change, in words — the checks passing or failing, a protected file
 	// refused, or the review's verdict — and empty where nothing has judged it
@@ -1891,6 +1897,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, []
 			Checks:              checksOf(state, now),
 			AfterReply:          afterReplyOf(state, now),
 			Install:             installOf(state),
+			Environments:        state.EnvironmentsStillToCheckSays(),
 			StartedAt:           state.StartedAt,
 			Elapsed:             now.Sub(state.StartedAt),
 			// A run nothing has priced yet is stated as unpriced rather than as free.

@@ -214,6 +214,9 @@ func (s Standing) renderRunning() string {
 			if run.Subagents != "" {
 				fmt.Fprintf(&rendered, "    %s\n", run.Subagents)
 			}
+			if run.Environments != "" {
+				fmt.Fprintf(&rendered, "    %s\n", run.Environments)
+			}
 		}
 		rendered.WriteString(remainder(further, "developer run"))
 	}

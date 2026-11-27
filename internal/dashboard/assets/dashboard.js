@@ -999,6 +999,11 @@ var standingWarningAgeSeconds = 5 * 60;
     if (run.waiting_for_ci) {
       card.appendChild(el("p", "card-meta", "Waiting for CI, " + age(run.ci_waited) + " so far: " + run.waiting_on + "."));
     }
+    // Environments the item needs whose checks did not pass are said beside
+    // the phase, each with what it blocks, as the model words it.
+    if (run.environments) {
+      card.appendChild(el("p", "problem", sentence(run.environments)));
+    }
     if (run.waiting_for_remote) {
       card.appendChild(el("p", "problem", "Waiting for the shared remote, " + age(run.remote_waited) + " so far, " + run.remote_tries + " tries: " + run.waiting_for_remote + "."));
     }

@@ -297,6 +297,16 @@ const (
 	//
 	// It ends the round unjudged for CauseInstallUnavailable's reason.
 	CauseInstallNeverWorked EnvironmentalCause = "install-never-worked"
+	// CauseEnvironmentsMissing is a run none of whose work item's named
+	// environments was usable: each one's check, run before the developer's
+	// turn (docs/designs/checking-a-run-environment.md, section 5), failed or
+	// did not finish in time. The machine lacks what the item's criteria need,
+	// so no developer turn is spent: the item is blocked naming each
+	// environment, the criteria it blocks and what its check printed, and the
+	// development manager decides what follows.
+	//
+	// It ends the round unjudged for CauseInstallUnavailable's reason.
+	CauseEnvironmentsMissing EnvironmentalCause = "environments-missing"
 	// CauseGitLockHeld is a Git lock file in the run's own checkout that the
 	// harness found before writing there and left alone, because a live process
 	// was using it or because whether one was could not be established
@@ -320,6 +330,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CausePersonMergeBehind, CauseMergeQueueBehind, CauseCheckStageBound,
 		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld, CauseMergeQueueReleased,
 		CauseMergeQueueFull, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld,
+		CauseEnvironmentsMissing,
 	}
 }
 
@@ -378,7 +389,7 @@ func (c EnvironmentalCause) HarnessResumes() bool {
 // CauseInstallUnavailable, CauseInstallNeverWorked, and CauseGitLockHeld.
 func (c EnvironmentalCause) EndsTheRoundUnjudged() bool {
 	switch c {
-	case CauseUsageWindow, CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld:
+	case CauseUsageWindow, CauseCheckStageBound, CauseCheckTimeLimit, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld, CauseEnvironmentsMissing:
 		return true
 	}
 	return false
@@ -435,6 +446,8 @@ func (c EnvironmentalCause) Title() string {
 		return "a declared install step kept failing on dependency files that installed on this machine before, most likely because the network or the package registry could not be reached"
 	case CauseInstallNeverWorked:
 		return "a declared install step failed on dependency files that have never installed on this machine, so the step or the machine needs fixing rather than the change"
+	case CauseEnvironmentsMissing:
+		return "none of the environments the work item names was usable by the run, so no developer turn was spent"
 	case CauseGitLockHeld:
 		return "a Git lock file in the run's checkout was in use by a live process, or could not be shown to be left over, so the harness left it alone"
 	default:
