@@ -562,7 +562,7 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 		}
 		attempt.Path, attempt.Candidate, attempt.CandidateBranch = runstate.MergeQueueLandThroughForgeQueue, q.entry.Head(), run.Branch
 	} else {
-		generation, refusal, err := q.verified(target)
+		generation, refusal, err := q.verified(ctx, target)
 		if err != nil || refusal != "" {
 			q.outcome.Refusal = refusal
 			return err
@@ -604,7 +604,7 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 // some other base is invalidated as drift, and anything else short of a
 // verified generation is a refusal: missing, unfinished, invalidated, or
 // unreadable evidence lands nothing.
-func (q *queuePromotion) verified(target string) (runstate.MergeQueueGeneration, string, error) {
+func (q *queuePromotion) verified(ctx context.Context, target string) (runstate.MergeQueueGeneration, string, error) {
 	generations, err := q.p.Queue.Generations(q.key, q.entry.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, fmt.Sprintf("the candidate's evidence could not be read, so nothing is promoted on it: %v", err), nil
@@ -613,7 +613,7 @@ func (q *queuePromotion) verified(target string) (runstate.MergeQueueGeneration,
 		return runstate.MergeQueueGeneration{}, "no candidate has been built and verified for this entry yet", nil
 	}
 	generation := generations[len(generations)-1]
-	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(q.entry, generations)); err != nil {
+	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(ctx, q.p.candidatePaths(), q.entry, generations)); err != nil {
 		return generation, err.Error(), nil
 	}
 	if generation.TargetBase != target {
@@ -1051,7 +1051,7 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 		if err != nil {
 			return false, fmt.Errorf("read where %s stands: %w", q.key.TargetBranch, err)
 		}
-		generation, refusal, err := q.standing(attempt)
+		generation, refusal, err := q.standing(ctx, attempt)
 		if err != nil || refusal != "" {
 			if err == nil {
 				err = q.setAside(attempt, refusal, false)
@@ -1211,7 +1211,7 @@ func (q *queuePromotion) refusedPaths(ctx context.Context, item beads.WorkItem, 
 
 // standing is the attempt's generation as it is recorded now, and a refusal
 // where it no longer earns its gate.
-func (q *queuePromotion) standing(attempt *runstate.MergeQueuePromotionAttempt) (runstate.MergeQueueGeneration, string, error) {
+func (q *queuePromotion) standing(ctx context.Context, attempt *runstate.MergeQueuePromotionAttempt) (runstate.MergeQueueGeneration, string, error) {
 	generations, err := q.p.Queue.Generations(q.key, q.entry.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, fmt.Sprintf("the candidate's evidence could not be read again, so nothing is promoted on it: %v", err), nil
@@ -1223,7 +1223,7 @@ func (q *queuePromotion) standing(attempt *runstate.MergeQueuePromotionAttempt) 
 	if generation.Binding() != attempt.Binding {
 		return generation, fmt.Sprintf("generation %d is not the candidate the attempt was intended for", attempt.Generation), nil
 	}
-	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(q.entry, generations)); err != nil {
+	if err := generation.Gate(q.p.Pipeline.mergeQueueChecks(ctx, q.p.candidatePaths(), q.entry, generations)); err != nil {
 		return generation, err.Error(), nil
 	}
 	return generation, "", nil

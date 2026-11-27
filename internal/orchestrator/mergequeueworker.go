@@ -259,7 +259,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 		if err != nil {
 			return outcome, err
 		}
-		configured := w.Pipeline.mergeQueueChecks(entry, generations)
+		configured := w.Pipeline.mergeQueueChecks(ctx, w.Candidates.CandidatePaths, entry, generations)
 		outcome, err = w.verify(ctx, lease, key, entry, run, author, configured, outcome, &ahead)
 		var wait mergeQueueWait
 		if errors.As(err, &wait) {

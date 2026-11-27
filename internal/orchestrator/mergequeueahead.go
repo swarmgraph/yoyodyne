@@ -208,7 +208,7 @@ func (w MergeQueueWorker) checkAhead(ctx context.Context, lease *runstate.Lease,
 	// A record that cannot be read here is read again, and reported, when the
 	// candidate is built.
 	nextGenerations, _ := w.Queue.Generations(key, next.EntryID)
-	configured := w.Pipeline.mergeQueueChecks(next, nextGenerations)
+	configured := w.Pipeline.mergeQueueChecks(ctx, w.Candidates.CandidatePaths, next, nextGenerations)
 	generation, found, why, err := w.aheadGeneration(ctx, lease, key, next, author, configured, base, &outcome.CheckoutRetries)
 	outcome.Generation = generation
 	var conflict *gitworktree.QueueCandidateConflict

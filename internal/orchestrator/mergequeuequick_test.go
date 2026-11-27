@@ -260,7 +260,7 @@ func TestAFailingRequiredCheckStopsTheReview(t *testing.T) {
 	}
 	// The failure is the change's, handed back like a failing local check.
 	failure, failed, err := ClassifyMergeQueueFailure(MergeQueueFailureEvidence{
-		Generations: generations, Configured: f.worker.Pipeline.mergeQueueChecks(f.entry, generations),
+		Generations: generations, Configured: f.worker.Pipeline.mergeQueueChecks(context.Background(), f.worker.Candidates.CandidatePaths, f.entry, generations),
 	})
 	if err != nil || !failed || failure.Class != runstate.MergeQueueCandidateDefect || failure.Check != "test" {
 		t.Fatalf("ClassifyMergeQueueFailure() = %#v, %v, %v, want a defect of the change on test", failure, failed, err)
@@ -277,7 +277,7 @@ func TestAnApprovedCandidateWaitsForTheForgesChecksToFinish(t *testing.T) {
 	}
 	generations := f.generations()
 	if _, failed, err := ClassifyMergeQueueFailure(MergeQueueFailureEvidence{
-		Generations: generations, Configured: f.worker.Pipeline.mergeQueueChecks(f.entry, generations),
+		Generations: generations, Configured: f.worker.Pipeline.mergeQueueChecks(context.Background(), f.worker.Candidates.CandidatePaths, f.entry, generations),
 	}); failed || err != nil {
 		t.Fatalf("ClassifyMergeQueueFailure() = %v, %v, want a candidate still being verified", failed, err)
 	}

@@ -742,7 +742,7 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 	}
 	failure, failed, err := ClassifyMergeQueueFailure(MergeQueueFailureEvidence{
 		Generations: generations, ReadErr: readErr,
-		Configured: p.Pipeline.mergeQueueChecks(entry, generations),
+		Configured: p.Pipeline.mergeQueueChecks(ctx, p.candidatePaths(), entry, generations),
 		TargetRed:  p.targetRed(ctx, key.TargetBranch),
 	})
 	if err != nil {
