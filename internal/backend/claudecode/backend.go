@@ -721,6 +721,10 @@ type Backend struct {
 	// CheckAvailability takes no request, so the account it is asking about has to
 	// be on the value being asked. Empty is the machine's own provider home.
 	ConfigDir string
+	// MachineLoad reads the machine's one-minute load average and its cores, by
+	// which the launch settings check scales its time limit. Nil is
+	// gitworktree.MachineLoad; a test supplies the load it is about.
+	MachineLoad func() (load float64, cores int, ok bool)
 	// StateRoot is the harness's state directory, where the services folder every
 	// session is refused is found for one with no run folder of its own. A session
 	// that needs it and has none is not started (backend.ServicesDirectory).

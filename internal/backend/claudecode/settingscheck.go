@@ -14,6 +14,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
@@ -73,10 +74,78 @@ var reliedFlags = []string{
 	"--input-format", "--no-session-persistence", "--version",
 }
 
-// settingsCheckTimeout bounds one of the check's processes. Each answers in
-// well under a second; the bound is for a CLI that hangs, which reads as a
-// check that could not be made rather than as one that failed.
+// settingsCheckTimeout bounds one of the check's processes on an idle machine.
+// Each answers in well under a second there; the bound is for a CLI that hangs,
+// which reads as a check that could not be made rather than as one that failed.
+// A busy machine answers more slowly, so the bound a process is actually given
+// is this one scaled by the machine's load (settingsCheckLimitNow).
 const settingsCheckTimeout = 30 * time.Second
+
+// settingsCheckTries is how many times the check is made before a timeout is
+// given up on. A process that timed out is most often a machine that was busy
+// for a moment, so the check is asked again straight away, under a limit read
+// afresh, rather than left to refuse every start until the next poll.
+const settingsCheckTries = 2
+
+// settingsCheckLimit is the bound one of the check's processes was given, and
+// the machine's load it was scaled for.
+type settingsCheckLimit struct {
+	Limit time.Duration
+	Load  float64
+	Cores int
+	// Known is false where the platform could not report the load, and the
+	// idle bound was given unscaled.
+	Known bool
+}
+
+// String says the limit and what it was set for, short enough that the line
+// an operator reads keeps it whole.
+func (l settingsCheckLimit) String() string {
+	if !l.Known {
+		return fmt.Sprintf("%s, the unscaled limit (the load could not be read)", l.Limit)
+	}
+	return fmt.Sprintf("%s, the limit for a load of %.1f on %d cores", l.Limit, l.Load, l.Cores)
+}
+
+// settingsCheckLimitNow is the bound a process of the check is given now: the
+// idle bound scaled by the machine's one-minute load against its cores, by the
+// same rule and ceiling a local Git command's budget is (gitworktree.ScaleForLoad:
+// unchanged up to one load per core, in proportion past that, at most ten
+// times). It is read for each process, because the load moves under a check.
+func (b Backend) settingsCheckLimitNow() settingsCheckLimit {
+	read := b.MachineLoad
+	if read == nil {
+		read = gitworktree.MachineLoad
+	}
+	load, cores, ok := read()
+	if !ok {
+		return settingsCheckLimit{Limit: settingsCheckTimeout}
+	}
+	return settingsCheckLimit{Limit: gitworktree.ScaleForLoad(settingsCheckTimeout, load, cores), Load: load, Cores: cores, Known: true}
+}
+
+// SettingsCheckTimedOutError is a check that could not be made because a
+// process of it gave no answer within its limit on every try. It refuses the
+// start as any check that could not be made does; what it adds is the account
+// of the last try's load and limit. What it says is kept under the 100 bytes
+// the line saying why runs cannot start keeps of a cause, so the figures are
+// never the part cut off.
+type SettingsCheckTimedOutError struct {
+	Limit settingsCheckLimit
+	Tries int
+}
+
+func (e SettingsCheckTimedOutError) Error() string {
+	under := ""
+	if e.Limit.Known && e.Limit.Load > float64(max(e.Limit.Cores, 1)) {
+		under = " under load"
+	}
+	tries := ""
+	if e.Tries > 1 {
+		tries = fmt.Sprintf(", on %d tries", e.Tries)
+	}
+	return fmt.Sprintf("timed out%s: no answer in %s%s", under, e.Limit, tries)
+}
 
 // guardCommand is the notes guard's command as the developer's settings name
 // it, and guardMatcher the tool it stands in front of.
@@ -113,7 +182,27 @@ var settingsQuestions = func() string {
 
 // CheckLaunchSettings establishes that the installed CLI applies, in
 // directory, what a developer is launched with there. See the top of this file.
+//
+// A check a process of which timed out is made again at once, up to
+// settingsCheckTries times; one that times out on every try is returned as a
+// SettingsCheckTimedOutError, which refuses the start like any check that could
+// not be made. A check is never passed for want of an answer.
 func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (backend.LaunchSettingsCheck, error) {
+	for try := 1; ; try++ {
+		check, err := b.checkLaunchSettingsOnce(ctx, directory)
+		var timedOut SettingsCheckTimedOutError
+		if !errors.As(err, &timedOut) {
+			return check, err
+		}
+		if try >= settingsCheckTries || ctx.Err() != nil {
+			timedOut.Tries = try
+			return backend.LaunchSettingsCheck{}, timedOut
+		}
+	}
+}
+
+// checkLaunchSettingsOnce is one try of the check.
+func (b Backend) checkLaunchSettingsOnce(ctx context.Context, directory string) (backend.LaunchSettingsCheck, error) {
 	if b.Runner == nil {
 		return backend.LaunchSettingsCheck{}, errors.New("Claude Code process runner is required")
 	}
@@ -121,16 +210,16 @@ func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (bac
 		return backend.LaunchSettingsCheck{}, errors.New("the directory a developer would be started in is required")
 	}
 	environment := withContextEnvironment(environmentFor(b.ConfigDir))
-	versionText, err := b.ask(ctx, environment, directory, "--version")
+	versionText, err := b.ask(ctx, environment, directory, "--version", "its version")
 	if err != nil {
-		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code its version: %w", err)
+		return backend.LaunchSettingsCheck{}, err
 	}
 	check := backend.LaunchSettingsCheck{Version: strings.TrimSpace(versionText)}
 	version := cliVersion(check.Version)
 	if version != recordedCLIVersion {
-		help, err := b.ask(ctx, environment, directory, "--help")
+		help, err := b.ask(ctx, environment, directory, "--help", "for its help")
 		if err != nil {
-			return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code %s for its help: %w", version, err)
+			return backend.LaunchSettingsCheck{}, err
 		}
 		for _, flag := range reliedFlags {
 			if !helpNames(help, flag) {
@@ -147,18 +236,22 @@ func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (bac
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, err
 	}
+	limit := b.settingsCheckLimitNow()
 	result, err := b.Runner.Run(ctx, execution.Command{
 		Name:    b.binary(),
 		Args:    settingsCheckArgs(settings),
 		Dir:     directory,
 		Env:     execution.WithGoBuildCache(environment, directory),
 		Stdin:   strings.NewReader(settingsQuestions),
-		Timeout: settingsCheckTimeout,
+		Timeout: limit.Limit,
 	}, nil)
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code which settings it applies: %w", err)
 	}
-	if result.Status == execution.ProcessTimedOut || result.Status == execution.ProcessCancelled || result.Status == execution.ProcessStalled {
+	if result.Status == execution.ProcessTimedOut {
+		return backend.LaunchSettingsCheck{}, SettingsCheckTimedOutError{Limit: limit, Tries: 1}
+	}
+	if result.Status == execution.ProcessCancelled || result.Status == execution.ProcessStalled {
 		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code which settings it applies: the process %s", result.Status)
 	}
 	answers := readAnswers(result.Stdout)
@@ -210,14 +303,19 @@ func settingsCheckArgs(settings string) []string {
 	return append(args, developerTools...)
 }
 
-// ask runs the CLI with one argument and returns what it printed.
-func (b Backend) ask(ctx context.Context, environment []string, directory, flag string) (string, error) {
-	result, err := b.Runner.Run(ctx, execution.Command{Name: b.binary(), Args: []string{flag}, Dir: directory, Env: environment, Timeout: settingsCheckTimeout}, nil)
+// ask runs the CLI with one argument and returns what it printed. asked is what
+// the argument asks it, in the words a failure names it by.
+func (b Backend) ask(ctx context.Context, environment []string, directory, flag, asked string) (string, error) {
+	limit := b.settingsCheckLimitNow()
+	result, err := b.Runner.Run(ctx, execution.Command{Name: b.binary(), Args: []string{flag}, Dir: directory, Env: environment, Timeout: limit.Limit}, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("ask Claude Code %s: %w", asked, err)
+	}
+	if result.Status == execution.ProcessTimedOut {
+		return "", SettingsCheckTimedOutError{Limit: limit, Tries: 1}
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return "", fmt.Errorf("%s ended %s (exit %d): %s", flag, result.Status, result.ExitCode, oneline.Fold(strings.TrimSpace(result.Stderr), 400))
+		return "", fmt.Errorf("ask Claude Code %s: %s ended %s (exit %d): %s", asked, flag, result.Status, result.ExitCode, oneline.Fold(strings.TrimSpace(result.Stderr), 400))
 	}
 	return result.Stdout, nil
 }
