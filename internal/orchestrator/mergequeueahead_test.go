@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -293,5 +294,64 @@ func TestTheCandidateCheckedAheadIsTheOneTheOrderTakesNext(t *testing.T) {
 	}
 	if got := verification.Ahead.Entry; got.EntryID == between.EntryID || got.EntryID == secondDesign.EntryID || got.EntryID == firstDesign.EntryID {
 		t.Fatalf("checked entry %d ahead, want the code admitted first, which the order takes after a design (not entry %d, admitted next, nor the second design, entry %d)", got.Order, between.Order, secondDesign.Order)
+	}
+}
+
+// priorityFixture is a queue landing locally whose first change is priority 0
+// code, with a priority 2 change admitted behind it, checked ahead by a check
+// every candidate passes.
+func priorityFixture(t *testing.T) (*promotionFixture, runstate.MergeQueueEntry) {
+	t.Helper()
+	f := newPromotionFixture(t, landLocally)
+	f.worker.CheckAhead = true
+	f.worker.Pipeline.Config.Checks = []string{"true"}
+	f.tracker.Item.Priority = 0
+	f.tracker.HoldsItem(beads.WorkItem{ID: "yoyodyne-older", Title: "Older work", Status: "open", Priority: 2})
+	f.tracker.HoldsItem(beads.WorkItem{ID: "yoyodyne-urgent", Title: "Urgent work", Status: "open", Priority: 0})
+	older := f.admitAnotherFor(queueKey, "yoyodyne-older", "older", "older.txt", "priority 2 code\n")
+	return f, older
+}
+
+// Checking ahead takes priority 0 code admitted later over priority 2 code
+// admitted earlier, because that is what the queue takes once the entry being
+// worked has landed; in admission order it would have checked the older one.
+func TestCheckingAheadTakesPriorityZeroCodeOverOlderPriorityTwoCode(t *testing.T) {
+	t.Parallel()
+
+	f, older := priorityFixture(t)
+	urgent := f.admitAnotherFor(queueKey, "yoyodyne-urgent", "urgent", "urgent.txt", "priority 0 code\n")
+	verification, err := f.work()
+	if err != nil || verification.Entry.EntryID != f.entry.EntryID {
+		t.Fatalf("Work() = entry %d, %v; want the first priority 0 entry, %d", verification.Entry.Order, err, f.entry.Order)
+	}
+	if verification.Ahead == nil || verification.Ahead.Entry.EntryID != urgent.EntryID {
+		t.Fatalf("checked ahead %#v, want the priority 0 entry %d rather than the older priority 2 entry %d", verification.Ahead, urgent.Order, older.Order)
+	}
+	if generations := f.generationsOf(older); len(generations) != 0 {
+		t.Fatalf("generations of the older priority 2 entry = %#v, want none built", generations)
+	}
+}
+
+// A candidate checked ahead on an entry that then never landed as that
+// candidate does not count as already being checked: it can never land, so it
+// does not go ahead of priority 0 code the order puts first.
+func TestACandidateCheckedAheadOfAnEntryThatNeverLandedDoesNotJumpTheOrder(t *testing.T) {
+	t.Parallel()
+
+	f, older := priorityFixture(t)
+	verification, err := f.work()
+	if err != nil || !verification.Verified || verification.Ahead == nil || verification.Ahead.Entry.EntryID != older.EntryID || !verification.Ahead.Verified {
+		t.Fatalf("Work() = %#v (ahead %#v), %v; want the first verified and the priority 2 entry verified ahead of it", verification, verification.Ahead, err)
+	}
+	if withdrawn, err := f.promoter.Withdraw(context.Background(), queueKey, f.entry.EntryID, "its head is to be rewritten"); err != nil || !withdrawn.Withdrawn {
+		t.Fatalf("Withdraw() = %#v, %v; want the first entry withdrawn", withdrawn, err)
+	}
+	urgent := f.admitAnotherFor(queueKey, "yoyodyne-urgent", "urgent", "urgent.txt", "priority 0 code\n")
+	choice, found, err := f.worker.next(context.Background(), queueKey)
+	if err != nil || !found {
+		t.Fatalf("next() found %v, %v; want an entry", found, err)
+	}
+	if choice.Entry.EntryID != urgent.EntryID || choice.Rule != MergeQueueRuleUrgent {
+		t.Fatalf("chose entry %d by %q, want the priority 0 entry %d by %q ahead of the priority 2 entry %d checked ahead of a withdrawn one", choice.Entry.Order, choice.Rule, urgent.Order, MergeQueueRuleUrgent, older.Order)
 	}
 }

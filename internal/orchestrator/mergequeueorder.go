@@ -262,9 +262,15 @@ func (o queueOrder) documentRun(ctx context.Context, entry runstate.MergeQueueEn
 //
 // A candidate checked ahead (mergequeueahead.go) stands on the candidate of the
 // entry it was built on, so it counts only once that entry no longer waits
-// (unlanded says which do): until then it is not the next thing to land, and a
-// stale one must not jump the order.
-func entryInProgress(generations []runstate.MergeQueueGeneration, unlanded map[string]bool) bool {
+// (unlanded says which do), landed as exactly that candidate, so the target
+// (target says where it stands) is now the candidate checked ahead's base, and
+// only once its own checks and review have finished. Until then it is not the
+// next thing to land: one whose base failed, was withdrawn or landed as
+// another commit can never land, and one whose checking stopped part-way has
+// stages still to earn, so neither goes ahead of an entry the order puts
+// first. The order chooses among them as it chooses among any other waiting
+// entries.
+func entryInProgress(generations []runstate.MergeQueueGeneration, unlanded map[string]bool, target func() string) bool {
 	count := len(generations)
 	if count == 0 {
 		return false
@@ -273,7 +279,30 @@ func entryInProgress(generations []runstate.MergeQueueGeneration, unlanded map[s
 	if latest.Invalidated != nil || latest.WaitsOnTarget() || (latest.CheckRun == nil && latest.Review == nil) {
 		return false
 	}
-	return latest.BuiltAhead == nil || !unlanded[latest.BuiltAhead.EntryID]
+	if latest.BuiltAhead == nil {
+		return true
+	}
+	if unlanded[latest.BuiltAhead.EntryID] || stagesLeft(latest) || target == nil {
+		return false
+	}
+	return latest.TargetBase != "" && latest.TargetBase == target()
+}
+
+// targetOnce is where branch stands, read the first time it is asked and
+// answered the same after that, so a choice reads the target at most once. A
+// target that cannot be read is empty, which no candidate stands on.
+func targetOnce(ctx context.Context, read func(context.Context, string) (string, error), branch string) func() string {
+	var commit string
+	asked := false
+	return func() string {
+		if !asked {
+			asked = true
+			if got, err := read(ctx, branch); err == nil {
+				commit = got
+			}
+		}
+		return commit
+	}
 }
 
 // pick is the entry to work next among the waiting ones given in admission

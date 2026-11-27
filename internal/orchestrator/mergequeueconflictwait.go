@@ -112,8 +112,9 @@ func (r MergeQueueReturns) Ahead(ctx context.Context, returned runstate.MergeQue
 		return nil, nil
 	}
 	started := map[string]bool{}
+	onTarget := targetOnce(ctx, r.Git.TargetCommit, key.TargetBranch)
 	for _, entry := range candidates {
-		started[entry.EntryID] = underWay[entry.EntryID] || entryInProgress(generations[entry.EntryID], unlanded)
+		started[entry.EntryID] = underWay[entry.EntryID] || entryInProgress(generations[entry.EntryID], unlanded, onTarget)
 	}
 	placed := returned
 	placed.AdmittedAt = now.UTC()
