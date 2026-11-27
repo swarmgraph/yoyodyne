@@ -406,7 +406,7 @@
         "owner": "operator",
         "reason": "fundamental-intent",
         "remedy": "approve or decline the document",
-        "capability": "yoyo agent chat approve|decline"
+        "capability": "yoyo agent chat <agent> --message \"approve <document>\" or --message \"decline <document> <reason>\""
       },
       "document_approval": {
         "write_id": "document-2328.1",
@@ -907,7 +907,7 @@
         "mover": "operator",
         "owner_reason": "a change to the fundamental goals, which only the operator decides",
         "ownership": {
-          "capability": "yoyo agent chat approve|decline",
+          "capability": "yoyo agent chat \u003cagent\u003e --message \"approve \u003cdocument\u003e\" or --message \"decline \u003cdocument\u003e \u003creason\u003e\"",
           "owner": "operator",
           "reason": "fundamental-intent",
           "remedy": "approve or decline the document"

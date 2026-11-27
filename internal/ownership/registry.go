@@ -463,7 +463,7 @@ func failingTaskRule(r Record) (Answer, bool) {
 }
 
 func configMismatchRule(Record) (Answer, bool) {
-	return owned(MoverHarness, "restart the part on a build that reads the configuration", "yoyo restart")
+	return owned(MoverHarness, "restart the part on a build that reads the configuration", "yoyo stop and yoyo start")
 }
 
 func serviceCopiesRule(Record) (Answer, bool) {
@@ -661,7 +661,7 @@ func trackerUnansweredRule(Record) (Answer, bool) {
 }
 
 func forgeCertificateRule(Record) (Answer, bool) {
-	return owned(MoverHarness, "start the supervisor again outside the shell that cannot read the certificate store", "yoyo stop and yoyo start from an ordinary terminal")
+	return owned(MoverHarness, "start the supervisor again outside the shell that cannot read the certificate store", "yoyo stop and yoyo start, from an ordinary terminal")
 }
 
 func unrunCheckRule(Record) (Answer, bool) {
@@ -743,13 +743,20 @@ func documentApprovalRule(r Record) (Answer, bool) {
 		return owned(MoverHarness, "confirm the document under its kind's approval setting and send it to be published", "document publication")
 	}
 	if r.FundamentalIntent {
-		answer, ok := operator(OperatorFundamentalIntent, "approve or decline the document", "yoyo agent chat approve|decline")
+		answer, ok := operator(OperatorFundamentalIntent, "approve or decline the document", documentDecisionCommand)
 		answer.ReasonDetail = intentDocumentReason(r.DocumentKind)
 		return answer, ok
 	}
-	answer, ok := roleOwned(r.Role, "have the operator approve or decline the document, as the project's approval setting for its kind asks", "yoyo agent chat approve|decline")
+	answer, ok := roleOwned(r.Role, "have the operator approve or decline the document, as the project's approval setting for its kind asks", documentDecisionCommand)
 	return withHand(answer, ok, HandDocumentConfirmation, r.Command)
 }
+
+// documentDecisionCommand is how the operator decides a document a role wrote:
+// a message to the conversation that wrote it, naming the document as that
+// conversation lists it. No command of its own approves one; `yoyo chat` is the
+// same as `yoyo agent chat product-manager`, and the entry's own account names
+// the exact conversation and document.
+const documentDecisionCommand = `yoyo agent chat <agent> --message "approve <document>" or --message "decline <document> <reason>"`
 
 // intentDocumentReason is why a waiting change to one of the product's
 // documents is the operator's, naming the document's kind: only a change the
@@ -777,8 +784,13 @@ func intentDocumentReason(kind string) string {
 // cut against one, or work that fits them and that it judges against the
 // product's intent. Each answer decides what the goals admit or refuse, so it
 // is the operator's for a change of fundamental intent, whichever role asked.
+// concernAnswerCommand is how the operator answers a concern: a message to the
+// conversation that raised it, naming the concern, which records the answer
+// rather than starting a turn about it.
+const concernAnswerCommand = `yoyo agent chat <agent> --message "answer <concern> <your answer>"`
+
 func concernRule(Record) (Answer, bool) {
-	return operator(OperatorFundamentalIntent, "answer the concern in the conversation that raised it", "yoyo chat answer")
+	return operator(OperatorFundamentalIntent, "answer the concern in the conversation that raised it", concernAnswerCommand)
 }
 
 // followUpRule is the owner the follow-up recorded. The operator is that owner

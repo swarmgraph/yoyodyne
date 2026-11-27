@@ -491,7 +491,7 @@
       "ownership": {
         "owner": "architect",
         "remedy": "have the operator approve or decline the document, as the project's approval setting for its kind asks",
-        "capability": "yoyo agent chat approve|decline",
+        "capability": "yoyo agent chat <agent> --message \"approve <document>\" or --message \"decline <document> <reason>\"",
         "hand": {
           "who": "operator",
           "need": "document-confirmation",
@@ -911,7 +911,7 @@
         "label": "document waiting for approval",
         "mover": "architect",
         "ownership": {
-          "capability": "yoyo agent chat approve|decline",
+          "capability": "yoyo agent chat \u003cagent\u003e --message \"approve \u003cdocument\u003e\" or --message \"decline \u003cdocument\u003e \u003creason\u003e\"",
           "hand": {
             "closed_by": "yoyodyne-ifd.433.21",
             "missing": "confirming a document written from a conversation as its kind's approval setting says, without a person",
