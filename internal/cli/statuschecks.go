@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -37,6 +38,7 @@ func reportCheckTimes(configPath string, jsonOutput bool, stdout, stderr io.Writ
 	if err != nil {
 		return failed(err)
 	}
+	settleRunsWithNoProcessAside(context.Background(), configPath, store, stderr)
 	reading := readmodel.ReadCheckTimes(readmodel.CheckTimesSources{
 		Runs:        store,
 		HeavyChecks: resolved.Config.Execution.HeavyChecks,

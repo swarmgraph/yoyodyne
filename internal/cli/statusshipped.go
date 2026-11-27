@@ -37,6 +37,7 @@ package cli
 // (yoyodyne-ifd.49) pause on shared windows.
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strconv"
@@ -88,6 +89,7 @@ func reportShipped(configPath string, count int, jsonOutput bool, stdout, stderr
 	if err != nil {
 		return reportShippedFailure(stdout, stderr, jsonOutput, err)
 	}
+	settleRunsWithNoProcessAside(context.Background(), configPath, store, stderr)
 	ledger, err := store.Shipped(count)
 	if err != nil {
 		return reportShippedFailure(stdout, stderr, jsonOutput, err)
