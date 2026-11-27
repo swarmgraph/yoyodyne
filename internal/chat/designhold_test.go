@@ -57,7 +57,7 @@ func TestOnlyTheRolesAllowedToMayPutTheNeedsDesignLabelOn(t *testing.T) {
 // The architect holds no way to change the label: no label action of either
 // kind, and no write to an item but the note recording that a document agrees
 // with it, which takes no label to add or remove. The development manager, who
-// removes it for now, may.
+// removes it where the harness's own removal missed, may.
 func TestTheArchitectHoldsNoWayToRemoveTheNeedsDesignLabel(t *testing.T) {
 	t.Parallel()
 
@@ -126,14 +126,15 @@ func TestTheLeadProductManagerPutsTheLabelOnWithTheQuestion(t *testing.T) {
 	}
 }
 
-// Every role that may set the label is told what it does and that the
-// development manager takes it off, and the architect is told of no label action.
+// Every role that may set the label is told what it does and that the harness
+// takes it off when the design lands, and the architect is told of no label
+// action.
 func TestTheContractsSayWhoSetsAndWhoRemovesTheLabel(t *testing.T) {
 	t.Parallel()
 
 	for _, role := range []domain.AgentRole{domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleProgramManager} {
 		contract := SystemPrompt(role, Admission{}, nil, "")
-		if !strings.Contains(contract, "The development manager takes it off, for now") {
+		if !strings.Contains(contract, "The harness takes it off when an architect's document") {
 			t.Errorf("the %s contract does not say who removes the needs-design label", role)
 		}
 	}

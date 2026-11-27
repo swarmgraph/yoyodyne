@@ -2220,6 +2220,18 @@ func (c Client) ReturnForDesign(ctx context.Context, id, reason string) (WorkIte
 	return c.confirmedGivenBack(ctx, item, reason)
 }
 
+// LiftNeedsDesign takes the needs-design label off an item and appends the
+// reason to its notes, in one write, leaving its status and every other label
+// as they are. The harness uses it when an architect's document that answers
+// the item has landed (docs/designs/needs-design-gate.md), so the note saying
+// which document lifted the label goes on in the same write that lifts it.
+func (c Client) LiftNeedsDesign(ctx context.Context, id, reason string) (WorkItem, error) {
+	if strings.TrimSpace(reason) == "" {
+		return WorkItem{}, errors.New("the reason for taking the needs-design label off is required")
+	}
+	return c.Update(ctx, id, WorkItemChange{AppendNotes: reason, RemoveLabels: []string{domain.NeedsDesignLabel}})
+}
+
 // maxBDOutputBytes is how much of one bd invocation's output this client keeps.
 // It is far above the process runner's general default of 8 MiB because a bd
 // listing is one JSON document that has to be read whole, and it grows with the
