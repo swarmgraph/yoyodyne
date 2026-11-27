@@ -158,3 +158,38 @@ func environmentValues(entries []string) map[string]string {
 	}
 	return values
 }
+
+// The harness's own commit runs none of the repository's commit hooks, so the
+// tracker export the repository's pre-commit hook takes never runs inside a
+// commit the harness makes, and no lock the harness holds while it commits can
+// be one that commit's hook waits on. The hook here refuses every commit and
+// says it was run, so a commit that ran it fails or leaves the mark.
+func TestTheHarnessesCommitRunsNoCommitHook(t *testing.T) {
+	repository := newRepository(t)
+	manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	worktree, err := manager.Create(context.Background(), CreateRequest{
+		RunID:      testRunID,
+		WorkItemID: "yoyodyne-commit-hooks",
+		BaseRef:    "main",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	hooks := t.TempDir()
+	mark := filepath.Join(t.TempDir(), "hook-ran")
+	for _, hook := range []string{"pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"} {
+		script := "#!/bin/sh\nprintf '%s\\n' " + hook + " >> '" + mark + "'\nexit 1\n"
+		if err := os.WriteFile(filepath.Join(hooks, hook), []byte(script), 0o700); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+	runGit(t, repository, "config", "core.hooksPath", hooks)
+	writeFile(t, worktree.Path, "feature.txt", "work\n")
+
+	if _, err := manager.commitWorktree(context.Background(), worktree.Path, "the harness's commit"); err != nil {
+		t.Fatalf("commitWorktree() error = %v", err)
+	}
+	if ran, err := os.ReadFile(mark); err == nil {
+		t.Fatalf("the harness's commit ran the repository's hooks: %s", strings.TrimSpace(string(ran)))
+	}
+}
