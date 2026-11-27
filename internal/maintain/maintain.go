@@ -111,6 +111,11 @@
 //     services.maintenance.tracker_limits (trackerlimits.go). It asks the store
 //     nothing, says the figures either way, and warns the development manager
 //     once when either is past its bound.
+//   - secrets: the tracker's export in the primary checkout, which is committed
+//     to Git, read for whole keys and tokens (trackersecrets.go). Each found is
+//     reported once, naming the item and the kind of secret and never the
+//     value, so the credential can be replaced; nothing is edited. A key prefix
+//     quoted in a note is not a key, and is not reported.
 //   - rebuild: what the supervisor's rebuilder last came to — it builds the
 //     binary on its own thirty-second look when the branch lands something the
 //     binary is made of, so a deploy has a build to take up.
@@ -389,6 +394,10 @@ type Pass struct {
 	// last warned of being past, and empty once both are within them
 	// (trackerlimits.go).
 	limitsWarned string
+	// secretsFiled is the fingerprint of every whole secret in the tracker's
+	// export a report has been filed for, read from the report pile the first
+	// time it is needed (trackersecrets.go).
+	secretsFiled map[string]bool
 }
 
 type cutting struct {
@@ -405,8 +414,8 @@ type underway struct {
 // offGoroutine is what the pass does off the supervisor's goroutine: the run
 // index rebuilt, then reconcile, then the old scratch folders under .git
 // cleared, then the shared build cache trimmed, then the tracker's cleanup, with the record of the cleanup where one ran,
-// then the measurement of the tracker's store, then its rebuild, and then the
-// check of its limits.
+// then the measurement of the tracker's store, then its rebuild, then the
+// check of its limits, and then the read of its export for secrets.
 type offGoroutine struct {
 	indexed    runstate.SweepStep
 	reconciled runstate.SweepStep
@@ -416,6 +425,7 @@ type offGoroutine struct {
 	measured   runstate.SweepStep
 	rebuilt    runstate.SweepStep
 	limits     runstate.SweepStep
+	secrets    runstate.SweepStep
 }
 
 // Name is how the pass is named in what the supervisor says, and Service the
@@ -513,6 +523,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 		work.measured = p.measureTracker(ctx)
 		work.rebuilt = p.rebuildTracker(ctx)
 		work.limits = p.checkTrackerLimits()
+		work.secrets = p.checkTrackerSecrets()
 		done <- work
 	}()
 	if p.Release != nil && p.releasing == nil && p.released == nil {
@@ -588,6 +599,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	recorded.Steps = append(recorded.Steps, done.measured)
 	recorded.Steps = append(recorded.Steps, done.rebuilt)
 	recorded.Steps = append(recorded.Steps, done.limits)
+	recorded.Steps = append(recorded.Steps, done.secrets)
 	if done.cleaned.cleanup != nil {
 		p.cleanedUp, p.cleanupsRead = done.cleaned.cleanup, true
 	}

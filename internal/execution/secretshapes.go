@@ -113,51 +113,53 @@ func ordinaryWord(value string) bool {
 // the line after its name is still found and removed.
 //
 // The shapes recognized by a prefix alone begin where shapeStart says.
-var secretShapes = []secretShape{
+var secretShapes = []secretShape{credentialHeaderShape, bearerShape, namedCredentialShape, providerKeyShape, webTokenShape, gitHubTokenShape}
+
+var (
 	// An authorization header, in any of the forms a client prints one: HTTP,
 	// JSON, a JavaScript object, or an environment-style assignment. The scheme
 	// is kept so a reader can still tell a bearer token from basic credentials,
 	// and a value already replaced is matched as itself so the scheme is not
 	// taken for the value.
-	{
+	credentialHeaderShape = secretShape{
 		pattern: regexp.MustCompile(`(?i)((?:proxy-)?authorization(?:\\?["'])?\s*[:=](?:\s|\\[nrt])*(?:\\?["'])?(?:(?:bearer|basic|token|digest)(?:\s|\\[nrt])+)?)(?:\[REDACTED\]|[^\s"',;\\\[\]]+)`),
 		keep:    "${1}" + redactedMarker,
-	},
+	}
 	// A bearer token wherever it appears without its header.
-	{
+	bearerShape = secretShape{
 		pattern: regexp.MustCompile(`(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{8,}`),
 		keep:    "${1}" + redactedMarker,
-	},
+	}
 	// A named credential field: an API key, any token, a secret, a password, a
 	// cookie or session key, or the account a ChatGPT login is bound to. The
 	// name may carry a prefix — x-api-key, OPENAI_API_KEY, refresh_token — and is
 	// kept; a value shorter than eight characters, such as null or a count, is
 	// not a credential and is left, and neither is an ordinary lowercase word
 	// such as the store in "credential: keychain" (ordinaryWord).
-	{
+	namedCredentialShape = secretShape{
 		pattern:  regexp.MustCompile(`(?i)((?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|secret|password|passwd|credentials?|session[_-]?key|cookie|account[_-]?id)(?:\\?["'])?\s*[:=](?:\s|\\[nrt])*(?:\\?["'])?)([^\s"',;&\\\[\]]{8,})`),
 		keep:     "${1}" + redactedMarker,
 		ordinary: ordinaryWord,
-	},
+	}
 	// Anthropic keys and tokens: API keys (sk-ant-api03-), OAuth access and
 	// refresh tokens (sk-ant-oat01-, sk-ant-ort01-), and session keys
 	// (sk-ant-sid01-). OpenAI keys: sk-, sk-proj-, sk-svcacct-.
-	{
+	providerKeyShape = secretShape{
 		pattern: regexp.MustCompile(shapeStart + `sk-[A-Za-z0-9_-]{20,}`),
 		keep:    "${1}" + redactedMarker,
-	},
+	}
 	// A JSON web token, which is what a ChatGPT login's access and id tokens
 	// are: three base64url parts, the first two of them JSON objects.
-	{
+	webTokenShape = secretShape{
 		pattern: regexp.MustCompile(shapeStart + `eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
 		keep:    "${1}" + redactedMarker,
-	},
+	}
 	// GitHub tokens, which a session's own tools can print.
-	{
+	gitHubTokenShape = secretShape{
 		pattern: regexp.MustCompile(shapeStart + `(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})`),
 		keep:    "${1}" + redactedMarker,
-	},
-}
+	}
+)
 
 // shapeStart is where a shape recognized by its prefix alone — a provider key,
 // a JSON web token, a GitHub token — may begin: the start of the text, a
