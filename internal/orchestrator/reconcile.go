@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -182,7 +183,13 @@ type Reconciler struct {
 	// MayStart is the decision on what may start under the named epics, asked
 	// before a repair round is put on a run and before a run is put back to bring
 	// its pull request up to date. See StartDecision.
-	MayStart      StartDecision
+	MayStart StartDecision
+	// UpdateNotDue takes away the refused update of a run by one path, kept by
+	// MayStart, where a check of the run finds no update due, cannot tell, or
+	// finds the run cannot be put back (maystart.UpdateNotDue). The list of
+	// unpublished pull requests reads that refusal as the update being due.
+	// Nil takes nothing away.
+	UpdateNotDue  func(path maystart.Path, workItemID, runID string)
 	ConfigFiles   ConfigComparisonFiles
 	ConfigReaders ConfigReaders
 	// Publisher answers what became of a merge the forge queued. It is required
@@ -1129,6 +1136,10 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		if strings.EqualFold(observed.State, "OPEN") {
 			requeued, decided, says, err := r.requeueUntouchedDrop(ctx, &state)
 			if decided {
+				// Queued again: no update is due.
+				if err == nil {
+					r.updateNotDue(maystart.UpdateQueued, state)
+				}
 				return requeued, err
 			}
 			dropSays = says
