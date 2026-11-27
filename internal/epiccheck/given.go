@@ -42,8 +42,10 @@ const (
 )
 
 // results gives the declared checks' results on commit. A merge queue candidate
-// that landed as that commit, or a scheduled check of the target branch on it,
-// that ran the same list of checks, each to an end, is given as it is. Otherwise the checks are run whole, reserved in the epic's
+// that landed as that commit, verified by the same check set, is given where every
+// check passed there; a scheduled check of the target branch on it that ran the
+// same list of checks, each to an end, is given as it is, failures included.
+// Otherwise the checks are run whole, reserved in the epic's
 // progress first; one the machine ended is run once more, and a restart between
 // the reservation and the result runs them again once, because nothing was kept.
 func (c Checker) results(ctx context.Context, naming epicprogress.Naming, id, commit string) (Results, error) {
@@ -57,7 +59,7 @@ func (c Checker) results(ctx context.Context, naming epicprogress.Naming, id, co
 		}
 		want := runstate.NewMergeQueueCheckConfiguration(c.Commands).Digest
 		for _, queued := range slices.Backward(landed) {
-			if queued.Commit == commit && queued.CheckSet == want && len(queued.Checks) == len(c.Commands) && !slices.ContainsFunc(queued.Checks, couldNotRun) {
+			if queued.Commit == commit && queued.CheckSet == want && len(queued.Checks) == len(c.Commands) && !slices.ContainsFunc(queued.Checks, notPassed) {
 				return Results{Commit: commit, From: fromQueue + ", checked at " + runstate.LocalStamp(queued.At), Checks: queued.Checks}, nil
 			}
 		}
@@ -123,6 +125,10 @@ func (c Checker) run(ctx context.Context, commit string) ([]runstate.MainCheckRe
 
 func couldNotRun(check runstate.MainCheckResult) bool {
 	return check.Outcome == runstate.MainCheckCouldNotRun
+}
+
+func notPassed(check runstate.MainCheckResult) bool {
+	return check.Outcome != runstate.MainCheckPassed
 }
 
 const system = `You check whether a finished epic did what its description asked.

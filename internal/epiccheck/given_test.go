@@ -189,16 +189,19 @@ func TestTheChecksOnTheCommitTheCheckReads(t *testing.T) {
 		})
 	}
 	// A merge queue candidate that landed as the commit, verified by the same check
-	// set, is given and nothing is run; one under another check set, on another
-	// commit, or with a check that could not run is not used.
+	// set with every check passing, is given and nothing is run; one under another
+	// check set, on another commit, with a check that failed, or with a check that
+	// could not run is not used.
 	digest := runstate.NewMergeQueueCheckConfiguration(commands).Digest
 	for name, test := range map[string]struct {
 		queued []Queued
 		order  string
 		gives  string
 	}{
-		"queued":                {[]Queued{{Commit: commit, CheckSet: digest, At: namedAt, Checks: failed}}, "judge", fromQueue + ", checked at "},
-		"queued, other set":     {[]Queued{{Commit: commit, CheckSet: runstate.NewMergeQueueCheckConfiguration([]string{"make test"}).Digest, At: namedAt, Checks: failed[:1]}}, "run " + commit + ", judge", fromRun},
+		"queued":                {[]Queued{{Commit: commit, CheckSet: digest, At: namedAt, Checks: passed}}, "judge", fromQueue + ", checked at "},
+		"queued, later passing": {[]Queued{{Commit: commit, CheckSet: digest, At: namedAt, Checks: failed}, {Commit: commit, CheckSet: digest, At: namedAt, Checks: passed}}, "judge", fromQueue + ", checked at "},
+		"queued, failing":       {[]Queued{{Commit: commit, CheckSet: digest, At: namedAt, Checks: failed}}, "run " + commit + ", judge", fromRun},
+		"queued, other set":     {[]Queued{{Commit: commit, CheckSet: runstate.NewMergeQueueCheckConfiguration([]string{"make check"}).Digest, At: namedAt, Checks: passed}}, "run " + commit + ", judge", fromRun},
 		"queued, other commit":  {[]Queued{{Commit: "another", CheckSet: digest, At: namedAt, Checks: passed}}, "run " + commit + ", judge", fromRun},
 		"queued, could not run": {[]Queued{{Commit: commit, CheckSet: digest, At: namedAt, Checks: cannot}}, "run " + commit + ", judge", fromRun},
 	} {
