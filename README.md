@@ -449,6 +449,10 @@ is dropped.
 - [What comes back to you](docs/reporting.md) — cost, reports, and Slack.
 - [Artifacts, goals, and invariants](docs/artifacts.md) — the documents work
   traces to.
+- [`skills/yoyo-operator-questions/SKILL.md`](skills/yoyo-operator-questions/SKILL.md)
+  — a prompt for your own assistant: ask it "anything waiting on me?" and it
+  gathers what waits on you, settles what you have allowed it to, and asks your
+  real decisions one at a time.
 - [Operations and recovery](docs/operations.md) — starting, stopping, pausing,
   provider limits, recovery, and `yoyo dashboard`.
 - [The configuration guide](docs/configuration.md) — the full reference.
