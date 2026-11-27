@@ -2224,9 +2224,22 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	retired, handled, err := (RunRetirer{Runs: p.Store, Tracker: p.Tracker, Now: p.clock().Now(), ReadItem: p.readWorkItem}).Retire(ctx, state)
 	if handled {
 		if retired.Retirement == nil {
+			// A closed item with no later merge to retire the run against.
+			if err != nil && item.Status == closedStatus {
+				err = ItemStatusRefusal{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: item.Status, Err: err}
+			}
 			return Outcome{}, err
 		}
 		return Outcome{Retirement: retired.Retirement, RunID: retired.RunID, WorkItemID: retired.WorkItemID, Status: retired.Status, Phase: retired.Phase, Branch: retired.Branch, WorktreePath: retired.WorktreePath, Summary: retirementReason(retired)}, err
+	}
+	// The run holds its item, so an item that reads open is claimed again rather
+	// than refused; any other status but in progress is refused below.
+	if item, err = p.reclaimHeldItem(ctx, state, item); err != nil {
+		return Outcome{}, err
+	}
+	if item.ID == state.WorkItemID && item.Status != "in_progress" {
+		return Outcome{}, ItemStatusRefusal{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: item.Status,
+			Err: errors.New("validate resumed work item: only an item in progress is one the harness continues a run on by itself")}
 	}
 	if err := validateClaimedItem(p.releaseTeamMerged(ctx, item, state.TargetBranch), state.WorkItemID); err != nil {
 		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
@@ -11409,6 +11422,51 @@ func validateReadyItem(item beads.WorkItem, requestedID string) error {
 
 func validateClaimedItem(item beads.WorkItem, requestedID string) error {
 	return validateWorkItem(item, requestedID, "in_progress")
+}
+
+// ItemStatusRefusal is a run that holds its item and was not continued because
+// of the status the item reads: closed with no later merge to retire the run
+// against, or blocked by somebody while the run waited. An item that reads open
+// is not refused; the run holding it claims it again (Pipeline.reclaimHeldItem).
+//
+// Nothing was attempted and nothing was charged — no repair attempt, no review
+// round, no re-run — and the status is a fact about the tracker rather than a
+// verdict on the change, so the hold on new work neither counts nor clears it
+// (Started.itemStatusRefused).
+type ItemStatusRefusal struct {
+	RunID      string
+	WorkItemID string
+	Status     string
+	Err        error
+}
+
+func (e ItemStatusRefusal) Error() string {
+	return fmt.Sprintf("run %s was not continued because its item %s reads %s: %v",
+		e.RunID, e.WorkItemID, nonEmpty(e.Status, "no recorded status"), e.Err)
+}
+
+func (e ItemStatusRefusal) Unwrap() error { return e.Err }
+
+// reclaimHeldItem claims again the item of a run being continued where the item
+// reads open. The caller holds the run's lease, which the store gives only to
+// the one run in flight for the item, so the item reading open says only that
+// its claim was released while the run waited — by a person, a script, or a
+// sweep — and not that the work is anybody else's. Every other status is
+// returned as it was read, for the validation after it to judge.
+func (p Pipeline) reclaimHeldItem(ctx context.Context, state runstate.State, item beads.WorkItem) (beads.WorkItem, error) {
+	if item.Status != "open" || item.ID != state.WorkItemID {
+		return item, nil
+	}
+	note := fmt.Sprintf("Run %s still holds this item, with its branch %s, its checkout and its developer session, but the item read open rather than in progress when the harness came to continue the run, so the harness claimed it again for that run. Nothing was charged for it: no repair attempt, no review round, and no re-run.",
+		state.RunID, nonEmpty(state.Branch, "(none recorded)"))
+	if _, err := p.Tracker.RecordOutcome(ctx, item.ID, note); err != nil {
+		return item, fmt.Errorf("record on %s that run %s claims it again: %w", item.ID, state.RunID, err)
+	}
+	claimed, _, err := p.Tracker.Claim(ctx, item.ID)
+	if err != nil {
+		return item, fmt.Errorf("claim %s again for run %s, which still holds it: %w", item.ID, state.RunID, err)
+	}
+	return claimed, nil
 }
 
 func validateWorkItem(item beads.WorkItem, requestedID string, expectedStatuses ...string) error {
