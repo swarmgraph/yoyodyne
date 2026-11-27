@@ -5993,6 +5993,32 @@ docket and every status surface are derived from the record rather than from
 the edit, and the sweep already writes the whole of it on the next
 `yoyo reconcile`.
 
+**A command that reads runs settles a run whose process is gone first, so a
+project with no watch is not left reading it as running.** The sweep above runs
+in every maintenance pass of a watching session, but a project run by hand has
+no watch, and nothing ran it until somebody typed `yoyo reconcile`. So `yoyo
+status`, and every other command that reads runs — `triage`, `cost`,
+`invocations`, `doctor`, `dashboard`, `chat`, `agent`, `slack`, `queue`,
+`gate`, `landing`, `epic`, `exchange`, `intervention`, `tracker`, `project`,
+`conformance`, `merge-check`, `forge-check`, `pull-request` and `model-trial` —
+looks first at every run in flight. Each one whose worker's process is shown to
+be gone — it exited, its process number now belongs to another process, or the
+program it ran was replaced — is settled through the sweep's own settlement of
+that run, under the run's lease, exactly as `yoyo reconcile` would settle it: a
+run parked on something is left or ended on the same terms as above, and a run
+that was working when its process died is ended with its branch and worktree
+kept, its item blocked for the development manager, and no repair attempt
+charged. `yoyo status` then opens with a line naming the run, what showed its
+process gone, and the time it was found in local time with its zone, and its
+listing reads the run as what it now is; `--json` carries the same under
+`process_gone`. Every other command says the same lines on standard error, so
+its own answer is unchanged. The commands that act on a run themselves — `yoyo
+run`, `resume`, `stop`, `work` and `start` — do not settle first, because
+settling would change what they were asked to do: `yoyo run` on an item whose
+run died continues that run. A run whose worker can be shown neither alive nor
+gone, or whose program is still running with nothing holding the run, is left
+to the sweep.
+
 **A stop asked for on a run with no process behind it is honoured by the sweep,
 at once.** A stop — yours, or one the development manager decided — is read by
 the run's own process at the run's next step, and a run whose process is gone
