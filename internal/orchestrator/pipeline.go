@@ -1498,7 +1498,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		if err != nil {
 			return Outcome{}, err
 		}
-		return p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
+		return p.resumeTakenUp(ctx, inFlight, item, publishing, skipped, waitedForEpic)
 	case errors.Is(err, runstate.ErrNoRunInFlight):
 	default:
 		var existing runstate.ExistingWorkItemError
@@ -2062,7 +2062,7 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 	if err != nil {
 		return Outcome{}, err
 	}
-	return p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
+	return p.resumeTakenUp(ctx, inFlight, item, publishing, skipped, waitedForEpic)
 }
 
 // recordDependencyContinued tells the item a run paused on work it waited on is
@@ -2095,10 +2095,11 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 		return p.recordTakenUpSlot(ctx, state), nil
 	}
 	// The checkout is asked before the slot is taken, not only by resumeRun
-	// after it. A run refused there once it held the slot would keep the slot
-	// with nobody working it, since nothing gives a slot back on a refusal;
-	// refused here, it stays parked holding none, and the next pull offers it
-	// again. A pipeline built with no worktree manager has no checkout to ask.
+	// after it. Refused here, it stays parked holding none, and the next pull
+	// offers it again. A refusal in resumeRun after the slot is taken gives the
+	// slot back only for a run waiting on the forge (giveBackCIWaitSlot); a run
+	// paused on its dependencies or its epic would keep it with nobody working
+	// it. A pipeline built with no worktree manager has no checkout to ask.
 	if p.Worktrees != nil {
 		if err := p.refuseUnreadyResume(ctx, state); err != nil {
 			return state, err

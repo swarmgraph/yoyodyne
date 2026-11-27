@@ -43,6 +43,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -560,6 +561,53 @@ func (a *activeRun) describeCIEvidence(ctx context.Context) string {
 		text.WriteString("- no required check result was recorded; " + end.Says + "\n")
 	}
 	return text.String()
+}
+
+// resumeTakenUp is resumeRun for a run its caller adopted and took a developer
+// slot back for (reclaimSlot), which gives the slot back where the resume is
+// refused before the run goes on (giveBackCIWaitSlot).
+func (p Pipeline) resumeTakenUp(ctx context.Context, state runstate.State, item beads.WorkItem, publishing bool, skipped string, waitedForEpic bool) (Outcome, error) {
+	outcome, err := p.resumeRun(ctx, state, item, publishing, skipped, waitedForEpic)
+	if err != nil && !outcome.continuationAccepted {
+		err = p.giveBackCIWaitSlot(state.RunID, err)
+	}
+	return outcome, err
+}
+
+// giveBackCIWaitSlot puts a run continued from its wait for the forge's checks
+// back to waiting, holding no developer slot, where resumeRun refused it after
+// reclaimSlot had taken the slot back and before anything else was written: an
+// item that does not read in progress, a provider whose settings could not be
+// checked, a context that could not be assembled. Taking the slot back saved
+// the run as holding one, worked by this process, so without this the run
+// stands as running at its checks with nothing behind it once the lease is let
+// go: no pull continues it, because its worker is alive, until the slot release
+// finds nothing holding the lease. Given back, it reads as waiting on a forge
+// that has already decided, the next pull continues it (after the pull's pacing
+// of a refused continuation), and its record says why it was not taken up.
+// refusal is returned as it came, with any failure to give the slot back added.
+func (p Pipeline) giveBackCIWaitSlot(runID string, refusal error) error {
+	state, err := p.Store.Load(runID)
+	if err != nil {
+		return errors.Join(refusal, fmt.Errorf("read run %s to give back the developer slot its refused continuation took: %w", runID, err))
+	}
+	if !pausedForCIWait(state) || !state.CIWait.SlotTaken {
+		return refusal
+	}
+	now := p.clock().Now()
+	wait := *state.CIWait
+	wait.SlotTaken = false
+	state.CIWait = &wait
+	state.ContinuationWait = &runstate.ContinuationWait{
+		Why: fmt.Sprintf("continuing run %s from its wait for %s was refused at %s after it had taken a developer slot back, so the slot was given back and the run waits to be continued again: %s",
+			runID, wait.Summary(), runstate.LocalStamp(now), oneline.Fold(refusal.Error(), 2048)),
+		Since: now.UTC(),
+	}
+	state.UpdatedAt = now
+	if err := p.Store.Save(state); err != nil {
+		return errors.Join(refusal, fmt.Errorf("give back the developer slot run %s took for its refused continuation: %w", runID, err))
+	}
+	return refusal
 }
 
 // parkAgain returns a run that was continued before the forge had decided to
