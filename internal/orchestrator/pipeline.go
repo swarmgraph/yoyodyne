@@ -893,6 +893,11 @@ type Outcome struct {
 	WorktreePath      string                              `json:"worktree_path,omitempty"`
 	BaseCommit        string                              `json:"base_commit,omitempty"`
 
+	// ApprovedWithNoChanges is runstate.State.ApprovedWithNoChanges: the
+	// approved change had no file differences from its base, so nothing was
+	// queued or promoted and the run ended complete (approvedunchanged.go).
+	ApprovedWithNoChanges bool `json:"approved_with_no_changes,omitempty"`
+
 	// SchedulingWaitClearFailure is the clearing of the scheduler's kept reason
 	// this run still owes; see runstate.State.SchedulingWaitClearFailure.
 	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
@@ -3425,6 +3430,12 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 	if err == nil {
 		a.observe(ctx, deliveryIntegrate, "integrated")
 		outcome, err := a.finish(ctx)
+		return outcome, false, err
+	}
+	// An approved change with nothing above its base has nothing to promote,
+	// and the run ends complete rather than failed (approvedunchanged.go).
+	if approvedUnchanged(err) {
+		outcome, err := a.completeUnchanged(ctx)
 		return outcome, false, err
 	}
 	retry, retryErr := a.prepareIntegrationRetry(ctx, err)
@@ -12514,6 +12525,9 @@ func renderOutcomeNotes(outcome Outcome) string {
 	}
 	if wait := outcome.TeamMerge; outcome.Integration != nil && wait != nil && wait.Waiting() {
 		headline += " " + teamMergeNotes(*wait)
+	}
+	if outcome.ApprovedWithNoChanges && outcome.Integration == nil {
+		headline = unchangedHeadline(outcome)
 	}
 	// A run raised for design integrated nothing either, and what it leaves is a
 	// question for the architect rather than a decision for anybody else.
