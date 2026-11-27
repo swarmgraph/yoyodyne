@@ -1918,6 +1918,10 @@ func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
 			// required checks once its quick checks pass, so its review runs
 			// beside them.
 			Publish: parts.worktrees,
+			// Before a candidate's cut-off checks are taken up again, the target
+			// is fetched, so a candidate whose base moved on GitHub is built
+			// again on it rather than checked again.
+			Fetch: parts.worktrees,
 			// A required check GitHub never started, skipped, or cancelled on a
 			// candidate is asked for again once before the full local checks
 			// run in its place.
