@@ -1111,7 +1111,8 @@ var notAStep = map[string]string{
 	// every developer turn, check stage and landing rather than once: a
 	// definition that could skip it could hand a turn or a check a checkout whose
 	// dependencies are not what the change asks for.
-	"installWhereDue": "runs the project's declared install steps again in a checkout where their inputs changed or an output is missing",
+	"checkEnvironmentsBeforeTurn": "runs the check of each environment the work item names before the developer's turn, and holds the run where none is usable",
+	"installWhereDue":             "runs the project's declared install steps again in a checkout where their inputs changed or an output is missing",
 	// What a fresh worktree starts from is part of cutting it, and it is decided
 	// by the run's recorded selection rather than by anything a definition could
 	// order: a re-run of a raise starts from the raising run's preserved change,

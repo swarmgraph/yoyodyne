@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -174,6 +175,9 @@ func TestARunWithSomeNamedEnvironmentsUsableGoesOnAndRecordsTheRest(t *testing.T
 // developer may write, and never what an install step is given.
 func TestADeveloperEnvironmentsCheckRunsUnderTheDevelopersRestrictions(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS != "darwin" {
+		t.Skip("the developer session's restrictions are reproduced only on macOS")
+	}
 
 	tracker := environmentItem("environments-3", "Environments: web ui (criterion 1)")
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
