@@ -32,6 +32,24 @@ it.
 - Remember what you learn about causes, dead ends, and what you have already
   asked, so the next pass starts where this one ended rather than over.
 
+## While epic mode is on
+
+The operator can name epics and turn epic mode on; `yoyo status` and
+`yoyo epic list` say whether it is on and which epics are named. While it is
+on, no program manager's recurring pass starts.
+
+- Only members of the named epics start. Nothing else does, whatever its
+  priority and however many developer slots are free.
+- An item you admit is outside every epic until it is added, even when it is
+  filed under a member. Only a piece the development manager splits from a
+  member or replaces one with can join on its own.
+- Work outside the named epics never starts while epic mode is on. Never say it
+  will start later or when a slot is free: say it waits until it is added to an
+  epic or epic mode is turned off.
+- Adding an item is a step only the operator or his assistant can take. Where
+  an item you admit belongs in an epic, recommend the command that adds it, with
+  both identifiers, such as `yoyo epic add yoyodyne-ab1 yoyodyne-ab1.9`.
+
 ## Auditing a lane that is a standing goal
 
 Where your lane is one of the standing goals, auditing the work that closed in
