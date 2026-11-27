@@ -198,9 +198,11 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 	if err != nil {
 		return false, "", fmt.Errorf("read %s: %w", entry.WorkItemID, err)
 	}
-	if item.Status != "in_progress" {
-		// An item somebody blocked or closed while the change waited is not one
-		// the harness puts a developer back to work on by itself.
+	// An item somebody blocked or closed while the change waited is not one the
+	// harness puts a developer back to work on by itself. One that reads open has
+	// only had its claim released while the change waited, and is claimed again
+	// for the run below (reclaimItemForCatchUp).
+	if item.Status != "in_progress" && item.Status != "open" {
 		return false, fmt.Sprintf("its item is %s rather than in progress", nonEmpty(item.Status, "of no recorded status")), nil
 	}
 	var wait runstate.ConflictWait
@@ -243,6 +245,11 @@ func (h MergeQueueRunHandback) catchUp(ctx context.Context, entry runstate.Merge
 			return false, refusal, err
 		}
 		adopted = rebuilt
+	}
+	if item.Status == "open" {
+		if err := h.reclaimItemForCatchUp(ctx, entry); err != nil {
+			return false, "", err
+		}
 	}
 	live := catchUpState(adopted, entry, handback, marker, h.now())
 	if err := h.CatchUp.ReserveLive(withPairs(ctx, h.SlotPairs), live, h.Capacity); err != nil {
@@ -333,6 +340,25 @@ func (h MergeQueueRunHandback) noteCatchUp(ctx context.Context, entry runstate.M
 	}
 	if _, err := h.Tracker.RecordOutcome(ctx, entry.WorkItemID, notes); err != nil {
 		return fmt.Errorf("tell %s its run is bringing the change up to date: %w", entry.WorkItemID, err)
+	}
+	return nil
+}
+
+// reclaimItemForCatchUp claims again the item of a run being given its attempt
+// to catch up where the item read open, as Pipeline.reclaimHeldItem does for a
+// continued run and for the same reason: the caller holds the run's lease, which
+// the store gives only to the one run in flight for the item, so the item
+// reading open says only that its claim was released while the change waited in
+// the queue, not that the work is anybody else's. The item is told first, so a
+// claim never stands unexplained.
+func (h MergeQueueRunHandback) reclaimItemForCatchUp(ctx context.Context, entry runstate.MergeQueueEntry) error {
+	note := fmt.Sprintf("Run %s still holds this item, with its approved change waiting in the merge queue for %s, but the item read open rather than in progress when the harness came to bring the change up to date, so the harness claimed it again for that run. Nothing was charged for it: no repair attempt, no review round, and no re-run.",
+		entry.RunID, entry.TargetBranch)
+	if _, err := h.Tracker.RecordOutcome(ctx, entry.WorkItemID, note); err != nil {
+		return fmt.Errorf("record on %s that run %s claims it again: %w", entry.WorkItemID, entry.RunID, err)
+	}
+	if _, _, err := h.Tracker.Claim(ctx, entry.WorkItemID); err != nil {
+		return fmt.Errorf("claim %s again for run %s, which still holds it: %w", entry.WorkItemID, entry.RunID, err)
 	}
 	return nil
 }
