@@ -7682,6 +7682,22 @@ held-back lists. Each reason names what is in its way by what it is, with its
 identifier after it, and says when the item was first passed over and since when
 the current reason has stood.
 
+Two more reasons are kept for an item the pass took lower work ahead of. An
+item this session already tried — its run ended without finishing it, or a
+check before the run refused the start — keeps what became of that attempt,
+and says it is not started again until the item changes or the session
+restarts; one whose start a check outside the work refused says instead that it
+is tried again once a poll interval has passed. An item outside the epics the operator named keeps the refusal, with
+the command that lets it start, wherever the pass then started work lower in
+the order; one the pass passed over without starting anything lower keeps
+nothing, so a queue mostly outside an epic is not written over at every pass.
+Both are cleared by the first pass that finds the cause gone, whether or not a
+slot reaches the item: a new session holds none of the last one's attempts, and
+an item added to a named epic, or with epic mode turned off, is refused no
+longer. An item the Lead Product Manager placed first says its kept reason on
+the same line as its placement, so the reason is shown whether or not a
+developer slot stands empty.
+
 An item the tracker does not offer as ready at all keeps a reason too, where
 all that holds it is other work: an unfinished item it depends on, its
 parent's change that has not landed, or a parent it was broken out of that
