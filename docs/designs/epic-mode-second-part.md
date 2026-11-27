@@ -35,6 +35,10 @@ revisions:
       by: architect
       at: 2026-11-26T17:19:49.569983Z
       reason: 'yoyodyne-9k1y.22: rules how a member counts as landed: a change recorded for it and contained in the target branch, however it was merged, and a closed parent whose children are all done, children never becoming members. Also rules a check of the whole epic that owes both an operator step and the Lead Product Manager''s question (report-168c3c902cb061995371714dbf92a03f). The rest is copied unchanged from main d9568699c97a, read whole.'
+    - action: amended
+      by: architect
+      at: 2026-11-27T16:41:10.115665Z
+      reason: 'yoyodyne-9k1y.23: rules that an open item outside the epic that holds up a member, as its child or by a dependency, is judged each scheduler pass and joins if judged inside, counting toward the twelve; otherwise one question about scope goes to the Lead Product Manager naming the member, the item and the add command, shown on status and sent once to the operator. Replaces the earlier ruling that such an item never joins. The subsection on edited pieces is copied unchanged from main e0cc684e66f9, read whole.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -71,6 +75,11 @@ approvals:
       by: harness
       at: 2026-11-26T17:19:49.569983Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4145, for document-4145.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-11-27T16:41:10.115665Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4235, for document-4235.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -212,9 +221,31 @@ A new piece joins an open epic without asking the operator only when all of thes
 
 Twelve is a limit in code, and no command or setting raises it. The operator may still put any further item in with `yoyo epic add`. That is the operator's own act, so it does not count toward the twelve.
 
-Anything else stays outside: an item attached under the epic, made a prerequisite of a member, moved under it, or made by any other act. Where the reviewer answers that a piece is outside, or cannot tell, or twelve have joined, it does not join, starts nothing, and is a question about scope.
+An existing item that holds up a member may also join, by the rule in the next subsection, and in no other way. Anything else stays outside: an item attached under the epic, moved under it, or made by any other act. A link alone makes nothing join. Where the reviewer answers that a piece is outside, or cannot tell, or twelve have joined, it does not join, starts nothing, and is a question about scope.
 
 The judgment is a paid call. It is reserved before it is made, and looked up before it is sent again. This piece builds the judgment, its limit, and the split that uses it. Pieces 10 and 11 use it for the other two acts.
+
+### An item that holds up a member
+
+Ruled on November 27, 2026, for yoyodyne-9k1y.23. On November 25 and 26 the factory stood idle four times, once for about 16 hours with both developer slots empty, because an open item a member waited on was outside the epic and the only way in was the operator's add while he was away. This changes the earlier ruling that such an item never joins on its own: it may now join, by a judgment, and the operator still decides any item that judgment does not let in. Building it is that item's work.
+
+1. **What holds up a member.** An open item that is not in the epic holds up a member where it is a child of that member, or where the member waits on it by a dependency in the tracker. A piece that joined counts as a member here, so an item that holds up a joined piece holds up the epic the same way. A closed item holds nothing up.
+2. **When the harness looks.** On every scheduler pass while epic mode is on, the harness follows these links from every open member of every open epic, and on through any item that joined by this rule, so a chain of such items is found in one pass. The scheduler does this reading beside the one decision, which is not changed and reads no tracker.
+3. **Already in an epic.** An item already in this epic is not judged and files nothing. An item in another open epic does not join this one, because an item is in at most one open epic; status names the wait on that other epic. An item the operator took out of this epic does not join again, and goes to point 6.
+4. **The judgment.** Every other such item is judged once for one naming, by a reviewer session as in rule 3 above that did not write the item. It is given the copied description, the removed items with the operator's words, the member that is held up, the link, and the item's title, description and acceptance criteria. It answers inside only where finishing the member as the description asks needs the item's work, and the item asks for nothing the operator took out and nothing the description does not need. The call is reserved before it is made and looked up before it is sent again, as any judgment is.
+5. **Judged inside.** Where fewer than twelve pieces have joined that naming, the item joins. The progress entry records it with the member it holds up, the link, the judgment and its session, and the digest of the text judged. It counts toward the twelve, and from then on is treated as any joined piece, including the rule below for a piece edited after it joined. A link removed later leaves it joined. A parked item that joins stays parked until the Lead Product Manager releases it, and status names that step as hers.
+6. **Not let in.** Where the session answers outside or cannot tell, where twelve have joined, or where the operator took the item out, the item does not join and starts nothing. In the same pass the harness files a question about scope, as a report addressed to the Lead Product Manager, naming the epic, the member that is held up, the item that holds it up, the link, why it did not join, and the exact `yoyo epic add` command that would add it, which the harness builds from the epic's and the item's identifiers. The question's identifier is written into the progress entry before it is filed, and one item filed for one naming files one question. The same words appear on `yoyo status`, and the operator is sent them once in a direct message, as information. Her answer is her recorded handling of the report, as for any question about scope. Because the member cannot finish without the item, she has the work rewritten so the member no longer needs it, or asks the operator whether to add it, for the reason of lifting a hold he placed, with that command.
+7. **A restart.** Nothing here is held only in memory. Which items hold up which members is read again from the tracker on every pass, a join is written into the progress record under its locks, and a question is filed only after its identifier is in the progress entry. A restart therefore judges nothing twice and files nothing twice.
+
+What this keeps: nothing outside the named epics starts without the operator's act, except an item that a judging session found the epic needs, which this rule makes part of the epic. A link any role writes starts nothing on its own, because the item is still judged against the description and the operator's removals, and counts toward the twelve.
+
+Where piece 8 says a child or an item a member waits on outside the members is named as the wait and the operator may add it, that holds for an item this rule has not let in. While its judgment is owed, status names it as waiting for that judgment; once it is not let in, status names it as waiting on the Lead Product Manager's answer.
+
+The code that follows tracker links for status and the code that writes joined pieces were not read for this ruling. A builder who finds either differing from it stops and asks the architect.
+
+Rejected: never letting such an item join and only telling people, because the operator must then be found for every link, and both slots stood idle about 16 hours on November 26 for a step a judgment can take; letting it join on the link alone, because any role that can write a dependency could then widen what the operator named with nobody judging it; letting it join without counting toward the twelve, because the limit would then no longer bound what joins by a role's act.
+
+A reviewer can check: a child of a member that is outside the epic is judged in the next pass, and judged inside it joins, counts toward the twelve and may start; an item a member waits on is the same; an item already in this epic is not judged and files nothing; one in another open epic does not join and is named as that wait; one judged outside, or the thirteenth, starts nothing and files one question naming the member, the item and the add command, shown on status and sent once to the operator; a link removed after a join leaves the item joined; a restart between the reservation and the answer makes no second call, and a restart after filing files nothing again; with no epic named, nothing here runs.
 
 ### A piece edited after it joined
 
