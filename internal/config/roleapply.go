@@ -63,6 +63,7 @@ var roleApplicableKeys = []string{
 // for the keys whose refusal is worth explaining beyond the general one.
 var operatorKeyReasons = map[string]string{
 	"install":            "an install step is a command the harness runs with network access, and what it fetches and runs decides what reaches this machine",
+	"environments":       "an environment's check and test are commands the harness runs on this machine, and what they run decides what this machine does",
 	"mcp":                "an MCP server is a program the harness runs, or an address it reaches, on a role's behalf, and which tools of it may be called decides what can leave this machine",
 	"intake":             "a scheduled query decides which tool the harness calls with nobody watching, whose messages can start work, and who is asked about them",
 	"review_threads":     "the review_threads section decides which channel the harness posts to and whose replies it tells, through an MCP tool that acts outside the harness",

@@ -892,6 +892,10 @@ func (r *resolution) apply(applied layer) error {
 		r.config.Install = append([]InstallStep(nil), (*document.Install)...)
 		r.origins["install"] = applied.origin
 	}
+	if document.Environments != nil {
+		r.config.Environments = append([]Environment(nil), (*document.Environments)...)
+		r.origins["environments"] = applied.origin
+	}
 	if document.FailingTests != nil {
 		r.config.FailingTests = append([]checks.TestReading(nil), (*document.FailingTests)...)
 		r.origins["failing_tests"] = applied.origin
