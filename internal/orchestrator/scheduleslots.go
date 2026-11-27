@@ -135,7 +135,7 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		poll.pass(entry.ID, unreadyClass(entry), entry.Executor.Role())
 		return passedOver, nil
 	}
-	if s.cooling(reading.tried, read.items[entry.ID]) {
+	if s.cooling(reading.tried, read.items[entry.ID], pull.Poll) {
 		if recorded := reading.tried[entry.ID]; !recorded.until.IsZero() {
 			poll.passWindow(entry.ID, recorded.reason)
 		} else {

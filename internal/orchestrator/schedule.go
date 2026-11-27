@@ -2193,7 +2193,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		if started.Declined != "" || byTheMachine {
 			// No work was attempted. Keep only the backoff, with no item fingerprint
 			// and no docket entry, so the next poll can retry the same work.
-			excluded = attempt{title: excluded.title, reason: excluded.reason, retryAtPoll: true}
+			reason := excluded.reason
+			if byTheMachine {
+				reason = refusedOutsideTheWork(*started)
+			}
+			excluded = attempt{title: excluded.title, reason: reason, retryAtPoll: true, refusedAt: s.now()}
 		} else if unstartedAttempt(*started) && started.providerAway() {
 			schedule.ProviderAway++
 			delete(tried, started.WorkItemID)
@@ -4780,13 +4784,20 @@ type readRetries struct {
 // the operator's hold stopped before it claimed anything — where starting again
 // produces the same non-result immediately and with no wait in between. Narrowed
 // to failed starts, that case spins.
-func (s Scheduler) cooling(tried map[string]attempt, item beads.WorkItem) bool {
+//
+// A start refused by something outside the work is the exception: it is held
+// for one poll interval, poll, and then tried again whatever the item says.
+func (s Scheduler) cooling(tried map[string]attempt, item beads.WorkItem, poll time.Duration) bool {
 	recorded, attempted := tried[item.ID]
 	if !attempted {
 		return false
 	}
 	if recorded.retryAtPoll {
-		return true
+		// The hold lasts one poll interval from the refusal, counted on the clock.
+		// A poll that passes with nothing finishing also lifts it (forget), but a
+		// session whose slots keep finishing runs sooner than that never sees such
+		// a poll, so the clock is what makes the hold end in a busy session.
+		return poll <= 0 || recorded.refusedAt.IsZero() || s.now().Before(recorded.refusedAt.Add(poll))
 	}
 	if !recorded.until.IsZero() {
 		return s.now().Before(recorded.until)
@@ -4803,8 +4814,11 @@ func (s Scheduler) cooling(tried map[string]attempt, item beads.WorkItem) bool {
 // this session is one no later pull dispatches, so by the time anybody asks why,
 // the only thing that still holds the answer is this.
 type attempt struct {
-	// retryAtPoll is a backoff for a start that attempted no work.
+	// retryAtPoll is a backoff for a start that attempted no work, and refusedAt
+	// is when that start was refused, from which the backoff ends one poll
+	// interval later (cooling).
 	retryAtPoll bool
+	refusedAt   time.Time
 	fingerprint string
 	title       string
 	reason      string
@@ -4965,6 +4979,30 @@ func excludedBecause(started Started) string {
 	}
 }
 
+// refusedOutsideTheWork is what an item says while it waits out a start that a
+// check outside the work refused before any run was recorded: the settings check
+// that did not answer, a machine refusing every start. It says first that
+// nothing is held against the item, because that is what tells it apart from a
+// start that failed on the item itself, which is held until the item changes.
+func refusedOutsideTheWork(started Started) string {
+	return "a check outside the work refused the start before any run was recorded, so nothing is held against the item and it is tried again once a poll interval has passed: " + started.Failure
+}
+
+// failedOnTheItem is the opening of what an item says while it is held for a
+// start that failed before any run was recorded on something nothing marked as
+// outside the work, which the session therefore holds against the item. It says
+// how long the hold lasts, because that is what tells it apart from a start a
+// check outside the work refused (refusedOutsideTheWork). It is kept short
+// because the reason is cut to runstate.MaxPassedOverReasonBytes and the failure
+// that follows it is what a reader most needs to see.
+func failedOnTheItem(watching bool) string {
+	const tried = "this session tried it and the dispatch failed before any run was recorded"
+	if watching {
+		return tried + "; held until the item changes"
+	}
+	return tried + "; not tried again in this pass"
+}
+
 // recordAttempt dockets one dispatch that never became a run, and reports what
 // the exclusion behind it now says and what stopped the record where something
 // did.
@@ -4981,8 +5019,9 @@ func excludedBecause(started Started) string {
 // lost to the cut it is the tail of something a reader can find, never the fact
 // of whether they can.
 func recordAttempt(docket ScheduleTriage, started Started, excluded attempt, watching bool) (string, string) {
+	tried := failedOnTheItem(watching)
 	if docket == nil {
-		return "this session tried it and the dispatch failed before any run was recorded; nothing was wired to record that durably, so this is the only account of it: " + started.Failure,
+		return tried + "; nothing was wired to record that durably, so this is the only account of it: " + started.Failure,
 			fmt.Sprintf("the dispatch of %s failed before any run was recorded and nothing was wired to docket it, so nothing outside this session's log says it happened: %s",
 				started.WorkItemID, started.Failure)
 	}
@@ -4998,10 +5037,10 @@ func recordAttempt(docket ScheduleTriage, started Started, excluded attempt, wat
 		// putting in front of a person.
 		ExcludedForTheSession: watching,
 	}); err != nil {
-		return "this session tried it and the dispatch failed before any run was recorded; it could not be recorded on the docket, so this is the only account of it: " + started.Failure,
+		return tried + "; it could not be recorded on the docket, so this is the only account of it: " + started.Failure,
 			fmt.Sprintf("record that the dispatch of %s never became a run: %v", started.WorkItemID, err)
 	}
-	return "this session tried it and the dispatch failed before any run was recorded; it is on the development manager's docket as an attempt that never became a run: " + started.Failure, ""
+	return tried + "; it is on the development manager's docket: " + started.Failure, ""
 }
 
 // fingerprint is what "something about the item changed" means: every part of
