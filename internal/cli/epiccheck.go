@@ -266,6 +266,8 @@ func (e epicChecks) given(ctx context.Context, epic epicscope.Epic) (epiccheck.G
 			given.Commits = append(given.Commits, member.Change)
 		}
 	}
+	// The heads handed over now, before a check under way puts back the ones it read.
+	given.Again = given.HandedOver && entry.Repaired(epic, given.Commits)
 	id, underway := entry.CheckUnderway()
 	if underway {
 		if commits := entry.CheckCommits(id); len(commits) > 0 {

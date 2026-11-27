@@ -495,3 +495,36 @@ func TestNoMorePiecesJoinThanTheLimit(t *testing.T) {
 	wantError(t, store.Join(epicA, joins(piece)), "12 pieces have joined")
 	must(t, store.Join(epicB, joins(piece)))
 }
+
+// A check that passed is owed again once a head handed over moves past it, and
+// that check is not a round of correction, whatever it finds. A member added or a
+// piece joined since is a new opening of the epic rather than a repair.
+func TestACheckMadeAgainAfterARepairIsNotARoundOfCorrection(t *testing.T) {
+	t.Parallel()
+	named := time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
+	epic := epicscope.Epic{WorkItemID: "yoyodyne-ep", Members: []epicscope.Member{{WorkItemID: "yoyodyne-ep.1", AddedAt: named}}}
+	passed := Check{ID: "check-1", Commit: "head-1 head-9", Found: FoundAllMet, At: named.Add(time.Hour)}
+	entry := Entry{Checks: []Check{passed}}
+	for heads, want := range map[string]bool{"head-1": false, "head-1 head-9": false, "head-2": true, "": false} {
+		if got := entry.Repaired(epic, strings.Fields(heads)); got != want {
+			t.Errorf("heads %q: repaired is %t, want %t", heads, got, want)
+		}
+	}
+	added := epic
+	added.Members = append(added.Members, epicscope.Member{WorkItemID: "yoyodyne-ep.2", AddedAt: named.Add(2 * time.Hour)})
+	joined := Entry{Checks: entry.Checks, Joined: []Joined{{WorkItemID: "yoyodyne-piece", At: named.Add(2 * time.Hour)}}}
+	if added := entry.Repaired(added, []string{"head-2"}); added || joined.Repaired(epic, []string{"head-2"}) {
+		t.Error("a check owed after the epic opened to more work is taken for one owed after a repair")
+	}
+	entry.Checks = append(entry.Checks, Check{ID: "check-2", Commit: "head-2", Found: FoundNotMet, At: named.Add(3 * time.Hour), Again: true})
+	if rounds := entry.Rounds(epic); rounds != 0 {
+		t.Errorf("%d rounds of correction, want none", rounds)
+	}
+	if entry.Repaired(epic, []string{"head-3"}) {
+		t.Error("a check that did not pass is taken for one that delivered the epic")
+	}
+	entry.Checks[1].Again = false
+	if rounds := entry.Rounds(epic); rounds != 1 {
+		t.Errorf("%d rounds of correction, want one", rounds)
+	}
+}

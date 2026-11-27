@@ -402,6 +402,9 @@ out too.
   feedback waits for the next check. Where the repair budget is already spent,
   the run stops in the ordinary way with the feedback kept, and the development
   manager decides what happens next.
+  While the item is in an epic you named, the change request is first judged
+  against the epic, and only one judged inside it is repaired; see
+  [a change request on a member's pull request](../operations.md#a-change-request-on-a-members-pull-request).
 - **An ordinary comment on the pull request** goes on the development
   manager's list as a report addressed to her, because a comment is as often a
   question as a request. No repair round starts for it.

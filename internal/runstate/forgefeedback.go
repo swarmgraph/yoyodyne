@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -474,12 +475,17 @@ func (s State) waitingFor(number int, what string) error {
 }
 
 // FeedbackRead records feedback a check acted on without starting a repair
-// round — ordinary comments put on the development manager's list, and
-// approvals kept as information — by moving the publication's cursor past it.
+// round — ordinary comments put on the development manager's list, approvals
+// kept as information, and change requests a named epic's judgment made
+// questions about scope — by moving the publication's cursor past it.
 type FeedbackRead struct {
 	Number int
 	Read   []ForgeFeedbackItem
 	At     time.Time
+	// Asked is each change request, by identifier, that the judgment against the
+	// named epic its item is in answered with a question about scope to the Lead
+	// Product Manager rather than a repair, which a read does answer.
+	Asked []string
 }
 
 func (u FeedbackRead) apply(state *State) (bool, error) {
@@ -487,7 +493,7 @@ func (u FeedbackRead) apply(state *State) (bool, error) {
 		return false, err
 	}
 	for _, item := range u.Read {
-		if item.Kind.StartsRepair() {
+		if item.Kind.StartsRepair() && !slices.Contains(u.Asked, item.ID) {
 			return false, fmt.Errorf("feedback %s asks for a repair, which a read alone does not answer", item.ID)
 		}
 	}

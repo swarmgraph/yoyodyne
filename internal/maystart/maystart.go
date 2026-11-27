@@ -100,6 +100,7 @@ const (
 	teamBranchUpdate
 	joiningJudgment
 	wholeEpicCheck
+	commentJudgment
 	operatorConversation
 	roleQuestion
 )
@@ -174,6 +175,14 @@ func JudgmentOfAPiece(naming epicprogress.Naming) Start {
 // names one whose progress cannot be read.
 func CheckOfTheEpic(naming epicprogress.Naming) Start {
 	return Start{path: WholeEpicCheck, what: wholeEpicCheck, naming: naming}
+}
+
+// JudgmentOfAComment is judging whether a change request on a member's pull
+// request asks only for what one naming of an epic already asks, before the
+// repair that would answer it starts. Nothing is kept of a refusal: the comment
+// starts no repair, and is read again by the next check of the pull request.
+func JudgmentOfAComment(naming epicprogress.Naming) Start {
+	return Start{path: CommentJudgment, what: commentJudgment, naming: naming}
 }
 
 // OperatorConversation is the operator's own conversation with a role. It is on
@@ -281,7 +290,7 @@ func decide(view epicprogress.View, start Start) Decision {
 			return Decision{Answer: May}
 		}
 		return noEpic(view)
-	case joiningJudgment, wholeEpicCheck:
+	case joiningJudgment, wholeEpicCheck, commentJudgment:
 		return decideJudgment(view, start.naming)
 	default:
 		return couldNotTell("nothing says what is about to start")
@@ -316,6 +325,8 @@ func (s Start) problem() string {
 		fits = starts == startsJoiningJudgment
 	case wholeEpicCheck:
 		fits = starts == startsWholeEpicCheck
+	case commentJudgment:
+		fits = starts == startsCommentJudgment
 	}
 	if !fits {
 		return fmt.Sprintf("what is about to start is not something %q starts", s.path)
@@ -329,13 +340,17 @@ func (s Start) problem() string {
 	if s.what == wholeEpicCheck && (!beads.ValidIssueID(s.naming.WorkItemID) || s.naming.NamedAt.IsZero()) {
 		return "nothing says which naming of an epic is to be checked"
 	}
+	if s.what == commentJudgment && (!beads.ValidIssueID(s.naming.WorkItemID) || s.naming.NamedAt.IsZero()) {
+		return "nothing says which naming of an epic the review comment is judged against"
+	}
 	if s.what == workItemRun && !beads.ValidIssueID(s.items[0]) {
 		return fmt.Sprintf("the run is for %q, which is not a work item identifier", s.items[0])
 	}
 	return ""
 }
 
-// decideJudgment lets a piece be judged, or an epic be checked whole, only for a
+// decideJudgment lets a piece or a review comment be judged, or an epic be
+// checked whole, only for a
 // naming that has not ended and whose progress can be read.
 func decideJudgment(view epicprogress.View, naming epicprogress.Naming) Decision {
 	for _, epic := range view.Record.OpenEpics() {

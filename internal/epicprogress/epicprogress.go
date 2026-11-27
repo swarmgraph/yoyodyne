@@ -319,11 +319,49 @@ func (e Entry) Reservation(id string) (Reservation, bool) {
 	return Reservation{}, false
 }
 
-// Comment is a review comment acted on, by the forge's identifier.
+// Comment is a review comment acted on, by the forge's identifier. A change
+// request on a member's open pull request is written here when it is first read,
+// with the identifier its judgment is reserved under, before that judgment is
+// made; so the same comment read twice, or again after a restart, is judged once.
 type Comment struct {
 	ID     string    `json:"id"`
 	Became string    `json:"became"`
 	At     time.Time `json:"at"`
+	// Member is the item whose pull request, PullRequest, the comment is on.
+	Member      string `json:"member,omitempty"`
+	PullRequest int    `json:"pull_request,omitempty"`
+	// Judgment is the reservation of the judgment, and Outcome its answer once
+	// known. Question is the report that puts an answer of outside or cannot tell
+	// to the Lead Product Manager, written before it is filed.
+	Judgment string   `json:"judgment,omitempty"`
+	Outcome  *Outcome `json:"outcome,omitempty"`
+	Question string   `json:"question,omitempty"`
+}
+
+// Comment is the review comment kept under the forge's identifier, where one is.
+func (e Entry) Comment(id string) (Comment, bool) {
+	if at := slices.IndexFunc(e.Comments, func(c Comment) bool { return c.ID == id }); at >= 0 {
+		return e.Comments[at], true
+	}
+	return Comment{}, false
+}
+
+// Repaired reports a check of the whole epic that is owed again, not being a
+// round of correction: the latest check passed, a change still handed over for a
+// person to merge has an approved head it did not read, because a change request
+// on its pull request was repaired since, and nothing joined or was added after
+// it. heads is every approved head handed over now.
+func (e Entry) Repaired(epic epicscope.Epic, heads []string) bool {
+	if len(e.Checks) == 0 {
+		return false
+	}
+	last := e.Checks[len(e.Checks)-1]
+	read := strings.Fields(last.Commit)
+	if !last.Passed() || !slices.ContainsFunc(heads, func(head string) bool { return head != "" && !slices.Contains(read, head) }) {
+		return false
+	}
+	return !slices.ContainsFunc(e.Joined, func(j Joined) bool { return j.At.After(last.At) }) &&
+		!slices.ContainsFunc(epic.Members, func(m epicscope.Member) bool { return m.AddedAt.After(last.At) })
 }
 
 // What a check of the whole epic found. A check that found anything else did not
@@ -355,6 +393,9 @@ type Check struct {
 	// Asked is the question about the missing evidence the harness put to the Lead
 	// Product Manager for a check that could not tell, where it has.
 	Asked *Asked `json:"asked,omitempty"`
+	// Again is a check made again on the new approved heads after a change handed
+	// over was repaired (Entry.Repaired). It is not a round of correction.
+	Again bool `json:"again,omitempty"`
 }
 
 // Asked is the one report the harness files the Lead Product Manager for a check
@@ -473,11 +514,12 @@ func (e Entry) Superseded(epic epicscope.Epic, check Check) bool {
 }
 
 // Rounds is how many checks of the naming found something missing, each a round
-// of correction.
+// of correction. A check made again after a repair of a change handed over is not
+// one.
 func (e Entry) Rounds(epic epicscope.Epic) int {
 	rounds := 0
 	for _, check := range e.Checks {
-		if check.Found == FoundNotMet && !e.Superseded(epic, check) {
+		if check.Found == FoundNotMet && !check.Again && !e.Superseded(epic, check) {
 			rounds++
 		}
 	}
@@ -640,7 +682,8 @@ func (e Entry) validate() error {
 			!slices.ContainsFunc(p.Seen, func(seen Seen) bool { return seen.Digest == "" || seen.At.IsZero() }))
 	}
 	for _, c := range e.Comments {
-		part("comment", c.ID, c.Became != "" && !c.At.IsZero())
+		part("comment", c.ID, c.Became != "" && !c.At.IsZero() && (c.Outcome == nil || c.Outcome.valid() && c.Judgment != "") &&
+			(c.Question == "" || c.Outcome != nil && c.Outcome.Answer.Asks()))
 	}
 	for _, c := range e.Checks {
 		part("check", c.ID, c.Commit != "" && c.Found != "" && !c.At.IsZero() &&

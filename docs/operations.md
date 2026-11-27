@@ -1995,6 +1995,36 @@ development manager decides. Its cost is in the cost log
 under its own `review-` identifier. Once a piece is recorded, a build older than this
 refuses the file and starts nothing while epic mode is on.
 
+### A change request on a member's pull request
+
+Where a member's change waits on a pull request for a person to merge, a review that
+requests changes, or a comment on a line of the change, is judged against the epic
+before any repair answers it. The harness first writes the comment's forge identifier
+into the epic's entry in `epic-progress.json`, and then reserves the judgment. A session
+in the reviewer's role that wrote neither the change nor the comment is given the
+epic's description as it read when you named it, the items you took out with your
+words, the member, and the comment. Where it answers that the comment asks only for
+what the description already asks, the existing repair answers it on the same pull
+request, once. Where it answers that the comment asks for more, or cannot tell, no
+repair starts, and it is one question about scope for the Lead Product Manager, a
+report naming the comment, the member and the judgment. Its identifier is written into
+the comment's entry before the report is filed. Because a person asked for it in
+review, she may ask you whether to add it as a new item, with `yoyo epic add`.
+
+The same comment read twice, or read again after a restart, is judged once: the
+judgment written down with it is looked up rather than sent again, and one whose result
+nothing shows is not sent again, and status names it as the development manager's to
+decide. A judgment that cannot be made now, because the pause stands or the naming has
+ended, leaves everything that was said on the pull request for the next check. An
+ordinary comment still goes on the development manager's list unjudged, and a pull
+request the harness merges itself, such as a merge queue candidate's, is not read for
+feedback at all, as without epic mode.
+
+This holds while the epic shows Delivered, handed over, too. While the repair runs the
+epic is Working, and status names the repair. Once the repaired change is approved, the
+check of the whole epic is made again on the new approved heads before the epic is
+shown as delivered again, and that check is not a round of correction.
+
 ## Holding landing on one branch
 
 Your own script may need the harness to land nothing on a branch for a while: a
@@ -2119,7 +2149,9 @@ of an approved merge whose commit is gone.
 The [judgment of whether a piece joins](#what-joins-a-named-epic) asks before it is
 sent, and starts only for a naming of an epic that has not ended and whose progress
 can be read. Nothing is kept of a refusal, because the piece itself is listed as not
-judged.
+judged. The [judgment of a change request](#a-change-request-on-a-members-pull-request)
+asks the same way, and a refusal of it keeps nothing either: the change request starts
+no repair, and is read again by the next check of its pull request.
 
 A review you ask for with `yoyo review` is your own command. It always starts,
 does not ask, and nothing is kept as refused for it.

@@ -28,8 +28,15 @@ package orchestrator
 //     information. Nothing that gates a promotion reads it, so it never stands
 //     in for the independent review and never changes what the item is for.
 //
+// While the item is in an epic the operator named, each change request is first
+// judged against the epic (EpicComments): one judged inside is repaired as
+// above, and any other starts no repair and is a question about scope to the
+// Lead Product Manager.
+//
 // A check that cannot read the forge, or cannot take a slot for the round, or
-// whose item is outside the epics the operator named, changes nothing and acts on the same feedback next time; one that acted moves
+// whose item is outside the epics the operator named, or whose judgment of a
+// change request is not settled, changes nothing and acts on the same feedback
+// next time; one that acted moves
 // the run's cursor past what it acted on, in the same write as the action, so
 // nothing is acted on twice.
 //
@@ -45,6 +52,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/epicjoin"
 	"github.com/mason-bryant/yoyodyne/internal/factory"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
@@ -91,6 +99,10 @@ type FeedbackSettlement struct {
 	// list, and Approvals how many approvals were recorded as information.
 	Listed    int `json:"listed,omitempty"`
 	Approvals int `json:"approvals,omitempty"`
+	// Asked is how many change requests were judged not asked for by the named
+	// epic their item is in, or could not be told, and were put to the Lead
+	// Product Manager as questions about scope rather than repaired.
+	Asked int `json:"asked,omitempty"`
 	// Detail says what was done, or why nothing was.
 	Detail  string `json:"detail,omitempty"`
 	Failure string `json:"failure,omitempty"`
@@ -188,6 +200,7 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 		return result
 	}
 	var repairs, comments, approvals []runstate.ForgeFeedbackItem
+	var asked []string
 	for _, item := range fresh {
 		switch {
 		case item.Kind.StartsRepair():
@@ -197,6 +210,19 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 		default:
 			comments = append(comments, item)
 		}
+	}
+	// A change request on a pull request of a member of a named epic is judged
+	// before any repair answers it. One judged outside, or that could not be
+	// told, is a question about scope and is read past with the rest; one whose
+	// judgment is not settled leaves everything for the next check.
+	if len(repairs) > 0 && r.EpicComments != nil {
+		var later string
+		repairs, asked, later = r.judgeChangeRequests(ctx, state, repairs)
+		if later != "" {
+			result.Detail = fmt.Sprintf("changes were asked for on pull request %d, and %s; what was said is left for the next check", published.Number, later)
+			return result
+		}
+		result.Asked = len(asked)
 	}
 	limit := state.RepairBudget(r.RepairLimit)
 	startsRound := len(repairs) > 0 && state.RepairAttempts < limit
@@ -250,7 +276,7 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 			}
 		}
 		notes = nil
-		if _, err := r.Store.Update(ctx, state.RunID, runstate.FeedbackRead{Number: published.Number, Read: fresh, At: now}); err != nil {
+		if _, err := r.Store.Update(ctx, state.RunID, runstate.FeedbackRead{Number: published.Number, Read: fresh, At: now, Asked: asked}); err != nil {
 			result.Failure = fmt.Errorf("record what was read of pull request %d on run %s: %w", published.Number, state.RunID, err).Error()
 			return result
 		}
@@ -326,6 +352,37 @@ func (r Reconciler) takeUpFeedback(ctx context.Context, recorded runstate.State)
 		}
 	}
 	return result
+}
+
+// EpicComments judges a change request on a pull request of a member of a named
+// epic before the repair that would answer it starts (epicjoin.Joiner.
+// JudgeComment). It is satisfied by the joiner the harness wires.
+type EpicComments interface {
+	JudgeComment(ctx context.Context, comment epicjoin.Comment) (epicjoin.Verdict, error)
+}
+
+// judgeChangeRequests is the change requests a repair may answer, those judged
+// inside or that the epics do not judge, and each one put to the Lead Product
+// Manager as a question about scope instead. later says why a judgment could not
+// be settled, in which case nothing is to be done now.
+func (r Reconciler) judgeChangeRequests(ctx context.Context, state runstate.State, repairs []runstate.ForgeFeedbackItem) (kept []runstate.ForgeFeedbackItem, asked []string, later string) {
+	for _, item := range repairs {
+		verdict, err := r.EpicComments.JudgeComment(ctx, epicjoin.Comment{Member: state.WorkItemID, PullRequest: state.PullRequest.Number,
+			ID: item.ID, Author: item.Author, Body: item.Body, Path: item.Path, Line: item.Line, URL: item.URL, At: item.At})
+		switch {
+		case verdict == epicjoin.Later || err != nil:
+			why := "its judgment against the epic could not be settled"
+			if err != nil {
+				why += ": " + oneline.Bound(err.Error(), 600)
+			}
+			return nil, nil, why
+		case verdict == epicjoin.AskedAboutScope:
+			asked = append(asked, item.ID)
+		default:
+			kept = append(kept, item)
+		}
+	}
+	return kept, asked, ""
 }
 
 // noteOnce writes a note on an item unless the item already carries it, which
@@ -572,6 +629,9 @@ func describeFeedbackSettlement(result FeedbackSettlement) string {
 	}
 	if result.RepairStopped {
 		said = append(said, "changes were asked for and the run's repair budget is spent, so the run stopped and went to the development manager")
+	}
+	if result.Asked > 0 {
+		said = append(said, fmt.Sprintf("%d change request(s) were judged not asked for by the named epic, or could not be told, so no repair answers them and each is a question about scope to the Lead Product Manager", result.Asked))
 	}
 	if result.Listed > 0 {
 		said = append(said, fmt.Sprintf("%d comment(s) went on the development manager's list", result.Listed))
