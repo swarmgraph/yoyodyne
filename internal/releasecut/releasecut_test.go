@@ -2,6 +2,7 @@ package releasecut
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,9 +22,10 @@ import (
 
 // fakeTracker holds the release items and remembers every note written.
 type fakeTracker struct {
-	mu    sync.Mutex
-	items []beads.WorkItem
-	notes []string
+	mu     sync.Mutex
+	items  []beads.WorkItem
+	notes  []string
+	closed []string
 }
 
 func (t *fakeTracker) List(context.Context, string) ([]beads.WorkItem, error) {
@@ -37,6 +39,42 @@ func (t *fakeTracker) RecordOutcome(_ context.Context, id, notes string) (beads.
 	defer t.mu.Unlock()
 	t.notes = append(t.notes, id+": "+notes)
 	return beads.WorkItem{ID: id}, nil
+}
+
+func (t *fakeTracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, item := range t.items {
+		if item.ID == id {
+			for _, note := range t.notes {
+				if rest, ours := strings.CutPrefix(note, id+": "); ours {
+					item.Notes += rest + "\n"
+				}
+			}
+			return item, nil
+		}
+	}
+	return beads.WorkItem{}, errors.New("no such item")
+}
+
+// Complete closes the item and remembers the reason it was closed with.
+func (t *fakeTracker) Complete(_ context.Context, id, reason string) (beads.WorkItem, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for index := range t.items {
+		if t.items[index].ID == id {
+			t.items[index].Status = "closed"
+			t.closed = append(t.closed, id+": "+reason)
+			return t.items[index], nil
+		}
+	}
+	return beads.WorkItem{}, errors.New("no such item")
+}
+
+func (t *fakeTracker) closures() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.closed...)
 }
 
 func (t *fakeTracker) noted() []string {
@@ -368,7 +406,7 @@ func TestADecidedReleaseIsCutPushedAndRecorded(t *testing.T) {
 	}
 	f.now = f.now.Add(48 * time.Hour)
 	later := f.cutter.Pass(context.Background())
-	if later.Outcome != runstate.StepSkipped || !strings.Contains(later.Detail, "waits on the Lead Product Manager to close its item") {
+	if later.Outcome != runstate.StepSkipped || !strings.Contains(later.Detail, "its item is closed by this pass where its notes' run left it open for the tag") {
 		t.Errorf("a later pass = %+v, want the pushed release left for its item to close", later)
 	}
 	if f.runner.gateRuns() != 1 || len(f.tracker.noted()) != 1 || len(f.reports.all()) != 1 {
