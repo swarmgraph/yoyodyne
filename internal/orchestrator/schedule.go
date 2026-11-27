@@ -3978,7 +3978,7 @@ pulling:
 			// here for the landing sweep alone (landWithoutChoosing). Without this,
 			// an item stayed open for as long as every slot was busy, which on a
 			// busy day was until somebody closed it by hand.
-			s.landWithoutChoosing(ctx, &schedule, pull, readEarly)
+			s.landWithoutChoosing(ctx, &schedule, pull, readForLanding)
 			// A watch with a slot another process holds waits on the interval as
 			// well as on its own runs: that process's run ending frees a slot this
 			// session hears of only by reading the runs in flight again, so a wait on
@@ -4087,7 +4087,7 @@ pulling:
 			pullSlots.say(pullSlots.ruleAccount(waiting.Says()))
 			// The limit holds back new work, and a landing's close is not new
 			// work; see landWithoutChoosing.
-			s.landWithoutChoosing(ctx, &schedule, pull, readEarly)
+			s.landWithoutChoosing(ctx, &schedule, pull, readForLanding)
 			if !s.Watching {
 				schedule.Stopped = ScheduleWaitingPullRequests
 				break

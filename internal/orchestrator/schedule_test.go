@@ -687,6 +687,49 @@ func TestAConversationsItemWhoseDesignLandedIsClosedWhileIntakeIsHeld(t *testing
 	}
 }
 
+// The brake's own hold with a test run due goes past the held branch's own
+// sweep to start that run, and with every slot busy it reaches the full-slots
+// branch instead. The intake is still held there, so the sweep has to read the
+// work list for itself, and the landed item is closed on that pass with
+// nothing started (yoyodyne-ifd.428.159).
+func TestAConversationsItemWhoseDesignLandedIsClosedWhileTheBrakeIsDueATestRunAndEverySlotIsHeld(t *testing.T) {
+	t.Parallel()
+
+	landed := architectItemLanded()
+	harness := newScheduleHarness(landed, beads.WorkItem{ID: "yoyodyne-one", Title: "Ready work", Status: "open", Priority: 2})
+	harness.capacity = 1
+	harness.inFlight["yoyodyne-elsewhere"] = runstate.State{
+		RunID: "run-elsewhere", WorkItemID: "yoyodyne-elsewhere", Status: runstate.StatusRunning,
+	}
+	harness.held = &runstate.IntakeHold{
+		SchemaVersion: runstate.IntakeHoldSchemaVersion,
+		ProductID:     "yoyodyne",
+		HeldAt:        harness.now.Add(-time.Hour),
+		HeldBy:        runstate.IntakeHolderBrake,
+		Reason:        "3 run(s) blocked in a row with nothing landing between them, which is the configured brake at 3",
+		Brake: &runstate.IntakeBrake{
+			Blocked:        []runstate.BrakeBlockedRun{{WorkItemID: "yoyodyne-earlier", Reason: "review blocked it"}},
+			CooldownEndsAt: harness.now.Add(-time.Minute),
+			Decision:       runstate.BrakeDecisionProbe,
+		},
+	}
+	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 1 }
+	sweep := &landedOnPull{harness: harness, landed: map[string]bool{landed.ID: true}}
+	harness.landings = sweep
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if len(schedule.Started) != 0 {
+		t.Fatalf("started = %#v, want nothing started with every slot busy", schedule.Started)
+	}
+	if len(schedule.Landed) != 1 || schedule.Landed[0].WorkItemID != landed.ID || sweep.settles < 1 {
+		t.Fatalf("landed = %#v after %d sweeps, want the item closed although the brake held intake and every slot was busy", schedule.Landed, sweep.settles)
+	}
+}
+
 // Checks the machine could not run hold back new work for the probe interval
 // after the first run that met them. A document that lands a few polls into
 // that interval closes its item on the next held pull, with the developer slot
