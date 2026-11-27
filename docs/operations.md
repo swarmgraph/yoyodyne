@@ -6015,7 +6015,13 @@ listing reads the run as what it now is; `--json` carries the same under
 its own answer is unchanged. The commands that act on a run themselves — `yoyo
 run`, `resume`, `stop`, `work` and `start` — do not settle first, because
 settling would change what they were asked to do: `yoyo run` on an item whose
-run died continues that run. A run whose worker can be shown neither alive nor
+run died continues that run. Nor does `yoyo tracker export`, which the
+repository's pre-commit hook runs inside a commit: settling a run writes the
+tracker, and a process that held the tracker's write lock while it committed
+would have its own hook wait on it until the commit was refused, so the export
+only reads and the next command outside a commit settles what it would have.
+The harness's own commits run with Git's hooks turned off, so they never run
+the export at all. A run whose worker can be shown neither alive nor
 gone, or whose program is still running with nothing holding the run, is left
 to the sweep.
 
