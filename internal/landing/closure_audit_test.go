@@ -150,6 +150,11 @@ var auditedClosures = []closureSite{
 		Why: "a run settling its own item once its promotion is where it will stay. It closes only where the change discharges the item — the developer's claim and the reviewer's approval both saying so; anything else goes to settleUndischarged instead, and a merge the forge only queued defers the whole settlement to reconciliation.",
 	},
 	{
+		File: "internal/orchestrator/approvedunchanged.go", Declaration: "(*activeRun) completeUnchanged", Calls: 1,
+		ConsultsDischarge: true, Kind: kindSettlement,
+		Why: "a run settling its own item when the reviewer approved a change with no file differences from its base, so there is nothing to queue or promote. It closes only where the change discharges the item — the developer's claim and the reviewer's approval both saying so; an evidence claim or an evidence approval goes to the same undischarged settlement a landed evidence change takes, parked or waiting on the work the landing named.",
+	},
+	{
 		File: "internal/orchestrator/reconcile.go", Declaration: "(Reconciler) closeSettledMerge", Calls: 1,
 		ConsultsDischarge: true, Kind: kindSettlement,
 		Why: "the sweep settling a run whose queued merge the forge has since performed. The forge merging the change settles where the work is and not whether it discharges the item, so the claim and the approval are read back from the durable record the run that made them left behind.",

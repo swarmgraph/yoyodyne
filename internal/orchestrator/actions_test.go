@@ -1036,6 +1036,7 @@ var notAStep = map[string]string{
 	"blockOnReviewBound":         "hands a change too large for the reviewer's copy to a person, with its file sizes",
 	"blockOnNoCheckRan":          "hands a change no configured check could run on to a person, naming each check and why it could not run",
 	"chargeReplayStop":           "spends one of the run's charged replays before a replayed change is handed back",
+	"completeUnchanged":          "ends a run whose approved change has no file differences from its base in place of candidate.integrate and run.complete: nothing is committed, queued or promoted, and the item is settled from the run's own discharge as run.complete settles it",
 	"admitToMergeQueue":          "with execution.merge_queue on, hands the approved change to its target's queue in place of candidate.integrate; it takes no lease and moves no branch, and only the queue's own candidate gate authorizes a landing",
 
 	// The runtime envelope. Holds, directives, dependency waits, operator stops
