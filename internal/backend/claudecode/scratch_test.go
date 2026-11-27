@@ -168,3 +168,62 @@ func TestLocalConformanceADeveloperWritesOnlyItsOwnScratchInTheStateDirectory(t 
 		}
 	}
 }
+
+// On macOS mktemp and Java make temporary files in a folder the developer's
+// sandbox refuses, whatever TMPDIR says, so a developer session is launched
+// with the run's own temporary folder for them: a mktemp first on its PATH and
+// java.io.tmpdir, both inside its scratch folder. A session of any other role
+// is launched without them, and the sandbox's write grant is the scratch folder
+// alone either way (the test above). Elsewhere nothing is added.
+func TestADeveloperOnMacOSMakesTemporaryFilesInsideItsScratch(t *testing.T) {
+	t.Parallel()
+	state := t.TempDir()
+	scratch, err := execution.PrepareScratchDirectory(state, testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environmentFor := func(role domain.AgentRole) []string {
+		runner := &fakeRunner{results: claudeCompletedTurn()}
+		if _, err := (Backend{Runner: runner, Clock: fixedClock{}, StateRoot: state}).Run(context.Background(), backendapi.RunRequest{
+			RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(),
+			ScratchDirectory: scratch, Prompt: "do the work",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return runner.commands[0].Env
+	}
+	value := func(environment []string, name string) string {
+		for _, entry := range environment {
+			if found, rest, ok := strings.Cut(entry, "="); ok && found == name {
+				return rest
+			}
+		}
+		return ""
+	}
+	programs, folder := filepath.Join(scratch, "bin"), filepath.Join(scratch, "tmp")
+
+	developer := environmentFor(domain.RoleDeveloper)
+	if !scratchTemporaryApplies {
+		if strings.Contains(value(developer, "PATH"), programs) || value(developer, "JAVA_TOOL_OPTIONS") != "" {
+			t.Fatalf("a developer away from macOS was given a temporary folder: %v", developer)
+		}
+		return
+	}
+	if path := value(developer, "PATH"); !strings.HasPrefix(path, programs+string(filepath.ListSeparator)) {
+		t.Fatalf("a developer's PATH = %q, want %s first", path, programs)
+	}
+	if java := value(developer, "JAVA_TOOL_OPTIONS"); java != `-Djava.io.tmpdir="`+folder+`"` {
+		t.Fatalf("a developer's JAVA_TOOL_OPTIONS = %q, want java.io.tmpdir set to %s", java, folder)
+	}
+	if info, err := os.Stat(filepath.Join(programs, "mktemp")); err != nil || info.IsDir() {
+		t.Fatalf("the developer's mktemp program = %v, %v", info, err)
+	}
+	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		t.Fatalf("the developer's temporary folder = %v, %v", info, err)
+	}
+
+	reviewer := environmentFor(domain.RoleReviewer)
+	if strings.Contains(value(reviewer, "PATH"), programs) || value(reviewer, "JAVA_TOOL_OPTIONS") != "" {
+		t.Fatalf("a reviewer was given the developer's temporary folder: %v", reviewer)
+	}
+}

@@ -254,6 +254,43 @@ func TestLocalConformanceARunWritesInsideItsRepositorysGitDirectory(t *testing.T
 	}
 }
 
+// A project's script that makes a temporary folder with `mktemp -d` and no
+// template runs in a real developer session on macOS, and the folder lands in
+// the run's own scratch folder rather than the per-user one the sandbox refuses.
+// The filesystem is asked, not the reply.
+func TestLocalConformanceMktempWithNoTemplateWritesUnderTheRunsScratch(t *testing.T) {
+	if !scratchTemporaryApplies {
+		t.Skip("mktemp ignores TMPDIR only on macOS")
+	}
+	provider := conformanceBackend(t)
+	state := t.TempDir()
+	scratch, err := execution.PrepareScratchDirectory(state, testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.StateRoot = state
+
+	result, err := provider.Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		ScratchDirectory: scratch,
+		WorkingDirectory: t.TempDir(),
+		AllowedTools:     []string{"Bash"},
+		Prompt: "Run this exact command with Bash, once, and nothing else: mktemp -d\n" +
+			"Do not retry it or work around it if it fails. Then reply with exactly what it printed.",
+		Timeout: 2 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	requireACompletedProbe(t, result)
+	entries, err := os.ReadDir(filepath.Join(scratch, "tmp"))
+	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
+		t.Fatalf("mktemp -d in a developer session made %v (%v) in the run's temporary folder, want one folder; the run reported: %q",
+			entries, err, result.FinalText)
+	}
+}
+
 // A developer session cannot write the folder a project's install steps keep
 // their package cache in (docs/designs/project-dependencies-in-runs.md). The
 // folder is laid out as the harness lays it out, among the product's records
