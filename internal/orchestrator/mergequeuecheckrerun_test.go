@@ -80,8 +80,10 @@ func TestAQueuedCandidatesCancelledCheckIsRunAgainAndThenWithdrawnAtOnce(t *test
 		t.Fatalf("last pass = %#v, %t, %v; want what this pass found recorded", last, found, err)
 	}
 
-	// Cancelled again after its re-run: the merge is withdrawn at once, well
-	// inside the stuck-merge limit, and the change handed back saying why.
+	// Cancelled again after its re-run, on the new check-run number the forge
+	// gave the job it ran again: the merge is withdrawn at once, well inside
+	// the stuck-merge limit, and the change handed back saying why.
+	checks.reading.Failing[0].ID = 78
 	pass = f.passNow()
 	if pass.Outcome != runstate.MergeQueuePassHandedBack {
 		t.Fatalf("Pass() = %#v, want the merge withdrawn and the change handed back", pass)
@@ -92,6 +94,33 @@ func TestAQueuedCandidatesCancelledCheckIsRunAgainAndThenWithdrawnAtOnce(t *test
 	landing := f.landing()
 	if landing.Handback == nil || !strings.Contains(landing.Handback.Reason, "again after the queue had it run again") || repair.count() != 1 {
 		t.Fatalf("handback = %#v, handed back %d times; want the change handed back naming the cancelled build", landing.Handback, repair.count())
+	}
+}
+
+func TestAQueuedCandidateReadBeforeTheForgeListsTheRerunStaysQueued(t *testing.T) {
+	t.Parallel()
+
+	f, withdrawer, _ := queuedMergeFixture(t)
+	checks := &candidateChecks{reading: cancelledBuild()}
+	f.promoter.Checks, f.promoter.Reruns, f.promoter.Repair = checks, f.queue, &recordingRepair{}
+	if pass := f.passNow(); pass.Outcome != runstate.MergeQueuePassWaiting || len(checks.reruns) != 1 {
+		t.Fatalf("Pass() = %#v, re-runs %v; want the build run again once", pass, checks.reruns)
+	}
+
+	// The next pass reads the checks before the forge lists the job it runs
+	// again, so it still sees check run 77 cancelled. That is the ending the
+	// queue already answered, not a second one: the merge stays queued.
+	for range 2 {
+		pass := f.passNow()
+		if pass.Outcome != runstate.MergeQueuePassWaiting || !strings.Contains(pass.Says, "has not yet started the run of build") {
+			t.Fatalf("Pass() = %#v, want it waiting on the build's re-run", pass)
+		}
+		if len(checks.reruns) != 1 || withdrawer.count() != 0 {
+			t.Fatalf("re-runs %v and %d withdrawals, want no second re-run and nothing withdrawn", checks.reruns, withdrawer.count())
+		}
+		if landing := f.landing(); landing.Handback != nil {
+			t.Fatalf("handback = %#v, want the change left in the queue", landing.Handback)
+		}
 	}
 }
 

@@ -30,8 +30,10 @@ var unjudgedConclusions = map[string]bool{
 // answerUnjudgedChecks treats a check on the candidate's pull request that
 // ended without judging the change as an answer rather than a wait. The first
 // time a check ends that way the forge is asked to run it again, and the
-// re-run is written down before it is asked for. A check that ends that way
-// again after its re-run, or that the forge will not run again, leaves the
+// re-run is written down before it is asked for. A reading that still shows
+// the check-run number the queue asked to run again is waiting on that re-run.
+// A check that ends that way again on another check-run number after its
+// re-run, or that the forge will not run again, leaves the
 // forge nothing that will make the merge once no other check is still
 // running, so the merge is marked for the driver to withdraw at once with that
 // as its reason, rather than held until the stuck-merge limit. What it did is
@@ -59,10 +61,18 @@ func (q *queuePromotion) answerUnjudgedChecks(ctx context.Context, reading publi
 	if err != nil {
 		return fmt.Errorf("read the checks the queue ran again for entry %d: %w", q.entry.Order, err)
 	}
-	var askedAgain, unanswered []string
+	var askedAgain, awaiting, unanswered []string
 	for _, check := range unjudged {
 		ended := fmt.Sprintf("%s (%s)", check.Name, describeUnjudged(check.Conclusion))
-		if ranAgain(reruns, attempt.PullRequest, attempt.Candidate, check.Name) {
+		if rerun, found := ranAgain(reruns, attempt.PullRequest, attempt.Candidate, check.Name); found {
+			// The forge gives a job it runs again a new check-run number, so a
+			// reading that still shows the number the queue asked about was
+			// taken before the forge listed the new job: that is the same
+			// ending read twice, and the re-run is still to come.
+			if check.ID > 0 && rerun.CheckRun == check.ID {
+				awaiting = append(awaiting, check.Name)
+				continue
+			}
 			unanswered = append(unanswered, ended+" again after the queue had it run again")
 			continue
 		}
@@ -88,10 +98,13 @@ func (q *queuePromotion) answerUnjudgedChecks(ctx context.Context, reading publi
 	if len(askedAgain) > 0 {
 		says = append(says, fmt.Sprintf("on the candidate's pull request %d, %s ended without judging the change, so the queue asked the forge to run it again", attempt.PullRequest, strings.Join(askedAgain, " and ")))
 	}
+	if len(awaiting) > 0 {
+		says = append(says, fmt.Sprintf("on the candidate's pull request %d, the forge has not yet started the run of %s the queue asked for", attempt.PullRequest, strings.Join(awaiting, " and ")))
+	}
 	if len(unanswered) > 0 {
 		ended := fmt.Sprintf("on the candidate's pull request %d, %s", attempt.PullRequest, strings.Join(unanswered, "; "))
 		says = append(says, ended)
-		if len(askedAgain) == 0 && len(reading.Pending) == 0 {
+		if len(askedAgain) == 0 && len(awaiting) == 0 && len(reading.Pending) == 0 {
 			q.outcome.Unjudged = ended + "; nothing else is running there, so the forge will never make the merge"
 		}
 	}
@@ -113,16 +126,16 @@ func judgedOnly(reading publish.CheckReading) publish.CheckReading {
 	return reading
 }
 
-// ranAgain reports a check the queue already had run again on this pull
-// request: on any candidate, for a re-run recorded without one, and otherwise
-// on this candidate.
-func ranAgain(reruns []runstate.MergeQueueCheckRerun, pullRequest int, candidate, check string) bool {
+// ranAgain finds the re-run the queue already asked for of a check on this
+// pull request: on any candidate, for a re-run recorded without one, and
+// otherwise on this candidate.
+func ranAgain(reruns []runstate.MergeQueueCheckRerun, pullRequest int, candidate, check string) (runstate.MergeQueueCheckRerun, bool) {
 	for _, rerun := range reruns {
 		if rerun.PullRequest == pullRequest && rerun.Check == check && (rerun.Commit == "" || rerun.Commit == candidate) {
-			return true
+			return rerun, true
 		}
 	}
-	return false
+	return runstate.MergeQueueCheckRerun{}, false
 }
 
 // describeUnjudged says how a check ended in the runner, in ordinary words.
