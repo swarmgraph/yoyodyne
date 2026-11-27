@@ -1256,6 +1256,10 @@ type Started struct {
 	// to count the start toward nothing. It is not on the record because the
 	// failure already is, in words that say the same thing.
 	awayCause domain.ProviderOutageCause
+	// itemStatusRefused is set when Failure is a run that holds its item not
+	// continued because of the status the item reads (ItemStatusRefusal), which
+	// the settle reads to count the start toward nothing.
+	itemStatusRefused bool
 	// settingsHeld is set when Failure is the developer's provider found not to
 	// put in force what a developer is launched with, which the settle counts
 	// toward nothing for the same reason. See LaunchSettingsError.
@@ -2239,6 +2243,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			// running out — or a stop the operator or the development manager
 			// asked for. It is a verdict on nothing for the reason the
 			// environment's stops are, and neither counts nor clears.
+		case started.itemStatusRefused:
+			// A run that holds its item was not continued because of the status the
+			// item reads in the tracker. Nothing about the change was judged and
+			// nothing was attempted, so it neither counts nor clears.
 		case started.Readopted != "" && unstartedAttempt(*started):
 			// A re-adoption that never reached the run says nothing about the
 			// machine either, and is tried again at the next pull.
@@ -7384,7 +7392,7 @@ func priceRun(spend ScheduleSpend, outcome Outcome) (float64, string) {
 // recorded, a publishing failure, and a cause this build does not recognise
 // are counted.
 func (s Started) blockedRun() bool {
-	if s.Outcome.Paused || s.stoppedOutsideTheWork() {
+	if s.Outcome.Paused || s.stoppedOutsideTheWork() || s.itemStatusRefused {
 		return false
 	}
 	return s.Failure != "" || s.Outcome.Blocked
@@ -9177,6 +9185,10 @@ func (s *Started) record(done completed) {
 		var held LaunchSettingsError
 		if errors.As(done.err, &held) {
 			s.settingsHeld = true
+		}
+		var status ItemStatusRefusal
+		if errors.As(done.err, &status) {
+			s.itemStatusRefused = true
 		}
 		// A dispatch the environment turned away before any run recorded it — a
 		// worktree that could not be cut from a dirty checkout, a process the
