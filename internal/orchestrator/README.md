@@ -589,7 +589,9 @@ approved change: `outsidefilequeue.go` is `HarnessRunItems`, the tracker the
 queue is given, which answers for either run's bookkeeping item and writes onto
 the item the run is for; a hand-back ends the run with no developer asked, for
 `queueRefusedOutsideFile` to count or, for a document, to go back to its owner;
-and `mergeQueueChecks` (`mergequeueadmission.go`) checks a document's candidate
-with the declared document checks and every other candidate with the
-configured checks whole.
+and `mergeQueueChecks` (`mergequeueadmission.go`) checks a candidate whose
+change lies wholly inside the artifact homes with the declared document checks
+and every other candidate with the configured checks whole, chosen from the
+paths the change makes (`queueOrder.documentKind`) and never from the kind the
+entry was recorded as.
 

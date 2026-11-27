@@ -108,16 +108,16 @@ func generationPassed(generation runstate.MergeQueueGeneration, command string) 
 }
 
 // configured is what a candidate not yet built will be checked by, read from the
-// configuration alone: a document entry by the document checks, an entry where
-// the forge's required checks stand in for the full run by the short local
-// checks, and any other by the declared queue list and its race check, or every
-// configured check. It may name a check the entry turns out not to owe, which
-// keeps a place a little longer, never shorter.
-func (q QueuedHeavyChecks) configured(entry runstate.MergeQueueEntry) []string {
+// configuration alone: an entry where the forge's required checks stand in for
+// the full run by the short local checks, and any other by the declared queue
+// list and its race check, or every configured check. A document entry is
+// counted as code here: which it is follows from the paths its change makes
+// (Pipeline.mergeQueueChecks), which this does not read, and an entry recorded
+// as a document may change code. It may name a check the entry turns out not
+// to owe, which keeps a place a little longer, never shorter.
+func (q QueuedHeavyChecks) configured(runstate.MergeQueueEntry) []string {
 	cfg := q.Config
 	switch {
-	case entry.WorkItemID == entry.RunID && runstate.ValidRunID(entry.RunID) && len(cfg.DocumentChecks) > 0:
-		return slices.Clone(cfg.DocumentChecks)
 	case cfg.Execution.CIChecks.Enabled && len(cfg.Execution.CIChecks.Required) > 0 && cfg.Approvals.Publishing == domain.ApprovalAutomatic:
 		return shortLocalChecks(cfg.Checks, cfg.Execution.CIChecks.Local)
 	case cfg.DeclaresMergeQueueChecks():

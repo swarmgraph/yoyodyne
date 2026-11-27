@@ -106,6 +106,21 @@ func (p *Pipeline) mergeQueueChecks(ctx context.Context, paths changedPathReader
 	return runstate.NewMergeQueueCheckConfiguration(commands)
 }
 
+// changedPathReader lists the paths a change makes against a base, measured
+// from where the two meet (gitworktree.Manager.CandidatePaths). A nil reader
+// reads nothing, which makes every entry code.
+type changedPathReader = func(ctx context.Context, base, candidate string) ([]string, error)
+
+// candidatePaths is the reader a promotion chooses an entry's checks with: its
+// lander's, which is the worker's worktree manager, so the promotion and the
+// worker that built the candidate answer the same question the same way.
+func (p MergeQueuePromoter) candidatePaths() changedPathReader {
+	if p.Lander == nil {
+		return nil
+	}
+	return p.Lander.CandidatePaths
+}
+
 // admitsToMergeQueue reports whether an approved change of this run goes to
 // the merge queue rather than being promoted by the run.
 func (a *activeRun) admitsToMergeQueue() bool {
