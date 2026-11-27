@@ -1295,9 +1295,11 @@ Where any unhandled report was filed at `critical`, the line counts them in
 place of naming the worst severity, because each one is somebody having to act
 and "worst critical" reads the same for one as for five. Every number on it
 comes from one derivation, so the terminal and the channel cannot disagree
-about them. A pile that is draining says nothing anywhere else; one
-whose oldest undecided report has been waiting more than a week is named on
-`yoyo status`'s "needs a human" line as the Lead Product Manager's. That line is what
+about them. While any report stands unhandled, `yoyo status` and the dashboard
+also show the count for each addressee (described below), whether or not the
+pile is draining. Only once the oldest undecided report has been waiting more
+than a week is the pile named on `yoyo status`'s "needs a human" line as the
+Lead Product Manager's. That line is what
 catches both failures a single reading cannot tell apart: a cadence that has
 stopped keeping up, and no cadence configured at all. The queue of proposed
 amendments has the same line as a sibling, on the same threshold and for the
