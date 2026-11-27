@@ -64,9 +64,10 @@ func TestAnEmptySlotAccountIsANoteReadBackWhole(t *testing.T) {
 }
 
 // An account naming a child work item, whose id carries the dots of its
-// number, is recorded like any other. The check once held work item ids to the
-// shape of a configured name, so every account naming a slot counted for such
-// an item was refused whole and the log said nothing while the slot stood
+// number, or a run, which a document landing is counted under, is recorded
+// like any other, and one naming something that is neither is refused. The
+// check once held work item ids to the shape of a configured name, so every
+// account naming a slot counted for such an item was refused whole and the log said nothing while the slot stood
 // empty. A cleared account says which step ended it, and where every slot was
 // counted taken, what holds them.
 func TestAnEmptySlotAccountNamingAChildItemIsRecorded(t *testing.T) {
@@ -76,7 +77,7 @@ func TestAnEmptySlotAccountNamingAChildItemIsRecorded(t *testing.T) {
 	counted := testWatchTransition(testWatchSessionID, WatchWatching, "1 developer slot left empty")
 	counted.EmptySlots = &EmptySlots{
 		Cause: ownership.EmptySlotStillCounted, Reason: "the slot is still counted as taken for yoyodyne-ifd.309", ReadyUnread: true, FreeSlots: 1,
-		CountedFor: []string{"yoyodyne-ifd.309"},
+		CountedFor: []string{"yoyodyne-ifd.309", "run-6768ca4fa272988b78495592bf66c31e"},
 		Passed:     []EmptySlotItem{{WorkItemID: "yoyodyne-ifd.428.126.4.19", Why: "sequenced behind work in flight"}},
 		Since:      counted.At, At: counted.At,
 	}
@@ -101,6 +102,7 @@ func TestAnEmptySlotAccountNamingAChildItemIsRecorded(t *testing.T) {
 		"an ending on a standing account":  {Cause: ownership.EmptySlotRule, Reason: "a rule", Ended: EmptySlotsFilled},
 		"holders without every slot taken": {Cleared: true, Ended: EmptySlotsFilled, Taken: 1, TakenBy: []EmptySlotHolder{{WorkItemID: "yoyodyne-a"}}},
 		"an ending nobody names":           {Cleared: true, Ended: "somewhere"},
+		"counted for no item or run":       {Cause: ownership.EmptySlotStillCounted, Reason: "counted", CountedFor: []string{"../yoyodyne ifd"}},
 	} {
 		wrong.At, wrong.Since = full.At, full.At
 		if err := wrong.validate(); err == nil {

@@ -546,7 +546,7 @@ func (c WorktreeCrossing) Says() string {
 
 func (c WorktreeCrossing) validate() error {
 	var problems []error
-	if err := domain.ValidateIdentifier("worktree crossing work item id", c.WorkItemID); err != nil {
+	if err := validItem("worktree crossing work item id", c.WorkItemID); err != nil {
 		problems = append(problems, err)
 	}
 	if strings.TrimSpace(c.Command) == "" {
@@ -586,7 +586,7 @@ func (w DispatchWait) Until() time.Time {
 
 func (w DispatchWait) validate() error {
 	var problems []error
-	if err := domain.ValidateIdentifier("dispatch wait work item id", w.WorkItemID); err != nil {
+	if err := validItem("dispatch wait work item id", w.WorkItemID); err != nil {
 		problems = append(problems, err)
 	}
 	if w.Boundary == "" {

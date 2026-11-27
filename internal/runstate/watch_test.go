@@ -667,10 +667,10 @@ func TestADispatchWaitIsANoteOnTheLogAndNotWhereTheSessionGotTo(t *testing.T) {
 
 	store := newTestWatchStore(t, t.TempDir())
 	idle := testWatchTransition(testWatchSessionID, WatchIdle, "nothing further pullable")
-	note := testWatchTransition(testWatchSessionID, WatchWatching, "the dispatch for yoyodyne-task is waiting out a tracker failure")
+	note := testWatchTransition(testWatchSessionID, WatchWatching, "the dispatch for yoyodyne-ifd.309 is waiting out a tracker failure")
 	note.At = idle.At.Add(time.Minute)
 	note.DispatchWait = &DispatchWait{
-		WorkItemID:   "yoyodyne-task",
+		WorkItemID:   "yoyodyne-ifd.309",
 		Boundary:     RetryDependencyRead,
 		Attempt:      1,
 		DelaySeconds: 1,
@@ -703,6 +703,7 @@ func TestADispatchWaitIsANoteOnTheLogAndNotWhereTheSessionGotTo(t *testing.T) {
 	for name, broken := range map[string]func(*WatchTransition){
 		"on an idle entry":    func(t *WatchTransition) { t.State = WatchIdle },
 		"with no item":        func(t *WatchTransition) { t.DispatchWait.WorkItemID = "" },
+		"with no item's id":   func(t *WatchTransition) { t.DispatchWait.WorkItemID = "../yoyodyne ifd" },
 		"with no boundary":    func(t *WatchTransition) { t.DispatchWait.Boundary = "" },
 		"with no retry":       func(t *WatchTransition) { t.DispatchWait.Attempt = 0 },
 		"with no moment":      func(t *WatchTransition) { t.DispatchWait.At = time.Time{} },
@@ -729,7 +730,7 @@ func TestAWorktreeCrossingIsANoteOnTheLogAndNotWhereTheSessionGotTo(t *testing.T
 	note := testWatchTransition(testWatchSessionID, WatchWatching, "")
 	note.At = idle.At.Add(time.Minute)
 	note.WorktreeCrossing = &WorktreeCrossing{
-		WorkItemID: "yoyodyne-task",
+		WorkItemID: "yoyodyne-ifd.428.157",
 		Command:    "git worktree add",
 		Attempt:    1,
 		Attempts:   3,
@@ -749,7 +750,7 @@ func TestAWorktreeCrossingIsANoteOnTheLogAndNotWhereTheSessionGotTo(t *testing.T
 	if len(recorded) != 2 || recorded[1].WorktreeCrossing == nil || *recorded[1].WorktreeCrossing != *note.WorktreeCrossing || !recorded[1].Note() {
 		t.Fatalf("List() = %#v, want the crossing read back whole, as a note", recorded)
 	}
-	for _, says := range []string{"yoyodyne-task", "`git worktree add`", "attempt 1 of 3", "Invalid path"} {
+	for _, says := range []string{"yoyodyne-ifd.428.157", "`git worktree add`", "attempt 1 of 3", "Invalid path"} {
 		if !strings.Contains(recorded[1].Reason, says) {
 			t.Errorf("reason = %q, want it to say %q", recorded[1].Reason, says)
 		}
@@ -765,6 +766,7 @@ func TestAWorktreeCrossingIsANoteOnTheLogAndNotWhereTheSessionGotTo(t *testing.T
 			t.DispatchWait = &DispatchWait{WorkItemID: "yoyodyne-task", Boundary: RetryDependencyRead, Attempt: 1, At: t.At}
 		},
 		"with no item":             func(t *WatchTransition) { t.WorktreeCrossing.WorkItemID = "" },
+		"with no item's id":        func(t *WatchTransition) { t.WorktreeCrossing.WorkItemID = "../yoyodyne ifd" },
 		"with no command":          func(t *WatchTransition) { t.WorktreeCrossing.Command = " " },
 		"with no attempt":          func(t *WatchTransition) { t.WorktreeCrossing.Attempt = 0 },
 		"past the attempts it had": func(t *WatchTransition) { t.WorktreeCrossing.Attempt = 4 },
