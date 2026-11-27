@@ -5,10 +5,12 @@ package readmodel
 // held out, and each problem in the words the operator reads.
 //
 // Membership is the recorded list (epicscope) and nothing else. The tracker's
-// parent links are read for one thing only, which epic an `yoyo epic add`
-// command names where more than one is open.
+// parent links never make an item a member: they are read for which epic an
+// `yoyo epic add` command names where more than one is open, and for when a
+// closed member whose work was split into children is done (epicstate.go).
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -178,7 +180,7 @@ type OpenEpic struct {
 
 // readEpics reads the epic lines from the records, the runs and the queue the
 // standing already read, and the one tracker listing.
-func readEpics(sources Sources, standing Standing, needs []Attention, needsProblem string, listed []beads.WorkItem, listedErr error) *Epics {
+func readEpics(ctx context.Context, sources Sources, standing Standing, needs []Attention, needsProblem string, listed []beads.WorkItem, listedErr error) *Epics {
 	if sources.Epics == nil {
 		return nil
 	}
@@ -260,7 +262,7 @@ func readEpics(sources Sources, standing Standing, needs []Attention, needsProbl
 		epics.NotStartedProblem = singleLine(err.Error(), maxEpicReasonBytes)
 	}
 
-	standings := newEpicStandings(facts, sources, standing, needs, needsProblem, epics.ItemsProblem, progressErr)
+	standings := newEpicStandings(ctx, facts, sources, standing, needs, needsProblem, epics.ItemsProblem, progressErr)
 	for _, epic := range record.Epics {
 		if latest, _ := record.Named(epic.WorkItemID); !latest.NamedAt.Equal(epic.NamedAt) {
 			continue

@@ -840,7 +840,9 @@ func standingSources(configPath string) readmodel.Sources {
 		sources.Decisions = store.Triage()
 		// And the repository, asked whether each stopped run's change is still
 		// there, so this surface holds the same items the scheduler holds and for
-		// the same reason rather than reading the run's flags where it looks.
+		// the same reason rather than reading the run's flags where it looks. The
+		// same repository says whether a commit recorded for a member of a named
+		// epic is on its target branch, however it got there.
 		sources.Remains = standingRemains(resolved)
 		// The same store answers both, and it is set twice rather than once
 		// because the two are different questions about different records: what
