@@ -58,6 +58,9 @@ type Start struct {
 	items []string
 	role  domain.AgentRole
 
+	// runID is the run a work item's start is about; see OfRun.
+	runID string
+
 	document Document
 
 	// target is the branch a team branch update is for.
@@ -113,6 +116,14 @@ func Run(path Path, item string) Start {
 // is (Of), without which a refusal cannot be kept.
 func DocumentRun(path Path, answers ...string) Start {
 	return Start{path: path, what: documentRun, items: append([]string(nil), answers...)}
+}
+
+// OfRun is a work item's start naming the run it is about, so that a refusal of
+// it is kept naming that run (RefusedItem.RunID). The update of a change queued
+// on GitHub, or waiting for a person's merge, names its run.
+func (s Start) OfRun(runID string) Start {
+	s.runID = runID
+	return s
 }
 
 // Of is the start with the document it publishes named.

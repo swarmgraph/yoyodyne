@@ -312,6 +312,15 @@ func (e epicReports) Append(reported report.Report) error {
 	return e.ReportStore.Append(reported)
 }
 
+// updateNotDue takes away the refused update of a run that a check found no
+// longer due. A removal that could not be made is said on standard error once,
+// and the next check tries again.
+func (c components) updateNotDue() func(path maystart.Path, workItemID, runID string) {
+	return func(path maystart.Path, workItemID, runID string) {
+		sayNotKept(maystart.UpdateNotDue(c.stateRoot, c.config.Product.ID, path, workItemID, runID))
+	}
+}
+
 // wouldStart is the same decision with nothing kept, for what only reads it.
 func (c components) wouldStart() orchestrator.StartDecision {
 	return func(start maystart.Start) maystart.Decision {
@@ -1116,6 +1125,11 @@ func docketerFrom(parts components) *orchestrator.Docketer {
 		Unready: docketUnready{tracker: parts.tracker(), repository: parts.repository},
 		// Reading the list is not a start, so nothing is kept of what it asks.
 		WouldStart: parts.wouldStart(),
+		// A refused update of a run, kept by the check that met it, is what
+		// shows that update is due.
+		NotStarted: func() (maystart.Refusals, error) {
+			return maystart.ReadRefusals(parts.stateRoot, parts.config.Product.ID)
+		},
 	}
 }
 
@@ -1171,6 +1185,7 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		Repository:      parts.repository,
 		StateRoot:       parts.stateRoot,
 		MayStart:        parts.mayStart(),
+		UpdateNotDue:    parts.updateNotDue(),
 		// An escalation to the operator naming his own hold is checked against
 		// his pause, his hold on intake, and his epic mode while it waits.
 		OwnHold:       ownHoldOf(parts),

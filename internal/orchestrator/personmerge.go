@@ -167,8 +167,10 @@ func (r Reconciler) settlePersonMerge(ctx context.Context, answers forgeAnswers,
 	switch {
 	case observed.Merged:
 		result.Found = PersonMergeMerged
+		r.updateNotDue(maystart.UpdateForPerson, recorded)
 	case strings.EqualFold(strings.TrimSpace(observed.State), "closed"):
 		result.Found = PersonMergeClosed
+		r.updateNotDue(maystart.UpdateForPerson, recorded)
 	default:
 		result.Found = PersonMergeOpen
 		// A repair the development manager decided is running on this request and
@@ -360,6 +362,12 @@ func (r Reconciler) returnPersonMergeClosed(ctx context.Context, state *runstate
 // ContinueUpdates to host. A request the forge is already merging is left
 // alone. Whatever stops this short leaves the wait as it stands, says why, and
 // the next check asks again.
+//
+// A refusal by the decision is kept naming the run, which the list of
+// unpublished pull requests reads as the update being due. A check that finds
+// no update due, cannot tell, or finds the run cannot be put back takes it
+// away; one that cannot look, or hosts no runs and so stops before it asks,
+// leaves it.
 func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.State, observed publish.PullRequest, result PersonMergeSettlement) PersonMergeSettlement {
 	target := strings.TrimSpace(recorded.TargetBranch)
 	if r.Checks == nil || target == "" {
@@ -367,15 +375,18 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 	}
 	number := recorded.PersonMerge.Number
 	if observed.AutoMerge {
+		r.updateNotDue(maystart.UpdateForPerson, recorded)
 		result.Kept = fmt.Sprintf("a merge of pull request %d is in progress on the forge, so it is left alone", number)
 		return result
 	}
 	behindBy, err := r.behindBy(ctx, number, observed.HeadCommit, target)
 	if err != nil {
+		r.updateNotDue(maystart.UpdateForPerson, recorded)
 		result.Failure = fmt.Errorf("read whether pull request %d is behind %s: %w; it is read again at the next check", number, target, err).Error()
 		return result
 	}
 	if behindBy <= 0 {
+		r.updateNotDue(maystart.UpdateForPerson, recorded)
 		return result
 	}
 	result.BehindBy = behindBy
@@ -384,12 +395,13 @@ func (r Reconciler) updatePersonMerge(ctx context.Context, recorded runstate.Sta
 		return result
 	}
 	if refusal := cannotUpdatePersonMerge(recorded); refusal != "" {
+		r.updateNotDue(maystart.UpdateForPerson, recorded)
 		return r.refusePersonMergeUpdate(ctx, recorded, behindBy, refusal, result)
 	}
 	if !r.HostsRuns {
 		return keep("this pass hosts no runs (`yoyo reconcile` does)")
 	}
-	if refused := r.MayStart.refuseRun(maystart.UpdateForPerson, recorded.WorkItemID); refused != nil {
+	if refused := r.MayStart.refuseUpdate(maystart.UpdateForPerson, recorded); refused != nil {
 		return keep(refused.Error())
 	}
 	if r.Intake != nil {

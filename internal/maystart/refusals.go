@@ -78,6 +78,12 @@ type RefusedItem struct {
 	Path       Path   `json:"path"`
 	// Why is the reason last given.
 	Why string `json:"why"`
+	// RunID is the run the refusal is about, where what asked named one: an
+	// update of a change queued on GitHub or waiting for a person's merge
+	// (Start.OfRun). The list of unpublished pull requests reads it as that
+	// run's update being due, so an entry naming no run hides nothing, and a
+	// check of the run that finds no update due takes it away (UpdateNotDue).
+	RunID string `json:"run_id,omitempty"`
 	// Since is when it was first refused, and Last when it was last refused, to
 	// within refusedAgainAfter.
 	Since time.Time `json:"since"`
@@ -216,6 +222,23 @@ func KeepUpdateOf(stateRoot string, product domain.ProductID, target string) err
 	})
 }
 
+// UpdateNotDue takes away the refused update of one run by one path: a check of
+// that run found no update due, could not tell whether one is, or found the run
+// cannot be put back. An entry naming another run, or none, is left as it is.
+// Nothing is written where nothing is taken away.
+func UpdateNotDue(stateRoot string, product domain.ProductID, path Path, workItemID, runID string) error {
+	if runID == "" {
+		return nil
+	}
+	return change(stateRoot, product, func(current *Refusals, _ epicprogress.View, _ bool) bool {
+		before := len(current.Items)
+		current.Items = slices.DeleteFunc(current.Items, func(item RefusedItem) bool {
+			return item.WorkItemID == workItemID && item.Path == path && item.RunID == runID
+		})
+		return len(current.Items) != before
+	})
+}
+
 // change applies one change under the lock and writes the record where it
 // changed anything. Almost every call changes nothing, so that is found out
 // first, without the lock. The record of named epics is read again under it, so
@@ -291,12 +314,14 @@ func (r *Refusals) note(start Start, decision Decision, at time.Time) bool {
 			}
 			index := slices.IndexFunc(r.Items, func(item RefusedItem) bool { return item.WorkItemID == id && item.Path == start.path })
 			if index < 0 {
-				r.Items = append(r.Items, RefusedItem{WorkItemID: id, Path: start.path, Why: decision.Why, Since: at.UTC(), Last: at.UTC()})
+				r.Items = append(r.Items, RefusedItem{WorkItemID: id, Path: start.path, Why: decision.Why, RunID: start.runID, Since: at.UTC(), Last: at.UTC()})
 				changed = true
 				continue
 			}
-			if entry := &r.Items[index]; entry.Why != decision.Why || at.Sub(entry.Last) >= refusedAgainAfter {
-				entry.Why, entry.Last = decision.Why, at.UTC()
+			// A refusal for another run of the item puts that run in its place at
+			// once, since the list reads the run.
+			if entry := &r.Items[index]; entry.Why != decision.Why || entry.RunID != start.runID || at.Sub(entry.Last) >= refusedAgainAfter {
+				entry.Why, entry.RunID, entry.Last = decision.Why, start.runID, at.UTC()
 				changed = true
 			}
 		}

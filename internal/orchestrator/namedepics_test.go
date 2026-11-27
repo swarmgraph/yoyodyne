@@ -58,6 +58,13 @@ func epicModeKept(t *testing.T, members ...string) (StartDecision, func(item str
 		if path == "" {
 			want = nil
 		}
+		// An update of a change names the run it is about, and no other start does.
+		if (path == maystart.UpdateQueued || path == maystart.UpdateForPerson) && len(record.Items) == 1 {
+			if record.Items[0].RunID == "" {
+				t.Fatalf("refused starts = %+v, want the update naming its run", record.Items)
+			}
+			want[0].RunID = record.Items[0].RunID
+		}
 		if len(record.Items) != len(want) || (len(want) == 1 && record.Items[0] != want[0]) {
 			t.Fatalf("refused starts = %+v, want %+v", record.Items, want)
 		}
