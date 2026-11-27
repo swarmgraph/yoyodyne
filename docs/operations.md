@@ -2297,7 +2297,17 @@ giving it joins the same way. A member that was closed with nothing landed, or w
 request a person closed unmerged, waits on the Lead Product Manager until it is
 admitted again, replaced by a piece that is done, or taken out with `yoyo epic remove`.
 A member whose run ended complete with no change, and whose summary the reviewer
-approved, counts as done. An item with an unanswered question that names it keeps its
+approved, counts as done. A closed member counts as landed when a commit the harness
+recorded for it, the head the reviewer approved or the merge commit of its pull request,
+is on its target branch in this repository, however it got there: through the merge
+queue, merged on the forge outside it, or fast-forwarded by hand. One whose pull request
+the forge reports merged, where the target branch does not hold it yet, waits on the
+harness to confirm that merge. A closed member that holds child items in the tracker
+counts as done when every child is done in the same ways, at any depth, and status names
+each child that is not. The children do not become members, start nothing, and do not
+count toward the twelve; the check of the whole epic is given each child's change with
+its member's. For an epic you ended, a commit on the target counts only for a member the
+tracker had closed by then, because the commit does not say when it got there. An item with an unanswered question that names it keeps its
 epic from being shown as delivered. A member added after delivery, a piece that joined,
 or a pull request closed unmerged opens the epic again, and status says when it had
 been delivered. A state that cannot be worked out is said with why.
