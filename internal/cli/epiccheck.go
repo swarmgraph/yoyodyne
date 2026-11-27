@@ -248,22 +248,36 @@ func (e epicChecks) given(ctx context.Context, epic epicscope.Epic) (epiccheck.G
 		return epiccheck.Given{}, "", fmt.Errorf("read the tracker's item export: %w", err)
 	}
 	given := epiccheck.Given{Epic: epic, Entry: entry, Titles: map[string]string{}}
+	children := map[string][]string{}
 	for _, item := range items {
 		given.Titles[item.ID] = item.Title
+		if parent := item.DecomposedFrom(); parent != "" {
+			children[parent] = append(children[parent], item.ID)
+		}
 	}
 	for _, id := range view.Items(epic) {
 		if epic.TakenOut(id) {
 			continue
 		}
-		runs, err := e.parts.store.Runs(id)
-		if err != nil {
-			return epiccheck.Given{}, "", fmt.Errorf("read the runs of %s: %w", id, err)
-		}
-		member, handed := memberOf(id, given.Titles[id], runs)
-		given.Members = append(given.Members, member)
-		if handed {
-			given.HandedOver = true
-			given.Commits = append(given.Commits, member.Change)
+		// A member done because the children it holds are is given with each
+		// child's change as part of its own, at any depth; the children are not
+		// members, and the sessions that wrote them may not make the check either.
+		seen := map[string]bool{}
+		for _, part := range slices.Concat([]string{id}, descendants(id, children, seen)) {
+			runs, err := e.parts.store.Runs(part)
+			if err != nil {
+				return epiccheck.Given{}, "", fmt.Errorf("read the runs of %s: %w", part, err)
+			}
+			title := given.Titles[part]
+			if part != id {
+				title = fmt.Sprintf("%s, part of %s", title, id)
+			}
+			member, handed := memberOf(part, title, runs)
+			given.Members = append(given.Members, member)
+			if handed {
+				given.HandedOver = true
+				given.Commits = append(given.Commits, member.Change)
+			}
 		}
 	}
 	id, underway := entry.CheckUnderway()
@@ -283,6 +297,19 @@ func (e epicChecks) given(ctx context.Context, epic epicscope.Epic) (epiccheck.G
 		given.Commits = []string{head}
 	}
 	return given, id, nil
+}
+
+// descendants is every child an item holds in the tracker, at any depth, in order.
+func descendants(id string, children map[string][]string, seen map[string]bool) []string {
+	seen[id] = true
+	var below []string
+	for _, child := range slices.Sorted(slices.Values(children[id])) {
+		if !seen[child] {
+			below = append(below, child)
+			below = append(below, descendants(child, children, seen)...)
+		}
+	}
+	return below
 }
 
 // memberOf is one member as the check is given it, from its latest run that is its
@@ -310,6 +337,10 @@ func memberOf(id, title string, runs []runstate.State) (epiccheck.Member, bool) 
 		member.Change = work.PullRequest.MergeCommit
 	case work.PullRequest != nil && work.PullRequest.HeadCommit != "":
 		member.Change, handed = work.PullRequest.HeadCommit, !work.PullRequest.Merged
+	case work.ReviewDecision == runstate.ReviewApprove && work.ReviewHeadCommit != "" && work.ReviewHeadCommit != work.ReviewBaseCommit:
+		// An approved head a person brought onto the target branch by hand, which
+		// is how the read model counts it landed.
+		member.Change = work.ReviewHeadCommit
 	}
 	return member, handed
 }

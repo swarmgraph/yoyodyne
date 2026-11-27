@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -200,7 +202,7 @@ func (b *stateBench) read() *Epics {
 	b.t.Helper()
 	b.write()
 	tracker := statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{}}}
-	for _, id := range []string{stateEpic, stateOne, stateTwo, statePiece, stateOther} {
+	for _, id := range slices.Sorted(maps.Keys(b.items)) {
 		item := b.items[id]
 		tracker.byStatus[item.Status] = append(tracker.byStatus[item.Status], item)
 		if slices.Contains(b.ready, id) {
@@ -373,6 +375,168 @@ func TestAMemberIsJudgedByItsSummaryOnlyOnACompleteApprovedRunWithNoChange(t *te
 		b.lastRun(stateTwo, change)
 		t.Log(name)
 		b.wants(EpicWorking, "Waiting on the Lead Product Manager: Title "+stateTwo+" ("+stateTwo+") was closed without its change having landed")
+	}
+}
+
+// targetBranch is the local target branch as the repository answers for it: the
+// commits it holds.
+type targetBranch map[string]bool
+
+func (targetBranch) Survives(context.Context, gitworktree.Worktree) (gitworktree.Survival, error) {
+	return gitworktree.Survival{}, nil
+}
+
+func (t targetBranch) ContainsCommit(_ context.Context, commit, branch string) (bool, error) {
+	return branch == "main" && t[commit], nil
+}
+
+var (
+	approvedHead = strings.Repeat("a", 40)
+	mergeCommit  = strings.Repeat("b", 40)
+	cutFrom      = strings.Repeat("c", 40)
+)
+
+// unlanded is a member closed with an approved change that the harness never
+// landed itself: the merge queue refused it, or a person integrates by hand.
+func (b *stateBench) unlanded(id string, change func(*runstate.State)) {
+	b.status(id, "closed")
+	b.run(id, 1, func(run *runstate.State) {
+		run.TargetBranch, run.BaseCommit, run.ReviewBaseCommit, run.ReviewHeadCommit = "main", cutFrom, cutFrom, approvedHead
+		run.Changes = &runstate.Changes{Files: "M\tmain.go"}
+		change(run)
+	})
+}
+
+// A member whose recorded commit is on the target branch has landed, however it
+// got there; the forge reporting a merge alone is a wait for the harness to
+// confirm it, never a member closed without its change.
+func TestAMemberWhoseRecordedCommitIsOnTheTargetBranchHasLanded(t *testing.T) {
+	t.Parallel()
+	mergedOutsideTheQueue := func(run *runstate.State) {
+		run.Status, run.Failure = runstate.StatusFailed, "the merge queue for main would be too large"
+		run.PullRequest = &runstate.PullRequest{Number: 3068, State: "MERGED", Merged: true, MergeCommit: mergeCommit}
+	}
+	for name, test := range map[string]struct {
+		change func(*runstate.State)
+		branch targetBranch
+		want   EpicState
+		says   string
+	}{
+		"its approved head fast-forwarded onto main by hand":     {func(*runstate.State) {}, targetBranch{approvedHead: true}, EpicIntegrated, ""},
+		"its pull request merged on the forge outside the queue": {mergedOutsideTheQueue, targetBranch{mergeCommit: true}, EpicIntegrated, ""},
+		"the forge reports it merged and main does not hold it yet": {mergedOutsideTheQueue, targetBranch{}, EpicWorking,
+			"Waiting on the harness: Title " + stateTwo + " (" + stateTwo + ") has a pull request the forge reports merged, and the harness has not yet confirmed that merge"},
+		"the forge reports it merged and recorded no merge commit": {func(run *runstate.State) {
+			mergedOutsideTheQueue(run)
+			run.PullRequest.MergeCommit = ""
+		}, targetBranch{mergeCommit: true}, EpicWorking, "Waiting on the harness: Title " + stateTwo},
+		"its approved head is not on main": {func(*runstate.State) {}, targetBranch{mergeCommit: true}, EpicWorking,
+			"Waiting on the Lead Product Manager: Title " + stateTwo + " (" + stateTwo + ") was closed without its change having landed"},
+		"only the commit it was cut from is on main": {func(*runstate.State) {}, targetBranch{cutFrom: true}, EpicWorking,
+			"was closed without its change having landed"},
+		"its head is on main and its landing was claimed evidence": {func(run *runstate.State) { run.LandingOutcome = runstate.LandingEvidence },
+			targetBranch{approvedHead: true}, EpicWorking, "was closed without its change having landed"},
+		"its head is on main and the reviewer did not approve it": {func(run *runstate.State) { run.ReviewDecision = runstate.ReviewRepair },
+			targetBranch{approvedHead: true}, EpicWorking, "was closed without its change having landed"},
+		"its head is on another branch": {func(run *runstate.State) { run.TargetBranch = "release" }, targetBranch{approvedHead: true}, EpicWorking,
+			"was closed without its change having landed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := newStateBench(t)
+			b.sources.Remains = test.branch
+			b.landed(stateOne)
+			b.unlanded(stateTwo, test.change)
+			b.check(epicprogress.FoundAllMet, hours(2))
+			b.wants(test.want, test.says)
+		})
+	}
+}
+
+// An epic whose members all count done by their commits on main is offered its
+// check of the whole epic, rather than reading as not done.
+func TestAnEpicWhoseMembersWereMergedByHandOwesItsCheck(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.sources.Remains = targetBranch{approvedHead: true}
+	b.unlanded(stateOne, func(*runstate.State) {})
+	b.unlanded(stateTwo, func(*runstate.State) {})
+	if standing := b.wants(EpicWorking, "Waiting on the reviewer: every member is done and the check of the whole epic is owed"); !standing.CheckDue() {
+		t.Error("the check of the whole epic is not due")
+	}
+	// Without the repository to ask, nothing but the harness's own landing counts.
+	b.sources.Remains = nil
+	b.wants(EpicWorking, "was closed without its change having landed")
+}
+
+// A member closed without a change of its own is done where every child it
+// holds in the tracker is, at any depth, and the children never become members.
+func TestAClosedParentWhoseChildrenLandedIsDone(t *testing.T) {
+	t.Parallel()
+	const child, grandchild, other = stateTwo + ".1", stateTwo + ".2", stateTwo + ".2.1"
+	parented := func(b *stateBench, id, parent string) {
+		b.items[id] = beads.WorkItem{ID: id, Title: "Title " + id, Status: "open", Parent: parent}
+	}
+	given := func(t *testing.T) *stateBench {
+		b := newStateBench(t)
+		b.sources.Remains = targetBranch{approvedHead: true}
+		b.landed(stateOne)
+		b.status(stateTwo, "closed")
+		parented(b, child, stateTwo)
+		parented(b, grandchild, stateTwo)
+		parented(b, other, grandchild)
+		b.landed(child)
+		b.status(grandchild, "closed")
+		b.unlanded(other, func(*runstate.State) {})
+		b.check(epicprogress.FoundAllMet, hours(2))
+		return b
+	}
+	b := given(t)
+	epics := b.read()
+	b.wants(EpicIntegrated)
+	if open := epics.Open[0]; open.Done+open.Running+open.Ready+open.Waiting != 2 {
+		t.Errorf("the epic counts %+v, want its two members and none of the children", open)
+	}
+
+	b = given(t)
+	b.status(child, "open")
+	b.wants(EpicWorking, "Title "+stateTwo+" ("+stateTwo+") was closed without its change having landed; the children it holds that are not done: Title "+child)
+
+	b = given(t)
+	b.runs[other] = nil
+	b.wants(EpicWorking, "the children it holds that are not done: Title "+other+" ("+other+"), Title "+grandchild)
+
+	// A member with no change, no approved run and no children is still named.
+	b = given(t)
+	delete(b.items, child)
+	delete(b.items, grandchild)
+	delete(b.items, other)
+	b.wants(EpicWorking, "Title "+stateTwo+" ("+stateTwo+") was closed without its change having landed: admit it again")
+}
+
+// An ended epic counts a commit on main only for a member the tracker had
+// closed by the time the operator ended it, because the commit does not say
+// when it got there.
+func TestAnEndedEpicCountsACommitOnTheTargetOnlyForAMemberClosedBeforeTheEnd(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		closed time.Time
+		want   EpicState
+	}{
+		"closed before the end": {hours(1), EpicIntegrated},
+		"closed after the end":  {hours(4), EpicCancelled},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := newStateBench(t)
+			b.sources.Remains = targetBranch{approvedHead: true}
+			b.landed(stateOne)
+			b.unlanded(stateTwo, func(*runstate.State) {})
+			b.set(stateTwo, func(item *beads.WorkItem) { item.ClosedAt = test.closed })
+			b.deliver(hours(2))
+			b.end(hours(3))
+			b.wants(test.want)
+		})
 	}
 }
 

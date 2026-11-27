@@ -4,6 +4,7 @@ package readmodel
 // reading: docs/designs/epic-mode-second-part.md, piece 8.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -174,9 +175,22 @@ type EpicCosts interface {
 	Cost(view epicprogress.View, epic epicscope.Epic) (epiccost.Standing, error)
 }
 
+// TargetContents is the repository asked whether a commit is in a local branch's
+// history. It is an optional capability of Remains, satisfied by
+// *gitworktree.Manager, and reads that repository only. A reading without it
+// counts a member landed only where the harness itself recorded the landing.
+type TargetContents interface {
+	ContainsCommit(ctx context.Context, commit, branch string) (bool, error)
+}
+
 // epicStandings is what the states are worked out from.
 type epicStandings struct {
 	epicFacts
+	ctx context.Context
+	// contents is asked whether a commit recorded for a member is on its target
+	// branch, and carried is each answer, by branch and commit.
+	contents   TargetContents
+	carried    map[[2]string]bool
 	runs       itemRuns
 	recorded   map[string][]runstate.State
 	groups     map[string]WaitGroup
@@ -200,9 +214,11 @@ type epicStandings struct {
 	needsProblem string
 }
 
-func newEpicStandings(facts epicFacts, sources Sources, standing Standing, needs []Attention, needsProblem, problem string, progressErr error) *epicStandings {
+func newEpicStandings(ctx context.Context, facts epicFacts, sources Sources, standing Standing, needs []Attention, needsProblem, problem string, progressErr error) *epicStandings {
 	s := &epicStandings{epicFacts: facts, needs: needs, needsProblem: needsProblem, conversations: sources.Conversations, problem: problem, recorded: map[string][]runstate.State{}, groups: map[string]WaitGroup{},
 		held: map[string]Refused{}, capacity: map[string]bool{}, paused: map[string]bool{}, unfinished: map[string]struct{}{}}
+	s.ctx, s.carried = ctx, map[[2]string]bool{}
+	s.contents, _ = sources.Remains.(TargetContents)
 	s.runs, _ = sources.Runs.(itemRuns)
 	s.budgets, _ = sources.Epics.(EpicBudgets)
 	s.costs, _ = sources.Epics.(EpicCosts)
@@ -555,6 +571,7 @@ func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id
 	if err != nil {
 		return false, false, err
 	}
+	closedBy := s.done(id) && !s.items[id].ClosedAt.After(at)
 	if s.items[id].Landing != "" && !s.items[id].ClosedAt.After(at) {
 		return true, false, nil
 	}
@@ -587,6 +604,13 @@ func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id
 			standing && run.Integration != nil && (run.PullRequest == nil || run.PullRequest.Merged):
 			return true, false, nil
 		}
+		// A commit on the target branch says nothing of when it got there, so it
+		// counts only for an item the tracker had closed by the moment.
+		if closedBy {
+			if carried, err := s.onTarget(run); err != nil || carried {
+				return carried, false, err
+			}
+		}
 	}
 	if done {
 		return done, handed, nil
@@ -600,7 +624,29 @@ func (s *epicStandings) doneAt(epic epicscope.Epic, entry epicprogress.Entry, id
 		pieces++
 		handed = handed || pieceHanded
 	}
+	if pieces == 0 && closedBy {
+		return s.childrenDoneAt(epic, entry, id, at, seen)
+	}
 	return pieces > 0, handed, nil
+}
+
+// childrenDoneAt is whether an item held at least one child in the tracker and
+// every child was done at a moment, by doneAt's rules, at any depth.
+func (s *epicStandings) childrenDoneAt(epic epicscope.Epic, entry epicprogress.Entry, id string, at time.Time, seen map[string]bool) (done, handed bool, err error) {
+	held := 0
+	for child, item := range s.items {
+		if item.DecomposedFrom() != id || seen[child] {
+			continue
+		}
+		seen[child] = true
+		childDone, childHanded, err := s.doneAt(epic, entry, child, at, seen)
+		if err != nil || !childDone {
+			return false, false, err
+		}
+		held++
+		handed = handed || childHanded
+	}
+	return held > 0, handed, nil
 }
 
 // questionOpenAt reports a question between roles, or a directive, that names an
@@ -799,13 +845,21 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 	}
 	returned := len(runs) > 0 && closedUnmerged(runs[0]) != nil
 	if s.done(id) || s.gone(id) {
-		if s.items[id].Landing != "" || slices.ContainsFunc(runs, func(run runstate.State) bool { return landed(run) || approvedSummary(run) }) {
-			return epicMember{done: true}, nil
+		finished, err := s.finished(id)
+		if err != nil || finished {
+			return epicMember{done: finished}, err
 		}
 		if slices.ContainsFunc(runs, runstate.State.AwaitingForge) {
 			return waits(MoverForge, "has a change the forge has not merged yet")
 		}
-		return s.replaced(epic, entry, id, returned, budgetRefuses, seen)
+		if slices.ContainsFunc(runs, mergeUnconfirmed) {
+			return waits(MoverHarness, "has a pull request the forge reports merged, and the harness has not yet confirmed that merge on the target branch")
+		}
+		held, notDone, err := s.children(id, map[string]bool{})
+		if err != nil || held > 0 && len(notDone) == 0 {
+			return epicMember{done: err == nil}, err
+		}
+		return s.replaced(epic, entry, id, returned, budgetRefuses, seen, notDone...)
 	}
 	group, grouped := s.groups[id]
 	if s.ready[id] {
@@ -915,6 +969,117 @@ func landed(run runstate.State) bool {
 	return run.Discharges() && (run.RecordedAsMerged() || run.PersonMerge != nil && run.PersonMerge.Merged())
 }
 
+// finished reports a closed item whose work is done by its own runs: a landing
+// the tracker or a run recorded, a summary the reviewer approved, or a commit
+// recorded for it that is on its target branch however it got there.
+func (s *epicStandings) finished(id string) (bool, error) {
+	runs, err := s.runsOf(id)
+	if err != nil {
+		return false, err
+	}
+	if s.items[id].Landing != "" || slices.ContainsFunc(runs, func(run runstate.State) bool { return landed(run) || approvedSummary(run) }) {
+		return true, nil
+	}
+	for _, run := range runs {
+		if carried, err := s.onTarget(run); err != nil || carried {
+			return carried, err
+		}
+	}
+	return false, nil
+}
+
+// recordedCommits is each commit the harness recorded for a run that is its
+// change: the head the reviewer approved, and the merge commit of its pull
+// request where the harness recorded the merge. The base it was cut from is
+// never one, because the target holds that whatever became of the change.
+func recordedCommits(run runstate.State) []string {
+	var commits []string
+	if run.ReviewDecision == runstate.ReviewApprove {
+		head := run.ReviewHeadCommit
+		if head == "" {
+			head = run.HarnessCommit
+		}
+		commits = append(commits, head)
+	}
+	if run.PullRequest != nil && run.PullRequest.Merged {
+		commits = append(commits, run.PullRequest.MergeCommit)
+	}
+	if run.PersonMerge != nil && run.PersonMerge.Merged() {
+		commits = append(commits, run.PersonMerge.MergeCommit)
+	}
+	return slices.DeleteFunc(commits, func(commit string) bool {
+		return strings.TrimSpace(commit) == "" || commit == run.BaseCommit || commit == run.ReviewBaseCommit
+	})
+}
+
+// onTarget reports a run that is the item's work and one of whose recorded
+// commits is on its target branch: through the merge queue, merged on the forge
+// outside it, or merged by hand. The forge's word is not asked.
+func (s *epicStandings) onTarget(run runstate.State) (bool, error) {
+	if s.contents == nil || !run.Discharges() || run.TargetBranch == "" {
+		return false, nil
+	}
+	for _, commit := range recordedCommits(run) {
+		key := [2]string{run.TargetBranch, commit}
+		carried, asked := s.carried[key]
+		if !asked {
+			var err error
+			if carried, err = s.contents.ContainsCommit(s.ctx, commit, run.TargetBranch); err != nil {
+				return false, fmt.Errorf("whether %s of %s is on %s could not be read: %w", commit, run.RunID, run.TargetBranch, err)
+			}
+			s.carried[key] = carried
+		}
+		if carried {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// mergeUnconfirmed reports a run that is the item's work whose pull request the
+// forge reports merged, where the harness has not confirmed that merge on the
+// target branch: it recorded no landing of it, or the commit it recorded is not
+// on the branch it reads. A run that landed is read before this is asked.
+func mergeUnconfirmed(run runstate.State) bool {
+	return run.Discharges() && run.PullRequest != nil && run.PullRequest.Merged
+}
+
+// children is how many child items a closed item holds in the tracker, and each
+// one, at any depth, that is not done: closed with its own work finished, or
+// closed with every child it holds done in turn. Children are never members;
+// this says only whether the item's own work is finished.
+func (s *epicStandings) children(id string, seen map[string]bool) (held int, notDone []string, err error) {
+	seen[id] = true
+	var ids []string
+	for child, item := range s.items {
+		if item.DecomposedFrom() == id && !seen[child] {
+			ids = append(ids, child)
+		}
+	}
+	slices.Sort(ids)
+	for _, child := range ids {
+		held++
+		done := s.done(child)
+		if done {
+			if done, err = s.finished(child); err != nil {
+				return 0, nil, err
+			}
+		}
+		if s.done(child) && !done {
+			below, belowNotDone, err := s.children(child, seen)
+			if err != nil {
+				return 0, nil, err
+			}
+			done = below > 0 && len(belowNotDone) == 0
+			notDone = append(notDone, belowNotDone...)
+		}
+		if !done {
+			notDone = append(notDone, child)
+		}
+	}
+	return held, notDone, nil
+}
+
 // approvedSummary reports a run that ended complete with no change to land, whose
 // summary the reviewer approved as the item's work.
 func approvedSummary(run runstate.State) bool {
@@ -926,7 +1091,8 @@ func approvedSummary(run runstate.State) bool {
 // replaced is a member that was closed with nothing landed. It counts as done
 // once every piece written in its place is, and is otherwise decided by the
 // Lead Product Manager.
-func (s *epicStandings) replaced(epic epicscope.Epic, entry epicprogress.Entry, id string, returned, budgetRefuses bool, seen map[string]bool) (epicMember, error) {
+// notDone is each child it holds that is not done, named with it.
+func (s *epicStandings) replaced(epic epicscope.Epic, entry epicprogress.Entry, id string, returned, budgetRefuses bool, seen map[string]bool, notDone ...string) (epicMember, error) {
 	runs, err := s.runsOf(id)
 	if err != nil {
 		return epicMember{}, err
@@ -947,6 +1113,13 @@ func (s *epicStandings) replaced(epic epicscope.Epic, entry epicprogress.Entry, 
 	why := "was closed without its change having landed"
 	if returned {
 		why = "had its pull request closed unmerged by a person"
+	}
+	if len(notDone) > 0 {
+		named := make([]string, 0, len(notDone))
+		for _, child := range notDone {
+			named = append(named, s.name(child, ""))
+		}
+		why += "; the children it holds that are not done: " + strings.Join(named, ", ")
 	}
 	return epicMember{waits: []EpicWait{{Owner: MoverProductManager, Says: fmt.Sprintf(
 		"%s %s: admit it again, have it replaced, or ask the operator to take it out (yoyo epic remove %s %s --words <text>)", s.name(id, ""), why, epic.WorkItemID, id)}}}, nil

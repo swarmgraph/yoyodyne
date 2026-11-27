@@ -2642,6 +2642,21 @@ func (m *Manager) optionalBranchCommit(ctx context.Context, branch string) (stri
 	return commit, true, nil
 }
 
+// ContainsCommit reports whether a commit is part of a local branch's history,
+// with contains' rule that only a clean yes is a yes. It is how the read model
+// tells a member of a named epic whose recorded commit reached the target branch
+// by any route, a person's local fast-forward included, and it reads only this
+// repository: nothing is fetched.
+func (m *Manager) ContainsCommit(ctx context.Context, commit, branch string) (bool, error) {
+	if !commitPattern.MatchString(commit) {
+		return false, fmt.Errorf("commit %q is invalid", commit)
+	}
+	if err := validateTargetBranch(branch); err != nil {
+		return false, err
+	}
+	return m.contains(ctx, commit, branch)
+}
+
 // contains reports whether a commit is already part of a branch's history. Any
 // answer other than a clean yes is reported as no, because containment is what
 // permits destructive follow-up work and an unclear answer must never authorize

@@ -117,6 +117,21 @@ func TestAMemberIsGivenWithItsChangeItsReviewAndItsSessions(t *testing.T) {
 	if member, handed := memberOf("yoyodyne-ep.1", "", []runstate.State{merged}); !handed || member.Change != "head2" {
 		t.Fatalf("handed over: %+v, handed %t", member, handed)
 	}
+	// An approved head a person fast-forwarded onto the target by hand, with no
+	// pull request, is given as the change.
+	merged.PullRequest, merged.ReviewBaseCommit, merged.ReviewHeadCommit = nil, "base3", "head3"
+	if member, handed := memberOf("yoyodyne-ep.1", "", []runstate.State{merged}); handed || member.Change != "head3" {
+		t.Fatalf("merged by hand: %+v, handed %t", member, handed)
+	}
+}
+
+// Every child an item holds is listed after it, at any depth, each once.
+func TestTheChildrenOfAMemberAreGivenAfterIt(t *testing.T) {
+	t.Parallel()
+	children := map[string][]string{"ep.2": {"ep.2.2", "ep.2.1"}, "ep.2.1": {"ep.2.1.1", "ep.2"}}
+	if got := strings.Join(descendants("ep.2", children, map[string]bool{}), ","); got != "ep.2.1,ep.2.1.1,ep.2.2" {
+		t.Fatalf("descendants = %s", got)
+	}
 }
 
 // Once the most sessions allowed for one check ended without answering, the
