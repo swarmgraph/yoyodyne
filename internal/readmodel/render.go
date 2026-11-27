@@ -80,6 +80,7 @@ func (s Standing) RenderBanner() string {
 func (s Standing) RenderLines() string {
 	var rendered strings.Builder
 	rendered.WriteString(s.renderRunning())
+	rendered.WriteString(s.renderLeftProcesses())
 	rendered.WriteString(s.renderPaused())
 	rendered.WriteString(s.renderWaitingForTeamMerge())
 	rendered.WriteString(s.renderBatchPullRequest())
@@ -241,6 +242,38 @@ func (s Standing) renderRunning() string {
 		}
 	}
 	return rendered.String()
+}
+
+// renderLeftProcesses names, under its run, every process a run left running,
+// and says nothing where there is none.
+func (s Standing) renderLeftProcesses() string {
+	if len(s.LeftProcesses) == 0 && s.LeftProcessesProblem == "" {
+		return ""
+	}
+	var rendered strings.Builder
+	if s.LeftProcessesProblem != "" {
+		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.LeftProcessesProblem)
+	}
+	if len(s.LeftProcesses) == 0 {
+		return rendered.String()
+	}
+	fmt.Fprintf(&rendered, "Left running by runs (%s):\n", processes(len(s.LeftProcesses)))
+	listed, further := bound(len(s.LeftProcesses))
+	for _, process := range s.LeftProcesses[:listed] {
+		fmt.Fprintf(&rendered, "  %s, run %s: %s\n", s.named(process.WorkItemID, ""), process.RunID, process.Says)
+	}
+	if further > 0 {
+		fmt.Fprintf(&rendered, "  and %s not named here\n", processes(further))
+	}
+	return rendered.String()
+}
+
+// processes counts processes, whose plural count would misspell.
+func processes(number int) string {
+	if number == 1 {
+		return "1 process"
+	}
+	return fmt.Sprintf("%d processes", number)
 }
 
 // named is one work item as a list the harness builds names it: with its

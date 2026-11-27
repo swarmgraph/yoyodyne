@@ -4825,6 +4825,14 @@ type State struct {
 	// never a stall and never carries a ProviderStop: the turn had ended. An
 	// attempt whose session exited with its reply clears it.
 	AfterReply *execution.AfterReply `json:"after_reply,omitempty"`
+	// LeftProcesses is what the harness found still running for this run the
+	// last time it stopped what the run started — when a developer or reviewer
+	// session ended, or the run did: a process it could not stop, or one inside
+	// the run's folders carrying no sign the run started it, which it never
+	// stops (execution.RunProcesses). yoyo status shows each under the run. It
+	// is replaced by every later stop, so a process that has since gone leaves
+	// the record with the next one.
+	LeftProcesses []execution.LeftProcess `json:"left_processes,omitempty"`
 	// DirectivePause records that an unresolved user directive stopped this run
 	// short of finishing: one that changes a governed artifact this work derives
 	// from, or one nobody can act on until the operator says what they meant. Like

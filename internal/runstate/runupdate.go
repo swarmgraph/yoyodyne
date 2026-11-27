@@ -34,6 +34,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
 
 // RunUpdate is one named change to a run record. apply makes the change to the
@@ -422,6 +424,28 @@ func (u SpendWaitRecorded) apply(state *State) (bool, error) {
 	} else {
 		state.SpendWait = nil
 	}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
+// LeftProcessesFound records what the harness found still running for the run
+// the last time it stopped what the run started (State.LeftProcesses),
+// replacing what an earlier stop found. The same finding again changes nothing.
+type LeftProcessesFound struct {
+	Left []execution.LeftProcess
+	At   time.Time
+}
+
+func (u LeftProcessesFound) apply(state *State) (bool, error) {
+	if len(u.Left) == 0 && len(state.LeftProcesses) == 0 {
+		return false, nil
+	}
+	if encoded, err := json.Marshal(u.Left); err == nil {
+		if before, err := json.Marshal(state.LeftProcesses); err == nil && string(before) == string(encoded) {
+			return false, nil
+		}
+	}
+	state.LeftProcesses = append([]execution.LeftProcess(nil), u.Left...)
 	state.UpdatedAt = u.At
 	return true, nil
 }

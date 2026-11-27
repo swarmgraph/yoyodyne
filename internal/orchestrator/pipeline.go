@@ -433,6 +433,11 @@ type Pipeline struct {
 	// nil leaves every review on Reviewer, as before.
 	ReviewerFor ReviewerForEndpoint
 	Checks      CheckRunner
+	// RunProcesses stops every process a run started, including one that left
+	// its session's process group, once each developer or reviewer session ends
+	// and as the run ends (runprocesses.go). Nil stops nothing beyond what the
+	// runner's own group kill reaches.
+	RunProcesses RunProcessStopper
 	// Load is the machine's load, read as each check begins to scale the check
 	// stage's bound the way a local Git command's budget is scaled. Optional: a
 	// pipeline without one — or on a platform that cannot report the load —
@@ -1686,6 +1691,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		publishing: publishing,
 		invariants: invariants,
 	}
+	// Whatever the run started is stopped as it ends, however it ends, before
+	// the reservation above lets it go (deferred calls run last first).
+	defer run.stopWhatItStarted(ctx)
 
 	// The run records its instance of the delivery definition here, standing on
 	// the definition's first state, before the first thing this run changes
@@ -2450,6 +2458,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			LateStop: state.LateStop,
 		},
 	}
+	// Whatever the run started is stopped as it ends, however it ends, before
+	// the caller lets go of the lease it adopted the run under.
+	defer run.stopWhatItStarted(ctx)
 	run.keptChecksOwed = pickedUpAtChecks
 	run.keptChecksAfterLostHost = hostLostAtChecks
 	run.clearAcceptedSchedulingWait(ctx)
@@ -5284,6 +5295,9 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 				return finishErr
 			}
 		}
+		// The session has ended, so nothing it started may outlive it into the
+		// checks (runprocesses.go).
+		a.stopWhatItStarted(ctx)
 		// An attempt a stop cut short keeps what it wrote, committed on the run's
 		// branch as the ending below leaves every stopped run's change.
 		if cutShort {
@@ -10826,6 +10840,9 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 			result.Decision, result.Verdict = "", review.Verdict{}
 		}
 	}
+	// The session has ended, so nothing it started may outlive it
+	// (runprocesses.go).
+	a.stopWhatItStarted(ctx)
 	// What the reviewer reported is collected before its verdict is read,
 	// because a report survives a review the harness went on to reject: the
 	// reviewer noticed the thing whatever became of the verdict beside it.
