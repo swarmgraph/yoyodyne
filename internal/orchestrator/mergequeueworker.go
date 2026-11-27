@@ -424,7 +424,7 @@ func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueu
 	if len(waiting) == 0 {
 		return MergeQueueChoice{}, false, nil
 	}
-	order := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths, now: w.now(), lastLandedDocument: lastLandingWasDocument(w.Queue, key, after)}
+	order := queueOrder{pipeline: w.Pipeline, paths: w.Candidates.CandidatePaths, now: w.now(), lastLandedDocument: lastLandingWasDocument(w.Queue, key, after), records: w.Queue}
 	choice := order.choose(ctx, waiting, started)
 	if after == "" {
 		queueChose(ctx, choice)
