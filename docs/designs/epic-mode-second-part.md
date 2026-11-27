@@ -43,6 +43,10 @@ revisions:
       by: architect
       at: 2026-11-27T17:24:27.204082Z
       reason: 'yoyodyne-9k1y.23: corrects the landed ruling to the operator''s wording of about 08:48 PST on November 27: an epic does not start, and an item is not added, while anything open outside it could block a member; a role''s link to an open outside item is refused when written; a blocker that appears anyway is one question to the Lead Product Manager and never joins on its own. Withdraws the judged join, which let work start the operator never named. The edited pieces subsection is copied unchanged from main 75cfaf65cdf9, read whole.'
+    - action: amended
+      by: architect
+      at: 2026-11-27T20:12:53.809591Z
+      reason: 'yoyodyne-9k1y.13: answers its developer''s two questions. While a naming is open the harness also reads comments made after the merge on each member''s merged pull request, until the operator ends the naming; which case applies is decided from where the epic stands when the comment is read. A change request on an open pull request of a handed over epic is judged and repaired once, and the whole epic is checked again before it is delivered again. The rest of the section is copied unchanged from main 01e13bfc2b72.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -89,6 +93,11 @@ approvals:
       by: harness
       at: 2026-11-27T17:24:27.204082Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4240, for document-4240.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-11-27T20:12:53.809591Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4267, for document-4267.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -343,6 +352,26 @@ Piece 11 waits for piece 10 as well as piece 9, because adding to a delivered ep
 - A request for something new is a question about scope, however it was worded. The harness decides nothing by reading words.
 
 The Lead Product Manager answers a question about scope first. The answer may be that the epic can be delivered without the piece, or that the piece should be rewritten to fit. The development manager then rewrites it and it is judged again. Adding what the description does not cover is the operator's. Naming an epic is a hold the operator placed on everything else, and adding an item lifts it for that item, so the reason is lifting a hold the operator placed, and the closed list does not change. The operator is asked only where the epic cannot be delivered without the piece, or where a person asked for it in review. One question is asked for one piece, with the command that adds it, and the operator may ask about it before answering. The other members carry on meanwhile. Anything else is a suggestion.
+
+### Which pull requests are read, and for how long
+
+Ruled on November 27, 2026, for yoyodyne-9k1y.13, from the question its developer raised in run run-2bec8524f8d5898eb3e9556f99361af5. Every reader of pull request feedback today skips a pull request that is no longer open, so without this nothing would find feedback after a member's change merged.
+
+1. **Open pull requests.** Piece 11 adds no reader for an open pull request. A change request is judged under the first bullet above only where the existing repair from pull request feedback would act on it, which today means a pull request waiting for a person to merge it. A comment the existing repair does not act on, such as one on a merge queue candidate, is left as it is today.
+2. **Merged pull requests.** While a naming is open, the harness also reads the comments on each member's merged pull request: the one whose merge commit the harness recorded for that member, as the subsection on when a member is done says. It reads them on the same schedule as the existing reader of open pull requests, with the same rule for whose comments are accepted and which count as feedback, and only comments made after the merge the harness recorded. A pull request closed unmerged is not read, because piece 8 already gives it to the Lead Product Manager. A member done with no pull request has nothing to read.
+3. **For how long.** Until the operator ends the naming, whether or not the epic was delivered, because a delivered epic keeps its items until it is ended. With no epic named, or once a naming has ended, no merged pull request is read and every reader works as today.
+4. **Which bullet applies.** It is decided when the comment is read, from where the epic stands then. A comment on an open pull request is the first bullet. A comment on a merged pull request while the epic is not delivered is the second. A comment on a merged pull request once the epic is delivered, integrated or handed over, is the third.
+5. **Once only.** The comment's identifier is written into the epic's progress entry before anything is done with it, as for every comment. A comment read twice, or read again after a restart, is acted on once.
+
+### A change request while the epic is handed over
+
+Ruled the same day for the same item. A change request on a member's pull request that is still open is the first bullet, also when every member is approved and the epic shows Delivered, handed over. The person asking is reviewing work the operator named, so it is judged and, judged inside, repaired once on the same pull request by the existing repair. While the repair is under way the epic is Working and status names the repair. When the repaired change is approved, the check of the whole epic is made again on the new approved heads before the epic is shown as delivered again. That check is not a round of correction. Judged outside, or where the reviewer cannot tell, no repair starts and it is a question about scope, as above.
+
+Rejected: treating such a change request as feedback after delivery, because the change has not merged, and the person's review would then wait on the Lead Product Manager and the operator for work the description already asks; reading merged pull requests for a fixed time after each merge, because a delivered epic's members stay its own until the operator ends it, and a fixed time would drop feedback the operator still expects to be seen; reading merged pull requests with no epic named, because that would change every project that names none.
+
+The readers of pull request feedback in internal/orchestrator were not read for this ruling; it rests on the developer's account of them. A builder who finds that the harness keeps no merge commit for a member's merged pull request stops and asks the architect.
+
+A reviewer can check: a comment made after a member's pull request merged, while the epic is open and not delivered, becomes one piece naming the comment and the member; the same comment after delivery becomes one item that starts nothing; a comment made before the merge is not read again; a pull request closed unmerged is not read; after the operator ends the naming, and with no epic named, no merged pull request is read; a change request on an open pull request of a handed over epic is judged, repaired once on the same pull request, and the check of the whole epic is made again before the epic is delivered again; a restart acts on no comment twice.
 
 ## What an epic costs: piece 12 (yoyodyne-9k1y.14)
 
