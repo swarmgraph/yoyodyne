@@ -131,6 +131,12 @@ func (s State) SpendsForConflict() (SpendConflict, string) {
 	return SpendConflictHandback, s.ConflictSpending.Handback
 }
 
+// LastConflictHandback is when the run was last handed back for a conflict,
+// and zero where it never was.
+func (s State) LastConflictHandback() time.Time {
+	return lastConflictHandback(s)
+}
+
 // lastConflictHandback is when the run was last handed back for a conflict, and
 // zero where it never was.
 func lastConflictHandback(state State) time.Time {

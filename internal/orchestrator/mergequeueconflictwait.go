@@ -117,7 +117,7 @@ func (r MergeQueueReturns) Ahead(ctx context.Context, returned runstate.MergeQue
 	}
 	placed := returned
 	placed.AdmittedAt = now.UTC()
-	order := queueOrder{pipeline: r.Pipeline, paths: r.Git.CandidatePaths, now: now.UTC(), lastLandedDocument: lastLandingWasDocument(r.Queue, key, "")}
+	order := queueOrder{pipeline: r.Pipeline, paths: r.Git.CandidatePaths, now: now.UTC(), lastLandedDocument: lastLandingWasDocument(r.Queue, key, ""), records: r.Queue}
 	choice := order.choose(ctx, append(candidates, placed), started)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()

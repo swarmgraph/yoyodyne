@@ -31,6 +31,7 @@ const mergeQueueAgeLimit = 4 * time.Hour
 // Rules that can choose an entry, in the words a record of the choice carries.
 const (
 	MergeQueueRuleInProgress  = "already being checked or reviewed"
+	MergeQueueRuleReturned    = "brought up to date after a conflict"
 	MergeQueueRuleAged        = "waited four hours or more"
 	MergeQueueRuleUrgent      = "priority 0 code"
 	MergeQueueRuleDocument    = "document"
@@ -62,6 +63,10 @@ type MergeQueueChoice struct {
 	// choice reads, from the record of this one, to learn whether the last
 	// candidate the queue landed was a document candidate.
 	Document bool
+	// HandedBackAt is when the chosen entry's change was last handed back for a
+	// conflict at landing, where it was chosen as a change brought up to date
+	// after one (MergeQueueRuleReturned).
+	HandedBackAt time.Time
 	// DocumentPassedOver says documents were waiting and the document rule was
 	// passed over for this one choice, because the last candidate the queue
 	// landed was a document candidate and ordinary code was waiting.
@@ -127,6 +132,11 @@ func (c MergeQueueChoice) Why() string {
 		why = "it was the only entry waiting"
 	case MergeQueueRuleInProgress:
 		why = "its checks or review had already begun, and they are not thrown away for another entry"
+	case MergeQueueRuleReturned:
+		why = "it is code that was handed back because it conflicted with the target at landing and has been brought up to date, and such a change takes the next candidate alone, ahead of every other waiting entry, so that the target does not move under it again"
+		if !c.HandedBackAt.IsZero() {
+			why += fmt.Sprintf("; it was last handed back for a conflict at %s", c.HandedBackAt.Local().Format("Jan 2 15:04 MST"))
+		}
 	case MergeQueueRuleAged:
 		why = "it had waited four hours or more, and an entry that has waited that long goes ahead of everything else whatever its priority"
 	case MergeQueueRuleUrgent:
@@ -187,6 +197,10 @@ type rankedEntry struct {
 	// first among its priority (docs/designs/placing-an-item-first.md), and nil
 	// where no placement orders it.
 	placed *time.Time
+	// returnedAt is when the entry's change was last handed back for a
+	// conflict at landing, where the entry holds the next turn that hand-back
+	// gives (conflictTurn), and zero otherwise.
+	returnedAt time.Time
 }
 
 // queueOrder is what the order is chosen with. The worker that verifies the
@@ -202,6 +216,10 @@ type queueOrder struct {
 	// lastLandedDocument says the last candidate the queue landed was a
 	// document candidate, as the recorded choices say (lastLandingWasDocument).
 	lastLandedDocument bool
+	// records are the queue's own records, read to learn whether a change
+	// brought up to date after a conflict has already had the turn that gives
+	// it (conflictTurn). Without them no entry is given that turn.
+	records queueLandingRecords
 }
 
 func (o queueOrder) choose(ctx context.Context, waiting []runstate.MergeQueueEntry, started map[string]bool) MergeQueueChoice {
@@ -214,11 +232,16 @@ func (o queueOrder) choose(ctx context.Context, waiting []runstate.MergeQueueEnt
 // document landing route (changeIsDocument). A change whose paths cannot be
 // read is a code entry, which is checked as code is.
 func (o queueOrder) documentKind(ctx context.Context, entry runstate.MergeQueueEntry) bool {
-	if o.pipeline.Store == nil || o.paths == nil {
+	if o.pipeline.Store == nil {
 		return false
 	}
 	run, err := o.pipeline.Store.Load(entry.RunID)
-	if err != nil || run.BaseCommit == "" || entry.Head() == "" {
+	return err == nil && o.documentRun(ctx, entry, run)
+}
+
+// documentRun is documentKind for an entry whose run has been read.
+func (o queueOrder) documentRun(ctx context.Context, entry runstate.MergeQueueEntry, run runstate.State) bool {
+	if o.paths == nil || run.BaseCommit == "" || entry.Head() == "" {
 		return false
 	}
 	changed, err := o.paths(ctx, run.BaseCommit, entry.Head())
@@ -270,9 +293,17 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	var firstReadError error
 	var remembered, forgotten []string
 	read := o.readEntryItems(ctx, waiting)
+	turns := conflictTurns{records: o.records}
 	for _, entry := range waiting {
 		r := rankedEntry{entry: entry, inProgress: started[entry.EntryID]}
-		r.document = o.documentKind(ctx, entry)
+		if o.pipeline.Store != nil {
+			if run, err := o.pipeline.Store.Load(entry.RunID); err == nil {
+				r.document = o.documentRun(ctx, entry, run)
+				if !r.document {
+					r.returnedAt = turns.of(entry, run)
+				}
+			}
+		}
 		var reading queueReading
 		item, err := read.item(ctx, o.pipeline.Tracker, entry.WorkItemID)
 		if err == nil {
@@ -336,7 +367,101 @@ func (o queueOrder) pick(ctx context.Context, waiting []runstate.MergeQueueEntry
 	order := append(rankAll(candidates, o.now, o.lastLandedDocument), rankAll(held, o.now, false)...)
 	return MergeQueueChoice{Entry: chosen.entry, Rule: rule, Passed: queuePassedOver(waiting, chosen.entry), PlacedFirst: placed,
 		Priority: chosen.priority, PriorityKnown: chosen.readable, PriorityLastRead: chosen.lastRead, TrackerUnread: unread,
-		Document: chosen.document, DocumentPassedOver: passedOver, Order: order}
+		Document: chosen.document, DocumentPassedOver: passedOver, Order: order, HandedBackAt: handedBackAt(chosen, rule)}
+}
+
+func handedBackAt(chosen rankedEntry, rule string) time.Time {
+	if rule != MergeQueueRuleReturned {
+		return time.Time{}
+	}
+	return chosen.returnedAt
+}
+
+// conflictTurns decides which waiting entries hold the next turn a hand-back
+// for a conflict gives: decision 1 of
+// docs/designs/approved-changes-that-no-longer-merge.md, and the last of the
+// further rules in docs/designs/integration-through-a-merge-queue.md.
+//
+// A code entry holds it when its run was handed back for a conflict at landing
+// — by the queue or by the run's own landing — and the entry was admitted at or
+// after the latest such hand-back, and no earlier entry of the same run
+// admitted since that hand-back has had a candidate built. The turn is kept
+// through any repair before the change rejoins, because a repair builds no
+// candidate. It is spent when the change's candidate is built: if that
+// candidate conflicts, the new hand-back gives a new turn; if it fails a check
+// or its review, the entry admitted after it finds the turn spent and goes
+// under the ordinary order. The entry whose candidate was built keeps the turn
+// while it still waits, so a candidate rebuilt only because the target moved
+// does not lose it.
+//
+// Everything the turn depends on is already durable before the choice it
+// decides: the hand-back is written on the run's record when it is made, the
+// entry's admission on the queue's, and a candidate's generation on the queue's
+// before it is checked. So the turn is worked out afresh at every choice, and a
+// restart reads the same records and goes on. A queue whose records cannot be
+// read gives no turn, so the ordinary order decides.
+type conflictTurns struct {
+	records queueLandingRecords
+	entries map[runstate.MergeQueueKey][]runstate.MergeQueueEntry
+	failed  map[runstate.MergeQueueKey]bool
+}
+
+// of is when entry's change was last handed back for a conflict, where the
+// entry holds the turn that hand-back gives, and zero where it does not.
+func (t *conflictTurns) of(entry runstate.MergeQueueEntry, run runstate.State) time.Time {
+	if t.records == nil {
+		return time.Time{}
+	}
+	key := entry.Key()
+	handedBack := run.LastConflictHandback()
+	all, ok := t.read(key)
+	if !ok {
+		return time.Time{}
+	}
+	if entry.Supersedes != "" {
+		// The queue's own hand-back of the entry this one followed is written
+		// before the run's record is, so a change rejoined between the two is
+		// not passed over for want of the second.
+		if landing, found, err := t.records.Landing(key, entry.Supersedes); err == nil && found {
+			if back := landing.Handback; back != nil && back.Conflict != nil && back.At.After(handedBack) {
+				handedBack = back.At.UTC()
+			}
+		}
+	}
+	if handedBack.IsZero() || entry.AdmittedAt.Before(handedBack) {
+		return time.Time{}
+	}
+	for _, earlier := range all {
+		if earlier.RunID != entry.RunID || earlier.Order >= entry.Order || earlier.AdmittedAt.Before(handedBack) {
+			continue
+		}
+		generations, err := t.records.Generations(key, earlier.EntryID)
+		if err != nil || len(generations) > 0 {
+			// Its candidate was built, so the turn is spent; a record that will
+			// not read is taken the same way, so it gives no turn it may not owe.
+			return time.Time{}
+		}
+	}
+	return handedBack
+}
+
+func (t *conflictTurns) read(key runstate.MergeQueueKey) ([]runstate.MergeQueueEntry, bool) {
+	if t.failed[key] {
+		return nil, false
+	}
+	if all, read := t.entries[key]; read {
+		return all, true
+	}
+	all, err := t.records.Entries(key)
+	if t.entries == nil {
+		t.entries, t.failed = map[runstate.MergeQueueKey][]runstate.MergeQueueEntry{}, map[runstate.MergeQueueKey]bool{}
+	}
+	if err != nil {
+		t.failed[key] = true
+		return nil, false
+	}
+	t.entries[key] = all
+	return all, true
 }
 
 // rankAll is every candidate's entry id in the order the rules take them,
@@ -429,6 +554,11 @@ func queuePassedOver(waiting []runstate.MergeQueueEntry, chosen runstate.MergeQu
 // the first entry the first applicable rule picks, whether a placement decided
 // it, and whether the document rule was passed over. candidates is not empty.
 //
+// After an entry already in progress, a code entry brought up to date after a
+// conflict at landing goes first, ahead of the age rule and every numbered
+// rule, the one handed back earliest first (conflictTurns). Its candidate is
+// code, so it is built alone.
+//
 // Within rule 2, and within each priority under rule 4, an entry whose work
 // item was placed first goes ahead, earliest placement first, and the rest
 // follow in admission order. A placement never lifts an entry past an entry
@@ -444,6 +574,21 @@ func rank(candidates []rankedEntry, now time.Time, lastDocument bool) (rankedEnt
 		if r.inProgress {
 			return r, MergeQueueRuleInProgress, false, false
 		}
+	}
+	var returned []rankedEntry
+	for _, r := range candidates {
+		if !r.document && !r.returnedAt.IsZero() {
+			returned = append(returned, r)
+		}
+	}
+	if len(returned) > 0 {
+		sort.SliceStable(returned, func(i, j int) bool {
+			if !returned[i].returnedAt.Equal(returned[j].returnedAt) {
+				return returned[i].returnedAt.Before(returned[j].returnedAt)
+			}
+			return returned[i].entry.Order < returned[j].entry.Order
+		})
+		return returned[0], MergeQueueRuleReturned, false, false
 	}
 	var aged []rankedEntry
 	for _, r := range candidates {
