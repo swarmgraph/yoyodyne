@@ -569,7 +569,7 @@ func (a *activeRun) describeCIEvidence(ctx context.Context) string {
 func (p Pipeline) resumeTakenUp(ctx context.Context, state runstate.State, item beads.WorkItem, publishing bool, skipped string, waitedForEpic bool) (Outcome, error) {
 	outcome, err := p.resumeRun(ctx, state, item, publishing, skipped, waitedForEpic)
 	if err != nil && !outcome.continuationAccepted {
-		err = p.giveBackCIWaitSlot(state.RunID, err)
+		err = p.giveBackCIWaitSlot(ctx, state.RunID, err)
 	}
 	return outcome, err
 }
@@ -586,7 +586,7 @@ func (p Pipeline) resumeTakenUp(ctx context.Context, state runstate.State, item 
 // that has already decided, the next pull continues it (after the pull's pacing
 // of a refused continuation), and its record says why it was not taken up.
 // refusal is returned as it came, with any failure to give the slot back added.
-func (p Pipeline) giveBackCIWaitSlot(runID string, refusal error) error {
+func (p Pipeline) giveBackCIWaitSlot(ctx context.Context, runID string, refusal error) error {
 	state, err := p.Store.Load(runID)
 	if err != nil {
 		return errors.Join(refusal, fmt.Errorf("read run %s to give back the developer slot its refused continuation took: %w", runID, err))
@@ -595,16 +595,12 @@ func (p Pipeline) giveBackCIWaitSlot(runID string, refusal error) error {
 		return refusal
 	}
 	now := p.clock().Now()
-	wait := *state.CIWait
-	wait.SlotTaken = false
-	state.CIWait = &wait
-	state.ContinuationWait = &runstate.ContinuationWait{
+	if _, err := p.Store.Update(context.WithoutCancel(ctx), runID, runstate.CIWaitSlotGivenBack{
+		Commit: state.CIWait.Commit,
 		Why: fmt.Sprintf("continuing run %s from its wait for %s was refused at %s after it had taken a developer slot back, so the slot was given back and the run waits to be continued again: %s",
-			runID, wait.Summary(), runstate.LocalStamp(now), oneline.Fold(refusal.Error(), 2048)),
-		Since: now.UTC(),
-	}
-	state.UpdatedAt = now
-	if err := p.Store.Save(state); err != nil {
+			runID, state.CIWait.Summary(), runstate.LocalStamp(now), oneline.Fold(refusal.Error(), 2048)),
+		At: now,
+	}); err != nil {
 		return errors.Join(refusal, fmt.Errorf("give back the developer slot run %s took for its refused continuation: %w", runID, err))
 	}
 	return refusal

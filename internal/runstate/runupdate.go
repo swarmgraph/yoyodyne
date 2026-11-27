@@ -678,6 +678,34 @@ func (u CIWaitDecided) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// CIWaitSlotGivenBack puts a run that took its developer slot back to settle its
+// wait for the forge's checks on Commit back to waiting, holding no slot, and
+// records why on the run (State.ContinuationWait): the continuation was refused
+// before it went on (orchestrator's giveBackCIWaitSlot). It changes nothing on a
+// run that is not running, has no wait on that commit, or has not taken its slot.
+type CIWaitSlotGivenBack struct {
+	Commit string
+	Why    string
+	At     time.Time
+}
+
+func (u CIWaitSlotGivenBack) apply(state *State) (bool, error) {
+	wait := state.CIWait
+	if wait == nil || wait.Commit != u.Commit || !wait.SlotTaken || state.Status != StatusRunning {
+		return false, nil
+	}
+	why := strings.TrimSpace(u.Why)
+	if why == "" || u.At.IsZero() {
+		return false, fmt.Errorf("a developer slot given back by run %s is recorded with why and when", state.RunID)
+	}
+	waiting := *wait
+	waiting.SlotTaken = false
+	state.CIWait = &waiting
+	state.ContinuationWait = &ContinuationWait{Why: why, Since: u.At.UTC()}
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
 // RecoveryContinuationWaited records on a run's outstanding continuation of
 // this kind what the work session last found it waiting on
 // (State.WaitRecoveryContinuation), for a writer that does not hold the run:
