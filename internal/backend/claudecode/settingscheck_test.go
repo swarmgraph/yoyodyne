@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -344,4 +345,95 @@ func runFolders(settings, scratch string) string {
 
 func nameFolders(settings, scratch, services string) string {
 	return strings.NewReplacer(`"`+scratch+`"`, `"SCRATCH"`, `"`+services+`"`, `"SERVICES"`, "Read(/"+services, "Read(SERVICES").Replace(settings)
+}
+
+// loadOf is a machine reading the given one-minute load on cores.
+func loadOf(load float64, cores int) func() (float64, int, bool) {
+	return func() (float64, int, bool) { return load, cores, true }
+}
+
+// timingOutRunner times out the settings questions the first timeouts times
+// they are put, and answers as its CLI does after that.
+type timingOutRunner struct {
+	*scriptedCLI
+	timeouts int
+	put      int
+}
+
+func (r *timingOutRunner) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	if slices.Contains(command.Args, "--input-format") {
+		r.put++
+		if r.put <= r.timeouts {
+			r.commands = append(r.commands, command)
+			return execution.ProcessResult{Status: execution.ProcessTimedOut}, nil
+		}
+	}
+	return r.scriptedCLI.Run(ctx, command, observer)
+}
+
+// Each of the check's processes is given the idle limit on a machine at or
+// below one load per core, the limit grown in proportion past that, and never
+// more than ten times the idle limit however high the load. A machine whose
+// load cannot be read gets the idle limit.
+func TestTheSettingsCheckLimitScalesWithTheMachinesLoad(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		load func() (float64, int, bool)
+		want time.Duration
+	}{
+		{name: "normal load", load: loadOf(8, 16), want: 30 * time.Second},
+		{name: "high load", load: loadOf(48, 16), want: 90 * time.Second},
+		{name: "beyond the ceiling", load: loadOf(1600, 16), want: 300 * time.Second},
+		{name: "unreadable load", load: func() (float64, int, bool) { return 0, 0, false }, want: 30 * time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cli := &scriptedCLI{version: "2.1.286 (Claude Code)", answers: acceptingCLI(t)}
+			check, err := (Backend{Runner: cli, MachineLoad: test.load}).CheckLaunchSettings(context.Background(), t.TempDir())
+			if err != nil || !check.InForce() {
+				t.Fatalf("check = %#v, %v; want it active", check, err)
+			}
+			for _, command := range cli.commands {
+				if command.Timeout != test.want {
+					t.Fatalf("%v was given %s, want %s", command.Args[:1], command.Timeout, test.want)
+				}
+			}
+		})
+	}
+}
+
+// A check whose settings questions timed out once is asked again at once, and
+// the answer to the second asking is the check's: one slow answer does not
+// refuse the start.
+func TestASettingsCheckThatTimedOutIsAskedAgainAndPasses(t *testing.T) {
+	t.Parallel()
+	runner := &timingOutRunner{scriptedCLI: &scriptedCLI{version: "2.1.286 (Claude Code)", answers: acceptingCLI(t)}, timeouts: 1}
+	check, err := (Backend{Runner: runner, MachineLoad: loadOf(40, 16)}).CheckLaunchSettings(context.Background(), t.TempDir())
+	if err != nil || !check.InForce() {
+		t.Fatalf("check = %#v, %v; want the second asking to pass", check, err)
+	}
+	if runner.put != 2 {
+		t.Fatalf("the settings questions were put %d times, want 2", runner.put)
+	}
+}
+
+// A check that times out on every try is never passed: it is a check that
+// could not be made, and what it says names the timeout, the load, and the
+// limit it was given.
+func TestASettingsCheckThatTimesOutEveryTryRefusesAndSaysTheLoadAndLimit(t *testing.T) {
+	t.Parallel()
+	runner := &timingOutRunner{scriptedCLI: &scriptedCLI{version: "2.1.286 (Claude Code)", answers: acceptingCLI(t)}, timeouts: settingsCheckTries}
+	check, err := (Backend{Runner: runner, MachineLoad: loadOf(40, 16)}).CheckLaunchSettings(context.Background(), t.TempDir())
+	var timedOut SettingsCheckTimedOutError
+	if !errors.As(err, &timedOut) {
+		t.Fatalf("check = %#v, %v; want a check that could not be made because it timed out", check, err)
+	}
+	if runner.put != settingsCheckTries || timedOut.Tries != settingsCheckTries {
+		t.Fatalf("put %d times, error says %d tries; want %d", runner.put, timedOut.Tries, settingsCheckTries)
+	}
+	want := "timed out under load: no answer in 1m15s, the limit for a load of 40.0 on 16 cores, on 2 tries"
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
 }

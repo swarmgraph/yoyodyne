@@ -79,7 +79,7 @@ var starts = map[string]launch{
 	"internal/backend/claudecode/backend.go Backend.CheckAvailability Command{}":                        because(asksTheProgram),
 	"internal/backend/claudecode/backend.go Backend.Run Command{}":                                      because(insideASession),
 	"internal/backend/claudecode/backend.go Backend.installedVersion Command{}":                         because(asksTheProgram),
-	"internal/backend/claudecode/settingscheck.go Backend.CheckLaunchSettings Command{}":                because(asksTheProgram),
+	"internal/backend/claudecode/settingscheck.go Backend.checkLaunchSettingsOnce Command{}":            because(asksTheProgram),
 	"internal/backend/claudecode/settingscheck.go Backend.ask Command{}":                                because(asksTheProgram),
 	"internal/backend/claudecode/subagentcheck.go Backend.CheckSubagentLaunch Command{}":                because(asksTheProgram),
 	"internal/backend/codex/backend.go Backend.CheckAvailability Command{} (2)":                         because(asksTheProgram),

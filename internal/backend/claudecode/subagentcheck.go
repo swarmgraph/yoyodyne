@@ -94,15 +94,15 @@ func (b Backend) CheckSubagentLaunch(ctx context.Context, directory, runID strin
 		return backend.LaunchSettingsCheck{}, errors.New("the directory and the run a developer would be started for are required")
 	}
 	environment := withSubagentEnvironment(withContextEnvironment(environmentFor(b.ConfigDir)))
-	versionText, err := b.ask(ctx, environment, directory, "--version")
+	versionText, err := b.ask(ctx, environment, directory, "--version", "its version")
 	if err != nil {
-		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code its version: %w", err)
+		return backend.LaunchSettingsCheck{}, err
 	}
 	check := backend.LaunchSettingsCheck{Version: strings.TrimSpace(versionText)}
 	if version := cliVersion(check.Version); version != recordedCLIVersion {
-		help, err := b.ask(ctx, environment, directory, "--help")
+		help, err := b.ask(ctx, environment, directory, "--help", "for its help")
 		if err != nil {
-			return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code %s for its help: %w", version, err)
+			return backend.LaunchSettingsCheck{}, err
 		}
 		for _, flag := range subagentFlags {
 			if !helpNames(help, flag) {
@@ -135,18 +135,22 @@ func (b Backend) CheckSubagentLaunch(ctx context.Context, directory, runID strin
 	args = append(args, contextArgs(true)...)
 	args = append(args, "--agents", definition, "--forward-subagent-text", "--allowedTools")
 	args = append(args, rules...)
+	limit := b.settingsCheckLimitNow()
 	result, err := b.Runner.Run(ctx, execution.Command{
 		Name:    b.binary(),
 		Args:    args,
 		Dir:     directory,
 		Env:     execution.WithGoBuildCache(environment, directory),
 		Stdin:   strings.NewReader(subagentQuestions),
-		Timeout: settingsCheckTimeout,
+		Timeout: limit.Limit,
 	}, nil)
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code whether it applies what sub-agents are launched with: %w", err)
 	}
-	if result.Status == execution.ProcessTimedOut || result.Status == execution.ProcessCancelled || result.Status == execution.ProcessStalled {
+	if result.Status == execution.ProcessTimedOut {
+		return backend.LaunchSettingsCheck{}, SettingsCheckTimedOutError{Limit: limit, Tries: 1}
+	}
+	if result.Status == execution.ProcessCancelled || result.Status == execution.ProcessStalled {
 		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code whether it applies what sub-agents are launched with: the process %s", result.Status)
 	}
 	answers := readAnswers(result.Stdout)
