@@ -6684,8 +6684,13 @@ has the rule.
   lifted. A run waiting out a usage limit or an overloaded provider says the
   sweep continues it once its deadline passes, and names the deadline. A run
   paused on work its item depends on names that work and says a watching
-  `yoyo work` session continues it at the first pull after it closes. Every
-  other run says the sweep settles it.
+  `yoyo work` session continues it at the first pull after it closes. A run
+  waiting on GitHub's checks says the watching session continues it once
+  GitHub has answered; one that GitHub had already answered and that was taken
+  up again and let go of says the sweep settles it once its record has not
+  moved for the grace, as it does every other park. Every other run says the
+  sweep settles it. Where the last sweep tried to settle the run and could not,
+  the line adds why, in the sweep's own words.
 
   Whether a process is behind a run is observed rather than taken, the way the
   Working line below observes a conversation: a process that takes a run's

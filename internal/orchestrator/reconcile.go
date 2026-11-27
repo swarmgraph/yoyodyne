@@ -840,6 +840,11 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	if pausedForCIWait(state) {
 		result := reconciliationOf(state, ActionResumable)
 		result.Detail = fmt.Sprintf("the run is waiting for %s; a watching `yoyo work` session continues it once the forge has answered or the wait limit has passed", state.CIWait.Summary())
+		if answeredCIWaitTakenUp(state) {
+			// Inside the grace read at the top, and said as such (answeredCIWaitTakenUp).
+			result.Detail = fmt.Sprintf("the forge has answered the run's wait for %s (%s) and the run was taken up again, but no process holds it; `yoyo run %s` continues it, and a sweep after %s of its record not moving settles it as a stopped run",
+				state.CIWait.Summary(), state.CIWait.DecidedSays(), state.WorkItemID, r.vanishedGrace())
+		}
 		return result, nil
 	}
 	// A run parked because the tracker would not answer the read a gate boundary
@@ -2137,9 +2142,10 @@ type recordedPark struct {
 // (Scheduler.nextContinuations), and is a wait on that work until then. The
 // operator's pause is theirs while it stands. Everything else — a provider the
 // harness stopped on time, an unresolved directive, a tracker that would not
-// answer, a provider nobody could reach, and the operator's pause once lifted —
-// waits on somebody typing `yoyo run`, which is the wait that held a slot for
-// twenty hours on 2026-09-26.
+// answer, a provider nobody could reach, the operator's pause once lifted, and a
+// wait for the forge's checks the forge answered and a continuation took up and
+// let go of (answeredCIWaitTakenUp) — waits on somebody typing `yoyo run`, which
+// is the wait that held a slot for twenty hours on 2026-09-26.
 //
 // It is asked only under the run's lease, so a park a live process is serving —
 // asleep on the operator's pause, or waiting out an outage in-process — never
@@ -2170,8 +2176,26 @@ func (r Reconciler) parkNothingServes(state runstate.State) (recordedPark, bool)
 		return recordedPark{says: "the harness stopped the AI session running it because " + describeProviderStop(state.ProviderStop), since: since, providerStop: state.ProviderStop}, true
 	case pausedForDirective(state):
 		return recordedPark{says: "it paused for unresolved directive " + state.DirectivePause.DirectiveID, since: since}, true
+	case answeredCIWaitTakenUp(state):
+		return recordedPark{says: fmt.Sprintf("the forge had already answered its wait for %s (%s), and the process that took it up again to go on let go of it without going on or recording an ending",
+			state.CIWait.Summary(), state.CIWait.DecidedSays()), since: since}, true
 	}
 	return recordedPark{}, false
+}
+
+// answeredCIWaitTakenUp reports a run whose wait for the forge's checks the
+// forge has answered and which a continuation took up again
+// (runstate.CIWait.SlotTaken), so the wait is over and only a process going on
+// with the run is left to move it. Reached under the sweep's lease, that
+// process is gone or has let go, and nothing else moves the run: a watching
+// session's pull leaves it to whatever it believes is carrying it, and the
+// claim audit leaves every run with a wait recorded. So it is settled like any
+// park nothing serves once its record has sat still for the grace. A wait the
+// forge has not answered is left to the pull, which continues it once the
+// forge decides however long that takes, and so is one still waiting for a
+// slot, which has not been taken up.
+func answeredCIWaitTakenUp(state runstate.State) bool {
+	return pausedForCIWait(state) && state.CIWait.SlotTaken && state.CIWait.Decided != nil
 }
 
 // vanished reports a park that has now sat, with nothing continuing it, for the

@@ -468,6 +468,88 @@ func TestTheSweepSettlesDirectiveParksNothingContinued(t *testing.T) {
 	}
 }
 
+// A run whose wait for the forge's checks the forge answered, taken up again and
+// then let go of with nothing carrying it on, is moved on by the sweep a
+// watching session's maintenance pass runs: past the grace it is settled as a
+// run with no process, exactly as any park nothing serves, with the change kept
+// and no repair charged. Inside the grace it is left, saying when it will be
+// settled. A wait taken up before the forge answered, and one still waiting for
+// a slot, are the pull's however long they last. This is the shape the run on
+// yoyodyne-ifd.435.95 stood in for over an hour with the watch running.
+func TestTheSweepSettlesAnAnsweredForgeWaitNothingCarriesOn(t *testing.T) {
+	t.Parallel()
+
+	decided := &runstate.CIWaitDecision{Passed: true, Says: "every required check passed on the commit pushed"}
+	forgeWait := func(state *runstate.State, slotTaken bool, decision *runstate.CIWaitDecision) {
+		state.Phase = runstate.PhaseChecking
+		state.CIWait = &runstate.CIWait{Commit: "9afda54ec758f261fd2f6dd6bc74645d6c9b98e8", Branch: state.Branch, PushedAt: state.UpdatedAt.Add(-time.Hour),
+			Required: []string{"test", "race", "vet"}, WaitLimitSeconds: 3600, SlotTaken: slotTaken}
+		if decision != nil {
+			answer := *decision
+			answer.At = state.UpdatedAt.Add(-30 * time.Minute)
+			state.CIWait.Decided = &answer
+		}
+	}
+
+	t.Run("answered and taken up", func(t *testing.T) {
+		t.Parallel()
+		parked := parkRunOnADependency(t)
+		state := parked.repark(t, func(state *runstate.State) { forgeWait(state, true, decided) })
+
+		inside := parked.sweepAt(t, state.UpdatedAt.Add(DefaultVanishedGrace-time.Minute), nil)
+		if inside.Action != ActionResumable || !strings.Contains(inside.Detail, "the forge has answered") || !strings.Contains(inside.Detail, "settles it as a stopped run") {
+			t.Fatalf("sweep inside the grace = %#v, want it left, saying the grace", inside)
+		}
+		past := parked.sweepAt(t, state.UpdatedAt.Add(DefaultVanishedGrace), nil)
+		if past.Action != ActionBlocked || !strings.Contains(past.Detail, "the forge had already answered its wait") ||
+			!strings.Contains(past.Detail, "the change was kept") {
+			t.Fatalf("sweep past the grace = %#v, want it settled as a run nothing carries on", past)
+		}
+		settled, err := parked.store.Load(state.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !settled.Status.Terminal() || settled.CIWait != nil {
+			t.Fatalf("settled run = %#v, want it terminal with the wait cleared", settled)
+		}
+		if settled.Environmental == nil || settled.Environmental.Cause != runstate.CauseProcessVanished {
+			t.Fatalf("settled run's account = %#v, want the cause outside the work recorded", settled.Environmental)
+		}
+		if settled.RepairAttempts != state.RepairAttempts || settled.ReviewRounds != state.ReviewRounds {
+			t.Fatalf("settled run spent repairs %d (was %d) and reviews %d (was %d), want nothing charged",
+				settled.RepairAttempts, state.RepairAttempts, settled.ReviewRounds, state.ReviewRounds)
+		}
+		entries, err := parked.docket.List()
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("docket = %#v, %v; want the stopped run put before the development manager", entries, err)
+		}
+	})
+
+	for _, test := range []struct {
+		name      string
+		slotTaken bool
+		decision  *runstate.CIWaitDecision
+		says      string
+	}{
+		{name: "taken up before the forge answered", slotTaken: true, says: "continues it once the forge has answered"},
+		{name: "answered and waiting for a slot", decision: decided, says: "continues it once the forge has answered"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			parked := parkRunOnADependency(t)
+			state := parked.repark(t, func(state *runstate.State) { forgeWait(state, test.slotTaken, test.decision) })
+			swept := parked.sweepAt(t, state.UpdatedAt.Add(6*time.Hour), nil)
+			if swept.Action != ActionResumable || !strings.Contains(swept.Detail, test.says) {
+				t.Fatalf("sweep hours later = %#v, want it left to the pull", swept)
+			}
+			kept, err := parked.store.Load(state.RunID)
+			if err != nil || kept.Status.Terminal() || kept.CIWait == nil {
+				t.Fatalf("run after the sweep = %#v, %v; want it still waiting", kept, err)
+			}
+		})
+	}
+}
+
 // A run parked on a tracker read that went unanswered, with no process behind
 // it, is not ended for having sat still: a watching session's pull continues
 // it once the tracker answers. Swept hours past the grace, at its review, it is
