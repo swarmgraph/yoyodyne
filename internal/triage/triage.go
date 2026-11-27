@@ -448,8 +448,8 @@ type IntegrationStop struct {
 	Phase string `json:"phase"`
 	// Title says what the cause is, in the words the run record gives it.
 	Title string `json:"title,omitempty"`
-	// HarnessResumes says the harness resumes this stop by itself once what did
-	// not answer answers again, so nobody has a step to take for it. Waiting is
+	// HarnessResumes says the harness resumes this stop by itself
+	// (HarnessResumesWhen), so nobody has a step to take for it. Waiting is
 	// what its latest try found it still waiting on and when, in one line, and is
 	// empty before its first try.
 	HarnessResumes bool   `json:"harness_resumes,omitempty"`
@@ -473,19 +473,47 @@ type IntegrationStop struct {
 // both can reach: the record imports the docket, and the docket must not import
 // the record.
 func ResumeIntegrationSays(runID, phase, cause, title string) string {
+	if cause == CauseMergeQueueReleased {
+		return fmt.Sprintf(
+			"run %s's change is approved and the merge queue let it go without landing it, for something that says nothing about the change, and the harness is not resuming it by itself, so what it needs is `yoyo triage resume %s`, which resumes the run from its kept commit with the approval standing and admits it to the queue again, and charges no review round, repair grant, or re-run",
+			runID, runID)
+	}
 	return fmt.Sprintf(
 		"run %s's change is approved and the environment stopped it at the %s phase — %s (%s) — so what it needs is `yoyo triage resume %s` once the cause has cleared, which resumes the promotion with the approval standing and charges no review round, repair grant, or re-run",
 		runID, phase, cause, title, runID)
 }
 
 // HarnessResumesIntegrationSays is ResumeIntegrationSays for a stop the harness
-// resumes by itself: the tracker, the forge or the network did not answer. It
-// names no command, because nobody has one to type: the harness tries again at
-// each pull and resumes the promotion once they answer.
+// resumes by itself: the tracker, the forge or the network did not answer, or
+// the merge queue let the change go for something that says nothing about it.
+// It names no command, because nobody has one to type: the harness tries again
+// at each pull, and resumes the promotion once what did not answer answers, or
+// once a developer slot is free for a change the queue let go.
 func HarnessResumesIntegrationSays(runID, phase, cause, title string) string {
+	if cause == CauseMergeQueueReleased {
+		return fmt.Sprintf(
+			"run %s's change is approved and the merge queue let it go without landing it, for something that says nothing about the change, so %s, with the approval standing and charging no review round, repair grant, or re-run; nobody needs to do anything",
+			runID, HarnessResumesWhen(cause))
+	}
 	return fmt.Sprintf(
 		"run %s's change is approved and the environment stopped it at the %s phase — %s (%s) — so the harness resumes it by itself once they answer again, from where it stopped with the approval standing, charging no review round, repair grant, or re-run; nobody needs to do anything",
 		runID, phase, cause, title)
+}
+
+// CauseMergeQueueReleased is the cause a run records when the merge queue let
+// its approved change go for something that says nothing about the change
+// (runstate.CauseMergeQueueReleased, which this package cannot import). The
+// environment did not stop that run and it waits on no service, so every
+// sentence about such a stop is worded apart from the others.
+const CauseMergeQueueReleased = "merge-queue-released"
+
+// HarnessResumesWhen is the clause every surface says of when the harness
+// resumes a stop of this cause by itself.
+func HarnessResumesWhen(cause string) string {
+	if cause == CauseMergeQueueReleased {
+		return "the harness resumes the run by itself from its kept commit in the next free developer slot, ahead of fresh work, and admits it to the queue again"
+	}
+	return "the harness resumes it by itself once they answer"
 }
 
 // IntegrationResumable reports whether an approved change the environment
@@ -2545,6 +2573,9 @@ func (e Entry) renderIntegrationStop() string {
 	case e.integrationResumable():
 		fmt.Fprintf(&rendered, "      %s. Nothing here is a verdict on the change, and this item's counters stay where the review left them.\n",
 			ResumeIntegrationSays(e.RunID, stopped.Phase, stopped.Cause, title))
+	case stopped.Cause == CauseMergeQueueReleased:
+		fmt.Fprintf(&rendered, "      %s. The merge queue had let it go without landing it, for something that says nothing about the change, which is no verdict on it.\n",
+			IntegrationGoneSays(e.RunID, e.remains()))
 	default:
 		fmt.Fprintf(&rendered, "      %s. It was stopped at the %s phase by %s (%s), which is no verdict on the change.\n",
 			IntegrationGoneSays(e.RunID, e.remains()), stopped.Phase, stopped.Cause, title)
@@ -2631,6 +2662,12 @@ func (e Entry) renderNextMover() string {
 func (e Entry) nextMover() string {
 	gone := ""
 	if e.IntegrationStop != nil {
+		if e.integrationResumable() && e.IntegrationStop.Cause == CauseMergeQueueReleased {
+			if e.IntegrationStop.HarnessResumes {
+				return "      Next mover: the harness — this change is approved and the merge queue let it go for something that says nothing about the change, so " + HarnessResumesWhen(CauseMergeQueueReleased) + "; nothing here needs a decision or a command.\n"
+			}
+			return "      Next mover: the harness — this change is approved and the merge queue let it go for something that says nothing about the change, and the harness is not resuming it by itself, so what it needs is `yoyo triage resume`, not a decision.\n"
+		}
 		if e.integrationResumable() && e.IntegrationStop.HarnessResumes {
 			return "      Next mover: the harness — this change is approved and the tracker, the forge, or the network did not answer, so the harness resumes it by itself at a later pull once they answer; nothing here needs a decision or a command.\n"
 		}

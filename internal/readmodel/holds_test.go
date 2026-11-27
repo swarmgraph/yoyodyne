@@ -1286,3 +1286,27 @@ func TestAStopAfterACarriedOutRepairIsTheDevelopmentManagersMove(t *testing.T) {
 		t.Fatalf("the hold says %q (decided %v), want the development manager named once the repair was carried out", reason, held.Decided(stopped.WorkItemID))
 	}
 }
+
+// A change the merge queue let go is held with the queue's reason: no service
+// failed to answer and the environment stopped nothing.
+func TestAChangeTheMergeQueueLetGoIsHeldWithItsOwnReason(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 11, 11, 23, 20, 0, 0, time.UTC)
+	released := preservedRun("run-6c1b7c91", "yoyodyne-ifd.428.133", stopped)
+	released.ReviewDecision = runstate.ReviewApprove
+	released.ReviewSessionID = "review"
+	released.Phase = runstate.PhaseIntegrating
+	for _, refused := range []string{"", "its checkout is not as the harness left it"} {
+		released.IntegrationStop = &runstate.IntegrationStop{
+			Cause: runstate.CauseMergeQueueReleased, Phase: runstate.PhaseIntegrating, RecordedAt: stopped, HarnessRefused: refused,
+		}
+		reason := heldReason(t, heldForAPerson([]runstate.State{released}, nil, nothingDecided, asRecorded), "yoyodyne-ifd.428.133")
+		if !strings.Contains(reason, "merge queue let the change go") || strings.Contains(reason, "answer") || strings.Contains(reason, "environment") {
+			t.Errorf("the hold says %q, want the merge queue named", reason)
+		}
+		if strings.Contains(reason, "yoyo triage resume") != (refused != "") {
+			t.Errorf("the hold says %q, want a command named only once the harness stopped trying", reason)
+		}
+	}
+}

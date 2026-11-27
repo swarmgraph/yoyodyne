@@ -50,7 +50,10 @@ package orchestrator
 // (release): its turn ends, so it never stands at the head of the queue
 // refusing every entry behind it. A transfer admits the change again in the
 // other mode; any other release is handed back to its run like a defect's,
-// with the change kept, for the development manager to decide on.
+// with the change kept: for the development manager where its candidate's checks
+// failed, which the withdrawal records as it is intended
+// (MergeQueueWithdrawal.NextMover), and otherwise for the harness to resume from
+// its kept commit (resumesFromKeptCommit).
 // A candidate combining more than one head is not handed to any one of them:
 // a forge annotation or log naming one head is evidence, not proof that head
 // caused the failure. Restarting changes none of it — the handback is written
@@ -338,6 +341,21 @@ func defect(failure MergeQueueFailure, generation runstate.MergeQueueGeneration,
 // not settle it. It refuses an entry whose local target was already moved,
 // because no withdrawal takes that back.
 func (p MergeQueuePromoter) Withdraw(ctx context.Context, key runstate.MergeQueueKey, entryID, reason string) (MergeQueuePromotion, error) {
+	return p.withdrawAndRelease(ctx, key, entryID, reason, ownership.MoverHarness)
+}
+
+// WithdrawFailedChecks is Withdraw for a merge whose checks on the candidate
+// failed. A failing check may be the change's own, so the entry is released
+// naming the development manager as the one who moves next, and its run is
+// stopped for her decision rather than resumed by itself from its kept commit
+// (resumesFromKeptCommit).
+func (p MergeQueuePromoter) WithdrawFailedChecks(ctx context.Context, key runstate.MergeQueueKey, entryID, reason string) (MergeQueuePromotion, error) {
+	return p.withdrawAndRelease(ctx, key, entryID, reason, ownership.MoverDevelopmentManager)
+}
+
+// withdrawAndRelease withdraws the entry's merge and releases the entry,
+// naming mover as who moves next.
+func (p MergeQueuePromoter) withdrawAndRelease(ctx context.Context, key runstate.MergeQueueKey, entryID, reason string, mover ownership.Mover) (MergeQueuePromotion, error) {
 	if err := p.validate(); err != nil {
 		return MergeQueuePromotion{}, err
 	}
@@ -369,10 +387,10 @@ func (p MergeQueuePromoter) Withdraw(ctx context.Context, key runstate.MergeQueu
 			what = withdrawnUnaskedLead
 		}
 	}
-	if err := q.settleGitHub(ctx, q.withdraw(ctx, reason)); err != nil || !q.outcome.Withdrawn {
+	if err := q.settleGitHub(ctx, q.withdraw(ctx, reason, mover)); err != nil || !q.outcome.Withdrawn {
 		return q.result(), err
 	}
-	return q.result(), q.release(what+reason, "")
+	return q.result(), q.release(what+reason, "", mover)
 }
 
 // withdrawnUnaskedLead opens the reason an entry is released with where GitHub
@@ -382,20 +400,35 @@ const withdrawnUnaskedLead = "it was withdrawn before any merge was asked for: "
 
 // release ends the turn of an entry whose merge was withdrawn for something
 // other than a defect, so it neither stands at the head of the queue refusing
-// every later entry nor is asked for again. The harness moves next: whatever
+// every later entry nor is asked for again. Whatever
 // asked for the withdrawal — a head to rewrite, a move to the other queue
-// mode — admits the change again once it is done. An entry already handed
-// back keeps what it was given.
-func (q *queuePromotion) release(why string, transferTo runstate.MergeQueueMode) error {
+// mode, a merge the forge could not make — admits the change again. An entry already handed
+// back keeps what it was given. mover is who moves next: the harness for a
+// release that says nothing about the change, which its run then resumes from
+// its kept commit by itself (resumesFromKeptCommit), and the development
+// manager for one whose candidate's checks failed. A withdrawal that recorded
+// the development manager as who decides next is released to her whatever the
+// caller names, since the caller may be a later call that only finished it.
+func (q *queuePromotion) release(why string, transferTo runstate.MergeQueueMode, mover ownership.Mover) error {
 	if q.landing.Handback != nil || q.landing.Completion != nil {
 		return nil
 	}
 	if refusal := q.landing.HeadRewriteRefusal(); refusal != "" {
 		return fmt.Errorf("merge queue entry %d cannot be released: %s", q.entry.Order, refusal)
 	}
+	if attempt := q.attempt(); transferTo == "" && attempt != nil && attempt.Withdrawal != nil && attempt.Withdrawal.NextMover != "" {
+		mover = attempt.Withdrawal.NextMover
+	}
+	follows := "; the entry leaves the queue, and its change goes back to its run, kept"
+	switch {
+	case transferTo != "":
+		follows = fmt.Sprintf("; the entry leaves this queue to be admitted to the %s queue", modeName(transferTo))
+	case mover == ownership.MoverDevelopmentManager:
+		follows += " for the development manager to decide on"
+	}
 	q.landing.Handback = &runstate.MergeQueueHandback{
-		At: q.now(), Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverHarness,
-		Reason:       oneline.Fold(why+"; the entry leaves the queue, and the change is admitted again once what the withdrawal was for is done", 1500),
+		At: q.now(), Continuation: runstate.MergeQueueReleased, Mover: mover,
+		Reason:       oneline.Fold(why+follows, 1500),
 		ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead, TransferTo: transferTo,
 	}
 	if err := q.save(); err != nil {
@@ -403,6 +436,15 @@ func (q *queuePromotion) release(why string, transferTo runstate.MergeQueueMode)
 		return err
 	}
 	return nil
+}
+
+// withdrawalMover is what a withdrawal records of who moves next: the
+// development manager, or nothing where the harness does.
+func withdrawalMover(mover ownership.Mover) ownership.Mover {
+	if mover == ownership.MoverDevelopmentManager {
+		return mover
+	}
+	return ""
 }
 
 // entry is one admitted entry and its landing record.
@@ -441,7 +483,10 @@ func (q *queuePromotion) result() MergeQueuePromotion {
 // landing completed.
 const maxMergeQueueWithdrawSteps = 6
 
-func (q *queuePromotion) withdraw(ctx context.Context, reason string) error {
+// withdraw's mover is who moves next once the merge is withdrawn, and is written
+// on the withdrawal as it is intended, so a release recorded by a later call
+// names the same one (release).
+func (q *queuePromotion) withdraw(ctx context.Context, reason string, mover ownership.Mover) error {
 	for step := 0; step < maxMergeQueueWithdrawSteps; step++ {
 		if q.landing.Completion != nil {
 			return q.recordCompletion(ctx)
@@ -469,6 +514,15 @@ func (q *queuePromotion) withdraw(ctx context.Context, reason string) error {
 			var err error
 			switch {
 			case w.Settled == nil:
+				// A failure found while the withdrawal stood unsettled, asked for
+				// first for something else, is the development manager's too.
+				if next := withdrawalMover(mover); next != "" && w.NextMover == "" {
+					w.NextMover = next
+					if err := q.save(); err != nil {
+						w.NextMover = ""
+						return err
+					}
+				}
 				err = q.withdrawQueued(ctx)
 			case w.Settled.Result == runstate.MergeQueueWithdrawalConfirmed:
 				// Confirmed and written down, and the process stopped before the
@@ -506,7 +560,7 @@ func (q *queuePromotion) withdraw(ctx context.Context, reason string) error {
 			// that stops after asking leaves a withdrawal the next call settles.
 			attempt.Withdrawal = &runstate.MergeQueueWithdrawal{
 				Key: attempt.MergeQueueWithdrawalKey(), PullRequest: attempt.PullRequest, Pinned: attempt.Candidate,
-				Reason: oneline.Fold(reason, 1500), IntendedAt: q.now(),
+				Reason: oneline.Fold(reason, 1500), IntendedAt: q.now(), NextMover: withdrawalMover(mover),
 			}
 			if err := q.save(); err != nil {
 				attempt.Withdrawal = nil
@@ -671,7 +725,7 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 			return recovered, nil
 		}
 		q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
-		if err := q.release("its queued merge was withdrawn ("+attempt.Withdrawal.Reason+") and "+why, ""); err != nil {
+		if err := q.release("its queued merge was withdrawn ("+attempt.Withdrawal.Reason+") and "+why, "", ownership.MoverHarness); err != nil {
 			return recovered, err
 		}
 		recovered.Handback = q.landing.Handback
@@ -705,7 +759,7 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 		// handback, on evidence that no longer reads as a defect, is released
 		// rather than left refusing every entry behind it.
 		if attempt, ok := landing.Current(); ok && attempt.Withdrawn() {
-			if err := q.release("its queued merge was withdrawn for a defect its evidence no longer shows ("+failure.Reason+")", ""); err != nil {
+			if err := q.release("its queued merge was withdrawn for a defect its evidence no longer shows ("+failure.Reason+")", "", ownership.MoverHarness); err != nil {
 				return recovered, err
 			}
 			recovered.Handback = q.landing.Handback
@@ -716,7 +770,7 @@ func (p MergeQueuePromoter) recover(ctx context.Context, key runstate.MergeQueue
 	// queue's landing does (mergequeuegithubwait.go).
 	waiting, err := q.waitingOnGitHub(ctx)
 	if err == nil && !waiting {
-		err = q.settleGitHub(ctx, q.withdraw(ctx, "generation "+fmt.Sprint(failure.Generation.Number)+" is defective: "+failure.Reason))
+		err = q.settleGitHub(ctx, q.withdraw(ctx, "generation "+fmt.Sprint(failure.Generation.Number)+" is defective: "+failure.Reason, ownership.MoverDevelopmentManager))
 	}
 	recovered.Withdrawal = q.result()
 	if err != nil || !q.outcome.Withdrawn {
@@ -1192,8 +1246,14 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 			return err
 		}
 	}
+	// A release that says nothing about the change is resumed from the kept
+	// commit by the harness rather than stopped for a decision.
+	resumes := releasedForResumption(state, marker) || resumesFromKeptCommit(state, handback)
 	notes := fmt.Sprintf("The merge queue handed this change back. %s\n%s\nRun %s keeps its branch %s and its %s.",
 		handback.Reason, marker, entry.RunID, nonEmpty(handback.Branch, "(none recorded)"), entry.HeadSays())
+	if resumes {
+		notes = keptCommitNotes(entry, handback, state, marker)
+	}
 	if notCaught != "" {
 		notes += fmt.Sprintf(" It was not given an attempt to bring the change up to date with %s by itself, because %s.", entry.TargetBranch, notCaught)
 	}
@@ -1232,7 +1292,13 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	if check := strings.TrimSpace(handbackCheck(handback.Reason)); check != "" {
 		command = check
 	}
-	if conflict := handback.Conflict; conflict != nil {
+	if resumes {
+		// Nothing failed, so nothing is handed to a developer and the checks the
+		// approved commit passed stand: the run stops at its promotion with its
+		// approval, as an approved change the environment stopped does, and the
+		// harness resumes it from there by itself (runstate.CauseMergeQueueReleased).
+		state = state.ReleasedByMergeQueue(singleLine(marker+": "+handback.Reason, runstate.MaxEnvironmentalDetailBytes), h.now().UTC())
+	} else if conflict := handback.Conflict; conflict != nil {
 		// A head that would not merge is the replay conflict a run's own
 		// promotion meets, recorded the same way so the repair continuation
 		// moves the change onto the target and hands its developer the conflict.
@@ -1325,7 +1391,57 @@ func (h MergeQueueRunHandback) handedBack(state runstate.State, marker string) b
 		return true
 	}
 	conflict := state.ReplayConflict
-	return conflict != nil && strings.Contains(conflict.Detail, marker)
+	return (conflict != nil && strings.Contains(conflict.Detail, marker)) || releasedForResumption(state, marker)
+}
+
+// releasedForResumption reports a run that already carries the stop
+// resumesFromKeptCommit's hand-back the marker names writes.
+func releasedForResumption(state runstate.State, marker string) bool {
+	stop := state.IntegrationStop
+	return stop != nil && stop.Cause == runstate.CauseMergeQueueReleased && strings.Contains(stop.Detail, marker)
+}
+
+// resumesFromKeptCommit reports a hand-back the run takes up again from its
+// kept commit by itself, ahead of fresh work, rather than stopping for the
+// development manager: an entry released for something that says nothing about
+// the change — a merge the forge held past triage.stuck_merge_age, dropped, or
+// could not run a check on, with no check found failed on it — whose run is a developer's, is waiting on the
+// queue with the commit the queue held, and has everything a resumed promotion
+// needs (runstate.State.HarnessResumesIntegration). A release whose candidate's
+// checks failed, on its pull request or in GitHub's own merge queue, names the development manager as who moves next
+// (WithdrawFailedChecks), as does every hand-back the queue makes for her, and
+// so does not count; nor does a release for a move to the other queue mode,
+// which is admitted again where it moved to.
+//
+// The run is then stopped at its promotion with cause
+// runstate.CauseMergeQueueReleased, and the carry-out's harness resumption
+// (transportresume.go) resumes it there through IntegrationResumer, which
+// admits the kept commit to the queue again. Until then the run holds the item:
+// a fresh run of it is refused (refuseFreshOverKeptApproval in pipeline.go).
+func resumesFromKeptCommit(state runstate.State, handback runstate.MergeQueueHandback) bool {
+	if handback.Continuation != runstate.MergeQueueReleased || handback.TransferTo != "" || handback.Conflict != nil || handback.Mover != ownership.MoverHarness {
+		return false
+	}
+	if state.HarnessAuthored() || state.Document != nil || state.Status != runstate.StatusSucceeded || state.ChecksPassed == nil {
+		return false
+	}
+	if strings.TrimSpace(state.ProviderSessionID) == "" || strings.TrimSpace(handback.ApprovedHead) == "" || handback.ApprovedHead != state.HarnessCommit {
+		return false
+	}
+	// A succeeded run has ended, so what is asked about is the stop HandBack
+	// writes.
+	return state.ReleasedByMergeQueue("", time.Now().UTC()).HarnessResumesIntegration()
+}
+
+// keptCommitNotes is what the item is told when its approved change comes back
+// from the queue to be resumed from its kept commit.
+func keptCommitNotes(entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback, state runstate.State, marker string) string {
+	return strings.Join([]string{
+		fmt.Sprintf("The merge queue let this approved change go without landing it: %s.", strings.TrimSuffix(strings.TrimSpace(handback.Reason), ".")),
+		fmt.Sprintf("Nothing about the change itself failed, so run %s keeps it on its branch %s at its approved commit %s, and the harness takes it up again from that commit by itself, in the next free developer slot and ahead of fresh work: the run is resumed at its promotion with its approval standing and admitted to the merge queue for %s again, where its candidate is built on %s as it then stands, checked, and reviewed. No repair attempt and no fresh run is spent, and no fresh run of this item is started meanwhile.",
+			entry.RunID, nonEmpty(state.Branch, "(none recorded)"), shortCommit(handback.ApprovedHead), entry.TargetBranch, entry.TargetBranch),
+		marker,
+	}, "\n")
 }
 
 // noteAndDocket says on the item, as it was read before the run changed, that

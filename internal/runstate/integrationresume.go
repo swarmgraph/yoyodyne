@@ -131,6 +131,9 @@ func (s State) LostItsRace() bool {
 
 // Describe says what the stop was, the way a docket entry or a listing reads it.
 func (s IntegrationStop) Describe() string {
+	if s.Cause == CauseMergeQueueReleased {
+		return fmt.Sprintf("approved, then let go by the merge queue without landing: %s (%s)", s.Cause, s.Cause.Title())
+	}
 	return fmt.Sprintf("approved, then stopped at the %s phase by the environment: %s (%s)", s.Phase, s.Cause, s.Cause.Title())
 }
 
@@ -149,8 +152,9 @@ func (s IntegrationStop) ResumeSays(runID string) string {
 }
 
 // HarnessResumes reports a stop the harness resumes by itself, once the
-// service that did not answer answers again: its cause is one the harness
-// resumes (EnvironmentalCause.HarnessResumes), and the harness has not stopped
+// service that did not answer answers again or, for a change the merge queue
+// let go, once a developer slot is free: its cause is one the harness resumes
+// (EnvironmentalCause.HarnessResumes), and the harness has not stopped
 // trying because a try met something else.
 func (s IntegrationStop) HarnessResumes() bool {
 	return s.Cause.HarnessResumes() && strings.TrimSpace(s.HarnessRefused) == ""
@@ -473,6 +477,17 @@ func (s State) ApprovedAwaitingIntegration() bool {
 		return false
 	}
 	return s.Phase == PhaseReviewing || s.Phase == PhaseIntegrating
+}
+
+// ReleasedByMergeQueue is the run put back at its promotion, stopped there
+// because the merge queue let its approved change go for something that says
+// nothing about the change (CauseMergeQueueReleased). Its admission to the queue
+// had ended it past that step, at its clean-up, with its branch and worktree
+// kept. Its approval, its passed checks and its commit are left as they stand.
+func (s State) ReleasedByMergeQueue(detail string, at time.Time) State {
+	s.Phase = PhaseIntegrating
+	s.IntegrationStop = &IntegrationStop{Cause: CauseMergeQueueReleased, Detail: detail, Phase: PhaseIntegrating, RecordedAt: at}
+	return s
 }
 
 // ResumableIntegration reports a stopped run whose integration may be resumed

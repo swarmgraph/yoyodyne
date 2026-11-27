@@ -242,6 +242,12 @@ type MergeQueuePromotion struct {
 	// (readHeldChecks), and it is withdrawn once it has waited past
 	// triage.stuck_merge_age.
 	NotMergeable bool
+	// CheckFailed is a check that judged the candidate and failed, on its pull
+	// request or on the merge commit GitHub's own queue removed it for, whatever
+	// the merge is withdrawn for: a drop, a wait past the limit, or a check beside
+	// it that never judged the change. The driver withdraws such a merge for the
+	// development manager (WithdrawFailedChecks).
+	CheckFailed bool
 	// Unjudged is set beside Waiting where a check on the candidate's pull
 	// request ended without judging the change a second time, or could not be
 	// run again, and nothing else is still running there: the forge will never
@@ -1345,6 +1351,8 @@ func (q *queuePromotion) requeueUntouchedDrop(ctx context.Context) (requeued boo
 	earlier := attempt.ForgeRerun
 	says = queueDropSays(drop, earlier, attempt.Candidate)
 	if !drop.Removed || !drop.Untouched || earlier != nil {
+		// Removed is set only with a failed check read on the merge commit.
+		q.outcome.CheckFailed = drop.Removed
 		return false, says, nil
 	}
 	rerun := newQueueRerun(attempt.Candidate, drop, q.now())
@@ -1378,6 +1386,7 @@ func (q *queuePromotion) requeueUntouchedDrop(ctx context.Context) (requeued boo
 	}
 	if refused != "" {
 		q.outcome.Refusal, q.outcome.Waiting = "", ""
+		q.outcome.CheckFailed = true
 		return false, queueDropSays(drop, &settled, attempt.Candidate), nil
 	}
 	q.outcome.Waiting = fmt.Sprintf("GitHub's merge queue dropped pull request %d because its checks on the queue's merge commit failed only in tests the change does not touch (%s), so the harness queued the merge once more and GitHub runs its checks again on a fresh merge commit",
@@ -1404,6 +1413,9 @@ func (q *queuePromotion) readHeldChecks(ctx context.Context) error {
 	if err != nil {
 		q.outcome.Waiting += fmt.Sprintf("; its checks could not be read now (%s)", oneline.Bound(err.Error(), 300))
 		return nil
+	}
+	if reading.HeadCommit == attempt.Candidate && len(judgedOnly(reading).Failing) > 0 {
+		q.outcome.CheckFailed = true
 	}
 	if err := q.answerUnjudgedChecks(ctx, reading); err != nil || q.outcome.Unjudged != "" {
 		return err

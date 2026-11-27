@@ -183,6 +183,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/staleness"
 	"github.com/mason-bryant/yoyodyne/internal/teamclaim"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // scheduledStatuses are the tracker slices the backlog is assembled from: work
@@ -1183,6 +1184,10 @@ type Started struct {
 	// needs-design between this pull and the reservation (NeedsDesignError):
 	// nothing was reserved, and the next pull reads the label and passes the item
 	// over in the queue's own words.
+	//
+	// So is an item whose last run kept its approved change to be resumed
+	// (KeptApprovalError): nothing was reserved, no other process took the work,
+	// and that run holds the item until it is resumed or a re-run is decided.
 	Declined string `json:"declined,omitempty"`
 	// heldForDesign marks a Declined that is the needs-design label rather than
 	// another process, so the exclusion says which.
@@ -1193,7 +1198,10 @@ type Started struct {
 	// heldOnRemote marks a Declined that is the item's claim on the shared
 	// remote, held by another factory or not reachable to take, in team mode.
 	heldOnRemote bool
-	Failure      string `json:"failure,omitempty"`
+	// heldByKeptChange marks a Declined that is the item's last run keeping its
+	// approved change to be resumed (KeptApprovalError).
+	heldByKeptChange bool
+	Failure          string `json:"failure,omitempty"`
 	// NoteProblem is a run that paused and made its pause durable, and whose note
 	// saying so on its work item could not be written (PauseNoteError). It is not
 	// a Failure: the run is exactly as paused and resumable as one whose note was
@@ -4927,7 +4935,7 @@ func excludedBecause(started Started) string {
 			started.Outcome.RunID, started.Outcome.Environmental.ResetSays())
 	}
 	switch {
-	case started.heldForDesign, started.heldOnRemote, started.heldByNamedEpics:
+	case started.heldForDesign, started.heldOnRemote, started.heldByNamedEpics, started.heldByKeptChange:
 		return "this session chose it and did not start it: " + started.Declined
 	case started.Declined != "":
 		return "this session started it and the work went to another process: " + started.Declined
@@ -7046,6 +7054,9 @@ func carryingOutWhat(task CarryOutTask) string {
 	if task.Decision == DecisionContinueStall {
 		return fmt.Sprintf("the harness stopped the AI session of run %s itself, because it went silent or its total budget ran out, and is continuing the run itself, once, at the phase it stopped in", task.RunID)
 	}
+	if task.Decision == DecisionResumeIntegration && task.Cause == triage.CauseMergeQueueReleased {
+		return fmt.Sprintf("the merge queue let run %s's approved change go for something that says nothing about the change, and the harness is resuming the run by itself from its kept commit, with its approval standing, to admit it to the queue again", task.RunID)
+	}
 	if task.Decision == DecisionResumeIntegration {
 		return fmt.Sprintf("the tracker, the forge, or the network did not answer while run %s's approved change was being promoted, and the harness is resuming it by itself now that they answer, with its approval standing", task.RunID)
 	}
@@ -9123,6 +9134,7 @@ func (s *Started) record(done completed) {
 	var note PauseNoteError
 	var design NeedsDesignError
 	var outside *OutsideNamedEpicsError
+	var kept KeptApprovalError
 	switch {
 	case done.outcome.Paused && errors.As(done.err, &note):
 		s.NoteProblem = done.err.Error()
@@ -9146,6 +9158,11 @@ func (s *Started) record(done completed) {
 			capacity.Active, capacity.Limit)
 	case errors.As(done.err, &existing):
 		s.Declined = fmt.Sprintf("another process is already running %s as %s", existing.State.WorkItemID, existing.State.RunID)
+	case errors.As(done.err, &kept):
+		// The item is held by the run that kept its approved change, which is
+		// resumed rather than replaced; nothing failed in turning the start down.
+		s.Declined = kept.Error()
+		s.heldByKeptChange = true
 	case errors.As(done.err, &behind):
 		s.Declined = behind.Error()
 	case teamClaimDeclined(done.err):
