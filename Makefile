@@ -204,7 +204,8 @@ test: cachecheck
 # The race suite is the expensive one -- several times the plain suite, and
 # under two concurrent runs the check that took a run's check stage past two
 # hours on 2026-09-19 -- so it and the plain suite take the packages a change
-# touches as CHANGED_GO_PACKAGES. The harness works those out and hands every
+# touches as CHANGED_GO_PACKAGES. The harness works those out, adds every
+# package that imports one of them directly or through others, and hands every
 # check them as YOYODYNE_CHANGED_GO_PACKAGES, and this project's checks pass
 # them on:
 #

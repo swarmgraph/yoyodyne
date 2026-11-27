@@ -7585,9 +7585,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// A confirmed document's landing runs the project's document checks in place
 	// of all of that where it declares any (documentChecks).
 	//
+	// The packages the change touches are joined by every package that imports
+	// one of them, directly or through others, so a change to a shared package
+	// meets the tests of the code that uses it before review; the record names
+	// which packages are there for which reason (Narrowing.WithImporters).
+	//
 	// The merge candidate's checks are told the whole module instead, and their
 	// record keeps what the checks before review were narrowed to beside it.
-	narrowing := checks.NarrowGoPackages(a.worktree.Path, changed)
+	narrowing := checks.NarrowGoPackages(a.worktree.Path, changed).WithImporters(a.worktree.Path)
 	if whole && !narrowing.Whole {
 		narrowing = checks.Narrowing{Whole: true, Reason: candidateCheckedWhole}
 	}

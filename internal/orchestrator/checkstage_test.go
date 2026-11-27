@@ -611,8 +611,10 @@ func TestTheRecordSaysWhichCheckTheStageIsOnWhileItRuns(t *testing.T) {
 
 // Every check is told what the change touches, in the shape the Go command
 // takes, so a check the operator wrote to narrow itself runs over that and
-// nothing else. A change to one package is that package; a repository that is
-// no Go module is told the whole module, so a check written for one runs whole.
+// nothing else. A change to one package nothing imports is that package; a
+// change to a package another imports is that package and its importer, and
+// the record says which is which; a repository that is no Go module is told
+// the whole module, so a check written for one runs whole.
 // A gate that was narrowed is followed, once the change is approved, by the
 // same checks over the merge candidate told the whole module, and only that
 // whole pass is evidence the promotion takes.
@@ -620,16 +622,22 @@ func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name    string
-		module  bool
-		changes string
-		want    []string
-		stage   []string
+		name     string
+		module   bool
+		imported bool
+		changes  string
+		want     []string
+		stage    []string
 	}{
 		{
 			name: "a change to one package", module: true, changes: "internal/checks/narrow.go",
 			want:  []string{"./internal/checks", "./..."},
 			stage: []string{"the whole module (" + candidateCheckedWhole + "); before review: ./internal/checks"},
+		},
+		{
+			name: "a change to a package another imports", module: true, imported: true, changes: "internal/checks/narrow.go",
+			want:  []string{"./internal/checks", "./internal/orchestrator", "./..."},
+			stage: []string{"the whole module (" + candidateCheckedWhole + "); before review: ./internal/checks, which the change touches, and the 1 package(s) that import them directly or through other packages: ./internal/orchestrator"},
 		},
 		{
 			name: "a repository that is no Go module", module: false, changes: "feature.txt",
@@ -644,7 +652,11 @@ func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 			if test.module {
 				writeCommitted(t, repository, "go.mod", "module example.com/project\n")
 				writeCommitted(t, repository, "internal/checks/runner.go", "package checks\n")
-				writeCommitted(t, repository, "internal/orchestrator/pipeline.go", "package orchestrator\n")
+				orchestrator := "package orchestrator\n"
+				if test.imported {
+					orchestrator += "\nimport _ \"example.com/project/internal/checks\"\n"
+				}
+				writeCommitted(t, repository, "internal/orchestrator/pipeline.go", orchestrator)
 			}
 			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 			provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
@@ -690,9 +702,8 @@ func TestEveryCheckIsToldWhichGoPackagesTheChangeTouches(t *testing.T) {
 	}
 }
 
-// A narrowed check cannot see a package that depends on the one a change
-// touched, so the whole pass over the merge candidate is where such a failure
-// is found. It is the change's failure and is handed back as repair input like
+// A narrowed check can still miss what only the whole module exercises, so the
+// whole pass over the merge candidate is where such a failure is found. It is the change's failure and is handed back as repair input like
 // any failing check: the approval is cleared, and the repaired change is
 // checked narrowed, reviewed, and checked whole again before it is promoted.
 func TestAMergeCandidateFailingWholeIsRepairedBeforeItIsPromoted(t *testing.T) {
