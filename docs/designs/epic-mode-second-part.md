@@ -47,6 +47,10 @@ revisions:
       by: architect
       at: 2026-11-27T20:12:53.809591Z
       reason: 'yoyodyne-9k1y.13: answers its developer''s two questions. While a naming is open the harness also reads comments made after the merge on each member''s merged pull request, until the operator ends the naming; which case applies is decided from where the epic stands when the comment is read. A change request on an open pull request of a handed over epic is judged and repaired once, and the whole epic is checked again before it is delivered again. The rest of the section is copied unchanged from main 01e13bfc2b72.'
+    - action: amended
+      by: architect
+      at: 2026-11-27T22:32:49.138371Z
+      reason: 'yoyodyne-9k1y.27: rules that a piece split from a member is judged against that member''s text, copied when the operator put it in, as well as the epic''s description, so carrying out part of a member joins and only work wider than both is a question about scope; pieces already judged outside with no answer are judged once more. The two subsections are copied unchanged from main a67892ffa5ea, read whole.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -98,6 +102,11 @@ approvals:
       by: harness
       at: 2026-11-27T20:12:53.809591Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4267, for document-4267.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-11-27T22:32:49.138371Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4281, for document-4281.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -234,14 +243,31 @@ A new piece joins an open epic without asking the operator only when all of thes
 
 1. It was made by one of three acts: the development manager splitting or replacing a member, a correction from the check of the whole epic, or a correction asked for in review of a member's change. The development manager writes the piece in all three. Evidence the check lacked, and feedback on a closed member, are written as corrections of the second and third kind.
 2. Its record names the member or the check it came from.
-3. A reviewer session that did not write the piece, and did not make the check or the review it came from, was given the copied description, the removed items with the operator's words, and the piece's text. It answered that the piece asks only for what the description already asks and not for what the operator took out.
+3. A reviewer session that did not write the piece, and did not make the check or the review it came from, was given the copied description, the removed items with the operator's words, the piece's text, and the text of what it came from, as the subsection on a piece split from a member says. It answered that the piece asks only for what the description or what it came from already asks, and not for what the operator took out.
 4. Fewer than twelve pieces have joined that naming.
 
 Twelve is a limit in code, and no command or setting raises it. The operator may still put any further item in with `yoyo epic add`. That is the operator's own act, so it does not count toward the twelve.
 
-An item that already exists never joins by a role's act or by a judgment. Only the operator's start or add puts it in. Anything else stays outside: an item attached under the epic, moved under it, or made by any other act, and while epic mode is on the link that would attach it is refused, as the next subsection says. Where the reviewer answers that a new piece is outside, or cannot tell, or twelve have joined, it does not join, starts nothing, and is a question about scope.
+An item that already exists never joins by a role's act or by a judgment. Only the operator's start or add puts it in. Anything else stays outside: an item attached under the epic, moved under it, or made by any other act, and while epic mode is on the link that would attach it is refused, as a later subsection says. Where the reviewer answers that a new piece is outside, or cannot tell, or twelve have joined, it does not join, starts nothing, and is a question about scope.
 
 The judgment is a paid call. It is reserved before it is made, and looked up before it is sent again. This piece builds the judgment, its limit, and the split that uses it. Pieces 10 and 11 use it for the other two acts.
+
+### A piece split from a member
+
+Ruled on November 27, 2026, for yoyodyne-9k1y.27, after the operator asked that day that the questions this caused stop reaching him. Pieces split from members he had added to the factory health epic (yoyodyne-32of), such as the crash case of stopping a run's processes (yoyodyne-ifd.428.218.1), were judged outside, because the session was given only the description copied when the epic was named. A member the operator put in is inside the epic by his own act, whatever that description says, so a piece that carries out part of it is inside too. Building this is that item's work.
+
+1. **What the session is given.** For a split or replacement of a member, the session is also given that member's text: its title, description and acceptance criteria, as point 2 says. For a split of a piece that joined, it is given that piece's text as last judged inside. For a correction from the check of the whole epic, it is given the check's answer naming what is missing. For a correction asked for in review, it is given the member and the comment, as piece 11 says.
+2. **Which text of the member.** The operator's start and add copy each member's text into the operator's record beside the member, as the start already copies the epic's description. A member put in before this lands has no copy. The first time a piece of it is judged, the harness copies the member's text as it stands then into the epic's progress entry, marks it as copied late, and uses that copy from then on. A later edit of the member does not change what its pieces may ask.
+3. **The answer.** Inside, where the piece asks only for what the description or that text asks, and for nothing the operator took out. A piece that asks for more than both is outside, and is a question about scope as before. A member the operator took out gives nothing: its text is not given, and a piece of it does not join.
+4. **Every member alike.** A member named at the start and one added later are treated the same.
+5. **Pieces already judged.** Once this lands, each piece that was judged outside, or cannot tell, whose question has no recorded handling and whose record names the member it came from, is judged once more with that member's text. The call is reserved like any judgment. Judged inside, it joins where fewer than twelve have, and the harness writes in the progress entry that its question was answered by that judgment; the Lead Product Manager's next pass is shown those reports, so she can record that nothing more is needed. Judged outside again, its question stands and no second one is filed. A piece whose question was already handled is judged again only under the rule for an edited piece.
+6. **What does not change.** The limit of twelve, the rule for an edited piece, and the rule that an existing item never joins by a judgment.
+
+The code that makes the judgment, built by piece 9, and the operator's start and add were not read for this ruling. A builder who finds them differing from it stops and asks the architect.
+
+Rejected: judging against the description alone, as before, because every piece of a member the operator added would then ask him again about work he already chose; using the member's text as it stands at each judgment, because a role's edit of the member would then widen what joins without the operator; letting a piece join without a judgment because its record names a member, because a piece can ask for more than its member does.
+
+A reviewer can check: a split piece of a member the operator added, asking for part of that member and for nothing in the description, joins; a piece asking for more than its member and the description is a question about scope; a piece of a member the operator took out does not join; an edit to a member after it was put in does not widen what its pieces may ask; a member put in before this landed is copied once, marked as copied late, and that copy is used afterwards; a piece judged outside before this landed, with its question unhandled, is judged once more, joins when judged inside, and its question is marked answered; a restart between reserving that call and its answer makes no second call.
 
 ### An item outside the epic that could block a member
 
