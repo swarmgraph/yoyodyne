@@ -24,7 +24,7 @@ func TestTheReportsCommandFlagsWordsInADigestAndItsHandling(t *testing.T) {
 	digest := report.Report{ID: "report-one", Role: "program-manager", Message: "digest: the posture changed"}
 	handled := map[string]report.Handling{digest.ID: {Reason: "change its cadence"}}
 	var out strings.Builder
-	writeReports(&out, console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, handled, nil, nil, readmodel.ReadTextTerms("../.."))
+	writeReports(&out, console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, handled, nil, nil, nil, readmodel.ReadTextTerms("../.."))
 	for _, term := range []string{"posture", "cadence"} {
 		if !strings.Contains(out.String(), `[wording: "`+term+`" was replaced`) {
 			t.Errorf("digest = %q, want %s flagged", out.String(), term)

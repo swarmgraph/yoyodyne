@@ -163,6 +163,11 @@ type Entry struct {
 	// who is not a role: what only a person can do is recorded as such by the
 	// handling of the report, not asserted by whoever filed it.
 	For domain.AgentRole `json:"for,omitempty"`
+	// Repeats is the standing report the reporter says this one repeats, from
+	// the list it was handed at its start (OfferStanding). Nothing about it is
+	// refused here: a name that cannot be used files the report as a new one
+	// (Match), because a report never costs its run anything.
+	Repeats string `json:"repeats,omitempty"`
 }
 
 // Validate reports every contract violation in the entry at once.
@@ -1053,7 +1058,7 @@ To report, end what you say with exactly one block of this shape:
 {"reports":[{"severity":"critical|warning|note","message":"what you noticed, what it affects, and what somebody would have to look at"}]}
 ` + "```" + `
 
-"critical" is something already wrong that will cost somebody if nobody looks at it. "warning" is a real risk or a fragile assumption that has not cost anything yet. "note" is worth knowing and asks for nothing. One block carries at most ` + maxEntriesPerReplyText + ` reports, and each one takes a severity, a message, and optionally "for", and nothing else. Leave the block out entirely when you have nothing to report.
+"critical" is something already wrong that will cost somebody if nobody looks at it. "warning" is a real risk or a fragile assumption that has not cost anything yet. "note" is worth knowing and asks for nothing. One block carries at most ` + maxEntriesPerReplyText + ` reports, and each one takes a severity, a message, optionally "for", and "repeats" where a list of standing reports you were handed says it may, and nothing else. Leave the block out entirely when you have nothing to report.
 
 "for" names the role the report is waiting on — the one that has to act on it — where you know it: "product-manager", "architect", "development-manager", or "program-manager". The report is put on that role's list and in front of its next pass, whatever its severity. Leave it out where you do not know which role has to act, and the Lead Product Manager, who handles every report, takes it. A report is never addressed to the operator. He is named only for a reason on his closed list: ` + ownership.OperatorReasonsInContract + `. Where only a person can act, open the message with that reason and a colon, such as "protected-file: the PreToolUse hook has to be added to .claude/settings.json by hand", and say in the rest exactly what he has to do. The Lead Product Manager records it as his, under that reason, when she handles the report. Anything else, however urgent, is a role's decision and not his: open it with no reason, and address it to that role.
 

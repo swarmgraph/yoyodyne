@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -4480,6 +4481,11 @@ type State struct {
 	// these: they are what an auditor reads, not what an agent is shown.
 	ReportProblem    string `json:"report_problem,omitempty"`
 	AmendmentProblem string `json:"amendment_problem,omitempty"`
+	// StandingReportsOffered is every standing report this run's developer or
+	// reviewer was handed at its start (report.OfferStanding): the only reports
+	// a report of theirs may name as the one it repeats. It is on the record so
+	// a run continued by another process accepts the same names.
+	StandingReportsOffered []string `json:"standing_reports_offered,omitempty"`
 	// ContextTruncation is what the work item's own notes lost to the context
 	// budget when this run's context was assembled. It is not repair input and
 	// nothing is handed back for it: the run proceeds exactly as it would have,
@@ -5080,8 +5086,20 @@ func NewRunID() (string, error) {
 	return "run-" + hex.EncodeToString(bytes), nil
 }
 
+// MaxStandingReportsOffered bounds the reports one run is recorded as handed:
+// a list for each attempt and each review, which no run reaches.
+const MaxStandingReportsOffered = 400
+
 func (s State) Validate() error {
 	var problems []error
+	if len(s.StandingReportsOffered) > MaxStandingReportsOffered {
+		problems = append(problems, fmt.Errorf("standing_reports_offered names %d reports, limit is %d", len(s.StandingReportsOffered), MaxStandingReportsOffered))
+	}
+	for _, id := range s.StandingReportsOffered {
+		if !report.ValidID(id) {
+			problems = append(problems, fmt.Errorf("standing_reports_offered: %q is not a report id", id))
+		}
+	}
 	if s.DocumentItem != "" && (s.Document == nil || !beads.ValidIssueID(s.DocumentItem)) {
 		problems = append(problems, fmt.Errorf("document_item %q: only a document run records the item filed for it, and it must be a work item id", s.DocumentItem))
 	}

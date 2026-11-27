@@ -950,6 +950,12 @@ type Outcome struct {
 	// because a report nobody collected would otherwise leave no trace at all.
 	Reports       []report.Report `json:"reports,omitempty"`
 	ReportProblem string          `json:"report_problem,omitempty"`
+	// Repeats are the reports this run's agents filed that were kept as
+	// repeats of a standing report rather than as new ones, each with that
+	// report's count. ReportNotes says why a standing report an agent named
+	// could not be used, so its report was filed as a new one.
+	Repeats     []report.Counted `json:"repeats,omitempty"`
+	ReportNotes string           `json:"report_notes,omitempty"`
 	// Amendments are the changes this run's agents proposed to documents they do
 	// not own. Like the reports they are recorded beside the run and decided
 	// nothing about it: each one is waiting on the role that owns the document or
@@ -1784,7 +1790,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		}
 		return run.fail(err, failureStatus(ctx, err))
 	}
-	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), liftSection(run.state)+run.context, run.scratch, p.Config.Checks, p.reviewDiffLimits()), p.Config.Install), ""); err != nil {
+	if err := run.develop(ctx, withInstallSection(developerPrompt(p.developer().Persona.Text, run.deliveredInvariants().Text(), liftSection(run.state)+run.standingReportsSection()+run.context, run.scratch, p.Config.Checks, p.reviewDiffLimits()), p.Config.Install), ""); err != nil {
 		return run.stop(ctx, err)
 	}
 	return run.verifyReviewAndFinish(ctx)
@@ -10754,6 +10760,9 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		// reached the developer's context, so a change that violates one is judged
 		// against it whether or not the work item ever mentioned it.
 		Invariants: a.reviewedInvariants(changes).Text(),
+		// The reports standing in the project, for the reviewer's own reports to
+		// name the one they repeat.
+		StandingReports: a.standingReportsSection(),
 		// A run publishing the architect's own invariant says so from its own
 		// record, outside the evidence, so the reviewer does not refuse the
 		// change to an invariant that is the whole of the run.

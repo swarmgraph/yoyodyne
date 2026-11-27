@@ -801,6 +801,47 @@ attention is a later question, and nothing here does it. The severities are
 deliberately not the reviewer's `blocker`/`major`/`minor`: a finding decides
 whether a change is repaired, and a report decides nothing.
 
+### A report that says again what a standing one says
+
+Runs in a project nobody triages tend to file the same fact again and again. So
+a report a run files is kept as a repeat of a standing report, rather than as a
+new one, when all of these hold:
+
+- the standing report is in the same project and nobody has handled it;
+- both name the same role, or both name none;
+- the new report is no more severe than the standing one, so a critical report
+  is never hidden in a count;
+- the run named the standing report as the one it repeats, or the two messages
+  are equal once both are lower-cased, every run of whitespace is one space, and
+  each harness identifier (beginning `report-`, `run-`, `mqe-` or `exchange-`),
+  hexadecimal string of 7 to 40 characters, date, time and other number is one
+  marker.
+
+The work item and the role that filed it are not compared. Every developer and
+reviewer run is handed at its start the unhandled reports standing in its
+project — at most ten, the most repeated first and then the newest, each with
+its identifier, the role it is for, its severity and the first 160 bytes of its
+message, in at most 2 KiB, saying how many more stand — and a report of its own
+may name one of them with `"repeats"`. A name that was not on that list, or that
+fails one of the conditions above, files the report as a new one, and the run's
+closing lines say why.
+
+A repeat is its own record, in `report-repeats.jsonl` beside the reports and the
+handlings. It keeps everything the report would have — the run, item, role,
+agent, build, severity, time and the whole message — and the standing report is
+never edited. Reports, repeats and handlings are written under one lock, and the
+check that the standing report is unhandled is made again under it, so a
+handling recorded in between sends the report in as a new one. A repeat a
+restart cut short is dropped when read.
+
+`yoyo reports`, `/reports`, and a role's pass show the standing report once,
+with a line under it such as `repeated 16 times, the latest by run run-… on
+yoyodyne-ifd.66 at 14:02 PST on Nov 27`, in your local time; `yoyo reports
+--json` carries the repeat records under the report, as `repeats`. A run's
+closing lines say it repeated that report and give the new count. A handling of
+the standing report covers its repeats; a matching report filed after it is a
+new report. Reports filed before repeats were kept are not folded together.
+
 ### Whom a report is for
 
 A report may also name the role it is for, with `"for"` in its block: the Lead
