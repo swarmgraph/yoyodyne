@@ -9,7 +9,9 @@ package cli
 // settles it (orchestrator.Reconciler.SettleProcessGone). `yoyo status` does it
 // itself and says so at the top of its answer; every other such command has it
 // done for it by the dispatcher (settleBeforeCommand) and says so on standard
-// error, so its own output is unchanged. Everything else the sweep does — the
+// error, so its own output is unchanged. The tracker export a commit's hook runs
+// is the exception: it runs inside a commit and writes nothing
+// (subcommandsNeverSettling). Everything else the sweep does — the
 // forge, the docket build, convergence — is still the sweep's.
 
 import (
@@ -86,7 +88,8 @@ func settleRunsWithNoProcess(ctx context.Context, configPath string, store *runs
 // first. `reconcile` is the sweep this settlement is a part of, and `status`
 // settles for itself. Commands that never read runs, such as `goals guard`,
 // which runs before every shell command an agent makes, are left out so they
-// cost nothing more than they did.
+// cost nothing more than they did. A subcommand that runs inside a Git commit
+// settles nothing either (subcommandsNeverSettling).
 var commandsSettlingFirst = map[string]bool{
 	"agent":        true,
 	"chat":         true,
@@ -111,12 +114,29 @@ var commandsSettlingFirst = map[string]bool{
 	"triage":       true,
 }
 
+// subcommandsNeverSettling are the subcommands of a command settling first that
+// run inside a Git commit, and so settle nothing.
+//
+// `yoyo tracker export` is what the repository's pre-commit hook runs
+// (.beads/hooks/pre-commit), and it only reads the tracker. Settling a run
+// writes the tracker, and a write waits on that item's write lock; a process
+// that holds the lock while it commits would have its own commit's hook wait
+// for it until the hook's time limit refused the commit. So the export settles
+// nothing, and the runs it would have settled are settled by the next command
+// that reads runs outside a commit.
+var subcommandsNeverSettling = map[string]map[string]bool{
+	"tracker": {"export": true},
+}
+
 // settleBeforeCommand settles the runs whose process is gone before a command
 // that reads runs is carried out. A command asked only for its help, or one
 // whose project cannot be found, is carried out exactly as before: the command
 // says itself what it cannot find.
 func settleBeforeCommand(ctx context.Context, args []string, stderr io.Writer) {
 	if len(args) == 0 || !commandsSettlingFirst[args[0]] || asksForHelp(args[1:]) {
+		return
+	}
+	if len(args) > 1 && subcommandsNeverSettling[args[0]][args[1]] {
 		return
 	}
 	configPath := configFlagOf(args[1:])

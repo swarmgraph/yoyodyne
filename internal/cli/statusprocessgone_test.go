@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -208,5 +212,134 @@ func TestConfigFlagOfFindsTheConfigurationWhereverItIsGiven(t *testing.T) {
 		if got := configFlagOf(strings.Fields(args)); got != want {
 			t.Errorf("configFlagOf(%q) = %q, want %q", args, got, want)
 		}
+	}
+}
+
+// committerHoldsTheLock is the settlement's tracker while the process making a
+// commit holds the tracker's write lock: every write waits on that lock, which
+// is not let go until the commit, and so the hook inside it, is over. It
+// waits until the write's own bound runs out, as a write behind a held lock
+// does, and records that it was asked.
+type committerHoldsTheLock struct {
+	*orchestratortest.Tracker
+	asked chan string
+	wait  time.Duration
+}
+
+func (t committerHoldsTheLock) waitOnTheLock(ctx context.Context, write string) error {
+	t.asked <- write
+	select {
+	case <-ctx.Done():
+	case <-time.After(t.wait):
+	}
+	return errors.New("another write held the lock for " + t.wait.String())
+}
+
+func (t committerHoldsTheLock) Block(ctx context.Context, id, reason string) (beads.WorkItem, error) {
+	return beads.WorkItem{}, t.waitOnTheLock(ctx, "block "+id)
+}
+
+func (t committerHoldsTheLock) RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error) {
+	return beads.WorkItem{}, t.waitOnTheLock(ctx, "record an outcome on "+id)
+}
+
+func (t committerHoldsTheLock) Release(ctx context.Context, id, reason string) (beads.WorkItem, error) {
+	return beads.WorkItem{}, t.waitOnTheLock(ctx, "release "+id)
+}
+
+// checkoutWithAFakeTracker is a checkout holding a tracker store, with a bd on
+// PATH that answers every call with one work item and writes each call it was
+// asked into the file returned, so a test can read what bd was asked.
+func checkoutWithAFakeTracker(t *testing.T) (string, string) {
+	t.Helper()
+	checkout := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(checkout, ".beads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, ".beads", "metadata.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + calls + "'\nprintf '{\"id\":\"fresh\"}\\n'\n"
+	if err := os.WriteFile(filepath.Join(bin, "bd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return checkout, calls
+}
+
+// The export the repository's pre-commit hook runs is inside a commit, so it
+// settles nothing and writes nothing to the tracker, even with a run whose
+// process is gone waiting to be settled and the committer holding the
+// tracker's write lock: the export is taken at once and the commit goes ahead.
+// The next command that reads runs outside a commit settles the run instead.
+func TestTheTrackerExportACommitRunsWritesNothingAndIsNotHeldByTheCommittersLock(t *testing.T) {
+	// Not parallel: the fixture sets the state root and PATH.
+	configPath, store, state, fake := processGoneFixture(t)
+	checkout, calls := checkoutWithAFakeTracker(t)
+	held := committerHoldsTheLock{Tracker: fake, asked: make(chan string, 16), wait: 5 * time.Second}
+	statusReconciler = func(configPath string) (orchestrator.Reconciler, error) {
+		reconciler, err := buildReconciler(configPath)
+		reconciler.Tracker = held
+		reconciler.Children = nil
+		reconciler.Filer = nil
+		return reconciler, err
+	}
+
+	// The hook runs the export from the checkout being committed, with no
+	// --config, so the nearest project configuration is the one it would find.
+	t.Chdir(filepath.Dir(configPath))
+	began := time.Now()
+	stdout, stderr, code := runCLI(t, "tracker", "export", "--dir", checkout)
+	took := time.Since(began)
+	if code != 0 {
+		t.Fatalf("tracker export = %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if took >= held.wait {
+		t.Fatalf("tracker export took %s: it waited on the lock the committer holds", took)
+	}
+	select {
+	case write := <-held.asked:
+		t.Fatalf("the export run inside a commit asked the tracker to %s", write)
+	default:
+	}
+	if len(fake.Calls) != 0 || fake.Blocked {
+		t.Fatalf("the export run inside a commit wrote the tracker: %v", fake.Calls)
+	}
+	if strings.Contains(stderr, "had no process behind it") {
+		t.Fatalf("the export run inside a commit settled a run: %q", stderr)
+	}
+	exported, err := os.ReadFile(filepath.Join(checkout, beads.ExportPath))
+	if err != nil || string(exported) != "{\"id\":\"fresh\"}\n" {
+		t.Fatalf("export = %q, %v; want the one bd answered", exported, err)
+	}
+	asked, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range strings.Split(strings.TrimSpace(string(asked)), "\n") {
+		if !strings.HasPrefix(call, "export") {
+			t.Fatalf("bd was asked %q during the export; want only the export, which reads", call)
+		}
+	}
+	if left, err := store.Load(state.RunID); err != nil || !left.Status.InFlight() {
+		t.Fatalf("Load() = %s, %v; want the run left for a command outside a commit", left.Status, err)
+	}
+
+	// Another tracker subcommand that reads runs still settles first.
+	statusReconciler = func(configPath string) (orchestrator.Reconciler, error) {
+		reconciler, err := buildReconciler(configPath)
+		reconciler.Tracker = fake
+		reconciler.Children = nil
+		reconciler.Filer = nil
+		return reconciler, err
+	}
+	_, stderr, _ = runCLI(t, "tracker", "slow-calls", "--config", configPath)
+	if !strings.Contains(stderr, "Run "+state.RunID+" for yoyodyne-gone had no process behind it") {
+		t.Fatalf("stderr = %q, want the run settled by a command outside a commit", stderr)
+	}
+	if !fake.Blocked {
+		t.Fatalf("the item was not told: calls %v", fake.Calls)
 	}
 }
