@@ -62,6 +62,10 @@ revisions:
       by: architect
       at: 2026-11-19T17:01:39.308085Z
       reason: 'Replaces the retired word for a required check in three sentences, under the operator''s rule of November 8, 2026: wakeups are held to the same conditions any invocation is held to, the spending pause and intake hold apply to a side thread, and a readiness record becomes a condition the scheduler holds work on only through a later revision. Part of replacing the coined vocabulary in the governed documents (yoyodyne-ifd.437.21). Nothing else changes; the rest is copied from main 473d3600.'
+    - action: amended
+      by: architect
+      at: 2026-11-27T21:39:22.086736Z
+      reason: 'yoyodyne-ifd.428.225: withdraws the three hour minimum between moves, which broke the rule that every part moves onto a new build together. Every part now moves together; a running queue check is still never cut off and only the restart holds starts; the scheduler''s move has a limit of the queue check''s own limit plus 15 minutes, and past it status and the health check name what holds it. Adds the supervisor''s own timing (yoyodyne-ifd.428.217). The rest of the section is copied from main 0f06c57d.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -98,6 +102,11 @@ approvals:
       by: harness
       at: 2026-11-19T17:01:39.308085Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 3108, for document-3108.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 14
+      by: harness
+      at: 2026-11-27T21:39:22.086736Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4275, for document-4275.1 under the automatic approval policy
 ---
 # Management and supervision: the typed request contract and process residency
 
@@ -194,28 +203,34 @@ The long-term shape is **one durable interaction and state service**, with local
 
 A watch session takes up a build installed over it by itself: between runs, never interrupting one. The takeover happens only at a boundary where the process has nothing in flight; the new process reattaches through the normal lease machinery; and pinned workflow instances continue on their pinned definitions and authority — a new binary changes the executor, never in-flight work's contract. This is settled here rather than deferred: a later headless supervisor inherits this behavior rather than re-deciding it.
 
-**How often a move happens, and what waits for it** *(yoyodyne-ifd.428.161)*. On November 18, 2026, five moves onto new builds between midnight and 05:30 PST held back new work and the merge queue for 58 minutes, against a figure of 30 minutes a day, and one of them cut off a queue check about a minute before it would have finished. Main lands about once an hour, so moving on every landing spends the day's allowance in a few hours. The ruling has three parts:
+**How often a move happens, and what waits for it** *(yoyodyne-ifd.428.161, revised for yoyodyne-ifd.428.225)*. On November 18, 2026, five moves onto new builds between midnight and 05:30 PST held back new work and the merge queue for 58 minutes, and one of them cut off a queue check about a minute before it would have finished. The first ruling answered that with a least time of three hours between moves. On November 27, 2026 the dashboard, Slack and the supervisor moved onto a new build at 11:18 AKST while the scheduler stayed on an older one that refused every new start, leaving three developer slots empty. Whatever held the scheduler that day, which the item's own run finds and names, the three hour minimum allowed exactly this, and it contradicted the operating rule that Slack, the dashboard, the scheduler and maintenance move onto a new build together. The rule is product intent and this design yields to it. The ruling now has five parts:
 
-1. **A move happens at most once every three hours.** The least time between two moves is a project setting, three hours unless the project sets otherwise, and the code refuses a value under one hour or over twenty-four hours when the configuration is read. When that time is up and a newer build is installed, the watch session moves onto the newest build installed at that moment; the builds that landed in between are never moved onto one by one.
+1. **Every part moves onto a new build together, with no least time between moves.** When a newer build is installed, the scheduler, the Slack reporter, the dashboard and the supervisor each move onto the newest build installed at that moment; the builds that landed in between are never moved onto one by one. Where the setting for a least time between moves has been built, it is removed; a configuration that still names it loads, and `yoyo doctor` says it no longer does anything.
 2. **A due move waits out a queue check already running.** A check the merge queue started before the move fell due runs to its own end or to its own time limit, whichever comes first, and the move never cuts it off. While a move is due, the queue starts no new candidate check, so the wait always ends.
 3. **Only the restart itself holds new work.** While a move waits for a queue check, developer runs keep starting as usual. New starts are held only from the moment the restart begins until the new process is running, and the time held is counted from that moment, not from when the build was found.
+4. **The scheduler's move has a limit, and a move past it says what holds it.** The scheduler must be running on the newest build within the time limit of the queue check running when it fell behind, plus 15 minutes, or within 15 minutes where no queue check was running. The time counts from when the supervisor first recorded the scheduler as behind the other parts. Past that limit, `yoyo status` and the factory health check say plainly that the scheduler is still on the older build, since when, and what holds it: the queue check by name, a run that has not reached a point where nothing is in flight by its run and item, or a restart that failed with its reason. Nothing ends or interrupts a run to meet the limit. The limit is held in code, not a project setting.
+5. **The supervisor keeps this timing in its own state** *(yoyodyne-ifd.428.217)*. It records when it first saw the scheduler behind and when the move became overdue, so a restart of the supervisor does not lose them. A gap in its own checks, such as a machine that slept, starts the allowed time over from the supervisor's next check rather than counting the gap as time the move was overdue.
 
-All of this waiting and timing stays inside the harness: no person times or starts a move. It rests on the fix that stops a move cancelling working runs (yoyodyne-ifd.428.153); a move still never interrupts a run.
+All of this waiting and timing stays inside the harness: no person times or starts a move. It rests on the fix that stops a move cancelling working runs (yoyodyne-ifd.428.153); a move still never interrupts a run. Moves are no longer limited in number: parts 2 and 3 keep each one cheap, and the held time for each move is shown with the day's total on the factory health check, so a day that holds work longer than expected is seen rather than hidden.
 
-Rejected: moving after a fixed number of landings, because a quiet day would leave the factory on an old build for hours with fixes waiting in it, while a busy day would still move every hour; making each move shorter alone, because every move would still cut off or delay a queue check; cutting a queue check off at a fixed bound, which is what threw away the check started at 05:17 PST.
+Rejected: keeping the three hour minimum, because it breaks the rule that every part moves together and is what left the scheduler refusing every start on November 27; holding every part to the scheduler's timetable, which keeps them together but makes fixes to Slack and the dashboard wait up to three hours; moving a behind scheduler at once only when its build does harm, because whether a build does harm is a judgment no code can make reliably and it would still keep two timetables; moving after a fixed number of landings, because a quiet day would leave the factory on an old build for hours; cutting a queue check off at a fixed bound, which is what threw away the check started at 05:17 PST on November 18.
 
 Build pieces, for the Lead Product Manager to admit:
 
-- the least time between moves as a project setting with its limits held in code, and moving onto the newest installed build;
-- a due move waits for a running queue check to end or reach its own time limit, and the queue starts no new candidate check while a move is due;
-- new starts held only during the restart itself, with the held time recorded from the start of the hold and shown, with the day's total, on the factory health check.
+- every part moves onto the newest installed build together, with the least time between moves removed where it was built (yoyodyne-ifd.428.225);
+- the scheduler's move limit and the plain message on status and the health check naming what holds it, with a test of the other parts moving while the scheduler is behind (yoyodyne-ifd.428.225);
+- the supervisor's own record of when the scheduler fell behind and when its move became overdue (yoyodyne-ifd.428.217);
+- a due move waits for a running queue check to end or reach its own time limit, and the queue starts no new candidate check while a move is due (yoyodyne-ifd.428.167, unchanged);
+- new starts held only during the restart itself, with the held time recorded from the start of the hold and shown, with the day's total, on the factory health check (yoyodyne-ifd.428.168, unchanged).
 
 A reviewer can check:
 
-- two builds landing an hour apart give one move, onto the later build, no sooner than three hours after the previous move;
-- a setting under one hour or over twenty-four hours is refused when the configuration is read;
+- a new build installed while the other parts move leaves no part on the older build once the limit has passed, and two builds landing an hour apart give a move onto each in turn or one onto the later, never a part left behind;
+- a configuration naming the removed setting loads, and `yoyo doctor` says the setting does nothing;
 - a queue check running when a move falls due finishes, and no new one starts until the move is done;
-- developer runs start while the move waits, and the held time recorded for a move covers only the restart.
+- developer runs start while the move waits, and the held time recorded for a move covers only the restart;
+- a scheduler held past its limit is named on status and by the health check with what holds it, and no run is ended to meet the limit;
+- a supervisor restarted while the scheduler is behind keeps the time it first saw it behind, and a gap in its own checks starts the allowed time over.
 
 **The supervision tree.** One supervisor per product: the process `yoyo start` runs, which yoyodyne-ifd.412 made a command and a process of its own. Its children: the Slack reporter, the scheduler's watch loop, and — where started — the dashboard command. The triage dispatcher and the management-loop dispatcher are not children of their own: they run as steps of each pass of the watch loop, inside the scheduler's process, so they start, stop and restart with it. The supervisor owns start, stop, restart, and the health/readiness of children; each child owns its own domain and none owns workflow truth, per the standing invariants. **Children survive supervisor death**: they are independent processes with recorded presence, and a returning supervisor reattaches through those records and the lease machinery rather than killing and respawning — the same rule a returning chat client already follows. A child that crashes is restarted with backoff; a child that fails repeatedly is not restarted indefinitely — it is left down and reported as **degraded**, reaching the operator through the standing ladder rather than a restart loop. **The escalation ladder is the governed one and the supervisor invents no new verb**: report, then status banners, then a direct message in the degraded class. Operator stopping remains the three existing verbs — hold intake, pause spending, stop everything — and the supervisor is their executor, never a fourth path.
 
