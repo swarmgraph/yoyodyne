@@ -262,7 +262,8 @@ type CarryOut struct {
 	// leaves such a request on the run for `yoyo triage resume`.
 	Integrations CarryOutIntegrations
 	// Resumes resumes the approved changes the tracker, the forge or the network
-	// stopped by not answering, by the harness itself once they answer
+	// stopped by not answering, by the harness itself once they answer, and
+	// those the merge queue let go for something that says nothing about them
 	// (transportresume.go). Optional: a carry-out wired without it leaves such a
 	// stop for `yoyo triage resume`.
 	Resumes CarryOutResumes
@@ -344,6 +345,10 @@ type CarryOutTask struct {
 	// empty on a decision carried out any other way.
 	KeptChange bool     `json:"kept_change,omitempty"`
 	AheadOf    []string `json:"ahead_of,omitempty"`
+	// Cause is the cause of the integration stop a DecisionResumeIntegration
+	// task resumes, which is what its account names, and is empty on every
+	// other task.
+	Cause string `json:"cause,omitempty"`
 }
 
 // aheadOfQueue is what a run fired ahead of higher-priority ready work records

@@ -7967,8 +7967,14 @@ without judging the change again after being run again, or could not be run
 again, with nothing else still running — is withdrawn by the queue's own pass,
 naming what GitHub last said the merge was waiting on or the check that
 failed, and once the forge confirms the withdrawal the entry leaves
-the queue and the change is handed back to its run, kept, for the development
-manager to decide on. That limit counts from when the harness asked the forge
+the queue and the change is handed back to its run, kept. Where a check
+failed on it, on its pull request or on the merge commit GitHub's own merge queue
+dropped it for, the development manager decides what follows. Where the merge was
+dropped, held past the limit, or had a check that never judged it, and no check
+was found failed, the run is stopped at its promotion with its approval
+and approved commit kept, and the harness takes it up again from that commit
+by itself in the next free developer slot, ahead of fresh work, admitting it
+to the queue again; no fresh run of the item is started meanwhile. That limit counts from when the harness asked the forge
 for the merge, which it does only once the entry reaches the head of the queue,
 so time spent waiting behind other entries never counts toward it; the
 withdrawal says how long the forge held the merge and how long the entry was in

@@ -3732,16 +3732,20 @@ person — two refusals, asked last. Two more things are waits rather than
 refusals, and write nothing: your hold on intake applies, for the reason it
 applies to a repair, and a full harness waits for a slot.
 
-One cause is resumed by the harness itself, with nobody typing the command:
-the tracker, GitHub, or the network not answering — a reset connection, a
-tracker call killed at its time limit, a forge that went away. A dropped
+Two causes are resumed by the harness itself, with nobody typing the command.
+The first is the tracker, GitHub, or the network not answering — a reset
+connection, a tracker call killed at its time limit, a forge that went away. A dropped
 connection is waited out under the operating rules, and an approved change it
 stopped is waited out the same way. At each pull the harness's own pass over
 stopped work tries the same resume: it lists the target on the remote and reads
 the item from the tracker before it writes anything, and while either still
 does not answer it writes onto the run what it is waiting for and when it last
 tried, and tries again at the next pull. Once both answer it resumes the run
-exactly as the command would, charging nothing, and the change lands. `yoyo
+exactly as the command would, charging nothing, and the change lands. The
+second is an approved change the merge queue let go without landing it, for
+something that says nothing about the change: the same pass resumes the run from
+its kept commit in the next free developer slot, ahead of fresh work, and the
+commit is admitted to the queue again. For both, `yoyo
 status`, the docket entry, the hold the pull reads, the factory health check,
 and the item's notes all say the harness resumes it by itself and name no
 command; `yoyo status` and the health check add what the last try was waiting

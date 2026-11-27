@@ -285,6 +285,14 @@ type MergeQueueWithdrawal struct {
 	Pinned      string    `json:"pinned"`
 	Reason      string    `json:"reason"`
 	IntendedAt  time.Time `json:"intended_at"`
+	// NextMover is the development manager where she decides what follows the
+	// withdrawal, because the candidate's checks failed, and is empty where the
+	// withdrawal says nothing about the change and the harness moves next. It is
+	// kept here because the release that names the mover on the handback may be
+	// recorded by a later call than the one that knew why, and so is omitted
+	// from a record of the ordinary kind. A withdrawal still unsettled may have
+	// it named later, by a failure found while it stood; once named it stays.
+	NextMover ownership.Mover `json:"next_mover,omitempty"`
 	// Answers are the requests to withdraw that did not settle it: the forge
 	// refused, or its answer did not say. Each is kept so a reader can see why
 	// the merge is still armed.
@@ -657,9 +665,11 @@ type MergeQueueConflict struct {
 // repair, an exhausted budget, or an entry released after its merge was
 // withdrawn for something other than a move to the other queue mode — a merge
 // the forge dropped, or held past the limit on a queued merge's wait — which
-// nothing admits again on its own, so its run is stopped with its work kept
-// for the development manager rather than left waiting on an entry that has
-// left the queue.
+// the queue itself does not admit again, so its run is stopped with its work
+// kept rather than left waiting on an entry that has left the queue. Where
+// nothing about the change failed, the harness resumes a developer's run from
+// its kept commit and admits it again; otherwise the development manager
+// decides.
 func (h MergeQueueHandback) GoesToRun() bool {
 	return h.Continuation.HandsBackToRun() || (h.Continuation == MergeQueueReleased && h.TransferTo == "")
 }
@@ -1084,6 +1094,9 @@ func (a MergeQueuePromotionAttempt) validateWithdrawal() []error {
 	if err := mergeQueueText("withdrawal reason", w.Reason, true); err != nil {
 		problems = append(problems, err)
 	}
+	if w.NextMover != "" && w.NextMover != ownership.MoverDevelopmentManager {
+		problems = append(problems, fmt.Errorf("a withdrawal names %q as who decides next, and only the development manager is ever named", w.NextMover))
+	}
 	if len(w.Answers) > MaxMergeQueueWithdrawalAnswers {
 		problems = append(problems, fmt.Errorf("%d withdrawal answers exceeds the %d a withdrawal keeps", len(w.Answers), MaxMergeQueueWithdrawalAnswers))
 	}
@@ -1344,6 +1357,8 @@ func extendsAttempt(was, now MergeQueuePromotionAttempt) string {
 		case after.Key != before.Key || after.PullRequest != before.PullRequest || after.Pinned != before.Pinned ||
 			after.Reason != before.Reason || !after.IntendedAt.Equal(before.IntendedAt):
 			return "what a withdrawal takes back is fixed when it is intended"
+		case after.NextMover != before.NextMover && (before.NextMover != "" || before.Settled != nil):
+			return "who decides after a withdrawal, once named or settled, never changes"
 		case len(after.Answers) < len(before.Answers):
 			return "a withdrawal answer is never removed"
 		case before.Settled != nil && (after.Settled == nil || *after.Settled != *before.Settled):

@@ -89,6 +89,25 @@ func TestAQueuedMergeIsSetAsideOnlyOnceItsWithdrawalIsConfirmed(t *testing.T) {
 	if err := record(retargeted); !errors.As(err, new(MergeQueueLandingConflictError)) {
 		t.Fatalf("RecordLanding(a withdrawal's reason rewritten) = %v, want a conflict", err)
 	}
+	// Who decides next is the development manager or nobody named, and once
+	// named is never taken back.
+	named := func(attempt MergeQueuePromotionAttempt, mover ownership.Mover) MergeQueuePromotionAttempt {
+		withdrawal := *attempt.Withdrawal
+		withdrawal.NextMover = mover
+		attempt.Withdrawal = &withdrawal
+		return attempt
+	}
+	if err := record(named(rejected, ownership.MoverHarness)); err == nil {
+		t.Fatal("RecordLanding(a withdrawal naming the harness) = nil, want it refused")
+	}
+	unnamed := rejected
+	rejected = named(rejected, ownership.MoverDevelopmentManager)
+	if err := record(rejected); err != nil {
+		t.Fatalf("RecordLanding(the development manager named while the withdrawal stands) = %v", err)
+	}
+	if err := record(unnamed); !errors.As(err, new(MergeQueueLandingConflictError)) {
+		t.Fatalf("RecordLanding(who decides next taken back) = %v, want a conflict", err)
+	}
 	confirmed := rejected
 	confirmed.Withdrawal = &MergeQueueWithdrawal{}
 	*confirmed.Withdrawal = *rejected.Withdrawal

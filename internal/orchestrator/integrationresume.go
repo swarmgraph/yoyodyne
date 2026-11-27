@@ -687,7 +687,7 @@ func (r IntegrationResumer) closeEntry(entry triage.Entry, reason string) error 
 		WorkItemID:    entry.WorkItemID,
 		Decision:      resumedDocketDecision,
 		Reason:        singleLine(reason, triage.MaxMessageBytes),
-		DecidedBy:     "the harness, resuming the integration of an approved change the environment stopped",
+		DecidedBy:     "the harness, resuming the integration of an approved change that stopped short of landing",
 		ClosedAt:      r.now(),
 	})
 	return err
@@ -701,6 +701,11 @@ func resumeReason(prior runstate.State, reasoning string) string {
 	reason := fmt.Sprintf(
 		"Resumed: the integration of run %s was resumed at the %s phase with its approval standing, after the environment stopped it there — %s. No review round, repair grant, or re-run was spent on it; the item's counters stand where the review left them.",
 		prior.RunID, prior.IntegrationStop.Phase, prior.IntegrationStop.Cause.Title())
+	if prior.IntegrationStop.Cause == runstate.CauseMergeQueueReleased {
+		reason = fmt.Sprintf(
+			"Resumed: run %s was resumed from its kept commit with its approval standing, to be admitted to the merge queue again, after the queue let the change go without landing it for something that says nothing about the change. No review round, repair grant, or re-run was spent on it; the item's counters stand where the review left them.",
+			prior.RunID)
+	}
 	if reasoning == "" {
 		return reason
 	}
