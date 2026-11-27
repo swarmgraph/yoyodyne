@@ -1537,7 +1537,9 @@ func (w MergeQueueWorker) addedRaceCheck(generation runstate.MergeQueueGeneratio
 }
 
 // raceNarrowing is the Go packages the candidate's change touches, which the
-// race check the queue adds is told in place of the whole module. Where the
+// race check the queue adds is told in place of the whole module. It names no
+// importers, as a run's checks before review do (Narrowing.WithImporters):
+// the queue's own checks of the candidate already run the whole module. Where the
 // paths cannot be listed the check is told the whole module, which is slower
 // and never narrower than the change.
 func (w MergeQueueWorker) raceNarrowing(ctx context.Context, generation runstate.MergeQueueGeneration) (checks.Narrowing, error) {

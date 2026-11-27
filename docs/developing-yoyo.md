@@ -39,7 +39,8 @@ means `make test`.
 `CHANGED_GO_PACKAGES`, and are the whole module when nothing names them, which
 is what `make check`, CI, and a person's own run want. Where the full checks run
 here, the harness names them: it hands every check the packages the change
-touches as `YOYODYNE_CHANGED_GO_PACKAGES`, and the check list passes them on as
+touches, and every package that imports one of them directly or through
+others, as `YOYODYNE_CHANGED_GO_PACKAGES`, and the check list passes them on as
 `make test CHANGED_GO_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` and the
 same for `make race`. Once the reviewer approves, the harness runs the list again over the merge
 candidate told `./...`, with checks on CI on or off, so the whole suite runs on
