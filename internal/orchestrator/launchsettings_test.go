@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -381,5 +382,44 @@ func TestALaunchSettingsHoldPassesOverOnlyTheSlotsOnItsProvider(t *testing.T) {
 				t.Fatalf("Standing() = %t, %v; want the hold still standing", standing, err)
 			}
 		})
+	}
+}
+
+// timingOutSettingsCLI is an installed Claude Code whose answer to the
+// settings questions never comes in time.
+type timingOutSettingsCLI struct{}
+
+func (timingOutSettingsCLI) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
+	switch {
+	case slices.Equal(command.Args, []string{"--version"}):
+		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "2.1.286 (Claude Code)\n"}, nil
+	case slices.Contains(command.Args, "--input-format"):
+		return execution.ProcessResult{Status: execution.ProcessTimedOut}, nil
+	}
+	return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1}, nil
+}
+
+// While no check has passed, a start is refused: a check that timed out on
+// every try is the machine's refusal rather than the item's, places no hold
+// since it says nothing about the settings, and the line the operator reads
+// says it timed out under load, with the load and the limit used.
+func TestASettingsCheckThatTimesOutRefusesTheStartAndSaysTheLoad(t *testing.T) {
+	t.Parallel()
+	holds := newLaunchSettingsStore(t)
+	pipeline := Pipeline{Repository: t.TempDir(), LaunchSettings: holds}
+	provider := claudecode.Backend{Runner: timingOutSettingsCLI{}, MachineLoad: func() (float64, int, bool) { return 40, 16, true }}
+	err := pipeline.requireLaunchSettings(context.Background(), "the dispatch of yoyodyne-task", provider, domain.BackendClaudeCode)
+	var refused EnvironmentRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("requireLaunchSettings() = %v, want the start refused as the machine's", err)
+	}
+	said := blockedReason(err)
+	for _, want := range []string{"could not be checked", "timed out under load: no answer in 1m15s, the limit for a load of 40.0 on 16 cores, on 2 tries"} {
+		if !strings.Contains(said, want) {
+			t.Fatalf("status says %q, want it to name %q", said, want)
+		}
+	}
+	if _, standing, err := holds.Standing(); err != nil || standing {
+		t.Fatalf("Standing() = %t, %v; want no hold for a check that could not be made", standing, err)
 	}
 }
