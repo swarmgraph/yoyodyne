@@ -2916,10 +2916,12 @@ process the harness starts for a run carries the run's identifier in its
 environment as `YOYODYNE_RUN_ID`, and passes it on to whatever it starts, so
 once each developer or reviewer session ends, and as the run ends, the harness
 stops every process that started with that identifier, wherever its group
-went. A process that cleared its environment carries no identifier and is not
-stopped; one working inside the run's worktree or scratch folder is named on
-the run and on `yoyo status` instead, as is any process the harness could not
-stop, with its number and the ports it listens on. So background load a check
+went. A process that cleared its environment is stopped too if it still holds
+the file the harness handed its launch to tell whether anything from it lives;
+one that shows neither and is working inside the run's worktree or scratch
+folder is named on the run and on `yoyo status` instead, never stopped, as is
+any process the harness could not stop, with its number and the ports it
+listens on. So background load a check
 spawns should still stop on its own however the check ends.
 
 ### The environment a check runs in

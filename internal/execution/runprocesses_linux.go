@@ -76,6 +76,41 @@ func (systemProcessTable) workingDirectories(pids []int) map[int]string {
 	return directories
 }
 
+// holding reads each process's open files from its fd directory, which names
+// the file each descriptor has open.
+func (systemProcessTable) holding(paths []string) map[int]bool {
+	wanted := map[string]bool{}
+	for _, path := range paths {
+		wanted[filepath.Clean(path)] = true
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			wanted[resolved] = true
+		}
+	}
+	holding := map[int]bool{}
+	names, err := os.ReadDir("/proc")
+	if err != nil {
+		return holding
+	}
+	for _, name := range names {
+		pid, err := strconv.Atoi(name.Name())
+		if err != nil {
+			continue
+		}
+		descriptors := filepath.Join("/proc", name.Name(), "fd")
+		open, err := os.ReadDir(descriptors)
+		if err != nil {
+			continue
+		}
+		for _, descriptor := range open {
+			if target, err := os.Readlink(filepath.Join(descriptors, descriptor.Name())); err == nil && wanted[target] {
+				holding[pid] = true
+				break
+			}
+		}
+	}
+	return holding
+}
+
 func (systemProcessTable) listening(pid int) []string {
 	return lsofListening(pid)
 }

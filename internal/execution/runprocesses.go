@@ -85,8 +85,13 @@ type LeftProcess struct {
 	Why string `json:"why"`
 }
 
-// Describe is the line every surface shows for the process.
+// Describe is the line every surface shows for the process. An entry with no
+// process number is the harness having been unable to look at all, which is
+// said as that rather than as a process still running.
 func (l LeftProcess) Describe() string {
+	if l.PID <= 0 {
+		return "the harness could not check for processes this run left running; " + l.Why
+	}
 	var line strings.Builder
 	if l.Unmarked {
 		line.WriteString("a process inside this run's folders is still running: ")
@@ -107,10 +112,13 @@ func (l LeftProcess) Describe() string {
 // unmarkedWhy is what is said of a process found only by its working directory.
 const unmarkedWhy = "not stopped: it carries no sign that this run started it"
 
-// RunProcessesRequest names the run whose processes are stopped and the folders
-// a process left inside is named from: the run's worktree and scratch folder.
+// RunProcessesRequest names the run whose processes are stopped, the files the
+// harness handed the run's launches to tell whether anything from them still
+// lives (LaunchGate.Hold), and the folders a process left inside is named from:
+// the run's worktree and scratch folder.
 type RunProcessesRequest struct {
 	RunID   string
+	Holds   []string
 	Folders []string
 }
 
@@ -149,9 +157,12 @@ type processTable interface {
 	workingDirectories(pids []int) map[int]string
 	// listening is every address and port a process listens on.
 	listening(pid int) []string
+	// holding is every process that has one of the files open.
+	holding(paths []string) map[int]bool
 }
 
-// Stop stops every process that started with this run's identifier and returns
+// Stop stops every process that started with this run's identifier, or that
+// holds one of the files the harness handed the run's launches, and returns
 // what it left running. It never looks at another user's processes, at process
 // 1, or at this process and the processes it descends from. A table that
 // cannot be read at all is said as one entry rather than as nothing found.
@@ -170,22 +181,28 @@ func (r RunProcesses) Stop(ctx context.Context, request RunProcessesRequest) []L
 	}
 	entries, err := table.list()
 	if err != nil {
-		return []LeftProcess{{Why: "the harness could not list this machine's processes to stop the run's: " + err.Error()}}
+		return []LeftProcess{{Why: "the harness could not list this machine's processes: " + err.Error()}}
 	}
 	excluded := ownLineage(entries)
+	var holders map[int]bool
+	if len(request.Holds) > 0 {
+		holders = table.holding(request.Holds)
+	}
 	var marked []processEntry
 	var others []processEntry
 	for _, entry := range entries {
 		if entry.PID <= 1 || entry.Gone || excluded[entry.PID] {
 			continue
 		}
-		if id, ok := runIdentityIn(entry.Environment); ok {
-			if id == runID {
-				marked = append(marked, entry)
-			}
-			continue
+		// A process carrying another run's identifier is that run's, whatever
+		// it holds: stopping the wrong process is the worse mistake.
+		id, carries := runIdentityIn(entry.Environment)
+		switch {
+		case carries && id == runID, !carries && holders[entry.PID]:
+			marked = append(marked, entry)
+		case !carries:
+			others = append(others, entry)
 		}
-		others = append(others, entry)
 	}
 	left := r.stopAll(ctx, table, signal, marked)
 	left = append(left, unmarkedInside(table, others, request.Folders)...)

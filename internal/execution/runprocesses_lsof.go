@@ -62,3 +62,12 @@ func lsofWorkingDirectories(pids []int) map[int]string {
 	}
 	return directories
 }
+
+// lsofHolding is every process that has one of the files open, as lsof says.
+func lsofHolding(paths []string) map[int]bool {
+	holding := map[int]bool{}
+	for pid := range lsofFields(append([]string{"--"}, paths...)...) {
+		holding[pid] = true
+	}
+	return holding
+}

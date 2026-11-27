@@ -34,6 +34,13 @@ func TestStatusNamesAProcessARunLeftRunning(t *testing.T) {
 			t.Fatalf("status does not say %q:\n%s", want, rendered)
 		}
 	}
+	// A stop that could not look at the machine's processes says so, and never
+	// that a process is still running.
+	couldNotLook := execution.LeftProcess{Why: "the harness could not list this machine's processes: refused"}
+	unread := Standing{LeftProcesses: []LeftRunProcess{{RunID: "run-2", WorkItemID: "item-2", Says: couldNotLook.Describe()}}}.renderLeftProcesses()
+	if !strings.Contains(unread, "run run-2: the harness could not check for processes this run left running") || strings.Contains(unread, "process 0") || strings.Contains(unread, "still running") {
+		t.Fatalf("status reads a failed look as a process still running:\n%s", unread)
+	}
 	if (Standing{}).renderLeftProcesses() != "" {
 		t.Fatal("status says something about left processes where there are none")
 	}

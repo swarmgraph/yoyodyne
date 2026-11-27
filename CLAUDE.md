@@ -179,8 +179,10 @@ Two things guard against that, and only the first is the harness's:
 - **The work sets its own end.** The group kill does not reach something that
   started a session of its own — `setsid`, a launchd job, a tool that detaches
   what it starts. The harness stops those too when a session or the run ends,
-  by the run's identifier in their environment (`internal/execution/runprocesses.go`),
-  but not one that cleared its environment, and not before the session ends,
+  by the run's identifier in their environment or the launch's hold file they
+  still have open (`internal/execution/runprocesses.go`), but not one that
+  cleared its environment and let go of that file, and not before the session
+  ends,
   so put the deadline in the work itself:
 
 ```sh

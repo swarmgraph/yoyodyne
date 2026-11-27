@@ -69,6 +69,17 @@ func attemptOfHold(hold string) string {
 	return strings.TrimSuffix(hold, ".hold")
 }
 
+// LaunchHolds is every hold file still on disk for the run's launches. A hold
+// stays until the harness has seen nothing of its launch is left, so a process
+// that still has one open is one of the run's (execution.RunProcesses). It only
+// reads the directory.
+func (s *Store) LaunchHolds(runID string) ([]string, error) {
+	if !runIDPattern.MatchString(runID) {
+		return nil, errors.New("run id is invalid")
+	}
+	return filepath.Glob(filepath.Join(s.root, runID+".*"+holdName("")))
+}
+
 func (s *Store) holdPath(runID, attemptID string) (string, error) {
 	if !runIDPattern.MatchString(runID) {
 		return "", errors.New("run id is invalid")

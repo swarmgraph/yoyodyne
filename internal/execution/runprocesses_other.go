@@ -19,4 +19,6 @@ func (systemProcessTable) workingDirectories([]int) map[int]string { return nil 
 
 func (systemProcessTable) listening(int) []string { return nil }
 
+func (systemProcessTable) holding([]string) map[int]bool { return nil }
+
 func sendSignal(int, syscall.Signal) error { return errRunProcessesUnsupported }

@@ -38,7 +38,14 @@ func (a *activeRun) stopWhatItStarted(ctx context.Context) {
 	if a.scratch != "" {
 		folders = append(folders, a.scratch)
 	}
-	left := stopper.Stop(context.WithoutCancel(ctx), execution.RunProcessesRequest{RunID: a.state.RunID, Folders: folders})
+	// The files the run's launches were handed: a process that still has one
+	// open is the run's even if it cleared its environment. A store that cannot
+	// list them leaves the identifier as the only sign.
+	var holds []string
+	if lister, ok := a.pipeline.Store.(launchHolds); ok {
+		holds, _ = lister.LaunchHolds(a.state.RunID)
+	}
+	left := stopper.Stop(context.WithoutCancel(ctx), execution.RunProcessesRequest{RunID: a.state.RunID, Holds: holds, Folders: folders})
 	if len(left) > maxLeftProcesses {
 		left = left[:maxLeftProcesses]
 	}
@@ -57,6 +64,12 @@ func (a *activeRun) stopWhatItStarted(ctx context.Context) {
 	for _, process := range left {
 		a.recordBackgroundWork(process.Describe())
 	}
+}
+
+// launchHolds lists the hold files still on disk for a run's launches. It is
+// satisfied by *runstate.Store.
+type launchHolds interface {
+	LaunchHolds(runID string) ([]string, error)
 }
 
 // maxLeftProcesses bounds what one stop writes onto the run's record: past this

@@ -2,6 +2,9 @@ package orchestrator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +41,13 @@ func TestWhatARunStartedIsStoppedAfterEachSessionAndAsTheRunEnds(t *testing.T) {
 	pipeline, store := newAutomaticPipeline(t, pipelineRepository(t), tracker, provider, []string{"exit 0"})
 	stopper := &recordingStopper{left: []execution.LeftProcess{{PID: 4242, Command: "java", Listening: []string{"127.0.0.1:25565"}, Why: "the harness could not stop it: permission refused"}}}
 	pipeline.RunProcesses = stopper
+	if err := os.MkdirAll(store.Root(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held := filepath.Join(store.Root(), "run-0123456789abcdef0123456789abcdef.attempt-held.hold")
+	if err := os.WriteFile(held, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
@@ -48,6 +58,17 @@ func TestWhatARunStartedIsStoppedAfterEachSessionAndAsTheRunEnds(t *testing.T) {
 	}
 	if len(stopper.requests) < 3 {
 		t.Fatalf("the run's processes were stopped %d time(s), want after the developer session, after the reviewer session, and as the run ended", len(stopper.requests))
+	}
+	// A hold file still on disk for the run, as a launch leaves one while a
+	// process still has it open, is handed to every stop.
+	handedHold := true
+	for _, request := range stopper.requests {
+		if !slices.Contains(request.Holds, held) {
+			handedHold = false
+		}
+	}
+	if !handedHold {
+		t.Fatalf("a stop was not handed the run's hold file %s: %+v", held, stopper.requests)
 	}
 	for _, request := range stopper.requests {
 		if request.RunID != outcome.RunID {

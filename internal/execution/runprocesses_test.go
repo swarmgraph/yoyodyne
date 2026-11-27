@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"strconv"
@@ -24,11 +25,12 @@ type fakeProcesses struct {
 	listed    int
 	cwd       map[int]string
 	ports     map[int][]string
+	holders   map[string][]int
 	signalled []string
 }
 
 func newFakeProcesses(entries ...processEntry) *fakeProcesses {
-	fake := &fakeProcesses{entries: map[int]processEntry{}, ignore: map[int]syscall.Signal{}, refuse: map[int]error{}, reuse: map[int]string{}, cwd: map[int]string{}, ports: map[int][]string{}}
+	fake := &fakeProcesses{entries: map[int]processEntry{}, ignore: map[int]syscall.Signal{}, refuse: map[int]error{}, reuse: map[int]string{}, cwd: map[int]string{}, ports: map[int][]string{}, holders: map[string][]int{}}
 	for _, entry := range entries {
 		fake.entries[entry.PID] = entry
 	}
@@ -55,6 +57,16 @@ func (f *fakeProcesses) list() ([]processEntry, error) {
 
 func (f *fakeProcesses) workingDirectories(pids []int) map[int]string {
 	return f.cwd
+}
+
+func (f *fakeProcesses) holding(paths []string) map[int]bool {
+	holding := map[int]bool{}
+	for _, path := range paths {
+		for _, pid := range f.holders[path] {
+			holding[pid] = true
+		}
+	}
+	return holding
 }
 
 func (f *fakeProcesses) listening(pid int) []string {
@@ -169,3 +181,44 @@ func TestWithRunIdentityReplacesAnInheritedMark(t *testing.T) {
 		t.Fatalf("runIdentityIn() = %q, %v", id, ok)
 	}
 }
+
+// A process that cleared its environment but still holds the file the harness
+// handed one of the run's launches is the run's and is stopped; one holding
+// another run's file is not, and neither is one that holds this run's file but
+// carries another run's identifier.
+func TestRunProcessesStopsAnUnmarkedProcessHoldingTheRunsLaunchFile(t *testing.T) {
+	fake := newFakeProcesses(
+		processEntry{PID: 4010, Start: "1", Command: "java"},
+		processEntry{PID: 4011, Start: "1", Command: "java"},
+		marked(4012, "run-b"),
+	)
+	fake.holders["/state/run-a.attempt-1.hold"] = []int{4010, 4012}
+	fake.holders["/state/run-b.attempt-1.hold"] = []int{4011}
+	left := quickStop(fake).Stop(context.Background(), RunProcessesRequest{RunID: "run-a", Holds: []string{"/state/run-a.attempt-1.hold"}})
+	if len(left) != 0 {
+		t.Fatalf("Stop() left %+v, want nothing", left)
+	}
+	if !slices.Equal(fake.signalled, []string{"terminated 4010"}) {
+		t.Fatalf("signals = %v, want only the stop signal to the process holding this run's file", fake.signalled)
+	}
+}
+
+// A process list that cannot be read is said as the harness not having been
+// able to look, never as a process still running.
+func TestRunProcessesSaysWhenItCouldNotLook(t *testing.T) {
+	left := (RunProcesses{table: unreadableTable{}}).Stop(context.Background(), RunProcessesRequest{RunID: "run-a"})
+	if len(left) != 1 {
+		t.Fatalf("Stop() = %+v, want one entry saying the list could not be read", left)
+	}
+	said := left[0].Describe()
+	if said != "the harness could not check for processes this run left running; the harness could not list this machine's processes: refused" {
+		t.Fatalf("Describe() = %q", said)
+	}
+}
+
+type unreadableTable struct{}
+
+func (unreadableTable) list() ([]processEntry, error)           { return nil, errors.New("refused") }
+func (unreadableTable) workingDirectories([]int) map[int]string { return nil }
+func (unreadableTable) listening(int) []string                  { return nil }
+func (unreadableTable) holding([]string) map[int]bool           { return nil }

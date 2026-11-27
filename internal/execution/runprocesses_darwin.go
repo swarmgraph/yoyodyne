@@ -85,6 +85,10 @@ func (systemProcessTable) workingDirectories(pids []int) map[int]string {
 	return lsofWorkingDirectories(pids)
 }
 
+func (systemProcessTable) holding(paths []string) map[int]bool {
+	return lsofHolding(paths)
+}
+
 func (systemProcessTable) listening(pid int) []string {
 	return lsofListening(pid)
 }

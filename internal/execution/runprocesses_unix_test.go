@@ -110,3 +110,38 @@ func TestRunProcessesStopsAServerThatLeftTheRunsGroup(t *testing.T) {
 		t.Fatalf("process %d, another run's server, was stopped", theirs)
 	}
 }
+
+// TestRunProcessesStopsADetachedChildHoldingTheLaunchFile is a server that
+// cleared its environment, so it carries no identifier, and left its session,
+// but still holds the file the harness handed the launch. It is the run's and
+// is stopped.
+func TestRunProcessesStopsADetachedChildHoldingTheLaunchFile(t *testing.T) {
+	hold, err := os.Create(filepath.Join(t.TempDir(), "run-hold-test.attempt.hold"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := exec.Command("/bin/sh", "-c", "sleep 60")
+	server.Env = []string{"PATH=/bin:/usr/bin"}
+	server.ExtraFiles = []*os.File{hold}
+	server.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = hold.Close()
+	pid := server.Process.Pid
+	reaped := make(chan struct{})
+	go func() { _ = server.Wait(); close(reaped) }()
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	if !(systemProcessTable{}).holding([]string{hold.Name()})[pid] {
+		t.Skip("this machine cannot say which processes hold a file (lsof sees nothing here), so the hold test cannot be shown")
+	}
+	left := (RunProcesses{TermWait: 5 * time.Second, KillWait: 5 * time.Second}).Stop(context.Background(), RunProcessesRequest{RunID: "run-hold-test", Holds: []string{hold.Name()}})
+	if len(left) != 0 {
+		t.Fatalf("Stop() left %+v, want nothing", left)
+	}
+	select {
+	case <-reaped:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("process %d, which holds the run's launch file, is still running", pid)
+	}
+}
