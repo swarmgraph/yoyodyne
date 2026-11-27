@@ -981,6 +981,10 @@ func phasesDeclaredInRunstate(t *testing.T) []runstate.Phase {
 // fails the test, so the next person has to make the same judgement out loud
 // instead of the question never being asked.
 var notAStep = map[string]string{
+	// The list of standing reports a developer or reviewer is handed
+	// (reports.go): it reads the pile and notes on the run which reports were
+	// offered, as part of the prompt it is written into.
+	"standingReportsSection": "part of the development or review step: writes the list of standing reports into that step's prompt and notes which were offered",
 	// Developers starting on the cheaper model (cheaperfirst.go): the move to
 	// the stronger model only changes which model the repair that follows asks
 	// for, and the first review's decision is noted on the run's record; both

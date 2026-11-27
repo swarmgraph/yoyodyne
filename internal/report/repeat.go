@@ -18,9 +18,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // RepeatSchemaVersion is versioned independently of the report it repeats, as
@@ -74,15 +74,8 @@ func (r Repeat) Validate() error {
 	if err := domain.ValidateIdentifier("repository id", r.RepositoryID); err != nil {
 		problems = append(problems, err)
 	}
-	if !r.Severity.Valid() {
-		problems = append(problems, fmt.Errorf("severity %q is not one of %s, %s, %s", r.Severity, SeverityCritical, SeverityWarning, SeverityNote))
-	}
-	switch message := strings.TrimSpace(r.Message); {
-	case message == "":
-		problems = append(problems, errors.New("message is required"))
-	case len(message) > MaxMessageBytes:
-		problems = append(problems, fmt.Errorf("message is %d bytes, limit is %d", len(message), MaxMessageBytes))
-	}
+	// The severity and the message are held to exactly what a report's are.
+	problems = append(problems, Entry{Severity: r.Severity, Message: r.Message}.Validate())
 	if r.RecordedAt.IsZero() {
 		problems = append(problems, errors.New("recorded_at is required"))
 	}
@@ -238,11 +231,7 @@ func Match(filing Report, named string, in Matching) (standing string, byName bo
 // singleWord bounds a name the run wrote, which nothing has checked, to what a
 // closing line can carry.
 func singleWord(text string) string {
-	text = strings.Join(strings.Fields(text), " ")
-	if len(text) > 80 {
-		text = text[:80] + "…"
-	}
-	return fmt.Sprintf("%q", text)
+	return fmt.Sprintf("%q", oneline.Fold(text, 80))
 }
 
 func addresseeWords(role domain.AgentRole) string {
@@ -325,7 +314,7 @@ func OfferStanding(reports []Report, handlings []Handling, repeats []Repeat) Off
 		if len(ids) == MaxOfferedReports {
 			break
 		}
-		line := fmt.Sprintf("- %s, for %s, %s: %s\n", reported.ID, addresseeWords(reported.For), reported.Severity, cutBytes(strings.Join(strings.Fields(reported.Message), " "), OfferedMessageBytes))
+		line := fmt.Sprintf("- %s, for %s, %s: %s\n", reported.ID, addresseeWords(reported.For), reported.Severity, oneline.Fold(reported.Message, OfferedMessageBytes))
 		if text.Len()+len(line)+len(moreStand(len(open))) > MaxOfferedListBytes {
 			break
 		}
@@ -346,16 +335,4 @@ func moreStand(more int) string {
 		return "1 more report stands and is not listed.\n"
 	}
 	return fmt.Sprintf("%d more reports stand and are not listed.\n", more)
-}
-
-// cutBytes keeps at most limit bytes of text, ending on a whole character.
-func cutBytes(text string, limit int) string {
-	if len(text) <= limit {
-		return text
-	}
-	cut := text[:limit]
-	for !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
-	}
-	return cut + "…"
 }

@@ -118,7 +118,7 @@ func TestOfferStandingListsTheMostRepeatedFirstThenTheNewestWithinItsBounds(t *t
 				t.Fatalf("line does not carry addressee and severity: %q", line)
 			}
 			_, message, _ := strings.Cut(line, "note: ")
-			if len(strings.TrimSuffix(message, "…")) > OfferedMessageBytes {
+			if len(strings.TrimSuffix(message, "...")) > OfferedMessageBytes {
 				t.Fatalf("message is %d bytes", len(message))
 			}
 		}
