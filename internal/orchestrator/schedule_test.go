@@ -621,6 +621,136 @@ func TestAConversationsItemWhoseDesignLandedIsClosedWhileEverySlotIsHeld(t *test
 	}
 }
 
+// landsAfter is a landing sweep that finds nothing landed until found is set,
+// so a test can have an item's document land after the pull that would
+// otherwise have closed it.
+type landsAfter struct {
+	*landedOnPull
+	found atomic.Bool
+}
+
+func (l *landsAfter) Settle(ctx context.Context, entries []backlog.Entry, items map[string]beads.WorkItem) (LandingSweep, error) {
+	if !l.found.Load() {
+		return LandingSweep{}, nil
+	}
+	return l.landedOnPull.Settle(ctx, entries, items)
+}
+
+// architectItemLanded is an item carried in the architect's conversation whose
+// answering document is on the target branch.
+func architectItemLanded() beads.WorkItem {
+	return beads.WorkItem{
+		ID: "yoyodyne-ifd.429.199", Title: "The architect picks how the slow queue is read", Status: "open", Priority: 1,
+		Executor: domain.ConversationWith(domain.RoleArchitect),
+	}
+}
+
+// A held intake stops the harness choosing work and never stops it closing work
+// that has already landed, because closing it starts nothing
+// (yoyodyne-ifd.428.159). Both a drain and a watching session close it on the
+// held pull, start nothing, and still say nothing about a backlog they did not
+// choose from.
+func TestAConversationsItemWhoseDesignLandedIsClosedWhileIntakeIsHeld(t *testing.T) {
+	t.Parallel()
+
+	for _, watching := range []bool{false, true} {
+		t.Run(fmt.Sprintf("watching=%t", watching), func(t *testing.T) {
+			t.Parallel()
+			landed := architectItemLanded()
+			harness := newScheduleHarness(landed, beads.WorkItem{ID: "yoyodyne-one", Title: "Ready work", Status: "open", Priority: 2})
+			harness.held = &runstate.IntakeHold{
+				SchemaVersion: runstate.IntakeHoldSchemaVersion,
+				ProductID:     "yoyodyne",
+				HeldAt:        time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC),
+				HeldBy:        runstate.IntakeHolderOperator,
+				Reason:        "the queue is being reordered",
+			}
+			harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 1 }
+			sweep := &landedOnPull{harness: harness, landed: map[string]bool{landed.ID: true}}
+			harness.landings = sweep
+
+			scheduler := Scheduler{Open: harness.open, Watching: watching, Sleep: harness.sleep}
+			schedule, err := scheduler.Schedule(context.Background())
+			if err != nil {
+				t.Fatalf("Schedule() error = %v", err)
+			}
+			if len(schedule.Started) != 0 || schedule.IntakeHeld == nil {
+				t.Fatalf("schedule = %#v, want nothing started under the hold", schedule)
+			}
+			if len(schedule.Landed) != 1 || schedule.Landed[0].WorkItemID != landed.ID || sweep.settles < 1 {
+				t.Fatalf("landed = %#v after %d sweeps, want the item closed although intake was held", schedule.Landed, sweep.settles)
+			}
+			if schedule.BacklogRead {
+				t.Fatalf("schedule = %#v, want no claim about a backlog a held pass chose nothing from", schedule)
+			}
+		})
+	}
+}
+
+// Checks the machine could not run hold back new work for the probe interval
+// after the first run that met them. A document that lands a few polls into
+// that interval closes its item on the next held pull, with the developer slot
+// free and nothing else started (yoyodyne-ifd.428.159).
+func TestAConversationsItemWhoseDesignLandedIsClosedWhileMachineChecksHoldNewWork(t *testing.T) {
+	t.Parallel()
+
+	landed := architectItemLanded()
+	harness := newScheduleHarness(landed, beads.WorkItem{ID: "yoyodyne-one", Title: "Pin the charting library", Status: "open", Priority: 2},
+		beads.WorkItem{ID: "yoyodyne-two", Title: "Report shared provider cost", Status: "open", Priority: 2})
+	sweep := &landsAfter{landedOnPull: &landedOnPull{harness: harness, landed: map[string]bool{landed.ID: true}}}
+	harness.landings = sweep
+	var started []string
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		h.mu.Lock()
+		started = append(started, id)
+		h.mu.Unlock()
+		return stoppedWithNoCheckRan(h, id)
+	}
+	// The harness's poll is a minute against a thirty-minute probe interval, so
+	// every pull from the third to the sixth is held by the checks.
+	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool {
+		if sleeps == 3 {
+			sweep.found.Store(true)
+		}
+		return sleeps < 6
+	}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if strings.Join(started, ",") != "yoyodyne-one" || !strings.Contains(schedule.Blocked, "You have not agreed to the Xcode license agreements") {
+		t.Fatalf("started %v, blocked %q; want the checks to hold back the second run", started, schedule.Blocked)
+	}
+	if len(schedule.Landed) != 1 || schedule.Landed[0].WorkItemID != landed.ID {
+		t.Fatalf("landed = %#v, want the item closed although the machine's checks held new work", schedule.Landed)
+	}
+}
+
+// A machine that refuses to start any run, here for a dirty primary checkout,
+// holds back new work and still closes an item whose document has landed.
+func TestAConversationsItemWhoseDesignLandedIsClosedWhileTheMachineRefusesRuns(t *testing.T) {
+	t.Parallel()
+
+	landed := architectItemLanded()
+	harness := newScheduleHarness(landed, beads.WorkItem{ID: "yoyodyne-one", Title: "Ready work", Status: "open", Priority: 2})
+	harness.dirty = []string{"internal/orchestrator/schedule.go"}
+	sweep := &landedOnPull{harness: harness, landed: map[string]bool{landed.ID: true}}
+	harness.landings = sweep
+
+	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleBlocked || len(schedule.Started) != 0 {
+		t.Fatalf("schedule = %#v, want nothing started while runs cannot start", schedule)
+	}
+	if len(schedule.Landed) != 1 || schedule.Landed[0].WorkItemID != landed.ID {
+		t.Fatalf("landed = %#v, want the item closed although runs could not start", schedule.Landed)
+	}
+}
+
 // A marked item does not stop the pass: the slot it would have taken goes to the
 // next thing in the order rather than being spent on it or idled beside it.
 func TestSchedulerCarriesOnPastWorkAConversationCarries(t *testing.T) {

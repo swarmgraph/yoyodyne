@@ -3491,6 +3491,29 @@ pulling:
 			}
 			return early
 		}
+		// readForLanding is the queue the landing sweep reads on a pull that
+		// chooses nothing. Closing an item whose work has already landed starts
+		// nothing, so a hold on new work never stops it: under a held intake the
+		// queue is read for the sweep alone, kept apart from early so nothing a
+		// held pull ranks or chooses is read off it. Only the operator's pause of
+		// everything the harness spends still reads nothing here.
+		var landingRead *pulled
+		landingAsked := false
+		readForLanding := func() *pulled {
+			if paused {
+				return nil
+			}
+			if !held {
+				return readEarly()
+			}
+			if !landingAsked {
+				landingAsked = true
+				if read, err := pull.queue(ctx, claimed, claimedRead); err == nil {
+					landingRead = &read
+				}
+			}
+			return landingRead
+		}
 		kept := keptChange(ctx, pull, s.now)
 		outranked := func(task CarryOutTask) (outrankedCarryOut, bool) {
 			if task.Decision == DecisionContinueStall {
@@ -3854,6 +3877,9 @@ pulling:
 		if held {
 			schedule.IntakeHeld = &hold
 			if !s.Watching {
+				// The hold stops choosing, and a landing's close is not a choice; see
+				// landWithoutChoosing.
+				s.landWithoutChoosing(ctx, &schedule, pull, readForLanding)
 				schedule.Stopped = ScheduleIntakeHeld
 				break
 			}
@@ -3876,6 +3902,9 @@ pulling:
 				if pullSlots.free > 0 {
 					pullSlots.say(pullSlots.holdAccount(hold))
 				}
+				// A pull that releases the brake or probes under it goes on to the
+				// queue and its sweep below, so only one that waits sweeps here.
+				s.landWithoutChoosing(ctx, &schedule, pull, readForLanding)
 				if !wait(pull, runstate.WatchBraked, account{
 					reason: brakedReason(hold),
 					// This session's own runs: a held intake stops the choosing and
@@ -3895,6 +3924,7 @@ pulling:
 
 		if stopped := pull.blocked(ctx); stopped != "" {
 			schedule.Blocked = stopped
+			s.landWithoutChoosing(ctx, &schedule, pull, readForLanding)
 			if !s.Watching {
 				schedule.Stopped = ScheduleBlocked
 				break
@@ -3913,6 +3943,7 @@ pulling:
 		checksBefore := len(schedule.Started)
 		if checksHold == machineChecksWaiting {
 			schedule.Blocked = stopped
+			s.landWithoutChoosing(ctx, &schedule, pull, readForLanding)
 			if !s.Watching {
 				schedule.Stopped = ScheduleBlocked
 				break
@@ -7288,13 +7319,17 @@ func diedTogether(died []runstate.ReleasedClaim) runstate.BrakeBlockedRun {
 	}
 }
 
-// landWithoutChoosing runs the landing sweep on a pull that chooses nothing,
-// because every developer slot is held or the limit on pull requests waiting
-// for a person is reached. Closing an item whose document has landed starts no
-// run and takes no slot, so neither condition is a reason to leave it open. The
-// queue comes from read, the pull's one shared reading, which reads nothing
-// while intake is held or everything is paused; a reading that fails is left
-// to the next pull, as an unreadable queue is everywhere else.
+// landWithoutChoosing runs the landing sweep on a pull that chooses nothing:
+// because every developer slot is held, the limit on pull requests waiting for
+// a person is reached, intake is held, the machine refuses to start runs, or
+// checks the machine could not run are holding back new work. Closing an item
+// whose document has landed starts no run and takes no slot, so none of these
+// is a reason to leave it open; the Lead Product Manager decided on
+// yoyodyne-ifd.428.159 that a hold on new work never stops these closes. A
+// pull a restart declines may skip it, because the next pull makes it. The
+// queue comes from read, which reads nothing while everything is paused; a
+// reading that fails is left to the next pull, as an unreadable queue is
+// everywhere else.
 func (s Scheduler) landWithoutChoosing(ctx context.Context, schedule *Schedule, pull Pull, read func() *pulled) {
 	if pull.Landings == nil {
 		return
