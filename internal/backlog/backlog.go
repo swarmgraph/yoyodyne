@@ -147,6 +147,11 @@ type Holds struct {
 	// the substrate a child carved out of one of them may say it builds on; see
 	// OnUnlandedParents.
 	unlanded map[string]string
+	// queued is the work whose own approved change is waiting in a merge queue
+	// and has not landed on the integration target yet, keyed by item, with where
+	// that change is. Every child broken out of one of them is held until it
+	// lands; see OnQueuedParents.
+	queued map[string]string
 }
 
 // ReadHolds is the holds as a reader actually found them, which may be none at
@@ -231,6 +236,26 @@ func (h Holds) OnUnlandedParents(unlanded map[string]string) Holds {
 	return h
 }
 
+// OnQueuedParents is these holds with the work whose approved change is waiting
+// in a merge queue, keyed by item and saying where each change is. Every child
+// broken out of one of them is held until that change lands, whatever the
+// child's own text says.
+//
+// It does not ask the child to say it builds on the change, as
+// OnUnlandedParents does, because the two cases are different. A stopped change
+// may be superseded rather than built on, so only the child can say which. An
+// approved change in the merge queue is about to be on the target branch, and a
+// child started before it lands starts in a worktree without it: on 2026-11-27
+// at 14:54 PST the second piece of stopping a run's processes
+// (yoyodyne-ifd.428.218.1) was started that way while the first piece's change
+// was still in the queue, because nothing held a child once its parent's run had
+// ended. The tracker refuses a dependency from a child onto its own parent, so
+// this is what makes the child wait.
+func (h Holds) OnQueuedParents(queued map[string]string) Holds {
+	h.queued = queued
+	return h
+}
+
 // hold is what somebody has to do before this item is pulled, with an empty
 // reason for an item nothing is holding.
 func (h Holds) hold(item beads.WorkItem) Hold {
@@ -240,7 +265,9 @@ func (h Holds) hold(item beads.WorkItem) Hold {
 }
 
 // substrate is the hold on a child that builds on its parent's change while that
-// change has not landed, and whether there is one. It clears by itself, however
+// change has not landed, and whether there is one: any child of a parent whose
+// approved change waits in a merge queue, and a child that says it builds on a
+// parent whose change stopped off the target branch. It clears by itself, however
 // the change lands: a later run of the parent promoting it, which the harness's
 // own records then say, or the parent leaving the backlog closed — the preserved
 // branch cherry-picked, the pull request revived and merged, or the substrate
@@ -255,6 +282,13 @@ func (h Holds) substrate(item beads.WorkItem, unfinished map[string]struct{}) (s
 	parent := item.DecomposedFrom()
 	if parent == "" {
 		return "", false
+	}
+	// A parent whose approved change waits in a merge queue holds every child it
+	// has, unless the child's own edge says the parent has closed; see
+	// OnQueuedParents.
+	if where, queued := h.queued[parent]; queued && !closedEdge(item, parent) {
+		return fmt.Sprintf("it was broken out of %s, and %s; it is pulled once that change lands on the target branch, or once %s closes",
+			parent, strings.TrimSpace(where), parent), true
 	}
 	where, unlanded := h.unlanded[parent]
 	if !unlanded || !BuildsOnParent(item, parent) || !standing(item, parent, unfinished) {
@@ -275,6 +309,17 @@ func standing(item beads.WorkItem, parent string, unfinished map[string]struct{}
 		}
 		if status := strings.TrimSpace(dependency.Status); status != "" {
 			return status != "closed"
+		}
+	}
+	return false
+}
+
+// closedEdge reports the item's own edge to its parent saying the parent has
+// closed. An edge with no status says nothing either way.
+func closedEdge(item beads.WorkItem, parent string) bool {
+	for _, dependency := range item.Dependencies {
+		if strings.TrimSpace(dependency.ID) == parent && strings.TrimSpace(dependency.Status) == "closed" {
+			return true
 		}
 	}
 	return false
@@ -417,7 +462,8 @@ type Entry struct {
 	// (Hold.MergeQueueHandedBack).
 	MergeQueueHandedBack bool `json:"merge_queue_handed_back,omitempty"`
 	// AwaitingLanding reports a held item whose hold is its parent's change
-	// landing rather than anybody's decision: a child that says it builds on a
+	// landing rather than anybody's decision: a child of a parent whose approved
+	// change is still in a merge queue, or a child that says it builds on a
 	// change the harness recorded and never saw reach the target branch. It is a
 	// wait, like WaitingOn, and clears by itself; the reason says what on.
 	AwaitingLanding bool `json:"awaiting_landing,omitempty"`
