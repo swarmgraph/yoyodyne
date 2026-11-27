@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -119,6 +120,12 @@ const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"
 // (execution.ConfirmScratchDirectory) where services is found
 // (backend.ServicesDirectory); one that is not is refused with the reason, and
 // the run does not start, rather than the grant being widened or dropped.
+//
+// The sandbox grants the session's TMPDIR, but on macOS mktemp and Java make
+// their temporary files in the per-user folder under /var/folders whatever
+// TMPDIR says, and that folder is not granted. A developer on macOS is
+// therefore pointed at a folder inside its scratch folder for those
+// (execution.PrepareScratchTemporary), which adds no write path.
 func developerSettingsFor(scratch, services string) (string, error) {
 	return withSandboxFolders(developerSettings, scratch, services)
 }
@@ -754,6 +761,12 @@ const ProviderHomeVariable = "CLAUDE_CONFIG_DIR"
 // authentication is the login held in the provider home, never a variable.
 var providerEnvironmentPrefixes = []string{"CLAUDE_", "ANTHROPIC_"}
 
+// scratchTemporaryApplies is whether a developer session is given its own
+// temporary folder for the programs that ignore TMPDIR, which is macOS only:
+// elsewhere mktemp and Java read TMPDIR or /tmp, which the sandbox grants. A
+// variable so a test on any machine can ask for either answer.
+var scratchTemporaryApplies = runtime.GOOS == "darwin"
+
 // environmentFor is the environment one invocation is made in: built from the
 // allowlist rather than inherited, so nothing the harness's own environment
 // happened to carry -- a Slack token exported in a shell profile, say -- reaches
@@ -1107,6 +1120,17 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 	if toolFree {
 		environment = withEnvironmentValue(environment, attachmentsVariable, "1")
+	}
+	if !readOnly && scratchTemporaryApplies && strings.TrimSpace(request.ScratchDirectory) != "" {
+		repository := request.RepositoryRoot
+		if repository == "" {
+			repository = request.WorkingDirectory
+		}
+		temporary, err := execution.PrepareScratchTemporary(request.ScratchDirectory, request.RunID, repository)
+		if err != nil {
+			return backend.RunResult{}, fmt.Errorf("prepare the developer's temporary folder: %w", err)
+		}
+		environment = temporary.Environment(environment)
 	}
 	// What the provider is about to be sent is recorded first, from the same
 	// parts the arguments and the standard input above were made of; an

@@ -353,6 +353,18 @@ run's scratch, or an inherited cache path. A Claude Code developer is given the
 same folder as its sandbox's one added write path,
 `sandbox.filesystem.allowWrite`, and nothing else in the state directory.
 
+On macOS, `mktemp` with no template or with `-t`, and a Java program's default
+temporary folder (`java.io.tmpdir`), use the per-user folder under
+`/var/folders` whatever `TMPDIR` says, and a Claude Code developer's sandbox
+does not grant that folder. So a Claude Code developer on macOS is launched
+with a temporary folder of its own, `tmp/` inside its scratch folder: a small
+`mktemp` program in the scratch folder's `bin/`, first on the session's `PATH`,
+adds `-p` with that folder when the caller names neither a template nor a
+folder, and `JAVA_TOOL_OPTIONS` sets `java.io.tmpdir` to it, ahead of any
+option the project adds itself. Java prints a line saying it picked those
+options up. No write path is added; the folder goes when the scratch folder
+does. Everything that reads `TMPDIR` is left to the one Claude Code sets.
+
 `exec resume` takes neither `--cd` nor `--sandbox`, so the profile and `--cd`
 are given to `exec`, ahead of `resume`, on every invocation. Asked without a
 provider call, 0.160.0 runs a resumed session under the profile given then, in
