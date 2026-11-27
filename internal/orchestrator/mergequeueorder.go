@@ -211,7 +211,7 @@ type rankedEntry struct {
 type queueOrder struct {
 	pipeline *Pipeline
 	// paths lists what a change makes against its base.
-	paths func(ctx context.Context, base, candidate string) ([]string, error)
+	paths changedPathReader
 	now   time.Time
 	// lastLandedDocument says the last candidate the queue landed was a
 	// document candidate, as the recorded choices say (lastLandingWasDocument).

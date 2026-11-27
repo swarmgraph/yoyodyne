@@ -57,10 +57,15 @@ type MergeQueueAdmissions interface {
 
 // mergeQueueChecks is the checks the queue verifies an entry's candidate by:
 // the project's configured checks, run whole, for every change, and for a
-// confirmed document the document checks where the project declares any, as
-// the document's own landing runs (docs/designs/document-landing-route.md, rule
-// 3). A document entry is known by its item, which is its run's own identifier
-// (HarnessRunItems); no other entry's item is.
+// change wholly inside the artifact homes the document checks where the project
+// declares any, as a document's own landing runs
+// (docs/designs/document-landing-route.md, rule 3). Which of the two an entry
+// is follows from the paths its change makes against its run's recorded base
+// (queueOrder.documentKind), read with paths, and never from the kind it was
+// recorded as: an entry recorded as a document whose change touches any other
+// path is checked as code, so a pass of the document checks never lands code.
+// Paths that cannot be read make the entry code, which costs the full checks
+// and never lands a change on the document checks alone.
 //
 // A project that declares which of its checks the queue runs
 // (config.MergeQueueChecks) has exactly those run, and the narrowed race check
@@ -82,8 +87,8 @@ type MergeQueueAdmissions interface {
 // (quickQueueChecks, mergequeuequick.go), until one of its candidates finds the
 // forge's checks unable to settle; generations is the entry's candidates so
 // far, which say whether one has.
-func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry, generations []runstate.MergeQueueGeneration) runstate.MergeQueueCheckConfiguration {
-	if entry.WorkItemID == entry.RunID && runstate.ValidRunID(entry.RunID) && len(p.Config.DocumentChecks) > 0 {
+func (p *Pipeline) mergeQueueChecks(ctx context.Context, paths changedPathReader, entry runstate.MergeQueueEntry, generations []runstate.MergeQueueGeneration) runstate.MergeQueueCheckConfiguration {
+	if len(p.Config.DocumentChecks) > 0 && (queueOrder{pipeline: p, paths: paths}).documentKind(ctx, entry) {
 		return runstate.NewMergeQueueCheckConfiguration(p.Config.DocumentChecks)
 	}
 	if p.forgeChecksStandIn() && forgeChecksFellBack(generations) == "" {
@@ -99,6 +104,21 @@ func (p *Pipeline) mergeQueueChecks(entry runstate.MergeQueueEntry, generations 
 		}
 	}
 	return runstate.NewMergeQueueCheckConfiguration(commands)
+}
+
+// changedPathReader lists the paths a change makes against a base, measured
+// from where the two meet (gitworktree.Manager.CandidatePaths). A nil reader
+// reads nothing, which makes every entry code.
+type changedPathReader = func(ctx context.Context, base, candidate string) ([]string, error)
+
+// candidatePaths is the reader a promotion chooses an entry's checks with: its
+// lander's, which is the worker's worktree manager, so the promotion and the
+// worker that built the candidate answer the same question the same way.
+func (p MergeQueuePromoter) candidatePaths() changedPathReader {
+	if p.Lander == nil {
+		return nil
+	}
+	return p.Lander.CandidatePaths
 }
 
 // admitsToMergeQueue reports whether an approved change of this run goes to
