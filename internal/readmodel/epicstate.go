@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epiccost"
@@ -831,6 +832,13 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 		if returned && group.Kind == backlog.HeldParked {
 			return s.replaced(epic, entry, id, true, budgetRefuses, seen)
 		}
+		// An item the queue could not explain is often waiting on claimed work it
+		// could not see; said that way, it is not left as a question for anyone.
+		if group.Kind == backlog.HeldUnread {
+			if waits := s.waitsOnUnfinished(id); len(waits) > 0 {
+				return epicMember{waits: waits}, nil
+			}
+		}
 		switch {
 		case group.Kind == backlog.HeldForAPerson && group.Awaiting == HeldAwaitingDecision:
 			return stopped(group.Mover)
@@ -855,6 +863,9 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 	}
 	if _, held := s.held[id]; held {
 		return stopped(MoverDevelopmentManager)
+	}
+	if waits := s.waitsOnUnfinished(id); len(waits) > 0 {
+		return epicMember{waits: waits}, nil
 	}
 	return waits(MoverDevelopmentManager, "is neither running, ready nor held: find out why")
 }
@@ -1084,6 +1095,51 @@ func (s *epicStandings) waitsOnItems(epic epicscope.Epic, id string) epicMember 
 	}
 	slices.SortFunc(member.waits, func(a, b EpicWait) int { return strings.Compare(a.Says, b.Says) })
 	return member
+}
+
+// waitsOnUnfinished is what holds a member the queue could not explain, where
+// it waits on unfinished work: each item it, or an item it was broken out of,
+// depends on, named with its state. The queue reads a dependency against the
+// backlog alone, so work somebody has claimed, which has left the backlog, is
+// what it cannot see; the standing has read the claimed work too. Nothing is
+// returned where nothing it depends on is unfinished, which is the only case
+// where why the tracker does not offer it is still unknown.
+func (s *epicStandings) waitsOnUnfinished(id string) []EpicWait {
+	var waits []EpicWait
+	named := map[string]bool{}
+	seen := map[string]bool{}
+	for above := id; above != "" && !seen[above]; above = s.items[above].DecomposedFrom() {
+		seen[above] = true
+		for _, on := range s.items[above].WaitingOn(s.unfinished) {
+			if named[on] || on == id || s.done(on) {
+				continue
+			}
+			named[on] = true
+			through := ""
+			if above != id {
+				through = ", through " + s.name(above, "") + ", which it was broken out of,"
+			}
+			waits = append(waits, EpicWait{Owner: MoverNobody, Says: fmt.Sprintf("%s waits%s for %s, which is %s, and is offered once that is finished.",
+				s.name(id, ""), through, s.name(on, ""), beads.StatusWords(s.statusOf(above, on)))})
+		}
+	}
+	slices.SortFunc(waits, func(a, b EpicWait) int { return strings.Compare(a.Says, b.Says) })
+	return waits
+}
+
+// statusOf is the tracker status of the item on, which the item from depends
+// on: the item's own where it was read, and otherwise what the dependency
+// carried.
+func (s *epicStandings) statusOf(from, on string) string {
+	if item, read := s.items[on]; read && item.Status != "" {
+		return item.Status
+	}
+	for _, dependency := range s.items[from].Dependencies {
+		if dependency.ID == on {
+			return dependency.Status
+		}
+	}
+	return ""
 }
 
 // stoppageOwner is who decides about a stopped run: whoever the attention line

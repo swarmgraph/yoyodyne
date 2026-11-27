@@ -67,6 +67,18 @@ func unreadyWaitReason(entry backlog.Entry, items map[string]beads.WorkItem) str
 		if described := beads.DescribeInheritedBlocks(blocks); described != "" {
 			return described
 		}
+		// The same blindness on the item's own links: a link the listing carries
+		// with no status, to work somebody has claimed, reads to the queue as no
+		// wait at all. Each such item is named with its state.
+		if kind == backlog.HeldUnread {
+			if on := items[entry.ID].WaitingOn(unfinished); len(on) > 0 {
+				named := make([]string, 0, len(on))
+				for _, id := range on {
+					named = append(named, schedulingWaitReason(id, items)+", which is "+beads.StatusWords(items[id].Status))
+				}
+				return "waiting on " + strings.Join(named, ", and on ") + "; the tracker offers it once that work is finished"
+			}
+		}
 	}
 	if kind == backlog.HeldInherited {
 		// Already names each item by title, in quotes schedulingWaitReason does

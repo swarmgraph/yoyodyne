@@ -7703,7 +7703,13 @@ all that holds it is other work: an unfinished item it depends on, its
 parent's change that has not landed, or a parent it was broken out of that
 waits on unfinished work, in which case the reason names that parent and what
 it waits on, each by title with its identifier after it. The parent is named
-even while somebody is working it and it has left the backlog. Every pass that
+even while somebody is working it and it has left the backlog, and so is an
+item it depends on itself that somebody is working: the reason names that item
+with its state, such as in progress, where the tracker's link to it carries
+none. An open epic's standing in `yoyo status` says the same of a member,
+naming each unfinished item it waits on and its state, and asks somebody to find
+out why the tracker does not offer it only where it waits on nothing
+unfinished. Every pass that
 reads the queue writes this reason for the whole queue, not only for the items
 a free developer slot reached, and the first such pass that finds the item no
 longer held that way clears it; until then `yoyo status` stops saying it as soon as the item reads

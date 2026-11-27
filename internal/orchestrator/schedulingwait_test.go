@@ -196,3 +196,29 @@ func TestAWaitOnOtherWorkIsClearedOnceNothingHoldsTheItem(t *testing.T) {
 		}
 	}
 }
+
+// An item the queue could not explain because the work it depends on has been
+// claimed, and the listing's link carries no status, keeps a reason naming that
+// work with its state rather than saying only that the tracker does not offer
+// it. One that depends on nothing unfinished keeps the queue's own words.
+func TestAnItemWaitingOnClaimedWorkKeepsWhatItWaitsOn(t *testing.T) {
+	t.Parallel()
+
+	piece := beads.WorkItem{ID: "yoyodyne-rp.3", Title: "Route the reports", Status: "open", Dependencies: []beads.Dependency{
+		{ID: "yoyodyne-rp.1", Type: beads.BlocksDependency}, {ID: "yoyodyne-rp.2", Type: beads.BlocksDependency}}}
+	items := map[string]beads.WorkItem{
+		piece.ID:        piece,
+		"yoyodyne-rp.1": {ID: "yoyodyne-rp.1", Title: "Read the reports", Status: "in_progress"},
+		"yoyodyne-rp.2": {ID: "yoyodyne-rp.2", Title: "Sort the reports", Status: "in_progress"},
+		"yoyodyne-lone": {ID: "yoyodyne-lone", Title: "Say the totals", Status: "open"},
+	}
+	entries := []backlog.Entry{{ID: piece.ID, Status: "open"}, {ID: "yoyodyne-lone", Status: "open"}}
+	kept := map[string]string{}
+	keepUnreadyWaits(entries, items, func(id string, _ runstate.PassedOverClass, reason string) { kept[id] = reason })
+	if want := "waiting on Read the reports (yoyodyne-rp.1), which is in progress, and on Sort the reports (yoyodyne-rp.2), which is in progress; the tracker offers it once that work is finished"; kept[piece.ID] != want {
+		t.Fatalf("kept = %q, want %q", kept[piece.ID], want)
+	}
+	if kept["yoyodyne-lone"] != "the tracker does not report it as ready to pull" {
+		t.Fatalf("kept = %q, want the queue's own words for an item nothing explains", kept["yoyodyne-lone"])
+	}
+}
