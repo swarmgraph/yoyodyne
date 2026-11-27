@@ -43,7 +43,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -563,13 +562,13 @@ func (a *activeRun) describeCIEvidence(ctx context.Context) string {
 	return text.String()
 }
 
-// resumeTakenUp is resumeRun for a run its caller adopted and took a developer
-// slot back for (reclaimSlot), which gives the slot back where the resume is
-// refused before the run goes on (giveBackCIWaitSlot).
-func (p Pipeline) resumeTakenUp(ctx context.Context, state runstate.State, item beads.WorkItem, publishing bool, skipped string, waitedForEpic bool) (Outcome, error) {
-	outcome, err := p.resumeRun(ctx, state, item, publishing, skipped, waitedForEpic)
+// refusedAfterTakeUp is what Run and Continue return from resumeRun for a run
+// they adopted and took a developer slot back for (reclaimSlot): the resume as
+// it came, with the slot given back where it was refused before the run went
+// on (giveBackCIWaitSlot).
+func (p Pipeline) refusedAfterTakeUp(ctx context.Context, runID string, outcome Outcome, err error) (Outcome, error) {
 	if err != nil && !outcome.continuationAccepted {
-		err = p.giveBackCIWaitSlot(ctx, state.RunID, err)
+		err = p.giveBackCIWaitSlot(ctx, runID, err)
 	}
 	return outcome, err
 }

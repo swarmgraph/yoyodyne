@@ -239,7 +239,7 @@ field holds X" questions are answered in `internal/runstate/state.go`.
 continues nothing) and continues the run. A continuation `resumeRun` refuses
 after `reclaimSlot` took the slot back, such as an item that does not read in
 progress, is put back to waiting with the slot given back and the refusal on
-its record (`resumeTakenUp`, `giveBackCIWaitSlot`). `settleCIWait` then reads the forge for the recorded commit
+its record (`refusedAfterTakeUp`, `giveBackCIWaitSlot`). `settleCIWait` then reads the forge for the recorded commit
 without pushing, and either goes on to review, parks again, ends the wait
 and runs the full checks (`endCIWaitWithFullChecks`), or, for a required check
 that failed, reads its output and returns a `checkFailure` (`handBackCIFailure`)

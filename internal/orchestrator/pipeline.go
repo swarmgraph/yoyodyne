@@ -1498,7 +1498,8 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		if err != nil {
 			return Outcome{}, err
 		}
-		return p.resumeTakenUp(ctx, inFlight, item, publishing, skipped, waitedForEpic)
+		outcome, err := p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
+		return p.refusedAfterTakeUp(ctx, inFlight.RunID, outcome, err)
 	case errors.Is(err, runstate.ErrNoRunInFlight):
 	default:
 		var existing runstate.ExistingWorkItemError
@@ -2062,7 +2063,8 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 	if err != nil {
 		return Outcome{}, err
 	}
-	return p.resumeTakenUp(ctx, inFlight, item, publishing, skipped, waitedForEpic)
+	outcome, err := p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
+	return p.refusedAfterTakeUp(ctx, inFlight.RunID, outcome, err)
 }
 
 // recordDependencyContinued tells the item a run paused on work it waited on is
