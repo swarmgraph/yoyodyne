@@ -1010,6 +1010,7 @@ func (p Pipeline) settledDocumentAttempt(ctx context.Context, runID string, ran 
 	case saved.Status == runstate.StatusSucceeded && saved.Integration != nil:
 		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s published document %s (%s) at %s.", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, d.Candidate.Artifact.Path))
 		record.complete(ctx, fmt.Sprintf("Document %s (%s) landed at %s through run %s.", d.WriteID, d.Candidate.Artifact.Title, d.Candidate.Artifact.Path, saved.RunID))
+		record.liftDesignHolds(ctx, fmt.Sprintf("on %s as commit %s through run %s", saved.Integration.TargetBranch, saved.Integration.TargetCommit, saved.RunID))
 	case saved.DocumentJudged():
 		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not publish document %s (%s), and handed it back to the %s to revise: %s", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, d.Owner.Title(), documentStopSays(saved)))
 	default:

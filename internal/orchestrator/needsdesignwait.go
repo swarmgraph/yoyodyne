@@ -124,6 +124,6 @@ func needsDesignWaitMessage(item NeedsDesignItem, since, now time.Time) string {
 		named += " (" + title + ")"
 	}
 	return fmt.Sprintf("The P0 work item %s has waited on the architect's design since %s, %s ago, and is still labelled %s. "+
-		"No developer run starts it until a document in docs/designs naming the item lands and the development manager, who does it for now, removes the label, so look at whether the architect has what she needs or whether the item should be reordered; it stays among the factory problems until the label comes off, and this report is not filed again for this wait.",
+		"No developer run starts it until a document in docs/designs naming the item lands, when the harness takes the label off, so look at whether the architect has what she needs or whether the item should be reordered; it stays among the factory problems until the label comes off, and this report is not filed again for this wait.",
 		named, since.Local().Format("2006-01-02 15:04 MST"), waitedFor(now.Sub(since)), domain.NeedsDesignLabel)
 }

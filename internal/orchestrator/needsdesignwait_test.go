@@ -80,8 +80,8 @@ func TestAPZeroItemWaitingMoreThanADayOnDesignIsReportedOnce(t *testing.T) {
 	if !strings.Contains(reported.Message, "since "+recurringNow.Local().Format("2006-01-02 15:04 MST")) || !strings.Contains(reported.Message, "1 day 1 hour ago") {
 		t.Fatalf("message = %q, want since when and how long", reported.Message)
 	}
-	if !strings.Contains(reported.Message, "the development manager, who does it for now, removes the label") || strings.Contains(reported.Message, "she makes its design readable") {
-		t.Fatalf("message = %q, want it to name the development manager as the one who removes the label", reported.Message)
+	if !strings.Contains(reported.Message, "the harness takes the label off") || strings.Contains(reported.Message, "she makes its design readable") {
+		t.Fatalf("message = %q, want it to say the harness takes the label off", reported.Message)
 	}
 	if record, _, _ := labelled.Load(); !record.Reported("yoyodyne-top") || record.Reported("yoyodyne-low") {
 		t.Fatalf("record = %+v, want only the P0 item marked reported", record.Items)

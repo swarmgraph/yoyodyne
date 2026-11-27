@@ -296,8 +296,8 @@ func needsDesignMessage(trigger runstate.PassTrigger, fresh, labelled []NeedsDes
 	}
 	lines = append(lines,
 		"",
-		"Each of these is held from every start the harness chooses until a document in docs/designs naming the item among the items it answers lands on the target branch (docs/designs/needs-design-gate.md). You cannot change the item, and nothing asks you to: the development manager removes the label, for now, once that document has landed. A ruling only in the item's notes, or a document written and not yet landed, leaves it on.",
-		"Read each item in full, with the question its notes say the design must answer, and the documents it rests on. Take them by priority first, then age, and settle as many as this pass can do properly rather than touching all of them. For each, say plainly what you decided, and write the design as a document of yours in docs/designs, new or revised, that names the item in the write's `answers` list, which is what counts; naming it only in the reason does not.",
+		"Each of these is held from every start the harness chooses until a document in docs/designs naming the item among the items it answers lands on the target branch (docs/designs/needs-design-gate.md). You cannot change the item, and nothing asks you to: the harness takes the label off when that document lands, and notes on the item which document and commit did it. A ruling only in the item's notes, or a document written and not yet landed, leaves it on.",
+		"Read each item in full, with the question its notes say the design must answer, and the documents it rests on. Take them by priority first, then age, and settle as many as this pass can do properly rather than touching all of them. For each, say plainly what you decided, and write the design as a document of yours in docs/designs, new or revised, that names the item in the write's `answers` list, or whose reason opens with the item's identifier; naming it anywhere else in the reason does not count.",
 	)
 	lines = append(lines, addressedLines(addressed)...)
 	lines = append(lines, "", sweep.Contract())

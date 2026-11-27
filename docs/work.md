@@ -1205,20 +1205,30 @@ having succeeded, with the stop recorded as `work-item-needs-design`. What
 differs is where the item goes. It is not parked and nothing is docketed for the
 development manager: it goes back open, labelled `needs-design`, with the
 developer's question on its notes, and the label holds it from every start the
-harness chooses until the architect's design for it lands and the development
-manager, for now, removes the label. A later run starts from the target branch, not from the kept change.
+harness chooses until the architect's design for it lands, when the harness
+takes the label off. A later run starts from the target branch, not from the kept change.
 
 The same label is put on in conversation by the Lead Product Manager, the
 development manager, and a program manager inside its lane, with the question
 as the reason, and no other role's conversation can label an item at all. The
 architect changes no work item, so she can neither put the label on nor take it
-off, and text in the item's own design field takes nothing off. Under the design
-the harness will remove the label when a document in `docs/designs` naming the
-item among the items it answers lands on the target branch. Until that is built
-the development manager removes it, with a `label` action whose reason says
+off, and text in the item's own design field takes nothing off. The harness
+takes the label off when one of the architect's documents that answers the item
+lands on the target branch, by that landing alone: the document's write names
+the item in its `answers` list, or the reason of the revision that landed opens
+with the item's identifier. It does so on either landing path, the run's own
+promotion or the merge queue, and in the same write appends a note to the item
+naming the document, the revision, and the commit it landed as. An item that is
+closed, or no longer carries the label, is left alone, and so is every item the
+document does not answer. With the label off the item is pulled at the next
+pull like any other, unless something else holds it. A document that was
+written and not yet landed, a document another role owns, or a ruling only in
+the item's notes takes nothing off. Where a write to the tracker fails, the
+label stays on and the item still appears in the architect's daily pass; the
+development manager then takes it off, with a `label` action whose reason says
 which document and which commit landed. The roles that may put it on are told to
-leave the removal to the development manager; the harness does not yet refuse a
-removal by the Lead Product Manager or by a program manager in its lane.
+leave it on otherwise; the harness does not yet refuse a removal by the Lead
+Product Manager or by a program manager in its lane.
 
 It is not the answer for a run that could not finish. That is a failure and is
 reported as one. Nor is it an alternative to repair: a change that has work left
