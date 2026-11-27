@@ -93,6 +93,14 @@ type eligibilityReading struct {
 	// entry on the schedule and also keeps the reason on the item, with the
 	// class the poll counts it under. See Schedule's keepWait.
 	keepWait func(workItemID string, class runstate.PassedOverClass, reason string)
+	// keepReason keeps a reason on the item alone, for the two exclusions the
+	// poll already names in its own words: an item this session already tried,
+	// and one its recorded usage limit holds. Nil keeps nothing.
+	keepReason func(workItemID string, class runstate.PassedOverClass, reason string)
+	// outsideEpics collects each entry the epics the operator named refused,
+	// with the refusal, for the pull to keep on the entries it then took lower
+	// work ahead of (keepPassedForLower). Nil collects nothing.
+	outsideEpics map[string]string
 	// windows is what the recorded usage windows hold at this pull, where they
 	// close some developer models and not every one; see usageWindow.
 	windows readmodel.CapacityWindows
@@ -135,24 +143,39 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		poll.pass(entry.ID, unreadyClass(entry), entry.Executor.Role())
 		return passedOver, nil
 	}
+	_, busy := reading.occupied[entry.ID]
+	_, paused := reading.waiting[entry.ID]
 	if s.cooling(reading.tried, read.items[entry.ID], pull.Poll) {
-		if recorded := reading.tried[entry.ID]; !recorded.until.IsZero() {
+		recorded := reading.tried[entry.ID]
+		class := runstate.PassedOverAlreadyTried
+		if !recorded.until.IsZero() {
+			class = runstate.PassedOverWaitingOnUsageWindow
 			poll.passWindow(entry.ID, recorded.reason)
 		} else {
 			poll.passTried(entry.ID, recorded.reason)
 		}
+		// The reason is kept on the item too, so `yoyo status` says why the item
+		// did not start whether or not a slot then stood empty. A run still going
+		// is said where the run is, and the run clears what is kept on its item.
+		if reading.keepReason != nil && !busy && !paused {
+			reading.keepReason(entry.ID, class, triedReason(class, recorded))
+		}
 		return passedOver, nil
 	}
-	_, busy := reading.occupied[entry.ID]
-	if _, paused := reading.waiting[entry.ID]; busy || paused {
+	if busy || paused {
 		poll.pass(entry.ID, runstate.PassedOverAlreadyInFlight, "")
 		return passedOver, nil
 	}
 	// An item outside the epics the operator named starts nothing. It is named on
-	// the pass and nothing is written to the item, which waits on nothing about
-	// itself.
+	// the pass, and its refusal is kept on the item only where the pull then
+	// starts lower work ahead of it (keepPassedForLower): an epic can leave most
+	// of the queue outside it, and a reason written on every such item at every
+	// pull that walks the queue would be a tracker write per item.
 	if refused := pull.MayStart.refuseRun(reading.path, entry.ID); refused != nil {
 		reading.passOver(entry.ID, refused.Error())
+		if reading.outsideEpics != nil {
+			reading.outsideEpics[entry.ID] = refused.Error()
+		}
 		poll.pass(entry.ID, runstate.PassedOverOutsideNamedEpics, "")
 		return passedOver, nil
 	}

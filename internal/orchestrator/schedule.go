@@ -1895,6 +1895,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		passOver(workItemID, reason)
 		keepReason(workItemID, class, schedulingWaitReason(reason, waitItems))
 	}
+	// keepOnItem is keepWait's tracker half alone, for an exclusion the poll
+	// already names in its own words; see eligibilityReading.keepReason.
+	keepOnItem := func(workItemID string, class runstate.PassedOverClass, reason string) {
+		keepReason(workItemID, class, schedulingWaitReason(reason, waitItems))
+	}
 	// sequencedEarlier is the items this pass passed over because starting them
 	// would have raced work already in flight, against the conflict that held
 	// each one. It
@@ -4103,6 +4108,16 @@ pulling:
 		// slot, so its reason is kept here, over the whole queue; see
 		// keepUnreadyWaits.
 		keepUnreadyWaits(queue.Entries, read.items, keepReason)
+		// A reason kept for an attempt or an epic refusal that no longer holds is
+		// cleared, whether or not a slot reaches the item this pull.
+		lapsedPath := maystart.ReadyWork
+		if probing {
+			lapsedPath = maystart.HoldTest
+		}
+		clearLapsedWaits(queue.Entries,
+			func(id string) bool { return s.cooling(tried, read.items[id], pull.Poll) },
+			func(id string) bool { return pull.MayStart.refuseRun(lapsedPath, id) != nil },
+			keepReason)
 		schedule.Admitted = len(queue.Entries)
 		schedule.Pullable = queue.Ready()
 		schedule.BacklogRead = true
@@ -4166,10 +4181,10 @@ pulling:
 		// repository and a pull with one free slot has no business reading the tree
 		// for forty items to fill it.
 		decided := make(map[string]eligibility)
-		path := maystart.ReadyWork
-		if probing {
-			path = maystart.HoldTest
-		}
+		path := lapsedPath
+		// outsideEpics is each entry the named epics refused this pull, kept on
+		// the entry once the walk has started lower work (keepPassedForLower).
+		outsideEpics := make(map[string]string)
 		eligible := func(entry backlog.Entry) (eligibility, error) {
 			if answer, asked := decided[entry.ID]; asked {
 				return answer, nil
@@ -4177,6 +4192,7 @@ pulling:
 			answer, err := s.eligibility(entry, eligibilityReading{
 				pull: pull, read: read, tried: tried, occupied: occupied, waiting: waitingRuns,
 				schedule: &schedule, poll: &poll, passOver: passOver, keepWait: keepWait,
+				keepReason: keepOnItem, outsideEpics: outsideEpics,
 				windows: capacityWindows, path: path,
 			})
 			if err == nil {
@@ -4482,6 +4498,7 @@ pulling:
 			keepWait(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, reason)
 			poll.pass(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, "")
 		}
+		keepPassedForLower(queue.Entries, startedNow, outsideEpics, keepOnItem)
 		// A decision the walk never reached a slot for is written onto its item as
 		// unattempted, with the ready work that outranked it named, which is where the
 		// development manager reads why a decision of hers is standing.
