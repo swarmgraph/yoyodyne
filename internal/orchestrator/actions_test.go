@@ -1085,6 +1085,7 @@ var notAStep = map[string]string{
 	"recordEnvironmentalRefusal":  "records that the machine, not the work, refused the round",
 	"recordIdentityStop":          "records that the push stopped only because the harness could not reach GitHub as itself",
 	"sendBackForBackgroundWork":   "records why a developer turn that left its own background work running is asked again inside the same develop step; the reissue is the step's own loop, not a step of its own",
+	"stopWhatItStarted":           "stops what a run's session or the run itself left running once it has ended, and records what is still running (runprocesses.go); it is the tail of the develop and review steps and of the run's own end, and decides nothing about the work",
 	"acceptDespiteBackgroundWork": "records that a turn sent back once for background work ended the same way again and its reply is taken as it stands; it decides nothing the develop step does not already do",
 	"newDeveloperAsks":            "builds the attempt's MCP caller from the configuration, or nothing for a developer holding no MCP tool; it decides nothing about the work",
 	"withMCPContract":             "adds the section telling a developer holding an MCP tool how to ask to the prompt it is about to be sent, inside the develop step",
