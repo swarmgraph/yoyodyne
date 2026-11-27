@@ -376,6 +376,20 @@ const (
 	statusClosed     = "closed"
 )
 
+// StatusWords is a tracker status said for a person: "in progress" for work
+// somebody has claimed, the tracker's own word otherwise, and "not finished"
+// where no status was read.
+func StatusWords(status string) string {
+	switch strings.TrimSpace(status) {
+	case "":
+		return "not finished"
+	case statusInProgress:
+		return "in progress"
+	default:
+		return strings.ReplaceAll(strings.TrimSpace(status), "_", " ")
+	}
+}
+
 // WaitingOn names the unfinished work this item waits for, given the admitted
 // work that is still unfinished. It is what says whether the item can be started
 // at all, and it is here — beside the item — because two readings of it are two

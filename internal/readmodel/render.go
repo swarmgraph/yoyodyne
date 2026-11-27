@@ -480,7 +480,9 @@ func (s Standing) renderNotStartable() string {
 		rendered.WriteString(remainder(further, "refused item"))
 	}
 	// Why the scheduler has not started ready work, a problem first.
-	waiting := append(append([]WorkItemRef{}, s.SchedulingWaitProblems...), notProlonged(s.SchedulingWaits)...)
+	// An item placed first is said with its placement above, its reason beside it.
+	waiting := slices.DeleteFunc(append(append([]WorkItemRef{}, s.SchedulingWaitProblems...), notProlonged(s.SchedulingWaits)...),
+		func(item WorkItemRef) bool { return item.PlacedFirst != "" })
 	listedWaits, furtherWaits := bound(len(waiting))
 	for _, item := range waiting[:listedWaits] {
 		fmt.Fprintf(&rendered, "  %s — not started: %s\n", s.named(item.WorkItemID, item.Title), item.WaitReason)
@@ -497,12 +499,26 @@ func (s Standing) renderNotStartable() string {
 // promise set is visible where the queue is read. It says nothing where no item
 // is placed, which is most of the time. At most three items are placed in one
 // priority, so the list is bounded without being cut.
+//
+// A placed item the scheduler has kept a reason for not starting carries that
+// reason on the same line, so an item placed first that lower work was started
+// ahead of says why wherever it is read, whether or not a slot stands empty. A
+// refused item's reason is in its refusal, which says it already.
 func (s Standing) renderPlacedFirst() string {
+	why := make(map[string]string, len(s.SchedulingWaits))
+	for _, item := range s.SchedulingWaits {
+		why[item.WorkItemID] = item.WaitReason
+	}
 	var rendered strings.Builder
 	for _, item := range s.AdmittedItems {
-		if item.PlacedFirst != "" {
-			fmt.Fprintf(&rendered, "  %s — %s\n", s.named(item.WorkItemID, item.Title), item.PlacedFirst)
+		if item.PlacedFirst == "" {
+			continue
 		}
+		fmt.Fprintf(&rendered, "  %s — %s", s.named(item.WorkItemID, item.Title), item.PlacedFirst)
+		if reason := why[item.WorkItemID]; reason != "" {
+			fmt.Fprintf(&rendered, "; not started: %s", reason)
+		}
+		rendered.WriteString("\n")
 	}
 	return rendered.String()
 }

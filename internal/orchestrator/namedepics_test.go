@@ -145,8 +145,10 @@ func TestAnUnreadableRecordOfNamedEpicsStartsNothingAndSaysWhy(t *testing.T) {
 }
 
 // The pull takes the member and leaves the ready item outside, however far
-// ahead of it in the order; with every member blocked or held for design it
-// starts nothing, and writes nothing to the item it left.
+// ahead of it in the order, keeping on that item why lower work went ahead of
+// it; with every member blocked or held for design it starts nothing, and
+// writes nothing to the item it left. The reason is cleared once the item is
+// added, whether or not a slot reaches it.
 func TestTheSchedulerPullsOnlyMembersOfANamedEpic(t *testing.T) {
 	t.Parallel()
 	outside := beads.WorkItem{ID: "yoyodyne-outside", Title: "Outside", Status: "open", Priority: 0}
@@ -183,14 +185,25 @@ func TestTheSchedulerPullsOnlyMembersOfANamedEpic(t *testing.T) {
 			for _, deferral := range schedule.Deferred {
 				said = said || (deferral.WorkItemID == outside.ID && strings.Contains(deferral.Reason, "yoyo epic add"))
 			}
-			if !said || harness.Items[0].SchedulingWait != nil || harness.Items[0].Status != "open" {
-				t.Fatalf("deferred = %#v, item = %#v; want the item outside named on the pass and left as it was", schedule.Deferred, harness.Items[0])
+			if !said || harness.Items[0].Status != "open" {
+				t.Fatalf("deferred = %#v, item = %#v; want the item outside named on the pass and left open", schedule.Deferred, harness.Items[0])
+			}
+			wait := harness.Items[0].SchedulingWait
+			if test.want == 0 && wait != nil {
+				t.Fatalf("wait = %+v; want nothing kept where no lower work started", wait)
+			}
+			if test.want == 1 && (wait == nil || wait.Class != string(runstate.PassedOverOutsideNamedEpics) ||
+				!strings.Contains(wait.Reason, "not in an open epic the operator named") || !strings.Contains(wait.Reason, "yoyo epic add")) {
+				t.Fatalf("wait = %+v; want the epic refusal kept on the item lower work went ahead of", wait)
 			}
 			refused(maystart.ReadyWork, outside.ID)
 			add(outside.ID)
 			schedule, err = Scheduler{Open: open}.Schedule(context.Background())
 			if err != nil || len(schedule.Started) == 0 || schedule.Started[0].WorkItemID != outside.ID {
 				t.Fatalf("started = %#v, %v; want the item started once it is added", schedule.Started, err)
+			}
+			if wait := harness.Items[0].SchedulingWait; wait != nil && wait.Class == string(runstate.PassedOverOutsideNamedEpics) {
+				t.Fatalf("wait = %+v; want the epic refusal cleared once the item is added", wait)
 			}
 		})
 	}

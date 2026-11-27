@@ -67,6 +67,18 @@ func unreadyWaitReason(entry backlog.Entry, items map[string]beads.WorkItem) str
 		if described := beads.DescribeInheritedBlocks(blocks); described != "" {
 			return described
 		}
+		// The same blindness on the item's own links: a link the listing carries
+		// with no status, to work somebody has claimed, reads to the queue as no
+		// wait at all. Each such item is named with its state.
+		if kind == backlog.HeldUnread {
+			if on := items[entry.ID].WaitingOn(unfinished); len(on) > 0 {
+				named := make([]string, 0, len(on))
+				for _, id := range on {
+					named = append(named, schedulingWaitReason(id, items)+", which is "+beads.StatusWords(items[id].Status))
+				}
+				return "waiting on " + strings.Join(named, ", and on ") + "; the tracker offers it once that work is finished"
+			}
+		}
 	}
 	if kind == backlog.HeldInherited {
 		// Already names each item by title, in quotes schedulingWaitReason does
@@ -191,4 +203,62 @@ func (r Reconciler) retrySchedulingWaitClear(ctx context.Context, state *runstat
 		return err
 	}
 	return nil
+}
+
+// triedReason is the reason kept on an item this session already tried, said
+// with what keeps it out: the session's own memory of the attempt, which a
+// reader cannot go and look at anywhere else. A usage limit's reason already
+// says when it lifts, and so does a start a check outside the work refused
+// (refusedOutsideTheWork), which is tried again after a poll interval.
+func triedReason(class runstate.PassedOverClass, recorded attempt) string {
+	reason := recorded.reason
+	if class != runstate.PassedOverAlreadyTried || recorded.retryAtPoll {
+		return reason
+	}
+	if reason == "" {
+		reason = "no reason was recorded for the attempt"
+	}
+	return "already tried by this session, which does not start it again until the item changes or the session restarts: " + reason
+}
+
+// keepPassedForLower keeps, on each entry the epics the operator named refused
+// and that the pull walked past on its way to work lower in the order, the
+// refusal that held it. The entries it keeps are those ahead of the last entry
+// the pull started; an entry behind it was not passed over for anything lower.
+func keepPassedForLower(entries []backlog.Entry, started map[string]bool, outsideEpics map[string]string, keep func(string, runstate.PassedOverClass, string)) {
+	last := -1
+	for index, entry := range entries {
+		if started[entry.ID] {
+			last = index
+		}
+	}
+	for _, entry := range entries[:last+1] {
+		if reason, refused := outsideEpics[entry.ID]; refused && !started[entry.ID] {
+			keep(entry.ID, runstate.PassedOverOutsideNamedEpics, reason)
+		}
+	}
+}
+
+// clearLapsedWaits clears a kept reason whose cause has gone without anything
+// starting the item: an attempt this session no longer holds against it, which
+// is every attempt of an earlier session, and an epic refusal the named epics no
+// longer make. Each pass that still finds the cause keeps it again, so what
+// status says is never older than the session it came from.
+func clearLapsedWaits(entries []backlog.Entry, stillTried func(string) bool, stillOutside func(string) bool, keep func(string, runstate.PassedOverClass, string)) {
+	for _, entry := range entries {
+		wait := entry.SchedulingWait
+		if wait == nil {
+			continue
+		}
+		switch runstate.PassedOverClass(wait.Class) {
+		case runstate.PassedOverAlreadyTried:
+			if !stillTried(entry.ID) {
+				keep(entry.ID, runstate.PassedOverAlreadyTried, "")
+			}
+		case runstate.PassedOverOutsideNamedEpics:
+			if !stillOutside(entry.ID) {
+				keep(entry.ID, runstate.PassedOverOutsideNamedEpics, "")
+			}
+		}
+	}
 }
