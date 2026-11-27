@@ -379,18 +379,39 @@ func TestAVerifiedCandidateCountsAsInProgressAndOneCheckedAheadOnlyOnceItsBaseHa
 		CheckRun: &runstate.MergeQueueCheckEvidence{FinishedAt: &finished},
 		Review:   &runstate.MergeQueueReviewEvidence{FinishedAt: &finished},
 	}
-	if !entryInProgress([]runstate.MergeQueueGeneration{verified}, map[string]bool{}) {
+	target := func(commit string) func() string { return func() string { return commit } }
+	if !entryInProgress([]runstate.MergeQueueGeneration{verified}, map[string]bool{}, target("main-commit")) {
 		t.Fatal("a candidate that passed its checks and review and waits to land is not counted as in progress")
 	}
 	ahead := verified
-	ahead.BuiltAhead = &runstate.MergeQueueAhead{EntryID: "base-entry"}
-	if entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{"base-entry": true}) {
+	ahead.TargetBase = "base-candidate"
+	ahead.BuiltAhead = &runstate.MergeQueueAhead{EntryID: "base-entry", Candidate: "base-candidate"}
+	if entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{"base-entry": true}, target("main-commit")) {
 		t.Fatal("a candidate checked ahead of an entry that still waits is counted as in progress")
 	}
-	if !entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{}) {
-		t.Fatal("a candidate checked ahead of an entry that has landed is not counted as in progress")
+	if !entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{}, target("base-candidate")) {
+		t.Fatal("a candidate checked ahead of an entry that has landed as the candidate it was built on is not counted as in progress")
 	}
-	if entryInProgress([]runstate.MergeQueueGeneration{{Number: 1}}, map[string]bool{}) {
+	if entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{}, target("main-commit")) {
+		t.Fatal("a candidate checked ahead of an entry that failed, was withdrawn, or landed as another commit is counted as in progress")
+	}
+	if entryInProgress([]runstate.MergeQueueGeneration{ahead}, map[string]bool{}, target("")) {
+		t.Fatal("a candidate checked ahead is counted as in progress where the target could not be read")
+	}
+	// Checking ahead that stopped part-way, in its checks or in its review, has
+	// stages still to earn, even once the entry it was built on has landed as
+	// its candidate.
+	stoppedInChecks := ahead
+	stoppedInChecks.CheckRun = &runstate.MergeQueueCheckEvidence{}
+	stoppedInChecks.Review = nil
+	stoppedInReview := ahead
+	stoppedInReview.Review = &runstate.MergeQueueReviewEvidence{}
+	for name, stopped := range map[string]runstate.MergeQueueGeneration{"checks": stoppedInChecks, "review": stoppedInReview} {
+		if entryInProgress([]runstate.MergeQueueGeneration{stopped}, map[string]bool{}, target("base-candidate")) {
+			t.Fatalf("a candidate whose checking ahead stopped part-way in its %s is counted as in progress", name)
+		}
+	}
+	if entryInProgress([]runstate.MergeQueueGeneration{{Number: 1}}, map[string]bool{}, target("main-commit")) {
 		t.Fatal("a candidate whose checks have not begun is counted as in progress")
 	}
 }

@@ -422,6 +422,7 @@ func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey
 		unlanded[entry.EntryID] = true
 		unfinished = append(unfinished, entry)
 	}
+	onTarget := targetOnce(ctx, p.Lander.TargetCommit, key.TargetBranch)
 	for _, entry := range unfinished {
 		landing := landings[entry.EntryID]
 		generations, generationsErr := p.Queue.Generations(key, entry.EntryID)
@@ -437,7 +438,7 @@ func (p MergeQueuePromoter) next(ctx context.Context, key runstate.MergeQueueKey
 		attempt, attempted := landing.Current()
 		started[entry.EntryID] = attempted && attempt.SetAside == nil
 		if generationsErr == nil && !started[entry.EntryID] {
-			started[entry.EntryID] = entryInProgress(generations, unlanded)
+			started[entry.EntryID] = entryInProgress(generations, unlanded, onTarget)
 		}
 		waiting = append(waiting, entry)
 	}

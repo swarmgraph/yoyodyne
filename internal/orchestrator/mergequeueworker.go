@@ -394,6 +394,7 @@ func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueu
 	target := ""
 	var waiting []runstate.MergeQueueEntry
 	started := map[string]bool{}
+	onTarget := targetOnce(ctx, w.Candidates.TargetCommit, key.TargetBranch)
 	unlanded := map[string]bool{}
 	for _, entry := range entries {
 		if w.Waiting == nil || w.Waiting(entry) {
@@ -418,7 +419,7 @@ func (w MergeQueueWorker) chooseNext(ctx context.Context, key runstate.MergeQueu
 				continue
 			}
 		}
-		started[entry.EntryID] = entryInProgress(generations, unlanded)
+		started[entry.EntryID] = entryInProgress(generations, unlanded, onTarget)
 		waiting = append(waiting, entry)
 	}
 	if len(waiting) == 0 {

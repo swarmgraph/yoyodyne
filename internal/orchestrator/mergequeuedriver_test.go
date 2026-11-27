@@ -36,6 +36,12 @@ func (f *promotionFixture) pass(key runstate.MergeQueueKey) runstate.MergeQueueP
 // it behind whatever the queue holds, for a run of its own.
 func (f *promotionFixture) admitAnother(key runstate.MergeQueueKey, branch, file, content string) runstate.MergeQueueEntry {
 	f.t.Helper()
+	return f.admitAnotherFor(key, "yoyodyne-task", branch, file, content)
+}
+
+// admitAnotherFor is admitAnother for a change made for workItem.
+func (f *promotionFixture) admitAnotherFor(key runstate.MergeQueueKey, workItem, branch, file, content string) runstate.MergeQueueEntry {
+	f.t.Helper()
 	runPipelineGit(f.t, f.repository, "switch", "-c", branch, key.TargetBranch)
 	writeQueueFile(f.t, f.repository, file, content)
 	runPipelineGit(f.t, f.repository, "add", file)
@@ -50,11 +56,11 @@ func (f *promotionFixture) admitAnother(key runstate.MergeQueueKey, branch, file
 		f.run.admittedRun.others = map[string]runstate.State{}
 	}
 	f.run.admittedRun.others[runID] = runstate.State{
-		RunID: runID, WorkItemID: "yoyodyne-task", ProviderSessionID: "developer-session-" + branch, Branch: branch,
+		RunID: runID, WorkItemID: workItem, ProviderSessionID: "developer-session-" + branch, Branch: branch,
 		ReviewDecision: string(review.DecisionApprove), ReviewSessionID: "earlier-reviewer-session", ReviewHeadCommit: head,
 	}
 	entry, _, err := f.queue.Admit(context.Background(), runstate.MergeQueueAdmission{
-		Key: key, WorkItemID: "yoyodyne-task", WorkItemTitle: "The change on " + branch, RunID: runID,
+		Key: key, WorkItemID: workItem, WorkItemTitle: "The change on " + branch, RunID: runID,
 		ApprovedHead: head, IntegrationPolicy: "automatic", Mode: runstate.MergeQueueHarness, ModeEvidence: harnessModeEvidence(),
 	})
 	if err != nil {
