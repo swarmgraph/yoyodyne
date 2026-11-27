@@ -511,3 +511,62 @@ func TestARefusedUpdateIsOneEntryForItsTargetBranchUntilItBeginsOrIsNotDue(t *te
 		t.Fatalf("%+v and %+v, want one entry with that reason", decision, updates(root))
 	}
 }
+
+// A refused update of a change names its run, takes the run of the latest
+// refusal at once, and is taken away only for the run, item and path named; a
+// removal that takes nothing away writes nothing.
+func TestARefusedUpdateNamesItsRunAndIsTakenAwayForThatRunOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	allEnded(t, root)
+	const item = "yoyodyne-task"
+	items := func() []RefusedItem {
+		t.Helper()
+		record, err := ReadRefusals(root, product)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return record.Items
+	}
+	refuse := func(path Path, run string, when time.Time) {
+		t.Helper()
+		if decision := Ask(root, product, Run(path, item).OfRun(run), when); decision.Answer != MayNot || decision.NotKept != nil {
+			t.Fatalf("%+v, want it refused and kept", decision)
+		}
+	}
+	refuse(UpdateQueued, "run-first", at)
+	refuse(UpdateForPerson, "run-first", at)
+	// Another run of the item, within the time a refusal is not written again,
+	// is written at once.
+	refuse(UpdateQueued, "run-second", at.Add(time.Minute))
+	if got := items(); len(got) != 2 || got[0].RunID != "run-second" || got[0].Since != at || got[0].Last != at.Add(time.Minute) {
+		t.Fatalf("Items = %+v, want the queued entry naming the second run", got)
+	}
+	file := filepath.Join(home.ProductDirectory(root, product), refusalsFile)
+	written, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][3]string{
+		"another run":  {string(UpdateQueued), item, "run-first"},
+		"another item": {string(UpdateQueued), "yoyodyne-other", "run-second"},
+		"no run":       {string(UpdateQueued), item, ""},
+		"another path": {string(ContinueRun), item, "run-second"},
+	} {
+		if err := UpdateNotDue(root, product, Path(args[0]), args[1], args[2]); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := items(); len(got) != 2 {
+			t.Fatalf("%s: Items = %+v, want both kept", name, got)
+		}
+	}
+	if now, err := os.Stat(file); err != nil || !now.ModTime().Equal(written.ModTime()) {
+		t.Fatalf("a removal that took nothing away wrote the record: %v", err)
+	}
+	if err := UpdateNotDue(root, product, UpdateQueued, item, "run-second"); err != nil {
+		t.Fatal(err)
+	}
+	if got := items(); len(got) != 1 || got[0].Path != UpdateForPerson || got[0].RunID != "run-first" {
+		t.Fatalf("Items = %+v, want only the person's merge entry", got)
+	}
+}

@@ -34,6 +34,27 @@ func (d StartDecision) refuseRun(path maystart.Path, workItemID string) *Outside
 	return &OutsideNamedEpicsError{WorkItemID: workItemID, Decision: decision}
 }
 
+// refuseUpdate is refuseRun for bringing a run's change up to date, naming the
+// run so that a refusal is kept naming it.
+func (d StartDecision) refuseUpdate(path maystart.Path, state runstate.State) *OutsideNamedEpicsError {
+	if d == nil {
+		return nil
+	}
+	decision := d(maystart.Run(path, state.WorkItemID).OfRun(state.RunID))
+	if decision.MayStart() {
+		return nil
+	}
+	return &OutsideNamedEpicsError{WorkItemID: state.WorkItemID, Decision: decision}
+}
+
+// updateNotDue says that a check of the run found no update of its change due by
+// the path, could not tell, or found the run cannot be put back.
+func (r Reconciler) updateNotDue(path maystart.Path, state runstate.State) {
+	if r.UpdateNotDue != nil {
+		r.UpdateNotDue(path, state.WorkItemID, state.RunID)
+	}
+}
+
 // refuseDocument is why a run that publishes the document may not start, and nil
 // where it may.
 func (d StartDecision) refuseDocument(document runstate.DocumentPublication) *OutsideNamedEpicsError {

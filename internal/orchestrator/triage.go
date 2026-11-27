@@ -244,6 +244,10 @@ type Docketer struct {
 	// nothing kept, read for the publications it keeps from being brought up to
 	// date (updateRefused). Nil refuses nothing.
 	WouldStart StartDecision
+	// NotStarted reads the refused starts kept (maystart.ReadRefusals), whose
+	// refused update of a run is what shows that update is due (updateRefused).
+	// Nil shows none due, so nothing is left off.
+	NotStarted func() (maystart.Refusals, error)
 }
 
 // DocketUnready reads again the items the docket holds as unready. It is given
@@ -1811,7 +1815,7 @@ func (d Docketer) entriesFor(state runstate.State, now time.Time, already standi
 	if publicationDocketed(state, already) {
 		return entries, errors.Join(problems...)
 	}
-	if stuckPublication(state, now, d.Triage.StuckMergeAge.Duration()) && !d.carryOutAwaited(state) && !d.updateRefused(state) {
+	if stuckPublication(state, now, d.Triage.StuckMergeAge.Duration()) && !d.carryOutAwaited(state) && !d.updateRefused(state, now) {
 		entry, err := d.publicationEntry(state, now)
 		if err != nil {
 			problems = append(problems, err)
@@ -1865,19 +1869,32 @@ func withoutAwaitedPublications(entries []triage.Entry, now time.Time) ([]triage
 	return kept, left
 }
 
-// updateRefused reports a publication the decision on what may start keeps from
-// being brought up to date: a merge queued on GitHub (Reconciler.updateQueuedHead)
-// or a request waiting for a person's merge (Reconciler.updatePersonMerge). There
-// is nothing in one for the development manager to decide: it moves once the
-// operator adds its item or ends epic mode. Status shows the refused start.
+// refusedUpdateShowsDue is how long a refused update of a run shows that update
+// is due. A check that finds no update due takes the refusal away, and this
+// bounds how long one it could not take away hides a change.
+const refusedUpdateShowsDue = time.Hour
+
+// updateRefused reports a publication whose update is due and that the decision
+// on what may start keeps from being brought up to date: a merge queued on
+// GitHub (Reconciler.updateQueuedHead) or a request waiting for a person's merge
+// (Reconciler.updatePersonMerge). There is nothing in one for the development
+// manager to decide: it moves once the operator adds its item or ends epic mode.
+// Status shows the refused start.
 //
-// A decision that could not be made hides nothing, and neither does one about a
-// publication that is stuck for another reason: closed, its merge failed, or one
-// the harness could not bring up to date whatever the decision said. A merge
-// GitHub dropped still reads as queued while its update is refused, so the
-// record's check reading, which may be from before the drop, is not consulted.
-func (d Docketer) updateRefused(state runstate.State) bool {
-	if d.WouldStart == nil || state.PullRequest == nil || !state.Status.Terminal() ||
+// That the update is due is read off one saved fact only: the refused start the
+// check kept, under the path that fits the change, naming this run, and refused
+// within refusedUpdateShowsDue. The check takes it away when it finds no update
+// due — a head level with its target, say — or cannot tell, as with checks that
+// could not be read, so such a change is listed as any other. The record's check
+// reading is not consulted, since for a merge GitHub dropped it may be from
+// before the drop.
+//
+// A refused start that cannot be read, or a decision that could not be made,
+// hides nothing, and neither does one about a publication that is stuck for
+// another reason: closed, its merge failed, or one the harness could not bring
+// up to date whatever the decision said.
+func (d Docketer) updateRefused(state runstate.State, now time.Time) bool {
+	if d.WouldStart == nil || d.NotStarted == nil || state.PullRequest == nil || !state.Status.Terminal() ||
 		state.PublishFailure != "" || state.MergeDisagreement != nil || state.PullRequest.Closed() {
 		return false
 	}
@@ -1893,7 +1910,15 @@ func (d Docketer) updateRefused(state runstate.State) bool {
 	default:
 		return false
 	}
-	return d.WouldStart(maystart.Run(path, state.WorkItemID)).Answer == maystart.MayNot
+	refusals, err := d.NotStarted()
+	if err != nil {
+		return false
+	}
+	due := slices.ContainsFunc(refusals.Items, func(item maystart.RefusedItem) bool {
+		return item.WorkItemID == state.WorkItemID && item.Path == path && item.RunID != "" && item.RunID == state.RunID &&
+			now.Sub(item.Last) <= refusedUpdateShowsDue
+	})
+	return due && d.WouldStart(maystart.Run(path, state.WorkItemID)).Answer == maystart.MayNot
 }
 
 // withoutRefusedUpdates is updateRefused applied to an open publication entry
@@ -1904,7 +1929,7 @@ func (d Docketer) withoutRefusedUpdates(entries []triage.Entry, runs map[string]
 	kept := make([]triage.Entry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Class == triage.ClassPublication && entry.Undecided(now) &&
-			!entry.CarryOutStopped() && !entry.SpentClaim.Stranded() && d.updateRefused(runs[entry.RunID]) {
+			!entry.CarryOutStopped() && !entry.SpentClaim.Stranded() && d.updateRefused(runs[entry.RunID], now) {
 			continue
 		}
 		kept = append(kept, entry)

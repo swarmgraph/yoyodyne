@@ -2046,15 +2046,33 @@ check asks again:
   entry on the development manager's list stays open, the item is neither noted
   nor claimed, and no attempt is spent. The next stopped run is still looked at.
 
-While the named epics refuse either of the first two, the list of unpublished pull
-requests the development manager is shown leaves that change out, however old it
-is, and one listed earlier drops off; `yoyo status` still shows the refused start.
-A change is listed as usual where the record of the named epics could not be read,
-its pull request is closed, its merge failed for another cause (a wait on its
-target's red check is one), or the harness could not bring it up to date whatever
-the epics named. So is one returned to her because a decision of hers could not be
-carried out. Once its item is added or joins, or epic mode is turned off, a change still
-unpublished past `triage.stuck_merge_age` is listed again.
+While an update of either of the first two is due and the named epics refuse
+it, the list of unpublished pull requests the development manager is shown leaves
+that change out, however old it is, and one listed earlier drops off; `yoyo status`
+still shows the refused start. A merge GitHub dropped whose head is behind its
+target is left out the same way. What shows the update is due is the refused start
+itself: the check that was refused records it naming the run, and the list leaves
+a change out only where that record can be read, names this run under the update
+that fits the change, was refused within the last hour, and the named epics still
+refuse the update. A later check that finds no update due takes the record away —
+a head level with its target, checks passing, still running, run again or failing
+on the change itself, a wait on the target's red check, a merge in progress on
+GitHub, a pull request no longer open, or a run that cannot be brought up to date
+— and so does one that cannot tell, because GitHub's checks, or how far behind the
+head is, could not be read. Such a change is stuck for another reason and is
+listed as usual. A check that hosts no runs still records a refused update of a
+queued merge, and takes a record away where it finds no update due; one of a
+person's merge stops there before it asks and leaves the record as it is. The hour
+bounds how long a record a check could not take away hides a change, so after the
+harness has been stopped for longer than that a change may be listed until its
+next check.
+
+A change is also listed as usual where the record of the named epics could not be
+read, its pull request is closed, its merge failed for another cause, or the
+harness could not bring it up to date whatever the epics named. So is one
+returned to her because a decision of hers could not be carried out. Once its
+item is added or joins, or epic mode is turned off, a change still unpublished
+past `triage.stuck_merge_age` is listed again.
 
 A document may be published where the work items it answers include a member of
 an open epic, or the open epic itself. It answers each item its owner listed and

@@ -109,6 +109,8 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	}
 	reading, err := r.Checks.Checks(ctx, published.Number, target)
 	if err != nil {
+		// Unread checks cannot tell whether an update is due.
+		r.updateNotDue(maystart.UpdateQueued, state)
 		result.Detail += fmt.Sprintf("; its checks could not be read (%v), so it is left queued and the next sweep reads them again", err)
 		return result, r.recordUnreadChecks(state, err)
 	}
@@ -162,6 +164,15 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	}
 	result = reconciliationOf(state, ActionQueued)
 	result.Detail = fmt.Sprintf("the forge still has the merge of pull request %d into %s queued; %s", published.Number, target, checks.Describe(target))
+	// Every outcome but bringing the head up to date finds no update due, and
+	// takes away a refused update of this run; updateQueuedHead keeps or takes
+	// it away itself.
+	updateDue := false
+	defer func() {
+		if !updateDue {
+			r.updateNotDue(maystart.UpdateQueued, state)
+		}
+	}()
 	switch {
 	case !checks.Red():
 		// Checks that are not red say nothing against the merge, and a merge that
@@ -188,6 +199,7 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 		result.Detail += "; the forge has not yet started the re-run the harness asked for, so the merge is left queued for the next sweep"
 		return result, nil
 	case checks.BehindBy > 0 && !checks.ChangeFails():
+		updateDue = true
 		return r.updateQueuedHead(ctx, state, result, false)
 	case checks.ChangeFails():
 		return r.handBackFailedChange(ctx, state, fmt.Sprintf(
@@ -388,9 +400,14 @@ func invalidateForgeApproval(state *runstate.State) {
 // dropped is a merge the forge already stopped holding (replayDroppedLanding),
 // which has nothing to withdraw; its caller has already refused the runs that
 // cannot be replayed.
+//
+// A refusal by the decision is kept naming the run, which the list of
+// unpublished pull requests reads as the update being due; a run retired or
+// impossible to replay takes that refusal away.
 func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, result Reconciliation, dropped bool) (Reconciliation, error) {
 	retired, handled, err := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
 	if handled {
+		r.updateNotDue(maystart.UpdateQueued, state)
 		result := reconciliationOf(retired, ActionRetired)
 		if retired.Retirement != nil {
 			result.Detail = retirementReason(retired)
@@ -401,6 +418,7 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	target := state.Integration.TargetBranch
 	describe := published.Checks.Describe(target)
 	if refusal := unreplayable(state); refusal != "" && !dropped {
+		r.updateNotDue(maystart.UpdateQueued, state)
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail on files this change does not touch while its head is behind %s, and the harness cannot bring it up to date: %s: %s. The harness withdrew the queued merge rather than leave a red change queued, and "+developmentManagerMovesNext,
 			published.Number, target, refusal, describe))
@@ -428,7 +446,7 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	}
 	// Asked before anything that waits, a pass that hosts no runs included,
 	// because a wait past the limit is withdrawn and handed on.
-	if refused := r.MayStart.refuseRun(maystart.UpdateQueued, state.WorkItemID); refused != nil {
+	if refused := r.MayStart.refuseUpdate(maystart.UpdateQueued, state); refused != nil {
 		return stays(refused.Error())
 	}
 	if !r.HostsRuns {
@@ -581,8 +599,17 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
 	if r.Checks == nil {
+		// A sweep that cannot look leaves a refused update as it stands.
 		return Reconciliation{}, false, nil
 	}
+	// Every outcome but bringing the head up to date — a failed reading, another
+	// cause, or a merge queued again — takes away a refused update of this run.
+	updateDue := false
+	defer func() {
+		if !updateDue {
+			r.updateNotDue(maystart.UpdateQueued, *state)
+		}
+	}()
 	result := reconciliationOf(*state, ActionQueued)
 	reading, err := r.Checks.Checks(ctx, published.Number, target)
 	if err != nil {
@@ -638,6 +665,7 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 	}
 	result = reconciliationOf(*state, ActionQueued)
 	result.Detail = fmt.Sprintf("the forge holds no merge for pull request %d any more; %s", published.Number, checks.Describe(target))
+	updateDue = true
 	updated, err := r.updateQueuedHead(ctx, *state, result, true)
 	return updated, true, err
 }
