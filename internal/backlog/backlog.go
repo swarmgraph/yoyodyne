@@ -997,7 +997,7 @@ const (
 // passed-over reasons, the re-run carry-out, and the pipeline's own start. It is
 // one sentence for the reason Hold is one derivation, so the development manager
 // reads the same refusal wherever she meets it.
-const NeedsDesignHold = "labelled " + domain.NeedsDesignLabel + ", so nothing the harness chooses starts it until the architect's design for it — a document in docs/designs naming the item among the items it answers — lands on the target branch and the label comes off; the development manager removes the label, for now, once it has landed. A run already going on it carries on, and a run the operator names is not held"
+const NeedsDesignHold = "labelled " + domain.NeedsDesignLabel + ", so nothing the harness chooses starts it until the architect's design for it — a document in docs/designs naming the item among the items it answers — lands on the target branch, and the harness takes the label off when it lands. A run already going on it carries on, and a run the operator names is not held"
 
 // NeedsDesignHoldSince is NeedsDesignHold saying since when the item has
 // waited on the architect's design, in local time with the zone, where that is

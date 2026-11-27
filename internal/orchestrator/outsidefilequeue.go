@@ -216,7 +216,10 @@ func (t HarnessRunItems) Complete(ctx context.Context, id, reason string) (beads
 	}
 	item, err := t.settle(ctx, id, landed+reason, "closed")
 	if err == nil && state.Document != nil {
-		recordedDocumentItem(t.WorkTracker, state).complete(ctx, fmt.Sprintf("Document %s landed through run %s: %s", state.Document.WriteID, state.RunID, reason))
+		recorder := recordedDocumentItem(t.WorkTracker, state)
+		recorder.complete(ctx, fmt.Sprintf("Document %s landed through run %s: %s", state.Document.WriteID, state.RunID, reason))
+		// reason is the queue's account of the landing, which names the commit.
+		recorder.liftDesignHolds(ctx, reason)
 	}
 	return item, err
 }

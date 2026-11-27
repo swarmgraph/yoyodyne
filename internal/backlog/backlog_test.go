@@ -568,14 +568,14 @@ func TestADesignFieldLeavesANeedsDesignItemHeld(t *testing.T) {
 	}
 }
 
-// The one refusal sentence points at the development manager for the label, and
-// at neither the architect's removal nor the item's design field.
-func TestTheNeedsDesignRefusalNamesTheDevelopmentManager(t *testing.T) {
+// The one refusal sentence says the harness takes the label off when the
+// design lands, and names neither a role's removal nor the item's design field.
+func TestTheNeedsDesignRefusalSaysTheHarnessTakesTheLabelOff(t *testing.T) {
 	t.Parallel()
-	if !strings.Contains(NeedsDesignHold, "the development manager removes the label, for now") {
-		t.Errorf("NeedsDesignHold = %q, want the development manager named", NeedsDesignHold)
+	if !strings.Contains(NeedsDesignHold, "the harness takes the label off when it lands") {
+		t.Errorf("NeedsDesignHold = %q, want the harness named", NeedsDesignHold)
 	}
-	for _, dropped := range []string{"the architect removes", "design field"} {
+	for _, dropped := range []string{"the architect removes", "the development manager removes", "design field"} {
 		if strings.Contains(NeedsDesignHold, dropped) {
 			t.Errorf("NeedsDesignHold still says %q", dropped)
 		}

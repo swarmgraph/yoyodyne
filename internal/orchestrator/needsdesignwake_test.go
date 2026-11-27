@@ -113,8 +113,8 @@ func TestAddingTheNeedsDesignLabelWakesTheArchitectWithTheItemNamed(t *testing.T
 			t.Errorf("message lacks %q:\n%s", want, message)
 		}
 	}
-	if !strings.Contains(message, "the development manager removes the label, for now") {
-		t.Errorf("message does not say the development manager removes the label:\n%s", message)
+	if !strings.Contains(message, "the harness takes the label off when that document lands") {
+		t.Errorf("message does not say the harness takes the label off:\n%s", message)
 	}
 	for _, dropped := range []string{"Only you take the label off", "design field"} {
 		if strings.Contains(message, dropped) {
