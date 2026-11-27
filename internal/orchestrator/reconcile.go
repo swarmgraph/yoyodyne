@@ -502,13 +502,20 @@ func (r Reconciler) Reconcile(ctx context.Context) ([]Reconciliation, error) {
 	for _, index := range askingForge {
 		results[index] = r.reconcileRun(ctx, outstanding[index])
 	}
+	r.recordRunFindings(ctx, outstanding, results)
+	return results, ctx.Err()
+}
+
+// recordRunFindings records, beside each run's settlement, the finding the
+// sweep keeps for a run it could not settle, completed, or had found before.
+// results[i] is the settlement of recorded[i].
+func (r Reconciler) recordRunFindings(ctx context.Context, recorded []runstate.State, results []Reconciliation) {
 	for index := range results {
 		result := &results[index]
-		if result.Action != ActionHeld && (result.Failure != "" || result.Action == ActionCompleted || outstanding[index].ReconcileFindings != nil) {
+		if result.Action != ActionHeld && (result.Failure != "" || result.Action == ActionCompleted || recorded[index].ReconcileFindings != nil) {
 			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileRun, result.Failure)
 		}
 	}
-	return results, ctx.Err()
 }
 
 // itemPrefetcher is a tracker that can read several work items in one call and

@@ -26,10 +26,14 @@ package cli
 // beside it says whether anything survives, and the lines under it name the
 // branch, the worktree, and the session that do.
 //
-// It is read-only in the strongest sense. Reading a run is not acting on it, so
-// this holds nothing, adopts nothing, and settles nothing — a run another
-// process is executing is listed exactly as a finished one is. Settling what a
-// run left behind is `yoyo reconcile`; this is the record afterwards.
+// Reading a run is not acting on it, so this holds nothing and adopts nothing
+// that a process is working on — a run another process is executing is listed
+// exactly as a finished one is. The one thing it settles is a run whose process
+// is shown to be gone, which it settles first, exactly as `yoyo reconcile`
+// would, because a project run by hand has no watch to run that sweep and the
+// run would otherwise read as running for as long as nobody typed it
+// (statusprocessgone.go). Everything else a run left behind is `yoyo
+// reconcile`'s to settle; this is the record afterwards.
 //
 // Watching one happen is the same verb under `--follow`, `--events`, `--list`,
 // and `--spend`, which live in statusstream.go: the record afterwards and the
@@ -137,7 +141,13 @@ type statusOutput struct {
 	// StallError accompanies a successful listing, for the reason the two above
 	// do.
 	StallError string `json:"stall_error,omitempty"`
-	Error      string `json:"error,omitempty"`
+	// ProcessGone is each run this status found with no process behind it and
+	// settled as `yoyo reconcile` would, with when it was found
+	// (statusprocessgone.go). ProcessGoneError says why looking or settling did
+	// not finish, beside the listing it does not replace.
+	ProcessGone      []processGoneSettlement `json:"process_gone,omitempty"`
+	ProcessGoneError string                  `json:"process_gone_error,omitempty"`
+	Error            string                  `json:"error,omitempty"`
 }
 
 // defaultStatusStalls is how many recorded stalls are printed. It is a handful
@@ -338,6 +348,9 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	if err != nil {
 		return reportStatusFailure(stdout, stderr, *jsonOutput, err)
 	}
+	// A run whose process is gone is settled before anything is read, so the
+	// listing below reads it as what it now is rather than as running.
+	processGone, processGoneFailure := settleRunsWithNoProcess(ctx, *configPath, store, time.Now())
 	history, err := store.History(runstate.RunQuery{
 		WorkItemID: workItemID,
 		FailedOnly: *failedOnly,
@@ -431,6 +444,8 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 			Watch:      watched,
 			Stalls:     stalls,
 		}
+		output.ProcessGone = processGone
+		output.ProcessGoneError = processGoneFailure
 		if counters != nil {
 			// The caps as this item's own recorded overrides leave them, which is what
 			// the guards refuse against. Reporting the configured pair instead would
@@ -452,7 +467,13 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// everything above is what is true now, and everything below is what became
 	// of attempts that are over. A pause on the provider's usage window is said
 	// above all of it, so the cause is still the first words (Standing.Render),
-	// and the four lines under the summary do not say it again.
+	// and the four lines under the summary do not say it again. A run this
+	// status found with no process behind it and settled is said before even
+	// that, because it is what this reading changed.
+	printProcessGone(stdout, processGone)
+	if processGoneFailure != "" {
+		fmt.Fprintln(stderr, processGoneFailure)
+	}
 	printStanding(stdout, standing, summary, *detail)
 	if weekly != nil {
 		fmt.Fprint(stdout, weekly.Render())
@@ -2042,10 +2063,13 @@ already promoted. The last is the class whose work-item note is itself unreliabl
 recording that note is part of what was failing — so this listing is its
 authoritative home.
 
-Reading a run decides nothing about it, so this holds nothing and settles
-nothing, and reporting a failure is not itself a failure: the exit status says
-whether the records could be read. Settling what an interrupted run left behind
-is `+"`yoyo reconcile`"+`.
+Reading a run decides nothing about a run some process is working on, and
+reporting a failure is not itself a failure: the exit status says whether the
+records could be read. One thing is settled first: a run whose process is shown
+to be gone is settled exactly as `+"`yoyo reconcile`"+` would settle it, and the
+answer opens by naming it and when it was found, so a project with no watch
+running does not go on reading it as running. Settling everything else an
+interrupted run left behind is `+"`yoyo reconcile`"+`.
 
 --follow, --events, --list, and --spend read the event stream a run, a
 conversation, a branch review, and a side thread each record, rather than the
