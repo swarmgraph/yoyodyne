@@ -354,7 +354,7 @@ it had moved again.
 
 | Anchor | Cited by | Tier | New home |
 |---|---|---|---|
-| `#further-reading` | `skills/yoyo-setup/SKILL.md:21`, `internal/doclink/doclink.go:354`, and the back-link each of `docs/conversation.md:4` (and `:94`), `work.md:4`, `artifacts.md:4`, `reporting.md:4`, `operations.md:4`, `developing-yoyo.md:4` (and `:179`), `delivery-pipeline-baseline.md:4`, `releases/README.md:4`, and `configuration.md:539` opens with | — | section stays; no move to service |
+| `#further-reading` | `skills/yoyo-setup/SKILL.md:21`, `skills/yoyo-operator-questions/SKILL.md:21`, `internal/doclink/doclink.go:354`, and the back-link each of `docs/conversation.md:4` (and `:94`), `work.md:4`, `artifacts.md:4`, `reporting.md:4`, `operations.md:4`, `developing-yoyo.md:4` (and `:179`), `delivery-pipeline-baseline.md:4`, `releases/README.md:4`, and `configuration.md:539` opens with | — | section stays; no move to service |
 | `#getting-started` | `.github/release-notes-preamble.md:28`; **recorded prose** in closed yoyodyne-ifd.156 and yoyodyne-ifd.159 | **1** | stays in the README — Tier 1 on the preamble alone |
 | `#3-yoyo-chat--establish-the-brief-and-the-goals` | `skills/yoyo-setup/SKILL.md:220`; **recorded prose** in closed yoyodyne-ifd.125.4 | — | section stays; no move to service |
 | `#keeping-the-configuration-out-of-the-repository` | `docs/configuration.md:153`; **recorded prose** in closed yoyodyne-ifd.76 | 2 | **retired** by the 2026-09-26 rewrite; content in `docs/configuration.md#keeping-the-configuration-outside-the-repository` |
