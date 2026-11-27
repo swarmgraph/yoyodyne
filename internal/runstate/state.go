@@ -2884,6 +2884,14 @@ func (s *State) recordedTexts() []recordedText {
 			}
 		}
 	}
+	for index := range s.LeftProcesses {
+		left := &s.LeftProcesses[index]
+		unstated("left_processes[].command", at("left_processes", index, "command"), &left.Command, MaxRecordedTextBytes)
+		unstated("left_processes[].why", at("left_processes", index, "why"), &left.Why, MaxRecordedTextBytes)
+		for address := range left.Listening {
+			unstated("left_processes[].listening[]", fmt.Sprintf("left_processes[%d].listening[%d]", index, address), &left.Listening[address], MaxRecordedTextBytes)
+		}
+	}
 	if s.MergeDisagreement != nil {
 		unstated("merge_disagreement.detail", "merge_disagreement.detail", &s.MergeDisagreement.Detail, MaxRecordedTextBytes)
 		unstated("merge_disagreement.forge_state", "merge_disagreement.forge_state", &s.MergeDisagreement.ForgeState, MaxRecordedTextBytes)
