@@ -769,10 +769,29 @@ var standingWarningAgeSeconds = 5 * 60;
     setHidden(list, list.childNodes.length === 0);
   }
 
+  // renderUnhandledReports is the reports line yoyo status prints, and under
+  // it the same figures for each addressee, in the words the model gives them:
+  // how many wait on it, how many of those are critical, and whether a
+  // recurring pass reads them. It is drawn only where a report stands
+  // unhandled, as the terminal prints the line only then.
+  function renderUnhandledReports() {
+    var list = document.getElementById("unhandled-reports");
+    clear(list);
+    var standing = model.standing;
+    if (standing && standing.reports_says) {
+      list.appendChild(el("li", null, "Reports: " + standing.reports_says));
+      ((standing.reports && standing.reports.addressees) || []).forEach(function (addressee) {
+        list.appendChild(el("li", null, addressee.says));
+      });
+    }
+    setHidden(list, list.childNodes.length === 0);
+  }
+
   function renderBand() {
     var standing = model.standing;
     renderUsageWindows();
     renderOwnerInterventions();
+    renderUnhandledReports();
     if (!standing) {
       section("band", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
       return;

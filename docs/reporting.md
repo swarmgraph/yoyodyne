@@ -1304,6 +1304,30 @@ amendments has the same line as a sibling, on the same threshold and for the
 same reason — see [working the amendment queue on a
 cadence](configuration.md#working-the-amendment-queue-on-a-cadence).
 
+**`yoyo status` counts the unhandled reports for each addressee, and says
+which no pass reads.** Whenever any report stands unhandled, it prints one line
+under the four, in every project:
+
+```text
+reports: 34 unhandled (development manager 27, Lead Product Manager 4, no role named 3); no pass reads them; read them with yoyo reports
+```
+
+The total, and the number critical where any is, come from the same count as
+the opening line of `yoyo reports`, so the two cannot disagree. A report that
+named no role is counted under "no role named" rather than in the Lead Product
+Manager's figure, so the figures match what the runs filed. A pass reads an
+addressee's reports when an enabled recurring task in the project's
+configuration is for the role that handles them; the Lead Product Manager
+handles the reports naming no role and the reports for a program manager. Where
+no addressee's reports are read the line says "no pass reads them", where only
+some are not it names those ("no pass reads those for the Lead Product Manager
+or those naming no role"), and where all are read that part is left out. With
+nothing unhandled there is no line. `yoyo status --json` carries the count for
+each addressee under `standing.reports.addressees`, each with `role` (absent
+for no role named), `unhandled`, `critical`, and `read`, and the line itself as
+`standing.reports_says`; the dashboard shows the same line and figures at the
+top of the band ([design](designs/reports-nobody-reads.md)).
+
 ## What agents propose changing, and who decides
 
 The canonical documents each belong to one role, and that boundary is enforced

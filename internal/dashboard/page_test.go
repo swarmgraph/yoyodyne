@@ -1040,6 +1040,15 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<li class="slot-idle">Developer slot 3 is free and prefers no label.</li>`,
 			"no developer run is in flight, and no conversation has a turn in flight.",
 		},
+		// The reports line yoyo status prints, and under it each addressee's
+		// figures in the model's words.
+		"unhandled-reports": {
+			`<ul id="unhandled-reports" class="usage-limits" aria-label="Unhandled reports">`,
+			"Reports: 34 unhandled, 1 of them critical (development manager 27, Lead Product Manager 4, no role named 3); no pass reads those for the Lead Product Manager or those naming no role; read them with yoyo reports",
+			"development manager: 27 unhandled, 1 of them critical; a recurring pass reads them",
+			"Lead Product Manager: 4 unhandled; no pass reads them",
+			"no role named: 3 unhandled; no pass reads them",
+		},
 		"grouping-slots": {"developing, 15m elapsed, in developer slot 1, which prefers the reliability label"},
 		"quiet":          {"The harness is idle", "Nothing is running, and no conversation has a turn in flight.", "The backlog is empty", "Nothing ran in the last 7 days", "Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.", "Nothing is broken, stalled, blocked, or degraded: nothing waits on anybody, and no work is held on provider capacity.", `<p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>`},
 		"degraded":       {`<span class="figure">—</span>`, `<li class="stage stage-unreadable">`, "Could not be read: the admitted work could not be read", `<button class="grouping-open pile-label" type="button" data-grouping="stage:developing">developing</button>`},
