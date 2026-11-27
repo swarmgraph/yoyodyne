@@ -2451,10 +2451,19 @@ person, parked, carried in a conversation, sequenced behind a run — so that th
 stall alarm below states the same cause rather than deriving a second one.
 
 A start the environment refuses before reserving a run is eligible again after
-one poll interval, without any change to the item. Uncommitted changes in the
-primary checkout, a lost race for capacity, and failures to read repository
+one poll interval, without any change to the item. The interval is counted from
+the refusal, so the item is tried again even in a session whose developer slots
+keep finishing runs and never sit out a whole poll with nothing finishing.
+Uncommitted changes in the
+primary checkout, a lost race for capacity, a settings check that did not answer
+before a developer was started, and failures to read repository
 readiness, durable state, or architectural invariants leave no memory that the
 work was tried and count nothing toward `blocked_runs_before_intake_hold`.
+While it waits, the item is passed over as *already tried this session* with a
+reason that says a check outside the work refused the start, nothing is held
+against the item, and it is tried again once a poll interval has passed. A start
+that failed on the item itself says instead that it is held until the item
+changes.
 The refusing step records that the cause is outside the work. A sandbox that
 will not spawn a shell is covered when that step marks its refusal that way.
 A readiness read also covers an unmarked failed start while the checkout is
