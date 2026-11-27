@@ -502,7 +502,7 @@ services:
       max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes fourteen steps, in this order, and each is recorded:
+Each pass takes fifteen steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -732,6 +732,20 @@ Each pass takes fourteen steps, in this order, and each is recorded:
   much, names the setting, and files one warning for the development manager.
   It warns again only when what is past its bound changes, and once more after
   the supervisor restarts.
+- **secrets** — the tracker's export in the primary checkout,
+  `.beads/issues.jsonl`, read for whole keys and tokens. The export is
+  committed to Git, and before secrets were removed from failure output by
+  their shape, a provider's error lines could carry a key onto an item's notes.
+  Only a whole secret counts: an Anthropic or OpenAI key of full length, a JSON
+  web token of three parts, a GitHub token, or a bearer token or authorization
+  header followed by a full token. A prefix such as `sk-ant-`, `eyJ` or
+  `Bearer` quoted in a note is not one. The step names each item and the kind
+  of secret it holds, never the value, beginning `THE TRACKER'S EXPORT HOLDS`,
+  and files one critical report for each, saying the credential has to be
+  replaced. Nothing is edited, because notes are append-only. A match is
+  reported once, however many passes find it and across restarts of the
+  supervisor. It is not a check a change must pass, since the export changes
+  with every note.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.
