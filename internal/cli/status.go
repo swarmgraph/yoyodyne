@@ -1612,11 +1612,16 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 			if waiting == "" {
 				waiting = "not tried yet"
 			}
-			fmt.Fprintf(writer, "  integration stop: %s; the harness resumes it by itself at no cost once they answer; %s\n",
-				singleLine(run.IntegrationStop.Describe()), singleLine(waiting))
+			fmt.Fprintf(writer, "  integration stop: %s; %s, at no cost; %s\n",
+				singleLine(run.IntegrationStop.Describe()), triage.HarnessResumesWhen(string(run.IntegrationStop.Cause)), singleLine(waiting))
 		case resumable:
-			fmt.Fprintf(writer, "  integration stop: %s; `yoyo triage resume %s` resumes it at no cost once the cause has cleared\n",
-				singleLine(run.IntegrationStop.Describe()), run.RunID)
+			once := " once the cause has cleared"
+			if run.IntegrationStop.Cause == runstate.CauseMergeQueueReleased {
+				// Nothing has to clear: the queue takes the kept commit again.
+				once = ""
+			}
+			fmt.Fprintf(writer, "  integration stop: %s; `yoyo triage resume %s` resumes it at no cost%s\n",
+				singleLine(run.IntegrationStop.Describe()), run.RunID, once)
 			if refused := strings.TrimSpace(run.IntegrationStop.HarnessRefused); refused != "" {
 				fmt.Fprintf(writer, "  the harness stopped resuming it by itself: %s\n", singleLine(refused))
 			}

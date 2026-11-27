@@ -30,6 +30,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // MaxEnvironmentalDetailBytes bounds the harness's own account of what the
@@ -249,6 +251,18 @@ const (
 	// finds the record has room (MergeQueueStore.RoomForAdmission), or once the
 	// switch is off. Only the integration stop records it.
 	CauseMergeQueueFull EnvironmentalCause = "merge-queue-full"
+	// CauseMergeQueueReleased is an approved change the harness's merge queue
+	// let go without landing it, for something that says nothing about the
+	// change: the forge held its merge past triage.stuck_merge_age, dropped it,
+	// or could not run a check on its candidate, and no check was found failed on
+	// it, on its pull request or in GitHub's own merge queue. The queue hands the change back
+	// to its own run, which keeps its branch, its approved commit and its
+	// approval; the run stops at its promotion with this cause, and the harness
+	// resumes it from there by itself, ahead of fresh work, so the kept commit
+	// is admitted to the queue again (orchestrator's mergequeuerecovery.go,
+	// resumesFromKeptCommit). A fresh run of its item is refused meanwhile. Only
+	// the queue's hand-back records it.
+	CauseMergeQueueReleased EnvironmentalCause = triage.CauseMergeQueueReleased
 	// CauseNoCheckRan is a change every one of whose configured checks could not
 	// run at all (checks.CouldNotRunPrefix), whether the check said so itself or
 	// the machine refused to start the tool it drives. Nothing verified the
@@ -304,7 +318,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure,
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CausePersonMergeBehind, CauseMergeQueueBehind, CauseCheckStageBound,
-		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
+		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld, CauseMergeQueueReleased,
 		CauseMergeQueueFull, CauseNoCheckRan, CauseInstallUnavailable, CauseInstallNeverWorked, CauseGitLockHeld,
 	}
 }
@@ -346,10 +360,12 @@ func (c EnvironmentalCause) NeedsAPerson() bool {
 // the forge or the network not answering. The operating rules say a dropped
 // connection is waited out, and an approved change stopped by one is waited out
 // the same way rather than left for somebody to type `yoyo triage resume`.
-// Every other cause is resumed only when asked, as
-// before.
+// An approved change the merge queue let go for nothing the change did
+// (CauseMergeQueueReleased) is resumed by itself too: nobody has a decision to
+// make about it, and its kept commit only needs admitting to the queue again.
+// Every other cause is resumed only when asked, as before.
 func (c EnvironmentalCause) HarnessResumes() bool {
-	return c == CauseTransportFailure
+	return c == CauseTransportFailure || c == CauseMergeQueueReleased
 }
 
 // EndsTheRoundUnjudged reports a cause that ends the round before anything
@@ -411,6 +427,8 @@ func (c EnvironmentalCause) Title() string {
 		return "the merge queue is switched on and the target branch's protection requires the forge's own merge queue, or could not be read"
 	case CauseMergeQueueFull:
 		return "the merge queue's own record is over the size limit the harness sets for it, so the approved change could not be admitted"
+	case CauseMergeQueueReleased:
+		return "the merge queue let the approved change go without landing it, for something that says nothing about the change"
 	case CauseNoCheckRan:
 		return "every configured check could not run, so nothing verified the change"
 	case CauseInstallUnavailable:

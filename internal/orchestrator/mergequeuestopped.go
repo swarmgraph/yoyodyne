@@ -173,7 +173,7 @@ func (p MergeQueuePromoter) ReleaseHead(ctx context.Context, key runstate.MergeQ
 // hands the entry back with the reason, or records it as landed where the
 // target already carries its change, which is HandBack's whole work.
 func (p MergeQueuePromoter) handBackStopped(ctx context.Context, q *queuePromotion, refuse func(string, ...any) (MergeQueuePromotion, error), why string) (MergeQueuePromotion, error) {
-	if err := q.withdraw(ctx, why); err != nil {
+	if err := q.withdraw(ctx, why, ownership.MoverDevelopmentManager); err != nil {
 		return q.result(), err
 	}
 	if q.landing.Completion != nil {
@@ -320,7 +320,7 @@ func (p MergeQueuePromoter) releaseLandedOutside(ctx context.Context, q *queuePr
 	if !held {
 		return refuse("%s does not hold its admitted commit %s, so it has not landed; hand it back instead", target, q.entry.Head())
 	}
-	if err := q.withdraw(ctx, why); err != nil {
+	if err := q.withdraw(ctx, why, ownership.MoverDevelopmentManager); err != nil {
 		return q.result(), err
 	}
 	if q.landing.Completion != nil {

@@ -714,7 +714,9 @@ diverged target and a refused credential do need a person — to settle the
 branches, or to load the key or renew the login — but what they settle is the
 environment and not the change, so the approval stands through it. A tracker,
 GitHub, or network that did not answer needs nobody: the harness tries the
-resume itself at each pull and resumes the run once they answer
+resume itself at each pull and resumes the run once they answer, as it does an
+approved change the merge queue let go for something that says nothing about the
+change, once a developer slot is free
 ([the conversation guide](conversation.md#resuming-an-approved-change-the-environment-stopped)
 says how). A refused credential needs nobody to say it is settled either: the
 harness asks GitHub with the same identity on its regular look at held work,
@@ -1590,7 +1592,10 @@ the environment got in the way, and what the item waits on is the harness
 resuming the promotion with `yoyo triage resume`. Where what stopped it was the
 tracker, GitHub, or the network not answering, the harness resumes it by itself
 once they answer, and the hold says that instead of naming a command, with what
-its last try was waiting for and when. The hold names the verb or the harness's
+its last try was waiting for and when. Where the merge queue let the change go
+for something that says nothing about it, the harness resumes the run by itself
+from its kept commit in the next free developer slot, and the hold says that.
+The hold names the verb or the harness's
 own resumption, and
 it names it first, ahead of what was found of the change, so the part that says
 what to do survives a rendering that cuts the reason to a line. The development
@@ -3055,7 +3060,18 @@ What can happen to a queued change instead:
   head of the queue, so waiting behind other entries never counts toward it. A
   merge the forge dropped is withdrawn without waiting for the limit. Where a
   merge is held it is withdrawn, and once the forge confirms that, or at once
-  where none was asked for, the change is handed back to its run, kept, for the development manager to decide on. The
+  where none was asked for, the change is handed back to its run, kept. Where a
+  check failed on the candidate, including on the merge commit GitHub's own merge
+  queue dropped it for, the development manager decides what follows. Where no
+  check was found failed, nothing about the change is in question, so the run
+  keeps the item and is stopped at its promotion with its approval, its
+  passed checks and its approved commit standing, and the harness takes it up
+  again from that commit by itself in the next free developer slot, ahead of
+  fresh work: the kept commit is admitted to the queue again, and its new
+  candidate is checked and reviewed on the target as it then stands. No repair
+  attempt and no fresh run is spent, and the scheduler starts no fresh run of
+  the item meanwhile unless the development manager decides a re-run or the
+  branch holding the change is gone, which leaves nothing to resume. The
   withdrawal says how long GitHub held the merge or would not make it, and how long the entry was
   in the queue before that.
 - **The candidate's reviewer answers with no verdict that can be read.** The

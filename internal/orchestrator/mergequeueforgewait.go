@@ -86,6 +86,7 @@ func (q *queuePromotion) readMergeWait(ctx context.Context) (reading runstate.Me
 	}
 	if reading.Unread == "" {
 		q.outcome.RequiredFailed = requiredFailure(wait, attempt.PullRequest)
+		q.outcome.CheckFailed = len(failedRequired(wait)) > 0
 	}
 	return reading, true, nil
 }
@@ -97,13 +98,7 @@ func requiredFailure(wait publish.MergeWait, pullRequest int) string {
 	if len(wait.PendingRequired()) > 0 {
 		return ""
 	}
-	var failed []string
-	for _, check := range wait.FailedRequired() {
-		if unjudgedConclusions[strings.ToLower(check.Conclusion)] {
-			continue
-		}
-		failed = append(failed, fmt.Sprintf("%q (%s)", check.Name, nonEmpty(check.Conclusion, "failure")))
-	}
+	failed := failedRequired(wait)
 	if len(failed) == 0 {
 		return ""
 	}
@@ -113,4 +108,17 @@ func requiredFailure(wait publish.MergeWait, pullRequest int) string {
 	}
 	return fmt.Sprintf("on the candidate's pull request %d, GitHub reports the required %s %s failed and no required check is still running, so GitHub will never make the merge",
 		pullRequest, checks, strings.Join(failed, " and "))
+}
+
+// failedRequired names the required checks that judged the change and failed,
+// each with how it ended.
+func failedRequired(wait publish.MergeWait) []string {
+	var failed []string
+	for _, check := range wait.FailedRequired() {
+		if unjudgedConclusions[strings.ToLower(check.Conclusion)] {
+			continue
+		}
+		failed = append(failed, fmt.Sprintf("%q (%s)", check.Name, nonEmpty(check.Conclusion, "failure")))
+	}
+	return failed
 }
