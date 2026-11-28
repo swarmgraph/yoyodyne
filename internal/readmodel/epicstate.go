@@ -120,6 +120,10 @@ func (s EpicStanding) delivered() bool {
 	return s.State == EpicIntegrated || s.State == EpicHandedOver
 }
 
+// Delivered reports an epic delivered, integrated or handed over, as status
+// shows it. Feedback on a member's merged pull request is read against it.
+func (s EpicStanding) Delivered() bool { return s.delivered() }
+
 // EndedEpic is an epic the operator ended.
 type EndedEpic struct {
 	WorkItemID string `json:"work_item_id"`
@@ -396,6 +400,10 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		}
 	}
 	if waits := s.piecesAsked(epic, entry); len(waits) > 0 {
+		allDone = false
+		standing.Waits = append(standing.Waits, waits...)
+	}
+	if waits := commentsOwed(entry); len(waits) > 0 {
 		allDone = false
 		standing.Waits = append(standing.Waits, waits...)
 	}
@@ -1237,6 +1245,31 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 // commentsUnknown is each review comment whose judgment was sent and has no known
 // answer, which the development manager decides about. Its change request starts
 // no repair meanwhile.
+// commentsOwed is who owes the next step of each correction a review comment on a
+// member's merged pull request owes, until its piece joins: the development
+// manager writes the piece, a reviewer session judges whether it joins, and a
+// piece judged anything but inside is a question about scope.
+func commentsOwed(entry epicprogress.Entry) []EpicWait {
+	var waits []EpicWait
+	for _, comment := range entry.Comments {
+		owed := comment.Owed
+		switch {
+		case owed == nil || owed.Piece != "" && entry.Has(owed.Piece):
+		case owed.Piece == "":
+			waits = append(waits, EpicWait{WorkItemID: comment.Member, Owner: MoverDevelopmentManager, Says: fmt.Sprintf(
+				"write the piece that answers the review comment %s on merged pull request #%d of %s, naming that comment: %s",
+				comment.ID, comment.PullRequest, comment.Member, singleLine(owed.Missing, maxEpicReasonBytes))})
+		default:
+			if piece, asked := entry.Asked(owed.Piece); asked && piece.Outcome != nil && piece.Outcome.Answer != epicprogress.AnswerInside {
+				waits = append(waits, EpicWait{WorkItemID: comment.Member, Owner: MoverProductManager, Says: fmt.Sprintf("the correction owed by the review comment %s waits on the question about scope its piece %s is", comment.ID, owed.Piece)})
+				continue
+			}
+			waits = append(waits, EpicWait{WorkItemID: comment.Member, Owner: MoverOf(domain.RoleReviewer), Says: fmt.Sprintf("judge whether the piece %s, written for the review comment %s, joins the epic", owed.Piece, comment.ID)})
+		}
+	}
+	return waits
+}
+
 func commentsUnknown(entry epicprogress.Entry) []EpicWait {
 	var waits []EpicWait
 	for _, comment := range entry.Comments {

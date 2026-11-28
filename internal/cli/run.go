@@ -1265,7 +1265,10 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// While the item is in an epic the operator named, a change request is
 		// judged against the epic before a repair answers it.
 		EpicComments: epicCommentsFrom(parts),
-		RepairLimit:  parts.config.Execution.RepairAttemptsBeforeReplan,
+		// While a naming is open, feedback on its members' merged pull requests is
+		// read too, and owes a correcting piece while the epic is not delivered.
+		EpicMerged:  epicMergedFrom(parts),
+		RepairLimit: parts.config.Execution.RepairAttemptsBeforeReplan,
 		// A line comment on a tracked pull request into the team's branch names
 		// the items whose landing commits touched its file, read from the
 		// repository.

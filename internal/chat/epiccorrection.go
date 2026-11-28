@@ -47,33 +47,88 @@ func (s *Session) epicAnswers() (map[string]string, string) {
 	return answered, ""
 }
 
-// epicCheckProblems refuses a creation naming a check that cannot be read as one.
-func (a TrackerAction) epicCheckProblems() []error {
-	check := strings.TrimSpace(a.EpicCheck)
-	switch {
-	case check == "":
-		return nil
-	case a.parent() == "":
-		return []error{errors.New(`epic_check: a correcting piece names the epic as its "parent"`)}
-	case strings.ContainsAny(check, " \t\r\n"):
-		return []error{fmt.Errorf("epic_check: %q is not a check's identifier; name it exactly as status shows it", check)}
-	}
-	return nil
+// EpicCommentCorrections is the same link for a piece correcting feedback on a
+// member's merged pull request, named by the comment's forge identifier
+// (docs/designs/epic-mode-second-part.md, point 6 of "How a correcting piece
+// names the check it came from"). It is satisfied by *epicprogress.Store, and a
+// conversation whose EpicCorrections lacks it refuses a creation naming a
+// comment.
+type EpicCommentCorrections interface {
+	MayCorrectComment(epic, comment string) error
+	CorrectingComment(epic, comment, piece string) (note string, err error)
+	NotedComment(epic, comment string) error
 }
 
-// mayCorrectCheck is why a creation naming a check is refused before anything is
-// created, and empty where it may go ahead or names none.
-func (s *Session) mayCorrectCheck(action TrackerAction) string {
-	check := strings.TrimSpace(action.EpicCheck)
-	switch {
-	case check == "":
-		return ""
-	case s.state.Role != domain.RoleDevelopmentManager:
-		return "only the development manager writes the piece that corrects a check of the whole epic"
-	case s.options.EpicCorrections == nil:
-		return "no record of the epics' progress is wired to this conversation, so no piece can be linked to a check"
+// epicCheckProblems refuses a creation naming a check or a review comment that
+// cannot be read as one, or naming both.
+func (a TrackerAction) epicCheckProblems() []error {
+	var problems []error
+	for _, named := range []struct{ field, value, what string }{
+		{"epic_check", a.EpicCheck, "a check's identifier"},
+		{"epic_comment", a.EpicComment, "a review comment's identifier"},
+	} {
+		value := strings.TrimSpace(named.value)
+		switch {
+		case value == "":
+		case a.parent() == "":
+			problems = append(problems, fmt.Errorf(`%s: a correcting piece names the epic as its "parent"`, named.field))
+		case strings.ContainsAny(value, " \t\r\n"):
+			problems = append(problems, fmt.Errorf("%s: %q is not %s; name it exactly as status shows it", named.field, value, named.what))
+		}
 	}
-	if err := s.options.EpicCorrections.MayCorrect(action.parent(), check); err != nil {
+	if strings.TrimSpace(a.EpicCheck) != "" && strings.TrimSpace(a.EpicComment) != "" {
+		problems = append(problems, errors.New("epic_check and epic_comment: a correcting piece corrects one check or one review comment, not both"))
+	}
+	return problems
+}
+
+// correctionLink is what one creation links its piece to: a check of the whole
+// epic, or a review comment on a member's merged pull request.
+type correctionLink struct {
+	id, what string
+	may      func(epic, id string) error
+	link     func(epic, id, piece string) (string, error)
+	noted    func(epic, id string) error
+}
+
+// correctionOf is the link a creation names, and why none can be made where it
+// names one this conversation cannot link; empty id is a creation naming none.
+func (s *Session) correctionOf(action TrackerAction) (correctionLink, string) {
+	if check := strings.TrimSpace(action.EpicCheck); check != "" {
+		if s.options.EpicCorrections == nil {
+			return correctionLink{}, "no record of the epics' progress is wired to this conversation, so no piece can be linked to a check"
+		}
+		c := s.options.EpicCorrections
+		return correctionLink{check, "the check " + check, c.MayCorrect, c.Correcting, c.Noted}, ""
+	}
+	comment := strings.TrimSpace(action.EpicComment)
+	if comment == "" {
+		return correctionLink{}, ""
+	}
+	c, can := s.options.EpicCorrections.(EpicCommentCorrections)
+	if !can {
+		return correctionLink{}, "no record of the epics' progress is wired to this conversation, so no piece can be linked to a review comment"
+	}
+	return correctionLink{comment, "the review comment " + comment, c.MayCorrectComment, c.CorrectingComment, c.NotedComment}, ""
+}
+
+// mayCorrectCheck is why a creation naming a check or a review comment is refused
+// before anything is created, and empty where it may go ahead or names neither.
+func (s *Session) mayCorrectCheck(action TrackerAction) string {
+	if strings.TrimSpace(action.EpicCheck) == "" && strings.TrimSpace(action.EpicComment) == "" {
+		return ""
+	}
+	if s.state.Role != domain.RoleDevelopmentManager {
+		if strings.TrimSpace(action.EpicCheck) == "" {
+			return "only the development manager writes the piece that corrects a review comment on a member of the epic"
+		}
+		return "only the development manager writes the piece that corrects a check of the whole epic"
+	}
+	link, refused := s.correctionOf(action)
+	if refused != "" {
+		return refused
+	}
+	if err := link.may(action.parent(), link.id); err != nil {
 		return "refused the correcting piece: " + singleLine(err.Error(), maxTrackerFailureBytes)
 	}
 	return ""
@@ -84,20 +139,20 @@ func (s *Session) mayCorrectCheck(action TrackerAction) string {
 // creation. A stop between the two leaves the note to the joining code's next
 // reading.
 func (s *Session) linkCorrection(ctx context.Context, action TrackerAction, piece string) string {
-	check := strings.TrimSpace(action.EpicCheck)
-	if check == "" {
+	link, refused := s.correctionOf(action)
+	if link.id == "" || refused != "" {
 		return ""
 	}
 	epic := action.parent()
-	note, err := s.options.EpicCorrections.Correcting(epic, check, piece)
+	note, err := link.link(epic, link.id, piece)
 	if err != nil {
-		return fmt.Sprintf(", and it was NOT linked to the check %s of epic %s, so it does not join as a correction: %s", check, epic, singleLine(err.Error(), maxTrackerFailureBytes))
+		return fmt.Sprintf(", and it was NOT linked to %s of epic %s, so it does not join as a correction: %s", link.what, epic, singleLine(err.Error(), maxTrackerFailureBytes))
 	}
-	linked := fmt.Sprintf(", as the correction owed by the check %s of epic %s", check, epic)
+	linked := fmt.Sprintf(", as the correction owed by %s of epic %s", link.what, epic)
 	if _, err := s.options.Tracker.Update(ctx, piece, beads.WorkItemChange{AppendNotes: note}); err != nil {
 		return linked + "; its note is written later, because writing it failed: " + singleLine(err.Error(), maxTrackerFailureBytes)
 	}
-	if err := s.options.EpicCorrections.Noted(epic, check); err != nil {
+	if err := link.noted(epic, link.id); err != nil {
 		return linked + "; that its note is written could not be recorded, so it may be written again: " + singleLine(err.Error(), maxTrackerFailureBytes)
 	}
 	return linked
