@@ -1657,6 +1657,14 @@ thinks and records none of it as scope. Decomposition of work whose change is on
 the target branch is untouched, and so is the dependency structure the
 development manager records itself.
 
+A parent whose approved change is waiting in the merge queue holds every child
+broken out of it, whatever the child's text says, because that change is about
+to be on the target branch and a child started before it lands starts without
+it. The child is listed as waiting on the parent's change to land, and is pulled
+at the next pull once it has, or once the parent closes. A parent with nothing
+waiting to land — closed without a change, or carried in a role's conversation —
+holds none of its children this way.
+
 The architect owns the designs, the decision records, and the invariants. It
 still cannot write — no tools on Claude Code, reads only on Codex — and a design
 or a decision record it writes reaches the

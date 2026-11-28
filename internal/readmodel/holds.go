@@ -666,9 +666,47 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 	return holdsOf(heldReasons(runs, escalated, decided, stopped, look), runs)
 }
 
-// holdsOf is the holds read, with the unlanded parents they build on.
+// holdsOf is the holds read, with the unlanded parents they build on and the
+// parents whose approved change is still waiting to land.
 func holdsOf(reasons map[string]backlog.Hold, runs []runstate.State) backlog.Holds {
-	return backlog.ReadHolds(reasons).OnUnlandedParents(unlandedChanges(runs))
+	return backlog.ReadHolds(reasons).OnUnlandedParents(unlandedChanges(runs)).OnQueuedParents(queuedChanges(runs))
+}
+
+// queuedChanges is every item whose latest run's approved change waits in a
+// merge queue and has not landed, with where that change is. It is asked of the
+// latest run, as the hold on the item itself is, so a later run on the item
+// answers instead. A document's run is left out: its item is carried in a role's
+// conversation, and its children are not built on the copy it publishes.
+func queuedChanges(runs []runstate.State) map[string]string {
+	queued := make(map[string]string)
+	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool { return run.WorkItemID != "" }) {
+		if !awaitingMergeQueue(run) || run.Document != nil {
+			continue
+		}
+		queued[workItemID] = queuedAccount(run)
+	}
+	return queued
+}
+
+// queuedAccount says where one item's approved change waits: the run that made
+// it, the merge queue entry, and the branch and pull request where recorded.
+func queuedAccount(run runstate.State) string {
+	target := strings.TrimSpace(run.MergeQueue.TargetBranch)
+	if target == "" {
+		target = strings.TrimSpace(run.TargetBranch)
+	}
+	if target == "" {
+		target = "the target branch"
+	}
+	account := fmt.Sprintf("the approved change run %s made for %s is waiting in the merge queue for %s as entry %d and has not landed yet",
+		run.RunID, run.WorkItemID, target, run.MergeQueue.Order)
+	if branch := strings.TrimSpace(run.Branch); branch != "" {
+		account += "; it is on " + branch
+	}
+	if run.PullRequest != nil && run.PullRequest.Number > 0 {
+		account += fmt.Sprintf(", published as pull request #%d", run.PullRequest.Number)
+	}
+	return account
 }
 
 // heldReasons is each held item's hold, keyed by item, before it is read into
