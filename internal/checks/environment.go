@@ -26,7 +26,8 @@ import (
 // Either way it is bound by its environment's time limit rather than by a
 // check stage's.
 
-// EnvironmentRequest is one run of one environment's check in one checkout.
+// EnvironmentRequest is one run of one environment's check, or of its test, in
+// one checkout. The test runs exactly as the check does, in the same place.
 type EnvironmentRequest struct {
 	RunID        string
 	Directory    string
@@ -37,8 +38,17 @@ type EnvironmentRequest struct {
 	// Restrictions, where set, are the developer session's restrictions the
 	// check runs under; nil runs it where the declared checks run.
 	Restrictions *DeveloperRestrictions
-	Permit       PermitRequest
+	// TestScratch is the empty folder this one run of the command is given, as
+	// TestScratchVariable, and empty where it is given none.
+	TestScratch string
+	Permit      PermitRequest
 }
+
+// TestScratchVariable names the empty folder each run of an environment's check
+// or test is given, under the run's scratch space, and removed afterwards
+// (docs/designs/checking-a-run-environment.md, section 6): a test that changes
+// state works on data that is thrown away.
+const TestScratchVariable = "YOYODYNE_TEST_SCRATCH"
 
 // CheckRequest is the request a check runner is given for the environment's
 // check: its command alone, its own time limit with no stage bound, wrapped
@@ -53,6 +63,9 @@ func (request EnvironmentRequest) CheckRequest() Request {
 		Unbounded:    true,
 		Permit:       request.Permit,
 	}
+	if folder := strings.TrimSpace(request.TestScratch); folder != "" {
+		checkRequest.Env = append(checkRequest.Env, TestScratchVariable+"="+folder)
+	}
 	if request.Restrictions != nil {
 		restrictions := *request.Restrictions
 		checkRequest.Wrap = restrictions.Wrap
@@ -65,8 +78,8 @@ func (request EnvironmentRequest) CheckRequest() Request {
 	return checkRequest
 }
 
-// RunEnvironmentCheckWith runs one environment's check through runner and
-// returns its result.
+// RunEnvironmentCheckWith runs one environment's command, its check or its
+// test, through runner and returns its result.
 func RunEnvironmentCheckWith(ctx context.Context, runner CheckRun, request EnvironmentRequest, sink func(execution.Event) error) (Result, uint64, error) {
 	if strings.TrimSpace(request.Command) == "" {
 		return Result{}, request.LastSequence, errors.New("an environment's check command cannot be empty")

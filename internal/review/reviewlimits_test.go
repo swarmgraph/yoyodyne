@@ -133,6 +133,7 @@ func TestTheReviewEvidenceBesideTheHighestDiffLimitIsMeasured(t *testing.T) {
 	request.Checks = results
 	request.CIChecks = strings.Repeat("c", 2<<10)
 	request.UntouchedReruns = strings.Repeat("u", 4<<10)
+	request.Environments = strings.Repeat("n", MaxEnvironmentEvidenceBytes)
 	request.DeveloperSummary = summary
 	request.DeveloperSummaryContext = "the latest attempt's account"
 	request.EarlierDeveloperSummaries = earlier

@@ -2462,6 +2462,11 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("environments[].how_to_install", at("environments", index, "how_to_install"), &s.Environments[index].HowToInstall, MaxRecordedTextBytes)
 		nested("environments[].output", at("environments", index, "output"), &s.Environments[index].Output, MaxInstallOutputBytes)
 	}
+	for index := range s.EnvironmentTests {
+		unstated("environment_tests[].name", at("environment_tests", index, "name"), &s.EnvironmentTests[index].Name, MaxRecordedTextBytes)
+		unstated("environment_tests[].how_to_install", at("environment_tests", index, "how_to_install"), &s.EnvironmentTests[index].HowToInstall, MaxRecordedTextBytes)
+		nested("environment_tests[].output", at("environment_tests", index, "output"), &s.EnvironmentTests[index].Output, MaxInstallOutputBytes)
+	}
 	if s.DocumentRetry != nil {
 		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
 	}
@@ -4552,6 +4557,12 @@ type State struct {
 	// turn (EnvironmentCheck). Each round replaces the last. Absent is an item
 	// that names none, or a project that declares none.
 	Environments []EnvironmentCheck `json:"environments,omitempty"`
+	// EnvironmentTests is the latest round of tests of the environments whose
+	// checks passed, run after the developer submitted and before review, each
+	// with the commit it ran on (EnvironmentCheck.Commit). Each round replaces
+	// the last, and only a result on the commit under review is shown as
+	// evidence for it (EnvironmentTestsAt).
+	EnvironmentTests []EnvironmentCheck `json:"environment_tests,omitempty"`
 	// RepairAttempts counts the repair attempts already handed back to the
 	// developer, whichever kind of failure triggered them: one budget covers
 	// both, so it bounds the developer invocations a run can make rather than
@@ -5625,6 +5636,11 @@ func (s State) Validate() error {
 	for index, check := range s.Environments {
 		if err := check.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("environments[%d]: %w", index, err))
+		}
+	}
+	for index, test := range s.EnvironmentTests {
+		if err := test.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("environment_tests[%d]: %w", index, err))
 		}
 	}
 	if s.Changes != nil {
