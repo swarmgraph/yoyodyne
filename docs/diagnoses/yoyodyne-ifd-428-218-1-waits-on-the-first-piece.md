@@ -44,3 +44,14 @@ first piece's branch.
 - The report is filed to the development manager, naming the run, the process
   number, its command and its port. An entry with `Unmarked` set is never
   reported.
+
+## Built
+
+The first piece reached main at 20:56 PST on November 27, 2026, and the second
+piece was then built on it. The stop for runs with nothing going is
+`maintain.Leftovers` (`internal/maintain/leftovers.go`), taken as the
+`leftovers` step of every maintenance pass and once as a `yoyo work` session
+starts. It tells a run with nothing going by taking the run's lease without
+waiting (`runstate.Store.TryIdleRun`), and counts passes and the report filed
+on each entry of the run's record (`execution.LeftProcess.Passes` and
+`Reported`).

@@ -55,6 +55,9 @@ func (systemProcessTable) list() ([]processEntry, error) {
 			entry.Command = string(raw[open+1 : closing])
 		}
 		if environ, err := os.ReadFile(filepath.Join(directory, "environ")); err == nil {
+			// Read, even if empty: nil is kept for an environment that could
+			// not be read at all.
+			entry.Environment = []string{}
 			for _, field := range bytes.Split(environ, []byte{0}) {
 				if len(field) > 0 {
 					entry.Environment = append(entry.Environment, string(field))

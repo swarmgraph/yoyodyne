@@ -341,6 +341,17 @@ type ScheduleSlotReleaseNotes interface {
 	RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error)
 }
 
+// ScheduleLeftovers stops every process that started with the identifier of
+// a run nothing holds, for a harness that stopped or crashed between a
+// session's end and the stop that follows it
+// (docs/designs/stopping-what-a-run-started.md, decision 3 point 3). A session
+// takes it once, at its first pull, before it starts anything; the maintenance
+// pass takes the same stop on every pass. It is satisfied by
+// *maintain.Leftovers.
+type ScheduleLeftovers interface {
+	Stop(ctx context.Context) runstate.SweepStep
+}
+
 // ScheduleRunIndex rebuilds the index of run records from every record
 // (runstate.Store.RebuildRunIndex). A session asks it of its runs where they
 // satisfy it, which *runstate.Store does, once, at its first pull and before
@@ -718,6 +729,9 @@ type Starter func(ctx context.Context, workItemID string, selection runstate.Sel
 type Pull struct {
 	Tracker ScheduleTracker
 	Runs    ScheduleRuns
+	// Leftovers stops what runs with nothing going left running, once, as the
+	// session starts (ScheduleLeftovers). Nil stops nothing there.
+	Leftovers ScheduleLeftovers
 	// SlotReleaseNotes is where each developer slot the pull gives back is said
 	// on the run's work item (releaseSlots).
 	SlotReleaseNotes ScheduleSlotReleaseNotes
@@ -1789,6 +1803,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// indexRebuilt is whether this session has rebuilt the index of run records
 	// yet; see ScheduleRunIndex.
 	indexRebuilt := false
+	// leftoversStopped is whether this session has stopped what runs with
+	// nothing going left running; see ScheduleLeftovers.
+	leftoversStopped := false
 	// cadence is what this pass knows about why a recurring task might not have
 	// fired when it fell due; see recurringWatch.
 	cadence := recurringWatch{opened: s.now(), missed: map[string]time.Time{}, waiting: map[string]recurringHold{}}
@@ -2822,6 +2839,10 @@ pulling:
 		// rather than at some later pull.
 		if !indexRebuilt {
 			indexRebuilt = s.rebuildRunIndex(&schedule, pull)
+		}
+		if !leftoversStopped {
+			leftoversStopped = true
+			s.stopLeftovers(ctx, pull)
 		}
 		s.releaseSlots(ctx, &schedule, pull)
 		// The bound is read at every pull like everything else, so a session
@@ -7278,6 +7299,21 @@ func (s Scheduler) rebuildRunIndex(schedule *Schedule, pull Pull) bool {
 	}
 	schedule.RunIndexProblem = ""
 	return true
+}
+
+// stopLeftovers stops what runs with nothing going left running, as the
+// session starts, and says in the session's log what it did where it did or
+// found anything. It is taken before anything is started, so no run of this
+// session can be among them.
+func (s Scheduler) stopLeftovers(ctx context.Context, pull Pull) {
+	if pull.Leftovers == nil {
+		return
+	}
+	step := pull.Leftovers.Stop(ctx)
+	if step.Outcome == runstate.StepSkipped || s.Log == nil {
+		return
+	}
+	fmt.Fprintf(s.Log, "as the session started, the harness looked for processes runs left running: %s, %s\n", step.Outcome, step.Detail)
 }
 
 // ScheduleAssignees clears the assignees ended runs' claims left on
