@@ -36,7 +36,8 @@ The operator can name epics and turn epic mode on; `yoyo status` and
 - A new item is outside every epic until it is added, even when it is filed
   under a member. The one exception is the joining rule: a piece you create
   under a member, splitting or replacing it, joins on its own when a reviewer
-  finds it asks for nothing the epic's description does not. A fix, a
+  finds it asks for nothing beyond the epic's description or that member's text
+  as it read when the operator put it in. A fix, a
   follow-up, or any other item you file for a member does not join, and neither
   does a piece found to ask for more.
 - Work outside the named epics never starts while epic mode is on. Never say it

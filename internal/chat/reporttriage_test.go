@@ -1131,3 +1131,62 @@ func TestAHandlingThatSaysCoveredByInProseAloneIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// fakeEpicAnswers is the questions about scope a judgment made once more answered.
+type fakeEpicAnswers struct {
+	answered map[string]string
+	err      error
+}
+
+func (f fakeEpicAnswers) AnsweredByRereading() (map[string]string, error) { return f.answered, f.err }
+
+// A question about scope that a judgment made once more already answered is
+// marked beside its report, so the Lead Product Manager records that nothing
+// more is needed rather than asking the operator to add what he put in.
+func TestAQuestionAboutScopeAnsweredByAJudgmentMadeOnceMoreIsMarked(t *testing.T) {
+	t.Parallel()
+
+	const settled, open = "report-00000000000000000000000000000004", "report-00000000000000000000000000000005"
+	reports := &fakeReports{}
+	seedReports(t, reports,
+		collectedReport(settled, report.SeverityWarning, "A question about scope: yoyodyne-ep.1.1, made from yoyodyne-ep.1", 1),
+		collectedReport(open, report.SeverityWarning, "A question about scope: yoyodyne-ep.1.2, made from yoyodyne-ep.1", 2),
+	)
+	provider := &fakeBackend{results: []backendapi.RunResult{{FinalText: "noted", SessionID: "session-1"}}}
+	options := testOptions(t, provider)
+	options.Reports = reports
+	options.EpicAnswers = fakeEpicAnswers{answered: map[string]string{settled: "This question about scope is already answered: yoyodyne-ep.1.1 joined."}}
+	session, err := Open(options)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if _, err := session.Send(context.Background(), "what needs deciding?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	prompt := provider.requests[0].Prompt
+	mark := strings.Index(prompt, "already answered: yoyodyne-ep.1.1 joined")
+	if mark < 0 || mark < strings.Index(prompt, settled) || mark > strings.Index(prompt, open) || strings.Count(prompt, "already answered") != 1 {
+		t.Fatalf("the answered question is not marked beside its own report alone:\n%s", prompt)
+	}
+}
+
+func TestAnswersThatCannotBeReadAreSaidAndMarkNothing(t *testing.T) {
+	t.Parallel()
+
+	reports := &fakeReports{}
+	seedReports(t, reports, collectedReport("report-00000000000000000000000000000006", report.SeverityWarning, "A question about scope", 1))
+	provider := &fakeBackend{results: []backendapi.RunResult{{FinalText: "noted", SessionID: "session-1"}}}
+	options := testOptions(t, provider)
+	options.Reports = reports
+	options.EpicAnswers = fakeEpicAnswers{err: errors.New("the epics' progress is not whole")}
+	session, err := Open(options)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if _, err := session.Send(context.Background(), "what needs deciding?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if prompt := provider.requests[0].Prompt; !strings.Contains(prompt, "could not be read, so none is marked: the epics' progress is not whole") {
+		t.Fatalf("the unread answers were not said:\n%s", prompt)
+	}
+}
