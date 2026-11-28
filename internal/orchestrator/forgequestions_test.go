@@ -41,8 +41,15 @@ func TestRefreshAsksTheForgeOnlyAboutUnsettledPublicationsInBatches(t *testing.T
 	index := 0
 	for ; index < 300; index++ {
 		switch index % 4 {
-		case 0, 1:
-			save(index, func(published *runstate.PullRequest) { published.State, published.Merged = "MERGED", true })
+		case 0:
+			save(index, func(published *runstate.PullRequest) {
+				published.State, published.Merged, published.ForgeMergeCommit = "MERGED", true, strings.Repeat("d", 40)
+			})
+		case 1:
+			// A merge whose commit the forge was asked for and did not name.
+			save(index, func(published *runstate.PullRequest) {
+				published.State, published.Merged, published.MergeCommitAsked = "MERGED", true, true
+			})
 		case 2:
 			save(index, func(published *runstate.PullRequest) { published.State = "CLOSED" })
 		default:

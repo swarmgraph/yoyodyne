@@ -531,7 +531,9 @@ func (r Reconciler) RefreshPublications(ctx context.Context) ([]PublicationRefre
 // so asking here as well would be two paths deciding one merge. A request the
 // record already has as merged is finished: merged is the one answer a forge
 // does not take back, which makes it the one that ends the asking rather than a
-// question every later sweep repeats.
+// question every later sweep repeats. The one exception is a merge recorded
+// with no commit at all, asked about once more for the commit the forge names
+// (mergeCommitUnread).
 //
 // The rest are settled by what the harness itself decided, so no answer the
 // forge could give changes what anything here does with them. A request
@@ -555,10 +557,28 @@ func unsettledPublication(state runstate.State) bool {
 	if state.WaitingForPersonMerge() {
 		return false
 	}
-	if published.Merged || published.Superseded != "" || published.HandedBack != nil {
+	if published.Merged {
+		return mergeCommitUnread(state)
+	}
+	if published.Superseded != "" || published.HandedBack != nil {
 		return false
 	}
 	return !strings.EqualFold(strings.TrimSpace(published.State), "CLOSED")
+}
+
+// mergeCommitUnread reports a request the record has as merged by somebody
+// outside the harness, with no merge commit on it: the harness never
+// integrated the run, so nothing confirmed one, and the forge has not yet been
+// asked to name it. A squash or rebase merge of such a request leaves the head
+// the harness recorded off the target, so the commit the forge names is the
+// only way the epic standing can tell that the change landed
+// (readmodel/epicstate.go). It is asked once: the answer is recorded with
+// MergeCommitAsked, whether or not the forge named a commit, and that takes the
+// record out of this.
+func mergeCommitUnread(state runstate.State) bool {
+	published := state.PullRequest
+	return state.Integration == nil && !published.MergeCommitAsked &&
+		strings.TrimSpace(published.MergeCommit) == "" && strings.TrimSpace(published.ForgeMergeCommit) == ""
 }
 
 // refreshPublication asks about one run's pull request and records the answer
@@ -651,7 +671,17 @@ func refreshedPublication(recorded runstate.PullRequest, observed publish.PullRe
 	if strings.TrimSpace(observed.State) != "" {
 		refreshed.State = observed.State
 	}
-	refreshed.Merged = observed.Merged
+	// A merge already on the record stays there: the forge does not take one
+	// back, and a record asked about again only for its commit keeps it.
+	refreshed.Merged = recorded.Merged || observed.Merged
+	// The commit the forge names as the merge is kept beside the merge it
+	// reports, and never in MergeCommit, which is what the harness confirmed.
+	if observed.Merged {
+		if commit := strings.TrimSpace(observed.MergeCommit); commit != "" {
+			refreshed.ForgeMergeCommit = commit
+		}
+		refreshed.MergeCommitAsked = true
+	}
 	// A queued merge is only ever cleared here and never set. Deciding one is
 	// settleQueuedMerge's work, and it does it as part of settling the whole run —
 	// finishing the publication, closing the item, catching the target branch up —
