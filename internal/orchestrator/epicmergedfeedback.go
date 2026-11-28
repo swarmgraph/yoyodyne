@@ -13,15 +13,20 @@ package orchestrator
 // person's merge. A pull request closed unmerged is not read, and a member done
 // with no pull request has nothing to read. Whose comments count is the rule the
 // reader of open pull requests uses (ownWords, an author, a time), approvals are
-// not feedback, and only what was said after the recorded merge is read.
+// not feedback, and only what was said after the merge is read. The merge's time
+// is the one the forge reports on the pull request, read with it: the harness may
+// record the merge later than it happened, and a comment made in between is still
+// feedback on merged work.
 //
 // Which case a comment is, is decided when it is read, from where its epic stands
 // then. While the epic is not delivered, the comment's identifier is written into
 // the epic's progress with the one correcting piece it owes, in one write, before
-// anything else is done with it, and the development manager writes that piece;
-// so a comment read twice, or again after a restart, owes one piece. Once the
-// epic is delivered a comment is left as it is, read again by every check, and
-// recorded nothing, for the reading of feedback after delivery to take up.
+// anything else is done with it, and the development manager writes that piece.
+// Once the epic is delivered, integrated or handed over, the comment becomes one
+// parked work item for the Lead Product Manager, which starts nothing: the
+// comment is written into the progress first and the item's identifier after it,
+// and the item carries a marker it is found by again (cli's epicmerged.go). Either
+// way a comment read twice, or again after a restart, makes one piece or one item.
 
 import (
 	"context"
@@ -60,6 +65,10 @@ type EpicMergedFeedback interface {
 	// Owe writes the comment and the one correction it owes into the epic's
 	// progress, and reports whether this write made it.
 	Owe(ctx context.Context, comment MergedComment) (bool, error)
+	// AfterDelivery writes a comment read once its epic is delivered into the
+	// epic's progress and files the one parked item it becomes, and reports
+	// whether this call filed that item.
+	AfterDelivery(ctx context.Context, comment MergedComment) (bool, error)
 }
 
 // itemRunListing is the run store's listing of one item's runs, newest first.
@@ -75,7 +84,9 @@ type MergedFeedbackSettlement struct {
 	RunID      string `json:"run_id,omitempty"`
 	Number     int    `json:"number,omitempty"`
 	// Owed is how many comments this check recorded as owing a correcting piece.
-	Owed    int    `json:"owed,omitempty"`
+	Owed int `json:"owed,omitempty"`
+	// Filed is how many comments read after delivery this check filed an item for.
+	Filed   int    `json:"filed,omitempty"`
 	Detail  string `json:"detail,omitempty"`
 	Failure string `json:"failure,omitempty"`
 }
@@ -122,7 +133,7 @@ func mergedPullRequests(runs []runstate.State) []runstate.State {
 	var merged []runstate.State
 	seen := map[int]bool{}
 	for _, run := range runs {
-		if !run.Discharges() || run.PullRequest == nil || !run.PullRequest.Merged || mergeCommitOf(run) == "" || mergedAtOf(run).IsZero() || seen[run.PullRequest.Number] {
+		if !run.Discharges() || run.PullRequest == nil || !run.PullRequest.Merged || mergeCommitOf(run) == "" || seen[run.PullRequest.Number] {
 			continue
 		}
 		seen[run.PullRequest.Number] = true
@@ -140,19 +151,6 @@ func mergeCommitOf(run runstate.State) string {
 	return strings.TrimSpace(run.PullRequest.MergeCommit)
 }
 
-// mergedAtOf is when the harness recorded the merge: when it found a person's
-// merge, or, for a merge the harness had the forge make, when the run that
-// recorded it ended.
-func mergedAtOf(run runstate.State) time.Time {
-	if run.PersonMerge != nil && run.PersonMerge.Merged() {
-		return *run.PersonMerge.MergedAt
-	}
-	if run.CompletedAt != nil {
-		return *run.CompletedAt
-	}
-	return time.Time{}
-}
-
 // takeUpMergedFeedback reads one merged pull request and records what is new.
 func (r Reconciler) takeUpMergedFeedback(ctx context.Context, member EpicMember, run runstate.State) MergedFeedbackSettlement {
 	number := run.PullRequest.Number
@@ -162,13 +160,27 @@ func (r Reconciler) takeUpMergedFeedback(ctx context.Context, member EpicMember,
 		result.Failure = fmt.Sprintf("read what was said on merged pull request %d: %v; the next check reads it again", number, err)
 		return result
 	}
-	fresh := newMergedFeedback(run, feedbackItemsOf(reading))
+	if reading.MergedAt.IsZero() {
+		result.Detail = "the forge gave no time for its merge, so nothing said on it is read until it does"
+		return result
+	}
+	fresh := newMergedFeedback(run, reading.MergedAt, feedbackItemsOf(reading))
 	if len(fresh) == 0 {
 		result.Detail = "nothing was said on it after it merged"
 		return result
 	}
 	if member.Delivered {
-		result.Detail = fmt.Sprintf("%d comment(s) were left after it merged; epic %s is delivered, so they are left for the reading of feedback after delivery", len(fresh), member.Epic)
+		for _, item := range fresh {
+			filed, err := r.EpicMerged.AfterDelivery(ctx, MergedComment{Member: member, PullRequest: number, Item: item})
+			if err != nil {
+				result.Failure = fmt.Sprintf("file comment %s on merged pull request %d: %s; the next check reads it again", item.ID, number, oneline.Bound(err.Error(), 600))
+				return result
+			}
+			if filed {
+				result.Filed++
+			}
+		}
+		result.Detail = fmt.Sprintf("%d comment(s) were left after it merged; epic %s is delivered, so %d newly became an item that starts nothing, for the Lead Product Manager", len(fresh), member.Epic, result.Filed)
 		return result
 	}
 	for _, item := range fresh {
@@ -185,11 +197,10 @@ func (r Reconciler) takeUpMergedFeedback(ctx context.Context, member EpicMember,
 	return result
 }
 
-// newMergedFeedback is what people said on a merged pull request after the merge
-// the harness recorded, by the rule the reader of open pull requests uses for
-// whose words count, oldest first. Approvals are not feedback.
-func newMergedFeedback(run runstate.State, items []runstate.ForgeFeedbackItem) []runstate.ForgeFeedbackItem {
-	since := mergedAtOf(run)
+// newMergedFeedback is what people said on a merged pull request after the forge's
+// merge, by the rule the reader of open pull requests uses for whose words count,
+// oldest first. Approvals are not feedback.
+func newMergedFeedback(run runstate.State, since time.Time, items []runstate.ForgeFeedbackItem) []runstate.ForgeFeedbackItem {
 	var fresh []runstate.ForgeFeedbackItem
 	for _, item := range items {
 		if item.Author == "" || item.Kind == runstate.FeedbackApproval || ownWords(run, item) || item.At.IsZero() || !item.At.After(since) {

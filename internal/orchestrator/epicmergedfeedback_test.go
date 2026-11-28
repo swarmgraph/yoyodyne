@@ -24,6 +24,7 @@ type owedComments struct {
 	members []EpicMember
 	owed    []MergedComment
 	seen    map[string]bool
+	filed   []MergedComment
 }
 
 func (o *owedComments) Members(context.Context) ([]EpicMember, error) { return o.members, nil }
@@ -37,6 +38,20 @@ func (o *owedComments) Owe(_ context.Context, comment MergedComment) (bool, erro
 	}
 	o.seen[comment.Item.ID] = true
 	o.owed = append(o.owed, comment)
+	return true, nil
+}
+
+// AfterDelivery files one item for each identifier, as the progress and the
+// item's marker do.
+func (o *owedComments) AfterDelivery(_ context.Context, comment MergedComment) (bool, error) {
+	if o.seen == nil {
+		o.seen = map[string]bool{}
+	}
+	if o.seen[comment.Item.ID] {
+		return false, nil
+	}
+	o.seen[comment.Item.ID] = true
+	o.filed = append(o.filed, comment)
 	return true, nil
 }
 
@@ -56,7 +71,7 @@ func mergedRun(item string, number int) runstate.State {
 // and one of the factory's own words after.
 func mergedFixture() (Reconciler, *owedComments, *fakeTeamFeedback) {
 	feedback := &fakeTeamFeedback{readings: map[int]publish.FeedbackReading{7: {
-		State: "MERGED",
+		State: "MERGED", MergedAt: mergedAt,
 		Comments: []publish.FeedbackComment{
 			{ID: 1, Author: "teammate", Body: "Before the merge.", At: mergedAt.Add(-time.Minute)},
 			{ID: 2, Author: "teammate", Body: "The flag still has the old name.", At: mergedAt.Add(time.Hour)},
@@ -125,10 +140,49 @@ func TestNoMergedPullRequestIsReadWithoutAnOpenNamingOrOnceDelivered(t *testing.
 	if settled, err := reconciler.TakeUpMergedFeedback(context.Background()); err != nil || len(settled) != 0 || feedback.reads != 0 {
 		t.Fatalf("nothing wired: settled %#v, %v, %d reads", settled, err, feedback.reads)
 	}
-	reconciler, epics, _ = mergedFixture()
+}
+
+// Once the epic is delivered a comment owes no correcting piece: it becomes one
+// item, however often it is read, and nothing else is done with it here.
+func TestACommentAfterDeliveryBecomesOneItem(t *testing.T) {
+	t.Parallel()
+	reconciler, epics, _ := mergedFixture()
 	epics.members[0].Delivered = true
+	for round := 0; round < 2; round++ {
+		settled, err := reconciler.TakeUpMergedFeedback(context.Background())
+		if err != nil || len(settled) != 1 || settled[0].Owed != 0 || settled[0].Failure != "" || settled[0].Filed != 1-round {
+			t.Fatalf("round %d: settled %#v, %v", round, settled, err)
+		}
+	}
+	if len(epics.owed) != 0 || len(epics.filed) != 1 || epics.filed[0].Item.Body != "The flag still has the old name." {
+		t.Fatalf("owed %#v, filed %#v; want one item for the comment made after the merge", epics.owed, epics.filed)
+	}
+}
+
+// Comments are counted from the merge time the forge reports on the pull request,
+// not from when the member's run ended: one made between the forge's merge and the
+// run's end is read, one made before the forge's merge is not, and a reading that
+// gives no merge time reads nothing.
+func TestCommentsAreCountedFromTheForgesMergeTime(t *testing.T) {
+	t.Parallel()
+	reconciler, epics, feedback := mergedFixture()
+	run := mergedRun("yoyodyne-ep.1", 7)
+	ended := mergedAt.Add(3 * time.Hour)
+	run.PersonMerge, run.CompletedAt = nil, &ended
+	reconciler.Store = listedRuns{runs: map[string][]runstate.State{"yoyodyne-ep.1": {run}}}
+	if _, err := reconciler.TakeUpMergedFeedback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(epics.owed) != 1 || epics.owed[0].Item.Body != "The flag still has the old name." {
+		t.Fatalf("owed = %#v, want the comment made after the forge's merge and before the run ended", epics.owed)
+	}
+
+	reconciler, epics, feedback = mergedFixture()
+	reading := feedback.readings[7]
+	reading.MergedAt = time.Time{}
+	feedback.readings[7] = reading
 	settled, err := reconciler.TakeUpMergedFeedback(context.Background())
-	if err != nil || len(settled) != 1 || settled[0].Owed != 0 || len(epics.owed) != 0 {
-		t.Fatalf("delivered: settled %#v, %v, owed %#v; want it read and left", settled, err, epics.owed)
+	if err != nil || len(settled) != 1 || len(epics.owed) != 0 || settled[0].Failure != "" {
+		t.Fatalf("no merge time: settled %#v, %v, owed %#v; want nothing read", settled, err, epics.owed)
 	}
 }

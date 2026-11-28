@@ -415,6 +415,28 @@ type Comment struct {
 	// Owed in the one write that first records it, and is never judged as a change
 	// request is.
 	Owed *Correction `json:"owed,omitempty"`
+	// Later is feedback on a member's merged pull request read once the epic was
+	// delivered, integrated or handed over. It owes no piece and is never judged: it
+	// becomes one parked work item the harness files for the Lead Product Manager,
+	// who asks the operator whether to add it. The comment is written with Later in
+	// the one write that first records it, and the item's identifier after the
+	// item is filed.
+	Later *Later `json:"later,omitempty"`
+}
+
+// Later is what feedback after delivery became.
+type Later struct {
+	// Says is who said what, as the item and the Lead Product Manager are shown it.
+	Says string `json:"says"`
+	// Item is the parked work item filed for it, once it is filed.
+	Item string `json:"item,omitempty"`
+}
+
+// LaterMarker is the line written into the notes of the item filed for feedback
+// after delivery, by which the harness finds that item again where a stop came
+// between filing it and writing its identifier here.
+func LaterMarker(epic string, comment string) string {
+	return fmt.Sprintf("Filed for feedback after delivery: epic %s, review comment %s.", epic, comment)
 }
 
 // FromComment is what a piece written for the correction a review comment owes
@@ -789,7 +811,9 @@ func (e Entry) validate() error {
 	for _, c := range e.Comments {
 		part("comment", c.ID, c.Became != "" && !c.At.IsZero() && (c.Outcome == nil || c.Outcome.valid() && c.Judgment != "") &&
 			(c.Question == "" || c.Outcome != nil && c.Outcome.Answer.Asks()) &&
-			c.Owed.valid(e.WorkItemID) && (c.Owed == nil || c.Outcome == nil && c.Judgment == "" && beads.ValidIssueID(c.Member)))
+			c.Owed.valid(e.WorkItemID) && (c.Owed == nil || c.Outcome == nil && c.Judgment == "" && beads.ValidIssueID(c.Member)) &&
+			(c.Later == nil || c.Owed == nil && c.Outcome == nil && c.Judgment == "" && beads.ValidIssueID(c.Member) && strings.TrimSpace(c.Later.Says) != "" &&
+				(c.Later.Item == "" || beads.ValidIssueID(c.Later.Item) && c.Later.Item != e.WorkItemID)))
 		if c.Owed != nil && c.Owed.Piece != "" {
 			part("correcting piece", c.Owed.Piece, true)
 		}
