@@ -2439,6 +2439,11 @@ func (s *State) recordedTexts() []recordedText {
 	if s.InstallWait != nil {
 		unstated("install_wait.name", "install_wait.name", &s.InstallWait.Name, MaxRecordedTextBytes)
 	}
+	for index := range s.Environments {
+		unstated("environments[].name", at("environments", index, "name"), &s.Environments[index].Name, MaxRecordedTextBytes)
+		unstated("environments[].how_to_install", at("environments", index, "how_to_install"), &s.Environments[index].HowToInstall, MaxRecordedTextBytes)
+		nested("environments[].output", at("environments", index, "output"), &s.Environments[index].Output, MaxInstallOutputBytes)
+	}
 	if s.DocumentRetry != nil {
 		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
 	}
@@ -4516,6 +4521,11 @@ type State struct {
 	// after the step failed for a cause outside the work, and absent whenever
 	// the run is not waiting on one.
 	InstallWait *InstallWait `json:"install_wait,omitempty"`
+	// Environments is the latest round of checks of the environments the work
+	// item's Environments: line names, one entry each, made before a developer
+	// turn (EnvironmentCheck). Each round replaces the last. Absent is an item
+	// that names none, or a project that declares none.
+	Environments []EnvironmentCheck `json:"environments,omitempty"`
 	// RepairAttempts counts the repair attempts already handed back to the
 	// developer, whichever kind of failure triggered them: one budget covers
 	// both, so it bounds the developer invocations a run can make rather than
@@ -5576,6 +5586,11 @@ func (s State) Validate() error {
 	if s.InstallWait != nil {
 		if err := s.InstallWait.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("install_wait: %w", err))
+		}
+	}
+	for index, check := range s.Environments {
+		if err := check.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("environments[%d]: %w", index, err))
 		}
 	}
 	if s.Changes != nil {

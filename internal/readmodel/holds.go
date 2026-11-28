@@ -858,6 +858,12 @@ func stoppageHold(run, latest runstate.State, decided standing, found triage.Fou
 	if !preserved && run.CancelledHoldingItem(false) {
 		return heldFor(run.RunID, cancelledLeavingNothing(run), reading, stoppedAt(run))
 	}
+	// A run held for the environments its item names says which are missing
+	// and what each blocks, whatever the worktree holds: none was usable, so no
+	// developer turn made anything there.
+	if says := run.EnvironmentsMissingSays(); says != "" {
+		return heldFor(run.RunID, says, reading, stoppedAt(run))
+	}
 	if !preserved {
 		return heldFor(run.RunID, continuedStoppage(run), reading, stoppedAt(run))
 	}

@@ -799,15 +799,43 @@ An item whose line names an environment the project does not declare is
 refused where it is created, rewritten, or proposed, with the line quoted. An
 item with no such line is unchanged.
 
-So far the harness reads and checks the setting and the line, and runs no
-environment's check or test. The declared checks run with no sandbox: with the
-network, writing anywhere the harness's user can, and able to use socket files.
-A `developer` environment's check is to run under the restrictions a Claude
-Code developer's own commands run under instead, which the harness reproduces
-on macOS with `sandbox-exec`: no network but localhost, no socket file, writes
-only to the worktree, the session's temporary directory, the repository's Git
-directory and the run's scratch folder, and the harness's `services/` folder
-unreadable.
+After the worktree is made and its due install steps have run, and before the
+developer's first turn, the harness runs the `check` of each environment the
+item's line names, each bound by its `time_limit`. Both kinds run through the
+declared checks' runner and its limits on how many heavy checks run at once.
+A `harness` environment's check runs exactly as a declared check does, with no
+sandbox: with the network, writing anywhere the harness's user can, and able
+to use socket files. A `developer` environment's check runs under the
+restrictions a Claude Code developer's own commands run under instead, which
+the harness reproduces on macOS with `sandbox-exec`: no network but localhost,
+no socket file, writes only to the worktree, the repository's Git directory
+and the run's scratch folder (which is also its `TMPDIR`), and the harness's
+`services/` folder unreadable. It is never given an install step's network or
+package cache. Off macOS, where those restrictions are not reproduced, a
+`developer` check is recorded as failed, saying why.
+
+Each environment's result is recorded on the run under `environments`, apart
+from the others: its name, `passed`, `failed` or `timed_out`, where it ran, the
+criteria it serves, and the last 200 lines of its output, at most 16 KiB, with
+secrets removed.
+
+- **Every named environment passes.** The run goes on as before.
+- **None passes.** The run ends before any developer turn, with no developer
+  or repair attempt spent, and stops as `environments-missing`
+  ([what stops a run](../run-stops.md)). The item is held for the development
+  manager, naming each environment, the criteria it blocks and the end of its
+  check's output. For a `machine` environment the hold quotes `how_to_install`
+  and says a person has to run it on this machine; the harness never runs it.
+- **Some pass.** The run goes on. Each environment that did not pass is
+  recorded as still to be checked, with its criteria, and said so on the run's
+  line in `yoyo status`, on its dashboard card, and in a note on the item.
+
+A resumed or continued run checks the environments again before its next
+developer turn, because the machine may have changed; an environment that now
+passes stops being recorded as still to be checked. A repair round inside the
+same run does not check them again. Running each passing environment's `test`
+and leaving an item open when it lands with environments still to be checked
+are not built yet.
 [Checking a run's environment before implementation starts](../designs/checking-a-run-environment.md)
 is the design the rest follows.
 
