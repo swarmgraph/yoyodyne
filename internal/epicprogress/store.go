@@ -44,6 +44,15 @@ func Open(stateRoot string, product domain.ProductID) (*Store, error) {
 	return &Store{stateRoot: filepath.Clean(stateRoot), product: product, now: time.Now}, nil
 }
 
+// Clocked is the store with every time it writes taken from now rather than the
+// machine's clock, for a caller that keeps its own, such as a test whose other
+// records are written at fixed times.
+func (s *Store) Clocked(now func() time.Time) *Store {
+	clocked := *s
+	clocked.now = now
+	return &clocked
+}
+
 // Begin writes a naming's empty entry and lists it, before the harness first
 // acts on it. One that was begun is left as it is.
 func (s *Store) Begin(naming Naming) error {
