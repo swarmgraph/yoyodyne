@@ -41,6 +41,13 @@
 //     first pass on a build that carries the move this finds nothing, unless a
 //     run still going then kept its folder. It runs after reconcile, on the
 //     same goroutine, so a run reconcile settled is read as ended.
+//   - leftovers: every process that started with a run's identifier, stopped
+//     where nothing holds that run's lease, so nothing of its sessions or
+//     checks is going; every process a run's record names as still running is
+//     tried again, and goes from the record once it is gone; and a process
+//     still running after three passes is reported to the development manager
+//     once (leftovers.go). It runs after scratch, on the same goroutine, so a
+//     run reconcile settled is read as settled.
 //   - build-cache: the shared build cache the harness names for every run held
 //     under execution.build_cache_limit_gib, oldest files first
 //     (buildcache.go). It runs after scratch, on the same goroutine, ahead of
@@ -360,6 +367,9 @@ type Pass struct {
 	Runs RunRecords
 	// BuildCache trims the shared build cache; where it is nil the step says so.
 	BuildCache *BuildCache
+	// Leftovers stops what runs with nothing going left running; where it is
+	// nil the step says so.
+	Leftovers *Leftovers
 
 	Now func() time.Time
 	Log func(format string, args ...any)
@@ -413,13 +423,14 @@ type underway struct {
 
 // offGoroutine is what the pass does off the supervisor's goroutine: the run
 // index rebuilt, then reconcile, then the old scratch folders under .git
-// cleared, then the shared build cache trimmed, then the tracker's cleanup, with the record of the cleanup where one ran,
+// cleared, then what ended runs left running stopped, then the shared build cache trimmed, then the tracker's cleanup, with the record of the cleanup where one ran,
 // then the measurement of the tracker's store, then its rebuild, then the
 // check of its limits, and then the read of its export for secrets.
 type offGoroutine struct {
 	indexed    runstate.SweepStep
 	reconciled runstate.SweepStep
 	oldScratch runstate.SweepStep
+	leftovers  runstate.SweepStep
 	buildCache runstate.SweepStep
 	cleaned    cleanedTracker
 	measured   runstate.SweepStep
@@ -518,6 +529,7 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 		work := offGoroutine{indexed: p.rebuildRunIndex()}
 		work.reconciled = p.reconcile(ctx)
 		work.oldScratch = p.clearOldScratch()
+		work.leftovers = p.stopLeftovers(ctx)
 		work.buildCache = p.trimBuildCache(ctx)
 		work.cleaned = p.cleanUpTracker(ctx)
 		work.measured = p.measureTracker(ctx)
@@ -594,6 +606,7 @@ func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	recorded.Steps = append(recorded.Steps, done.indexed)
 	recorded.Steps = append(recorded.Steps, done.reconciled)
 	recorded.Steps = append(recorded.Steps, done.oldScratch)
+	recorded.Steps = append(recorded.Steps, done.leftovers)
 	recorded.Steps = append(recorded.Steps, done.buildCache)
 	recorded.Steps = append(recorded.Steps, done.cleaned.step)
 	recorded.Steps = append(recorded.Steps, done.measured)
