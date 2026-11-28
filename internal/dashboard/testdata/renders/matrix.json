@@ -270,6 +270,25 @@
       "decide": "closed"
     }
   },
+  "unhandled-reports": {
+    "page": "ready",
+    "sections": {
+      "summary": "ready",
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "factory": "empty",
+      "managers": "empty"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed",
+      "decide": "closed"
+    }
+  },
   "held": {
     "page": "ready",
     "sections": {

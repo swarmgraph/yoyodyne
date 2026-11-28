@@ -1,0 +1,32 @@
+{
+  "observed_at": "2026-09-19T14:05:09Z",
+  "capacity_blocked": {
+    "runs": [],
+    "conversations": []
+  },
+  "running": [],
+  "working": [],
+  "not_startable": [],
+  "admitted": 0,
+  "awaiting_decision": 0,
+  "awaiting_carry_out": 0,
+  "needs_human": [],
+  "reports": {
+    "collected": 34,
+    "unhandled": 34,
+    "oldest": "2026-09-19T10:00:00Z",
+    "oldest_age": 14709000000000,
+    "worst": "critical",
+    "critical": 1,
+    "addressees": [
+      {"role": "development-manager", "unhandled": 27, "critical": 1, "read": true, "name": "development manager", "says": "development manager: 27 unhandled, 1 of them critical; a recurring pass reads them"},
+      {"role": "product-manager", "unhandled": 4, "read": false, "name": "Lead Product Manager", "says": "Lead Product Manager: 4 unhandled; no pass reads them"},
+      {"unhandled": 3, "read": false, "name": "no role named", "says": "no role named: 3 unhandled; no pass reads them"}
+    ]
+  },
+  "reports_says": "34 unhandled, 1 of them critical (development manager 27, Lead Product Manager 4, no role named 3); no pass reads those for the Lead Product Manager or those naming no role; read them with yoyo reports",
+  "startable": 0,
+  "admitted_items": [],
+  "startable_items": [],
+  "problems": []
+}

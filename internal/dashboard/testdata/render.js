@@ -368,6 +368,7 @@ const pages = [
   // slot idle, which still lists each slot with what it prefers.
   { name: "slots", token: "t", standing: ok(fixture("standing-slots")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "slots-idle", token: "t", standing: ok(fixture("standing-slots-idle")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "unhandled-reports", token: "t", standing: ok(fixture("standing-unhandled-reports")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "held", token: "t", standing: ok(fixture("standing-held")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "roles", token: "t", standing: ok(fixture("standing-roles")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "degraded", token: "t", standing: ok(fixture("standing-degraded")), throughput: ok(fixture("throughput-degraded")), spend: ok(fixture("spend-busy")) },
