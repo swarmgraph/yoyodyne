@@ -659,6 +659,9 @@ type Trigger struct {
 	MayStart     StartDecision
 	WouldStart   StartDecision
 	EpicsChanged func() time.Time
+	// EpicWakes is what starts the three roles' passes while epic mode is on, in
+	// place of the clock (epicwakes.go). Nil starts none that way.
+	EpicWakes EpicWakes
 }
 
 // RecurringBreakage is the report pile as a missed cadence files into it. It is

@@ -14,6 +14,9 @@
 // its identifier. A run of the project's declared checks for a check of the whole
 // epic is charged to the epic too, and is counted, because it calls no provider.
 //
+// Each role pass an event of the epic woke is charged to it once piece 13 is
+// built, from what the harness recorded the pass cost (internal/epicwake).
+//
 // Nothing is counted as costing nothing because its cost is unknown: a run or a
 // call that cannot be priced, in whole or in part, is counted beside the figure.
 // Those are never added to the figure and never count toward the limit.
@@ -26,6 +29,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
+	"github.com/mason-bryant/yoyodyne/internal/epicwake"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -76,6 +80,20 @@ type Spend struct {
 	// CheckRuns is how many runs of the project's declared checks were made for
 	// its checks of the whole epic. They call no provider.
 	CheckRuns int `json:"check_runs,omitempty"`
+	// Passes is how many role passes an event of it woke, and UnpricedPasses how
+	// many of them could not be priced in whole (internal/epicwake). A pass woken
+	// for several epics adds an equal share of its known cost to each.
+	Passes         int `json:"passes,omitempty"`
+	UnpricedPasses int `json:"unpriced_passes,omitempty"`
+}
+
+// WithPasses is the spend with what the role passes the naming woke cost.
+func (s Spend) WithPasses(wakes epicwake.Record, naming epicprogress.Naming) Spend {
+	usd, passes, unknown := wakes.Cost(naming)
+	s.KnownUSD += usd
+	s.Passes += passes
+	s.UnpricedPasses += unknown
+	return s
 }
 
 // Of is what a naming has cost, from what is kept of its progress.
@@ -134,7 +152,11 @@ func Read(stateRoot string, product domain.ProductID, view epicprogress.View, ep
 	if err != nil {
 		return Standing{}, fmt.Errorf("read the cost log: %w", err)
 	}
-	return Standing{Spend: Of(view, epic, SpendPrices{store, lines}), Budget: epic.Budget}, nil
+	wakes, err := epicwake.Read(stateRoot, product)
+	if err != nil {
+		return Standing{}, err
+	}
+	return Standing{Spend: Of(view, epic, SpendPrices{store, lines}).WithPasses(wakes, epicprogress.Of(epic)), Budget: epic.Budget}, nil
 }
 
 // Refuses reports a limit the known cost has reached, so that the epic's next
@@ -168,6 +190,9 @@ func (s Standing) Why() string {
 // stands, what is not in the figure, and the command that sets the limit.
 func (s Standing) Says(epic string) string {
 	said := fmt.Sprintf("Cost: %s in provider reported cost, over %s", Dollars(s.KnownUSD), count(s.Runs, "run"))
+	if s.Passes > 0 {
+		said += " and " + passes(s.Passes) + " it woke"
+	}
 	switch {
 	case s.Budget == nil:
 		said += "; no budget is set"
@@ -186,6 +211,9 @@ func (s Standing) Says(epic string) string {
 	}
 	if s.UnpricedCalls > 0 {
 		unknown = append(unknown, count(s.UnpricedCalls, "other paid call")+" whose cost is unknown in whole or in part")
+	}
+	if s.UnpricedPasses > 0 {
+		unknown = append(unknown, passes(s.UnpricedPasses)+" whose cost is unknown in whole or in part")
 	}
 	if len(unknown) > 0 {
 		said += ". Not in that figure, and not counted toward a limit: " + strings.Join(unknown, ", and ")
@@ -215,4 +243,11 @@ func count(n int, thing string) string {
 		return "1 " + thing
 	}
 	return fmt.Sprintf("%d %ss", n, thing)
+}
+
+func passes(n int) string {
+	if n == 1 {
+		return "1 role pass"
+	}
+	return fmt.Sprintf("%d role passes", n)
 }

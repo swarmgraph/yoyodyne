@@ -122,7 +122,10 @@ func snapshot(t *testing.T, root string) map[string]string {
 	return files
 }
 
-func TestThePassesOfTheRolesThatCarryOutAnEpicStartWhileOneIsOpen(t *testing.T) {
+// While epic mode is on the clock starts no pass, an epic open or not (piece 13:
+// an event of an open epic starts them, epicwakes.go), and turning it off brings
+// every pass by the clock back.
+func TestWhileEpicModeIsOnTheClockStartsNoPassAndTurningItOffBringsThemBack(t *testing.T) {
 	t.Parallel()
 	e := newPassEpics(t)
 	started := func() []string {
@@ -144,9 +147,8 @@ func TestThePassesOfTheRolesThatCarryOutAnEpicStartWhileOneIsOpen(t *testing.T) 
 		slices.Sort(names)
 		return names
 	}
-	carry := []string{"architect", "development-manager", "product-manager"}
-	if got := started(); !slices.Equal(got, carry) {
-		t.Fatalf("started %q while an epic is open, want %q", got, carry)
+	if got := started(); len(got) != 0 {
+		t.Fatalf("started %q by the clock while an epic is open, want none", got)
 	}
 	e.end()
 	if got := started(); len(got) != 0 {
@@ -156,8 +158,8 @@ func TestThePassesOfTheRolesThatCarryOutAnEpicStartWhileOneIsOpen(t *testing.T) 
 		t.Fatal("the operator's own conversation was refused")
 	}
 	e.name("yoyodyne-again")
-	if got := started(); !slices.Equal(got, carry) {
-		t.Fatalf("started %q once another epic is open, want %q", got, carry)
+	if got := started(); len(got) != 0 {
+		t.Fatalf("started %q by the clock once another epic is open, want none", got)
 	}
 	e.off()
 	if got := started(); len(got) != 4 {
@@ -394,9 +396,10 @@ func TestAPassTheNamedEpicsRefuseIsNotRecordedAsMissed(t *testing.T) {
 		return count + len(pile.filed)
 	}
 	look(&watch, recurringNow)
-	// The instance's pass has waited longest, so it is first in the order.
-	if fired := h.fire(t, recurringNow); len(fired.Fired) != 1 || fired.Fired[0].Task != "a-sweep" {
-		t.Fatalf("fired = %+v, want the pass after the refused one", fired.Fired)
+	// Both are refused while epic mode is on: the instance always, and the
+	// task's pass because the clock starts none then.
+	if fired := h.fire(t, recurringNow); len(fired.Fired) != 0 {
+		t.Fatalf("fired = %+v, want neither pass", fired.Fired)
 	}
 	look(&watch, recurringNow.Add(30*time.Minute))
 	if missed() != 0 {
@@ -424,7 +427,7 @@ func TestAPassTheNamedEpicsRefuseIsNotRecordedAsMissed(t *testing.T) {
 	}
 }
 
-func TestARefusedGoalReviewChangesNothingAndTheOrdinaryPassStarts(t *testing.T) {
+func TestARefusedGoalReviewChangesNothingAndStartsOnceEpicModeIsOff(t *testing.T) {
 	t.Parallel()
 	e := newPassEpics(t)
 	r := newDailyReview(t)
@@ -436,9 +439,10 @@ func TestARefusedGoalReviewChangesNothingAndTheOrdinaryPassStarts(t *testing.T) 
 	if _, _, err := r.sweeps.Adopt(context.Background(), "lead-pm", time.Hour, novemberDay(20, 8, 0)); err != nil {
 		t.Fatal(err)
 	}
+	// Her ordinary pass is not started by the clock while epic mode is on.
 	fired := r.pull(t, novemberDay(20, 10, 0))
-	if len(fired.Fired) != 1 || fired.Fired[0].Summoned != "" {
-		t.Fatalf("fired = %+v, want her ordinary pass", fired.Fired)
+	if len(fired.Fired) != 0 {
+		t.Fatalf("fired = %+v, want neither her pass by the clock nor the review", fired.Fired)
 	}
 	if fired = r.pull(t, novemberDay(20, 10, 1)); len(fired.Fired) != 0 || r.source.reads != 0 {
 		t.Fatalf("fired = %+v after %d readings of the goals, want neither", fired.Fired, r.source.reads)
@@ -446,9 +450,16 @@ func TestARefusedGoalReviewChangesNothingAndTheOrdinaryPassStarts(t *testing.T) 
 	if record, found, err := r.reviews.Load(); err != nil || found || len(record.Goals) != 0 {
 		t.Fatalf("reviews = %+v, %t, %v; want the store unchanged", record, found, err)
 	}
-	e.wants()
+	// The review is refused without being kept; her pass by the clock is kept,
+	// once for the one time it fell due.
+	e.wants("product-manager  recurring-pass 1")
 	e.off()
-	if fired = r.pull(t, novemberDay(20, 10, 2)); len(fired.Fired) != 1 || fired.Fired[0].Summoned != goalReviewSummons {
+	// Her pass by the clock has waited longest, so it goes first, and the review
+	// on the next pull.
+	if fired = r.pull(t, novemberDay(20, 10, 2)); len(fired.Fired) != 1 || fired.Fired[0].Summoned != "" {
+		t.Fatalf("fired = %+v, want her ordinary pass once epic mode is off", fired.Fired)
+	}
+	if fired = r.pull(t, novemberDay(20, 10, 3)); len(fired.Fired) != 1 || fired.Fired[0].Summoned != goalReviewSummons {
 		t.Fatalf("fired = %+v, want the review once it may start", fired.Fired)
 	}
 }

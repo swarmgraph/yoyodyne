@@ -159,6 +159,10 @@ func TestEveryRule(t *testing.T) {
 			documents, documentsOut = in, out
 		case startsPass:
 			passes = in
+			// While epic mode is on the clock starts no pass (piece 13).
+			if entry.Path == RecurringPass {
+				passes = out
+			}
 		case startsGoalReview, startsMessageReading, startsTeamBranchUpdate, startsJoiningJudgment, startsWholeEpicCheck, startsCommentJudgment, startsByAPerson:
 		default:
 			t.Fatalf("%s starts nothing this test knows", entry.Path)

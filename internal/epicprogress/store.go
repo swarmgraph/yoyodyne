@@ -44,6 +44,15 @@ func Open(stateRoot string, product domain.ProductID) (*Store, error) {
 	return &Store{stateRoot: filepath.Clean(stateRoot), product: product, now: time.Now}, nil
 }
 
+// SetClock sets what the store reads the time from when it stamps what it
+// writes, such as when an edited text was first seen. A caller that keeps its own
+// clock, a test among them, gives it here so the times it compares agree.
+func (s *Store) SetClock(now func() time.Time) {
+	if now != nil {
+		s.now = now
+	}
+}
+
 // Begin writes a naming's empty entry and lists it, before the harness first
 // acts on it. One that was begun is left as it is.
 func (s *Store) Begin(naming Naming) error {

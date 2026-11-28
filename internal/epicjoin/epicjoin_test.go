@@ -83,6 +83,9 @@ func (b *bench) joiner() Joiner {
 	b.t.Helper()
 	store, err := epicprogress.Open(b.root, product)
 	b.must(err)
+	// The progress is stamped by the bench's clock, as everything else the joiner
+	// compares with it is, so no time here depends on when the test is run.
+	store.SetClock(func() time.Time { return b.now })
 	log, err := runstate.NewBranchReviewStore(b.root, product)
 	b.must(err)
 	return Joiner{StateRoot: b.root, Product: product, Progress: store, Log: log, NewID: runstate.NewBranchReviewID, Evidence: Evidence{Reports: b.reports(), RepositoryID: "yoyodyne"},
