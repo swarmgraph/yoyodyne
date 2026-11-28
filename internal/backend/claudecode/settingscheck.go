@@ -87,6 +87,14 @@ const settingsCheckTimeout = 30 * time.Second
 // afresh, rather than left to refuse every start until the next poll.
 const settingsCheckTries = 2
 
+// settingsCheckAfterAnswers is how long the settings questions' process is
+// waited for once it has given all three answers. Measured against 2.1.332 it
+// exits between half a second and two seconds after its last answer, the longer
+// when its telemetry cannot reach the network; nothing it does after answering
+// changes the answers, so a process still holding its output open past this is
+// ended and the check judges what it said.
+const settingsCheckAfterAnswers = 3 * time.Second
+
 // settingsCheckLimit is the bound one of the check's processes was given, and
 // the machine's load it was scaled for.
 type settingsCheckLimit struct {
@@ -127,12 +135,23 @@ func (b Backend) settingsCheckLimitNow() settingsCheckLimit {
 // SettingsCheckTimedOutError is a check that could not be made because a
 // process of it gave no answer within its limit on every try. It refuses the
 // start as any check that could not be made does; what it adds is the account
-// of the last try's load and limit. What it says is kept under the 100 bytes
-// the line saying why runs cannot start keeps of a cause, so the figures are
-// never the part cut off.
+// of the last try's load and limit, and of what was waited on: which process
+// it was, how many of the three answers had come back, and the last thing the
+// CLI wrote. The load and limit come first and are kept under the 100 bytes the
+// line saying why runs cannot start keeps of a cause, so the figures are never
+// the part cut off; the rest is for the scheduler's log, which keeps the whole.
 type SettingsCheckTimedOutError struct {
 	Limit settingsCheckLimit
 	Tries int
+	// Asked is the question the process that timed out was asked, in the
+	// words a failure names it by.
+	Asked string
+	// Answered is how many of the settings questions had been answered when
+	// the process was ended. It is zero for the version and help questions.
+	Answered int
+	// Said is the end of what the CLI last wrote, or empty where it wrote
+	// nothing.
+	Said string
 }
 
 func (e SettingsCheckTimedOutError) Error() string {
@@ -144,7 +163,32 @@ func (e SettingsCheckTimedOutError) Error() string {
 	if e.Tries > 1 {
 		tries = fmt.Sprintf(", on %d tries", e.Tries)
 	}
-	return fmt.Sprintf("timed out%s: no answer in %s%s", under, e.Limit, tries)
+	said := fmt.Sprintf("timed out%s: no answer in %s%s", under, e.Limit, tries)
+	if e.Asked == "" {
+		return said
+	}
+	said += "; asked " + e.Asked
+	if e.Answered > 0 {
+		said += fmt.Sprintf(", %d of %d answered", e.Answered, len(settingsQuestionIDs))
+	}
+	if e.Said == "" {
+		return said + ", it wrote nothing"
+	}
+	return said + ", it last wrote: " + e.Said
+}
+
+// lastSaid is the end of what a process that timed out wrote, error output
+// first, folded to one line short enough to keep beside the figures.
+func lastSaid(result execution.ProcessResult) string {
+	for _, stream := range []string{result.Stderr, result.Stdout} {
+		if text := strings.TrimSpace(stream); text != "" {
+			if len(text) > 300 {
+				text = strings.ToValidUTF8(text[len(text)-300:], "")
+			}
+			return oneline.Fold(text, 300)
+		}
+	}
+	return ""
 }
 
 // guardCommand is the notes guard's command as the developer's settings name
@@ -161,6 +205,10 @@ const (
 	hooksQuestion    = "hooks"
 	sandboxQuestion  = "sandbox"
 )
+
+// settingsQuestionIDs is every question the check asks, by the identifier its
+// answer comes back under.
+var settingsQuestionIDs = []string{settingsQuestion, hooksQuestion, sandboxQuestion}
 
 var settingsQuestions = func() string {
 	var questions strings.Builder
@@ -237,6 +285,7 @@ func (b Backend) checkLaunchSettingsOnce(ctx context.Context, directory string) 
 		return backend.LaunchSettingsCheck{}, err
 	}
 	limit := b.settingsCheckLimitNow()
+	answered := map[string]bool{}
 	result, err := b.Runner.Run(ctx, execution.Command{
 		Name:    b.binary(),
 		Args:    settingsCheckArgs(settings),
@@ -244,12 +293,29 @@ func (b Backend) checkLaunchSettingsOnce(ctx context.Context, directory string) 
 		Env:     execution.WithGoBuildCache(environment, directory),
 		Stdin:   strings.NewReader(settingsQuestions),
 		Timeout: limit.Limit,
-	}, nil)
+		// The check is over once all three answers are in. What the CLI goes on
+		// doing after that — its own shutdown, or a process it started that still
+		// holds its output open — is waited for settingsCheckAfterAnswers and then
+		// ended, rather than spending the whole limit and throwing the answers
+		// away as a timeout.
+		Replied:           func() bool { return len(answered) == len(settingsQuestionIDs) },
+		AfterReplyTimeout: settingsCheckAfterAnswers,
+	}, func(output execution.Output) {
+		if output.Stream != execution.StreamStdout {
+			return
+		}
+		for id := range readAnswers(output.Text) {
+			if slices.Contains(settingsQuestionIDs, id) {
+				answered[id] = true
+			}
+		}
+	})
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code which settings it applies: %w", err)
 	}
 	if result.Status == execution.ProcessTimedOut {
-		return backend.LaunchSettingsCheck{}, SettingsCheckTimedOutError{Limit: limit, Tries: 1}
+		return backend.LaunchSettingsCheck{}, SettingsCheckTimedOutError{Limit: limit, Tries: 1,
+			Asked: "the settings questions", Answered: len(answered), Said: lastSaid(result)}
 	}
 	if result.Status == execution.ProcessCancelled || result.Status == execution.ProcessStalled {
 		return backend.LaunchSettingsCheck{}, fmt.Errorf("ask Claude Code which settings it applies: the process %s", result.Status)
@@ -312,7 +378,7 @@ func (b Backend) ask(ctx context.Context, environment []string, directory, flag,
 		return "", fmt.Errorf("ask Claude Code %s: %w", asked, err)
 	}
 	if result.Status == execution.ProcessTimedOut {
-		return "", SettingsCheckTimedOutError{Limit: limit, Tries: 1}
+		return "", SettingsCheckTimedOutError{Limit: limit, Tries: 1, Asked: asked, Said: lastSaid(result)}
 	}
 	if result.Status != execution.ProcessSucceeded {
 		return "", fmt.Errorf("ask Claude Code %s: %s ended %s (exit %d): %s", asked, flag, result.Status, result.ExitCode, oneline.Fold(strings.TrimSpace(result.Stderr), 400))
