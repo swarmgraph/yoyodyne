@@ -104,3 +104,46 @@ func TestANoteNoCorrectionMatchesMakesNothingJoin(t *testing.T) {
 		}
 	}
 }
+
+// A piece the development manager wrote for a comment on a member's merged pull
+// request is told apart by the comment's owed correction: it is noted, judged in a
+// session given the member and the comment, and joins only where it answers inside.
+func TestAPieceForAMergedCommentJoinsOnlyByItsJudgment(t *testing.T) {
+	t.Parallel()
+	for answer, joins := range map[epicprogress.Answer]bool{epicprogress.AnswerInside: true, epicprogress.AnswerOutside: false} {
+		t.Run(string(answer), func(t *testing.T) {
+			t.Parallel()
+			b := newBench(t)
+			store, err := epicprogress.Open(b.root, product)
+			b.must(err)
+			record, err := epicscope.Read(b.root, product)
+			b.must(err)
+			named, _ := record.Named(epic)
+			_, _, err = store.MergedCommentRead(epicprogress.Of(named), epicprogress.Comment{ID: "comment-21", Member: member, PullRequest: 7}, "teammate said: the flag still has the old name")
+			b.must(err)
+			_, err = store.CorrectingComment(epic, "comment-21", correcting)
+			b.must(err)
+			b.split(correcting, epic)
+			b.says(string(answer))
+			if b.starts(correcting) {
+				t.Fatal("it starts before it is judged")
+			}
+			noted := map[string]string{}
+			joiner := b.joiner()
+			joiner.Note = func(_ context.Context, item, note string) error { noted[item] += note; return nil }
+			b.must(joiner.Round(context.Background()))
+			if !strings.Contains(noted[correcting], "review comment comment-21 on merged pull request #7") || !b.entry().Comments[0].Owed.Noted {
+				t.Fatalf("noted %q, recorded %+v, want the note of fixed form written and recorded", noted, b.entry().Comments[0].Owed)
+			}
+			asked := b.wants(correcting, answer, joins)
+			if asked.From != epicprogress.FromComment("comment-21") || len(b.requests) != 1 ||
+				!strings.Contains(b.requests[0].Prompt, "the flag still has the old name") || !strings.Contains(b.requests[0].Prompt, "merged pull request #7") {
+				t.Fatalf("asked %+v with %d requests", asked, len(b.requests))
+			}
+			b.must(joiner.Round(context.Background()))
+			if len(b.requests) != 1 || strings.Count(noted[correcting], "comment-21") != 1 {
+				t.Errorf("a second reading judged %d times and noted %q", len(b.requests), noted)
+			}
+		})
+	}
+}

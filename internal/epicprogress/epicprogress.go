@@ -408,6 +408,32 @@ type Comment struct {
 	Judgment string   `json:"judgment,omitempty"`
 	Outcome  *Outcome `json:"outcome,omitempty"`
 	Question string   `json:"question,omitempty"`
+	// Owed is the one correcting piece owed for feedback on a member's merged pull
+	// request, read while the epic was open and not delivered: the development
+	// manager writes it, naming the comment, and the harness writes the piece's
+	// identifier here before the note on the item. Such a comment is written with
+	// Owed in the one write that first records it, and is never judged as a change
+	// request is.
+	Owed *Correction `json:"owed,omitempty"`
+}
+
+// FromComment is what a piece written for the correction a review comment owes
+// is recorded as made from, in the place a split records the member.
+func FromComment(id string) string { return "the review comment " + id }
+
+// CorrectingComment is the review comment whose owed correction names the item,
+// where one does.
+func (e Entry) CorrectingComment(item string) (Comment, bool) {
+	if at := slices.IndexFunc(e.Comments, func(c Comment) bool { return c.Owed != nil && c.Owed.Piece == item }); item != "" && at >= 0 {
+		return e.Comments[at], true
+	}
+	return Comment{}, false
+}
+
+// CommentCorrectionNote is the note of fixed form written on a piece correcting a
+// review comment, for people to read. Nothing reads it to decide anything.
+func CommentCorrectionNote(epic string, comment Comment) string {
+	return fmt.Sprintf("Written as the correction owed by review comment %s on merged pull request #%d of %s, in the epic %s.", comment.ID, comment.PullRequest, comment.Member, epic)
 }
 
 // Comment is the review comment kept under the forge's identifier, where one is.
@@ -570,6 +596,9 @@ func (e Entry) Correcting(item string) (Check, bool) {
 
 // correctsFrom reports a piece made from a check whose owed correction names it.
 func (e Entry) correctsFrom(item, from string) bool {
+	if comment, correcting := e.CorrectingComment(item); correcting {
+		return FromComment(comment.ID) == from
+	}
 	check, correcting := e.Correcting(item)
 	return correcting && FromCheck(check.ID) == from
 }
@@ -759,7 +788,11 @@ func (e Entry) validate() error {
 	}
 	for _, c := range e.Comments {
 		part("comment", c.ID, c.Became != "" && !c.At.IsZero() && (c.Outcome == nil || c.Outcome.valid() && c.Judgment != "") &&
-			(c.Question == "" || c.Outcome != nil && c.Outcome.Answer.Asks()))
+			(c.Question == "" || c.Outcome != nil && c.Outcome.Answer.Asks()) &&
+			c.Owed.valid(e.WorkItemID) && (c.Owed == nil || c.Outcome == nil && c.Judgment == "" && beads.ValidIssueID(c.Member)))
+		if c.Owed != nil && c.Owed.Piece != "" {
+			part("correcting piece", c.Owed.Piece, true)
+		}
 	}
 	for _, c := range e.Checks {
 		part("check", c.ID, c.Commit != "" && c.Found != "" && !c.At.IsZero() &&

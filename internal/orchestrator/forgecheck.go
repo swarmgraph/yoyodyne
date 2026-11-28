@@ -70,6 +70,9 @@ type ForgeCheck struct {
 	// TeamFeedback is what was said on each tracked pull request into the team's
 	// branch, and what the check did about it.
 	TeamFeedback []TeamFeedbackSettlement `json:"team_feedback"`
+	// MergedFeedback is what was said on each merged pull request of a member of
+	// an epic the operator named and has not ended (epicmergedfeedback.go).
+	MergedFeedback []MergedFeedbackSettlement `json:"merged_feedback,omitempty"`
 	// BatchNotes is what the check did to say each waiting item's batch state on
 	// its notes, and empty with the batch route off.
 	BatchNotes []BatchNoteSettlement `json:"batch_notes,omitempty"`
@@ -114,6 +117,11 @@ func (c ForgeCheck) Failures() int {
 			failures++
 		}
 	}
+	for _, settled := range c.MergedFeedback {
+		if settled.Failure != "" {
+			failures++
+		}
+	}
 	for _, settled := range c.BatchNotes {
 		if settled.Failure != "" {
 			failures++
@@ -139,6 +147,8 @@ func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 	check.BatchNotes, batchErr = r.NoteBatchStates(ctx)
 	check.Feedback, feedbackErr = r.TakeUpFeedback(ctx)
 	check.TeamFeedback, teamFeedbackErr = r.TakeUpTeamFeedback(ctx)
+	var mergedErr error
+	check.MergedFeedback, mergedErr = r.TakeUpMergedFeedback(ctx)
 	if r.TrackerShare != nil {
 		// Said on the check rather than returned: a remote or tracker that cannot
 		// answer is left for the next check, as a request that cannot be read is.
@@ -148,5 +158,5 @@ func (r Reconciler) CheckForge(ctx context.Context) (ForgeCheck, error) {
 			check.TrackerFailure = err.Error()
 		}
 	}
-	return check, errors.Join(mergeErr, requestErr, teamErr, batchErr, feedbackErr, teamFeedbackErr)
+	return check, errors.Join(mergeErr, requestErr, teamErr, batchErr, feedbackErr, teamFeedbackErr, mergedErr)
 }

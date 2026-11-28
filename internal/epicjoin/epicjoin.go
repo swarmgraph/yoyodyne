@@ -134,6 +134,9 @@ type owed struct {
 	item  beads.WorkItem
 	asked bool
 	step  step
+	// comment is the review comment on a member's merged pull request whose owed
+	// correction names the piece, where one does.
+	comment *epicprogress.Comment
 }
 
 type step int
@@ -167,10 +170,19 @@ func (j Joiner) Owed(ctx context.Context) (bool, error) {
 	return j.blockersOwed(ctx)
 }
 
-// unnoted is each correction that names its piece and has no note on it yet.
+// unnoted is each correction that names its piece and has no note on it yet: a
+// check's, or a review comment's where comment is set.
 type unnoted struct {
-	naming epicprogress.Naming
-	check  epicprogress.Check
+	naming  epicprogress.Naming
+	check   epicprogress.Check
+	comment *epicprogress.Comment
+}
+
+func (u unnoted) piece() string {
+	if u.comment != nil {
+		return u.comment.Owed.Piece
+	}
+	return u.check.Owed.Piece
 }
 
 func (j Joiner) unnoted() ([]unnoted, error) {
@@ -183,7 +195,12 @@ func (j Joiner) unnoted() ([]unnoted, error) {
 		entry, _ := view.Entry(epicprogress.Of(epic))
 		for _, check := range entry.Checks {
 			if check.Owed != nil && check.Owed.Piece != "" && !check.Owed.Noted {
-				found = append(found, unnoted{epicprogress.Of(epic), check})
+				found = append(found, unnoted{naming: epicprogress.Of(epic), check: check})
+			}
+		}
+		for _, comment := range entry.Comments {
+			if comment.Owed != nil && comment.Owed.Piece != "" && !comment.Owed.Noted {
+				found = append(found, unnoted{naming: epicprogress.Of(epic), comment: &comment})
 			}
 		}
 	}
@@ -199,13 +216,32 @@ func (j Joiner) note(ctx context.Context) error {
 	}
 	var problems []error
 	for _, one := range found {
-		if err := j.Note(ctx, one.check.Owed.Piece, epicprogress.CorrectionNote(one.naming.WorkItemID, one.check)); err != nil {
-			problems = append(problems, fmt.Errorf("write the note on %s: %w", one.check.Owed.Piece, err))
+		note := epicprogress.CorrectionNote(one.naming.WorkItemID, one.check)
+		if one.comment != nil {
+			note = epicprogress.CommentCorrectionNote(one.naming.WorkItemID, *one.comment)
+		}
+		if err := j.Note(ctx, one.piece(), note); err != nil {
+			problems = append(problems, fmt.Errorf("write the note on %s: %w", one.piece(), err))
+			continue
+		}
+		if one.comment != nil {
+			noted, can := j.Progress.(commentNotes)
+			if !can {
+				problems = append(problems, errors.New("the epics' progress is wired without the record of review comments"))
+				continue
+			}
+			problems = append(problems, noted.NotedComment(one.naming.WorkItemID, one.comment.ID))
 			continue
 		}
 		problems = append(problems, j.Progress.Noted(one.naming.WorkItemID, one.check.ID))
 	}
 	return errors.Join(problems...)
+}
+
+// commentNotes writes that the note is on a piece a review comment's correction
+// names. It is satisfied by the store of internal/epicprogress.
+type commentNotes interface {
+	NotedComment(epic, comment string) error
 }
 
 // Round makes the judgments that are owed. Where another process is making them it
@@ -276,10 +312,16 @@ func (j Joiner) owed(ctx context.Context) ([]owed, map[string]beads.WorkItem, er
 				continue
 			}
 			piece, asked := entry.Asked(item.ID)
-			if check, correcting := entry.Correcting(item.ID); !asked && correcting {
+			if comment, correcting := entry.CorrectingComment(item.ID); !asked && correcting {
+				// So is a correction a review comment owes.
+				if len(view.Holders(item.ID)) == 0 {
+					found = append(found, owed{epic, epicprogress.Piece{WorkItemID: item.ID, From: epicprogress.FromComment(comment.ID), Digest: epicprogress.TextDigest(item)}, item, false, judgeIt, &comment})
+				}
+				continue
+			} else if check, correcting := entry.Correcting(item.ID); !asked && correcting {
 				// A correction is read from the progress alone, whatever its notes say.
 				if len(view.Holders(item.ID)) == 0 {
-					found = append(found, owed{epic, epicprogress.Piece{WorkItemID: item.ID, From: epicprogress.FromCheck(check.ID), Digest: epicprogress.TextDigest(item)}, item, false, judgeIt})
+					found = append(found, owed{epic, epicprogress.Piece{WorkItemID: item.ID, From: epicprogress.FromCheck(check.ID), Digest: epicprogress.TextDigest(item)}, item, false, judgeIt, nil})
 				}
 				continue
 			} else if !asked {
@@ -290,7 +332,7 @@ func (j Joiner) owed(ctx context.Context) ([]owed, map[string]beads.WorkItem, er
 				if len(view.Holders(item.ID)) > 0 || !split || !member || item.CreatedAt.IsZero() || item.CreatedAt.Before(entered.Truncate(time.Second)) || item.ID == epic.WorkItemID {
 					continue
 				}
-				found = append(found, owed{epic, epicprogress.Piece{WorkItemID: item.ID, From: from, Digest: epicprogress.TextDigest(item)}, item, false, judgeIt})
+				found = append(found, owed{epic, epicprogress.Piece{WorkItemID: item.ID, From: from, Digest: epicprogress.TextDigest(item)}, item, false, judgeIt, nil})
 				continue
 			}
 			if !joinedHere(view, epic, item.ID) {
@@ -303,7 +345,11 @@ func (j Joiner) owed(ctx context.Context) ([]owed, map[string]beads.WorkItem, er
 				return nil, nil, err
 			}
 			if due {
-				found = append(found, owed{epic, piece, item, true, next})
+				one := owed{epic, piece, item, true, next, nil}
+				if comment, correcting := entry.CorrectingComment(item.ID); correcting {
+					one.comment = &comment
+				}
+				found = append(found, one)
 			}
 		}
 	}
@@ -860,6 +906,11 @@ func prompt(one owed, items map[string]beads.WorkItem, from came) string {
 		if part.text != "" {
 			fmt.Fprintf(&said, "\n## %s\n\n%s\n", part.name, part.text)
 		}
+	}
+	if comment := one.comment; comment != nil {
+		member := items[comment.Member]
+		fmt.Fprintf(&said, "\n# The member, %s, whose merged pull request #%d the comment is on\n\n%s\n\n%s\n", comment.Member, comment.PullRequest, member.Title, member.Description)
+		fmt.Fprintf(&said, "\n# The review comment %s the piece was written for\n\n%s\n", comment.ID, comment.Owed.Missing)
 	}
 	return said.String()
 }
