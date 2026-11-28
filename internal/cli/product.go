@@ -1196,7 +1196,6 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				environ:    p.environ,
 				logRoot:    p.stateRoot,
 				log:        home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + schedulerLogFile,
-				moveEvery:  p.resolved.Config.Execution.BuildMoveEvery(),
 				drainLimit: p.resolved.Config.Execution.RedeployDrainLimit.Duration(),
 				runs:       runs,
 			})
@@ -1363,11 +1362,9 @@ type schedulerChild struct {
 	environ    []string
 	logRoot    string
 	log        string
-	// moveEvery and drainLimit are execution.build_move_interval and
-	// execution.redeploy_drain_limit as the supervisor read them: when a move
-	// onto a new build falls due, and how long past that the scheduler is left
-	// to have made it (NextMove, MoveGrace).
-	moveEvery  time.Duration
+	// drainLimit is execution.redeploy_drain_limit as the supervisor read it:
+	// the bound a scheduler it has to force to stop is said to have drained
+	// under (preserveRuns).
 	drainLimit time.Duration
 	// runs is the product's run records, where a scheduler the supervisor had
 	// to force to stop has the runs it was carrying kept for the one started in
@@ -1438,7 +1435,7 @@ func (schedulerChild) Busy(context.Context) (string, error) { return "", nil }
 // started from replaced, stops pulling, waits out the runs it hosts, and
 // re-executes in place. Stopping it instead would cancel those runs.
 func (schedulerChild) RestartsItself() string {
-	return "the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit (thirty while it waits out a promotion or a document landing), or has not begun its move within that limit and five minutes after the move fell due"
+	return "the watch restarts itself into it as soon as it is installed, winding down the runs it hosts under execution.redeploy_drain_limit and pausing the rest with their work kept, and is restarted into it by the supervisor if it has not begun its move within 15 minutes of falling behind, or has not restarted five minutes past its limit for winding down (thirty while it waits out a promotion or a document landing)"
 }
 
 // RestartOverdue is the watching session having been past its wind-down limit
@@ -1467,49 +1464,55 @@ func (c schedulerChild) RestartOverdue(_ context.Context, now time.Time) (string
 	return said, nil
 }
 
-// NextMove is the earliest the watching session may next move onto a new
-// build, counted from its last move in the watch log the way the session
-// counts it (runstate.LastBuildMove), and whether the session holding the
-// watch lease has already begun winding down for a move. It is read here, by
-// the supervisor's build, so a scheduler on a build from before a fix to when
-// it moves is still moved when its move is due.
-func (c schedulerChild) NextMove(context.Context) (time.Time, bool, error) {
+// MoveStanding is where the watching session's move onto a new build stands,
+// read from the watch log by the supervisor's build, so a scheduler on a build
+// from before a fix to when it moves is still timed and moved: whether the
+// session holding the watch lease has begun winding down, the merge queue
+// check its wind-down waits out, and what else it still waits out before it
+// has nothing in flight.
+func (c schedulerChild) MoveStanding(context.Context) (supervise.MoveStanding, error) {
 	holder, found, err := c.watch.Holder()
 	if err != nil || !found {
-		return time.Time{}, false, err
+		return supervise.MoveStanding{}, err
 	}
 	sessions, err := c.watch.List()
 	if err != nil {
-		return time.Time{}, false, err
+		return supervise.MoveStanding{}, err
 	}
-	windingDown := false
 	for _, live := range readmodel.Live(sessions) {
-		if live.SessionID == holder.SessionID {
-			windingDown = live.Draining != nil && !live.Draining.Until.IsZero()
-			break
+		if live.SessionID == holder.SessionID && live.Draining != nil && !live.Draining.Until.IsZero() {
+			return windDownStanding(*live.Draining), nil
 		}
 	}
-	last := runstate.LastBuildMove(sessions, "", time.Time{})
-	if last.IsZero() {
-		return time.Time{}, windingDown, nil
-	}
-	every := c.moveEvery
-	if every <= 0 {
-		every = config.DefaultBuildMoveInterval.Duration()
-	}
-	return last.Add(every), windingDown, nil
+	return supervise.MoveStanding{}, nil
 }
 
-// MoveGrace is the scheduler's wind-down limit and the five minutes past it
-// the supervisor waits before restarting a session stuck winding down: a
-// session that has not even begun its move that long after it fell due is
-// given no longer than one that began on time.
-func (c schedulerChild) MoveGrace() time.Duration {
-	drain := c.drainLimit
-	if drain <= 0 {
-		drain = config.DefaultRedeployDrainLimit()
+// windDownStanding is a wind-down as the supervisor times it: the latest
+// merge queue check it waits out, and what it waits out in words that follow
+// "held by", each run named with its item where the record names them.
+func windDownStanding(drain runstate.WatchDrain) supervise.MoveStanding {
+	standing := supervise.MoveStanding{WindingDown: true}
+	var waiting []string
+	for _, wait := range drain.CheckWaits {
+		if wait.Queue != "" {
+			if wait.Until.After(standing.QueueCheckUntil) {
+				standing.QueueCheck, standing.QueueCheckUntil = wait.Says(), wait.Until
+			}
+			continue
+		}
+		waiting = append(waiting, wait.Says())
 	}
-	return drain + readmodel.DrainRestartAfter
+	if drain.Promoting > 0 {
+		waiting = append(waiting, fmt.Sprintf("%d run(s) at their promotion, which is never paused part-way", drain.Promoting))
+	}
+	if drain.Publishing > 0 {
+		waiting = append(waiting, fmt.Sprintf("%d document landing run(s), which are never paused part-way", drain.Publishing))
+	}
+	if !drain.BoundReached && drain.Hosting > 0 {
+		waiting = append(waiting, fmt.Sprintf("the %d run(s) it hosts, which it waits out until %s and then pauses with their work kept", drain.Hosting, runstate.LocalStamp(drain.Until)))
+	}
+	standing.Waiting = strings.Join(waiting, "; ")
+	return standing
 }
 
 func (c schedulerChild) Stop(ctx context.Context) (supervise.Stopped, error) {

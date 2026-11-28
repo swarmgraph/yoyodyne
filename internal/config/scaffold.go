@@ -361,11 +361,6 @@ execution:
   # The session keeps pulling into free seats and firing its recurring tasks
   # while it drains; only the runs it hosts are what the drain is about.
   redeploy_drain_limit: %s
-  # The least time between two moves of the watching session onto a new build.
-  # A build installed sooner waits; once this time is up the session moves onto
-  # the newest build installed then, skipping any that landed in between. At
-  # least one hour and at most twenty-four hours.
-  build_move_interval: %s
   # The size, in GiB, the build cache folder the harness names for every run is
   # held to. Past it, at least once an hour, the oldest files are removed until
   # the folder is at 80%% of this; a file changed in the last two hours is never
@@ -583,7 +578,6 @@ approvals:
 		renderScaffoldDuration(effective.Execution.ForgeCheckInterval),
 		renderScaffoldDuration(effective.Execution.MainCheckInterval),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
-		renderScaffoldDuration(effective.Execution.BuildMoveInterval),
 		effective.Execution.BuildCacheLimitGiB,
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.CouldNotRunBeforeStatus,

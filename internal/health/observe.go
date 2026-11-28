@@ -604,11 +604,14 @@ func (o Observer) readServices(r *reading, standing readmodel.Standing) {
 	for _, reader := range readers {
 		counts[reader.Service]++
 	}
-	// The scheduler moves onto a new build at most once every
-	// execution.build_move_interval, so its copy being on an old build is
-	// either it waiting that out, which is not a problem, or it left behind
-	// past its move, which is said with when the move was due.
+	// The scheduler and the supervisor each move onto a new build within a
+	// limit counted from when the supervisor first recorded them behind
+	// (supervise.MoveLimit), so a copy on an old build is either one moving
+	// within its limit, which is not a problem, or one held past it, which is
+	// said with since when and what holds it.
 	move, moveKnown := services.SchedulerMove(r.now)
+	supervisorBehind, supervisorPast := services.SupervisorBehind(r.now)
+	supervisorTimed := services != nil && services.Recorded && !record.BehindBy.IsZero()
 	for _, reader := range readers {
 		found := service(reader.Service)
 		copied := Copy{PID: reader.PID, Build: reader.Build, StartedAt: reader.StartedAt, ConfigFile: reader.ConfigPath,
@@ -627,14 +630,19 @@ func (o Observer) readServices(r *reading, standing readmodel.Standing) {
 		if len(r.restricted) == 0 {
 			switch {
 			case copied.BuildIs == "old" && scheduler && move.Waiting:
-				// Waiting out the time between moves, as it should.
+				// Moving within its limit, as it should.
 			case copied.BuildIs == "old" && scheduler && move.Overdue:
-				needs := "the supervisor restarts the scheduler into the deployed build once its move is past its grace"
-				if move.Held != "" {
-					needs = "the supervisor restarts the scheduler into the deployed build once what holds restarts clears"
+				needs := "the scheduler moves onto the newest build once what holds it ends; nothing ends a run to meet the limit"
+				if move.Held == "" {
+					needs = "the supervisor restarts the scheduler into the newest build at its next look"
 				}
 				r.add(Anomaly{Classification: ClassOldBuild, Identity: Identity{Condition: "scheduler-move-overdue:" + move.Deployed},
 					Says: move.Says(), Owner: ownership.MoverDevelopmentManager, Needs: needs})
+			case copied.BuildIs == "old" && reader.Service == runstate.ConfigReaderSupervisor && copied.Supervised && supervisorTimed && !supervisorPast:
+				// The supervisor moving itself within its limit, as it should.
+			case copied.BuildIs == "old" && reader.Service == runstate.ConfigReaderSupervisor && copied.Supervised && supervisorPast:
+				r.add(Anomaly{Classification: ClassOldBuild, Identity: Identity{Condition: "supervisor-move-overdue:" + record.Deployed},
+					Says: supervisorBehind, Owner: ownership.MoverDevelopmentManager, Needs: "the supervisor moves onto the newest build once what holds it ends"})
 			case copied.BuildIs == "old":
 				needs := "the supervisor moves the copy it runs onto the build on disk when it restarts it"
 				if !copied.Supervised {

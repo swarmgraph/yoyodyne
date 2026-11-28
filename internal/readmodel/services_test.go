@@ -276,29 +276,63 @@ func TestMoreThanOneCopyAndACopyOnAnOldBuildAreInTheReadModel(t *testing.T) {
 }
 
 // A supervisor behind the binary on disk says so on its own line: which build
-// it is on, since when it has been behind — the moment the build was written,
-// in local time — and what it waits for before it moves. One on the deployed
-// build adds no such line.
+// it is on, since when it has been behind — the moment it first recorded
+// itself behind, not when the binary was written, which every landing moves —
+// by when it is to be on the newest build, and what it waits for before it
+// moves. Past that limit the line says it is still on the older build and
+// what holds it. One on the deployed build adds no such line.
 func TestStatusSaysWhatTheSupervisorWaitsForBeforeItMovesAndSinceWhen(t *testing.T) {
 	t.Parallel()
 	written := time.Date(2026, 11, 11, 4, 24, 0, 0, time.UTC)
+	behind := written.Add(-40 * time.Minute)
 	record := runstate.Supervision{PID: 7045, Build: "d7993656aaaaaaaa", Deployed: "3ca5a10bbbbbbbbb", DeployedAt: written,
-		TakeUpWait: "once the dashboard has settled",
+		BehindSince: behind, BehindBy: behind.Add(15 * time.Minute), TakeUpWait: "once the dashboard has settled",
 		Children: []runstate.SupervisedChild{{Service: config.ServiceScheduler, State: runstate.ChildRunning, Build: "d7993656aaaaaaaa",
 			RestartingInto: "3ca5a10bbbbbbbbb", Redeploy: "on build d7993656aaaa, behind the deployed 3ca5a10bbbbb; it restarts itself into it between runs"}}}
-	rendered := (Standing{Services: &Services{Recorded: true, SupervisorRunning: true, Record: record}}).RenderServices()
+	within := Standing{ObservedAt: behind.Add(5 * time.Minute), Services: &Services{Recorded: true, SupervisorRunning: true, Record: record}}
 	for _, want := range []string{
 		"the binary on disk is build 3ca5a10bbbbb, written at " + localMoment(written),
-		"supervisor: on build d7993656aaaa, behind the deployed 3ca5a10bbbbb since " + localMoment(written) + "; it moves onto it once the dashboard has settled",
+		"supervisor: on build d7993656aaaa, behind the deployed 3ca5a10bbbbb since " + localMoment(behind) + ", to be on it by " + localMoment(behind.Add(15*time.Minute)) + "; it moves onto it once the dashboard has settled",
 		"behind the deployed 3ca5a10bbbbb; it restarts itself into it between runs",
 	} {
-		if !strings.Contains(rendered, want) {
+		if rendered := within.RenderServices(); !strings.Contains(rendered, want) {
 			t.Errorf("services = %s\nwant %q in it", rendered, want)
 		}
+	}
+	past := within
+	past.ObservedAt = behind.Add(20 * time.Minute)
+	want := "supervisor: the supervisor is still on the older build d7993656aaaa while the newest installed build is 3ca5a10bbbbb, behind since " + localMoment(behind) +
+		", and it was to be on the newest build by " + localMoment(behind.Add(15*time.Minute)) + "; it moves onto it once the dashboard has settled"
+	if rendered := past.RenderServices(); !strings.Contains(rendered, want) {
+		t.Errorf("services = %s\nwant %q in it", rendered, want)
 	}
 	record.Build = record.Deployed
 	if rendered := (Standing{Services: &Services{Recorded: true, SupervisorRunning: true, Record: record}}).RenderServices(); strings.Contains(rendered, "supervisor: on build") {
 		t.Errorf("services = %s, want no line for a supervisor on the deployed build", rendered)
+	}
+}
+
+// The scheduler held past its limit is said plainly: still on the older build,
+// since when, by when it was to move, and what holds it; one within its limit
+// is moving and is not overdue.
+func TestTheSchedulerHeldPastItsLimitSaysWhatHoldsIt(t *testing.T) {
+	t.Parallel()
+	behind := time.Date(2026, 11, 27, 20, 18, 0, 0, time.UTC)
+	held := "run run-7 (yoyodyne-9k1y.27) to finish make test, until 2026-11-27 12:05 AKST at the latest"
+	services := &Services{Recorded: true, SupervisorRunning: true, Record: runstate.Supervision{PID: 1, Deployed: "ca6dac6eaaaaaaaa",
+		Children: []runstate.SupervisedChild{{Service: config.ServiceScheduler, State: runstate.ChildRunning, Build: "74073639bbbbbbbb",
+			MoveDue: behind, MoveBy: behind.Add(15 * time.Minute), MoveHeld: held}}}}
+	if move, known := services.SchedulerMove(behind.Add(10 * time.Minute)); !known || !move.Waiting || move.Overdue {
+		t.Fatalf("SchedulerMove() within its limit = %+v, %t; want it moving and not overdue", move, known)
+	}
+	move, known := services.SchedulerMove(behind.Add(time.Hour))
+	if !known || !move.Overdue {
+		t.Fatalf("SchedulerMove() past its limit = %+v, %t; want it overdue", move, known)
+	}
+	want := "the scheduler is still on the older build 74073639bbbb while the rest of the product is on the newest installed build ca6dac6eaaaa, behind since " +
+		localMoment(behind) + ", and it was to be on the newest build by " + localMoment(behind.Add(15*time.Minute)) + "; held by " + held
+	if said := move.Says(); said != want {
+		t.Fatalf("Says() = %q\nwant %q", said, want)
 	}
 }
 

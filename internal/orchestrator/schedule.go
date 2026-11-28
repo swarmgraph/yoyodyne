@@ -969,11 +969,7 @@ type Pull struct {
 	// everything else here, so a bound lengthened under a draining session moves
 	// its deadline at the next pull. A drain never reads it.
 	RedeployDrainLimit time.Duration
-	// BuildMoveInterval is execution.build_move_interval as this pull read it:
-	// the least time between two moves of this product's watch session onto a
-	// new build (buildMoveDue). Zero reads as the configuration's default.
-	BuildMoveInterval time.Duration
-	Start             Starter
+	Start              Starter
 	// listings is this pull's one reading of each tracker listing it makes,
 	// shared by everything in the pull that asks (cyclelistings.go). Schedule
 	// sets it once per pull; a pull without it reads the tracker directly.
@@ -1092,11 +1088,6 @@ type Scheduler struct {
 	// consulted only while watching, because a drain is a command somebody is
 	// waiting on the return of rather than a process that outlives a deploy.
 	Deployment ScheduleDeployment
-	// LastBuildMove is when this product's watch last moved onto a new build,
-	// as the watch log records it: a session that finds a build installed over
-	// it moves no sooner than the pull's BuildMoveInterval after this. Zero is
-	// a log that records no move, and a build found then is moved onto at once.
-	LastBuildMove time.Time
 	// stoppedRunGrace is how long a session restarting past its drain bound
 	// waits for the runs it stopped to report back; zero is stoppedRunGrace's
 	// default. It is a field only so a test can shorten it.
@@ -1969,11 +1960,6 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	stopMoveWatch := s.watchForMove(ctx, moves)
 	defer stopMoveWatch()
 	var noticeMove func() bool
-	// moveEvery is execution.build_move_interval as the last pull read it, and
-	// moveWaitSaid the moment a found build was last said to be waiting for, so
-	// the wait is said once rather than at every pull.
-	var moveEvery time.Duration
-	var moveWaitSaid time.Time
 	// hosted is how each run this pass started is stopped for the drain bound, by
 	// its index on the schedule. Each run has a context of its own rather than
 	// sharing one so that a run at its promotion can be left to finish while the
@@ -2668,17 +2654,13 @@ pulling:
 				if schedule.RedeployProblem == "" {
 					schedule.RedeployProblem = fmt.Sprintf("whether a build has been deployed over this session could not be read, so it goes on running what it was started with: %v", err)
 				}
-			case replaced && !buildMoveDue(s.LastBuildMove, moveEvery, s.now()):
-				// The build waits until the least time between moves is up, and
-				// then the session moves onto whichever build is installed at that
-				// moment: Take re-executes the file as it stands, so the builds that
-				// landed in between are never moved onto one by one.
-				if due := nextBuildMove(s.LastBuildMove, moveEvery); !due.Equal(moveWaitSaid) {
-					moveWaitSaid = due
-					session.note(fmt.Sprintf("a newer build is installed; the watch session moves onto the newest build installed at %s, %s after its last move, and goes on working on this one until then",
-						runstate.LocalStamp(due), buildMoveEvery(moveEvery)), running)
-				}
 			case replaced:
+				// A move is due as soon as a newer build is installed, with no least
+				// time between moves, so every part moves onto a new build together
+				// (docs/designs/management-and-supervision.md, yoyodyne-ifd.428.225).
+				// Take re-executes the file as it stands when the session restarts,
+				// so builds that land while it winds down are never moved onto one
+				// by one: it moves onto the newest.
 				at := s.now()
 				if found, due := moves.due(); due && found.Before(at) {
 					at = found
@@ -2813,8 +2795,6 @@ pulling:
 		brake, summons, cooldown, cycleBound = pull.Brake, pull.Summons, pull.BrakeCooldown, pull.BrakeEscalationCycles
 		runs = pull.Runs
 		poll = pull.Poll
-		moveEvery = pull.BuildMoveInterval
-		moves.interval(buildMoveEvery(moveEvery))
 		// Before anything counts the slots, every run counting against them with
 		// no live worker behind it lets its slot go. It is the first thing each
 		// pull does, so it is also the first thing a scheduler does as it starts:
@@ -10164,34 +10144,6 @@ func (s Schedule) Failed() bool {
 		}
 	}
 	return false
-}
-
-// buildMoveEvery is the least time between two moves onto a new build, with
-// zero — no pull read yet, or a pull assembled without the key — read as the
-// configuration's default.
-func buildMoveEvery(every time.Duration) time.Duration {
-	if every <= 0 {
-		return config.DefaultBuildMoveInterval.Duration()
-	}
-	return every
-}
-
-// nextBuildMove is the earliest a watch session may move onto a new build,
-// given when the product's watch last moved: zero where it never has.
-func nextBuildMove(last time.Time, every time.Duration) time.Time {
-	if last.IsZero() {
-		return time.Time{}
-	}
-	return last.Add(buildMoveEvery(every))
-}
-
-// buildMoveDue reports whether a watch session that has found a build
-// installed over it may move onto it now. Moves are held to at most one per
-// execution.build_move_interval (docs/designs/management-and-supervision.md,
-// yoyodyne-ifd.428.161), because main lands about once an hour and each move
-// holds new work back while the session restarts.
-func buildMoveDue(last time.Time, every time.Duration, now time.Time) bool {
-	return !now.Before(nextBuildMove(last, every))
 }
 
 // feedbackRepairNotStarted is what a repair decided from feedback came back

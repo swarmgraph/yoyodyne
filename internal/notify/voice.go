@@ -990,8 +990,8 @@ var nextMoves = map[Kind]string{
 	KindClaimReleased: "nobody's — the item is pullable again and will be chosen in its turn, and whatever the run that left it produced is still on its branch.",
 	// Neither the build nor the move is anybody's by default: the supervisor
 	// builds and installs each landing that changes the build, and the session
-	// moves onto it by itself between runs, at most once every
-	// execution.build_move_interval. The sink carries the registry's answer for
+	// moves onto it by itself, within a limit counted from when it fell behind.
+	// The sink carries the registry's answer for
 	// the cause that stands in Mover (ownership.ResolveStaleBuild), so this is
 	// what a message that carried none would say.
 	KindResidentStale: "the harness's — the supervisor builds and installs each landing that changes the build, and the session moves onto it by itself between runs.",
