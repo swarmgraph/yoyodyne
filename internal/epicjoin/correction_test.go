@@ -15,7 +15,7 @@ const correcting = "yoyodyne-ep.3"
 // correction is owed for it.
 func (b *bench) checked(id string) {
 	b.t.Helper()
-	store, err := epicprogress.Open(b.root, product)
+	store, err := b.store()
 	b.must(err)
 	record, err := epicscope.Read(b.root, product)
 	b.must(err)
@@ -32,7 +32,7 @@ func (b *bench) checked(id string) {
 // harness linked to the check, with no note on it yet.
 func (b *bench) corrected(id, check string) {
 	b.t.Helper()
-	store, err := epicprogress.Open(b.root, product)
+	store, err := b.store()
 	b.must(err)
 	_, err = store.Correcting(epic, check, id)
 	b.must(err)
@@ -114,7 +114,7 @@ func TestAPieceForAMergedCommentJoinsOnlyByItsJudgment(t *testing.T) {
 		t.Run(string(answer), func(t *testing.T) {
 			t.Parallel()
 			b := newBench(t)
-			store, err := epicprogress.Open(b.root, product)
+			store, err := b.store()
 			b.must(err)
 			record, err := epicscope.Read(b.root, product)
 			b.must(err)

@@ -528,3 +528,21 @@ func TestACheckMadeAgainAfterARepairIsNotARoundOfCorrection(t *testing.T) {
 		t.Errorf("%d rounds of correction, want one", rounds)
 	}
 }
+
+// A store handed a clock stamps from it and leaves the store it came from alone.
+func TestAStoreHandedAClockStampsFromIt(t *testing.T) {
+	t.Parallel()
+	root, a, _ := twoNamed(t)
+	plain := storeAt(t, root)
+	if plain.WithClock(nil) != plain {
+		t.Fatal("a nil clock changed the store")
+	}
+	at := namedAt.Add(-365 * 24 * time.Hour)
+	must(t, plain.WithClock(func() time.Time { return at }).Begin(a))
+	if begun := entry(t, root, a).BegunAt; !begun.Equal(at) {
+		t.Errorf("begun at %s, want %s", begun, at)
+	}
+	if plain.now().Year() == at.Year() {
+		t.Error("the store the clock was handed to reads it too")
+	}
+}

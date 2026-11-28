@@ -42,7 +42,7 @@ func (f *fakeReports) handle(id, reason string, at time.Time, operator ownership
 // couldNotTell is a check of the whole epic that could not tell.
 func (b *bench) couldNotTell(id string) epicprogress.Naming {
 	b.t.Helper()
-	store, err := epicprogress.Open(b.root, product)
+	store, err := b.store()
 	b.must(err)
 	record, err := epicscope.Read(b.root, product)
 	b.must(err)

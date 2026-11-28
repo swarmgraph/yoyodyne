@@ -136,7 +136,7 @@ func (b *bench) judgedBefore(reports *fakeReports) string {
 	b.t.Helper()
 	b.addMember()
 	b.split(addedPiece, added)
-	store, err := epicprogress.Open(b.root, product)
+	store, err := b.store()
 	b.must(err)
 	record, err := epicscope.Read(b.root, product)
 	b.must(err)
@@ -219,7 +219,7 @@ func TestARestartDuringAJudgmentMadeOnceMoreMakesNoSecondCall(t *testing.T) {
 // each question about scope.
 func (b *bench) answeredByRereading() map[string]string {
 	b.t.Helper()
-	store, err := epicprogress.Open(b.root, product)
+	store, err := b.store()
 	b.must(err)
 	answered, err := store.AnsweredByRereading()
 	b.must(err)

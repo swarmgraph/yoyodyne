@@ -44,6 +44,18 @@ func Open(stateRoot string, product domain.ProductID) (*Store, error) {
 	return &Store{stateRoot: filepath.Clean(stateRoot), product: product, now: time.Now}, nil
 }
 
+// WithClock is the same store stamping its writes from now rather than the real
+// clock, for a caller whose own clock the stamps are compared against. A nil
+// clock leaves the store as it is.
+func (s *Store) WithClock(now func() time.Time) *Store {
+	if now == nil {
+		return s
+	}
+	clocked := *s
+	clocked.now = now
+	return &clocked
+}
+
 // Begin writes a naming's empty entry and lists it, before the harness first
 // acts on it. One that was begun is left as it is.
 func (s *Store) Begin(naming Naming) error {
