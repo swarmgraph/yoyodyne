@@ -894,6 +894,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// A review of a project that enables reviewer fallback is made on the
 		// endpoint of the reviewer's own pair it is routed to.
 		ReviewerFor: reviewerForEndpoint(parts),
+		// What a run started is stopped when each of its sessions ends and as
+		// it ends, including a process that left its session's process group.
+		RunProcesses: execution.RunProcesses{},
 		Checks: checks.Runner{
 			Process: processRunner,
 			// The budget every check gets is configured rather than fixed,

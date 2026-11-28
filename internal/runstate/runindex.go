@@ -60,8 +60,8 @@ const (
 	// for the team's merge, so it would name none of them. Format 4 added the
 	// KeptCheckout flag for the same reason, format 5 the CheaperFirst flag,
 	// format 6 ConflictAt, format 7 SlotAskedAt, and format 8 the ConflictModel
-	// flag.
-	runIndexVersion = 8
+	// flag, and format 9 the LeftProcesses flag.
+	runIndexVersion = 9
 	runIndexName    = ".run-index.json"
 	runIndexLock    = ".run-index.lock"
 	// maxEncodedRunIndexBytes bounds what reading the index will take in. An
@@ -112,6 +112,10 @@ type runIndexEntry struct {
 	// a new eligible attempt reads to find its place in the trial. Format 7 did
 	// not hold it.
 	ConflictModel bool `json:"conflict_model,omitempty"`
+	// LeftProcesses is a run the harness left a process running for
+	// (State.LeftProcesses), which yoyo status names whether or not the run has
+	// ended. Format 8 did not hold it.
+	LeftProcesses bool `json:"left_processes,omitempty"`
 }
 
 func runIndexEntryOf(state State) runIndexEntry {
@@ -130,6 +134,7 @@ func runIndexEntryOf(state State) runIndexEntry {
 		ConflictAt:    lastConflictHandback(state),
 		SlotAskedAt:   conflictSlotAsked(state),
 		ConflictModel: state.ConflictModel != nil,
+		LeftProcesses: len(state.LeftProcesses) > 0,
 	}
 }
 
@@ -154,6 +159,7 @@ func (e runIndexEntry) covers(next runIndexEntry) bool {
 		(e.KeptCheckout || !next.KeptCheckout) &&
 		(e.CheaperFirst || !next.CheaperFirst) &&
 		(e.ConflictModel || !next.ConflictModel) &&
+		(e.LeftProcesses || !next.LeftProcesses) &&
 		!e.ConflictAt.Before(next.ConflictAt) &&
 		!e.SlotAskedAt.Before(next.SlotAskedAt)
 }
@@ -167,6 +173,7 @@ func (e runIndexEntry) widened(next runIndexEntry) runIndexEntry {
 	next.KeptCheckout = next.KeptCheckout || e.KeptCheckout
 	next.CheaperFirst = next.CheaperFirst || e.CheaperFirst
 	next.ConflictModel = next.ConflictModel || e.ConflictModel
+	next.LeftProcesses = next.LeftProcesses || e.LeftProcesses
 	if next.ConflictAt.Before(e.ConflictAt) {
 		next.ConflictAt = e.ConflictAt
 	}

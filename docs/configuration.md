@@ -2912,10 +2912,18 @@ check and stopped by it, inside the one command.
 
 The reap reaches the group and nothing further. Work that puts itself in a
 session of its own — `setsid`, a launchd job, a tool that deliberately detaches
-what it starts — is outside the group by the time the command ends, and nothing
-here kills it. What bounds that work is the bound it carries itself, which is
-why background load a check spawns should stop on its own however the check
-ends.
+what it starts — is outside the group by the time the command ends. Every
+process the harness starts for a run carries the run's identifier in its
+environment as `YOYODYNE_RUN_ID`, and passes it on to whatever it starts, so
+once each developer or reviewer session ends, and as the run ends, the harness
+stops every process that started with that identifier, wherever its group
+went. A process that cleared its environment is stopped too if it still holds
+the file the harness handed its launch to tell whether anything from it lives;
+one that shows neither and is working inside the run's worktree or scratch
+folder is named on the run and on `yoyo status` instead, never stopped, as is
+any process the harness could not stop, with its number and the ports it
+listens on. So background load a check
+spawns should still stop on its own however the check ends.
 
 ### The environment a check runs in
 

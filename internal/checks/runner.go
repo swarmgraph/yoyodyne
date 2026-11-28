@@ -239,6 +239,10 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 	// check reads what the harness knows about the change from its environment.
 	environment := execution.WithGoBuildCache(execution.ExplicitEnvironment(nil), request.Directory)
 	environment = append(environment, request.Env...)
+	// Every check carries the run it is run for, so what it leaves running
+	// outside its process group is found and stopped when the run's session or
+	// the run ends (execution.RunProcesses).
+	environment = execution.WithRunIdentity(environment, request.RunID)
 	started := map[string]any{"kind": "check"}
 	if request.Narrowing != nil {
 		environment = append(environment, request.Narrowing.Env())

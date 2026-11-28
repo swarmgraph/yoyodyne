@@ -107,6 +107,43 @@ type KeptCheckouts interface {
 	KeptCheckouts() ([]runstate.State, error)
 }
 
+// LeftRunning lists the runs, ended or not, the harness last found a process
+// still running for. It is an optional capability of Runs, satisfied by
+// *runstate.Store: a reading over runs that cannot answer it names none.
+type LeftRunning interface {
+	LeftRunning() ([]runstate.State, error)
+}
+
+// LeftRunProcess is one process a run left running, under the run.
+type LeftRunProcess struct {
+	RunID      string `json:"run_id"`
+	WorkItemID string `json:"work_item_id"`
+	PID        int    `json:"pid"`
+	// Says is the line every surface shows for it
+	// (execution.LeftProcess.Describe).
+	Says string `json:"says"`
+}
+
+// readLeftProcesses is every process the runs on record were last found to
+// have left running, by run and then by process number.
+func readLeftProcesses(sources Sources) ([]LeftRunProcess, string) {
+	lister, ok := sources.Runs.(LeftRunning)
+	if !ok {
+		return nil, ""
+	}
+	states, err := lister.LeftRunning()
+	if err != nil {
+		return nil, fmt.Sprintf("the processes runs left running could not be read: %v", err)
+	}
+	var left []LeftRunProcess
+	for _, state := range states {
+		for _, process := range state.LeftProcesses {
+			left = append(left, LeftRunProcess{RunID: state.RunID, WorkItemID: state.WorkItemID, PID: process.PID, Says: process.Describe()})
+		}
+	}
+	return left, ""
+}
+
 // RunPresence is whether a process can be found behind a run in flight, asked
 // without taking anything. It is an optional capability of Runs rather than a
 // member of it: every store the harness wires satisfies it, and a reading over
@@ -862,6 +899,13 @@ type WorkItemRef struct {
 // and one failure standing for all four would lose three answers the caller
 // still has.
 type Standing struct {
+	// LeftProcesses is every process a run, ended or not, was last found to
+	// have left running: one the harness could not stop, or one inside the
+	// run's folders carrying no sign the run started it, which it never stops
+	// (runstate.State.LeftProcesses). LeftProcessesProblem says why it could not
+	// be read.
+	LeftProcesses        []LeftRunProcess `json:"left_processes,omitempty"`
+	LeftProcessesProblem string           `json:"left_processes_problem,omitempty"`
 	// SchedulingWaits is every admitted item no run carries and no refusal
 	// names, for which the scheduler kept a reason it has not started, and
 	// SchedulingWaitProblems is those whose reason has stood past
@@ -1289,6 +1333,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 
 	running, paused, unreadableRuns, runningProblem := readRunning(sources, now)
 	standing.Running, standing.PausedRuns, standing.RunningProblem = running, paused, runningProblem
+	standing.LeftProcesses, standing.LeftProcessesProblem = readLeftProcesses(sources)
 	standing.Dispatching, standing.DispatchingProblem = readDispatching(sources, now)
 	// Which slot each run occupies, and which slots are free, from the reading
 	// the scheduler makes. It is read only where the runs could be read: a

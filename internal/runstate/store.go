@@ -1111,6 +1111,12 @@ func (s *Store) KeptCheckouts() ([]State, error) {
 	return s.indexed("kept-checkout", func(entry runIndexEntry) bool { return entry.KeptCheckout }, mayBeGoing, func(state State) bool { return state.KeptCheckout != "" })
 }
 
+// LeftRunning lists the runs, ended or not, that the harness last found a
+// process still running for (State.LeftProcesses), from the index.
+func (s *Store) LeftRunning() ([]State, error) {
+	return s.indexed("left-processes", func(entry runIndexEntry) bool { return entry.LeftProcesses }, mayBeGoing, func(state State) bool { return len(state.LeftProcesses) > 0 })
+}
+
 // Recorded lists every run the harness holds for this product, whatever became
 // of them. It is for a reader that has to notice change rather than act on it —
 // the reporting sink is the first — and it decides nothing about what it reads:
