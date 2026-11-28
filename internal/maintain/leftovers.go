@@ -83,6 +83,18 @@ type Leftovers struct {
 	RepositoryID string
 	Build        string
 	Now          func() time.Time
+
+	// systemRead is what the first stop found of whether this harness can
+	// read a system program's starting environment, said on every stop after
+	// it (systemPrograms).
+	systemRead string
+}
+
+// systemPrograms is a process search that can say whether this harness can
+// read the starting environment of a system program, which macOS may withhold.
+// It is satisfied by execution.RunProcesses.
+type systemPrograms interface {
+	ReadsSystemProgramEnvironment() (bool, error)
 }
 
 // Stop finds and stops what runs with nothing going left running, and says
@@ -155,13 +167,39 @@ func (l *Leftovers) Stop(ctx context.Context) runstate.SweepStep {
 	case len(problems) > 0:
 		step.Outcome = runstate.StepFailed
 	case len(said) == 0:
-		step.Outcome, step.Detail = runstate.StepSkipped, "no process of a run of this product is running outside a session or check"
-		return step
+		step.Outcome = runstate.StepSkipped
+		said = append(said, "no process of a run of this product is running outside a session or check")
 	default:
 		step.Outcome = runstate.StepRan
 	}
+	if read := l.readsSystemPrograms(); read != "" {
+		said = append(said, read)
+	}
 	step.Detail = strings.Join(said, "; ")
 	return step
+}
+
+// readsSystemPrograms says whether this harness can read a system program's
+// starting environment, asked once: the design's decision 2 has the pass,
+// which runs outside any sandbox, record it. Empty where the search cannot say.
+func (l *Leftovers) readsSystemPrograms() string {
+	if l.systemRead != "" {
+		return l.systemRead
+	}
+	reader, ok := l.Processes.(systemPrograms)
+	if !ok {
+		return ""
+	}
+	readable, err := reader.ReadsSystemProgramEnvironment()
+	switch {
+	case err != nil:
+		l.systemRead = fmt.Sprintf("whether the harness can read the starting environment of a system program (/bin/sleep) could not be checked: %v", err)
+	case readable:
+		l.systemRead = "the harness can read the starting environment of a system program (/bin/sleep) here, so a leftover running one is found by its run's identifier"
+	default:
+		l.systemRead = "this machine does not give the harness the starting environment of a system program (/bin/sleep), so a leftover running one is found only through a running parent that carries its run's identifier, and is otherwise named and never stopped"
+	}
+	return l.systemRead
 }
 
 // leftoverRun is what the step came to for one run.

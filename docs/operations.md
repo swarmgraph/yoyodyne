@@ -550,7 +550,11 @@ Each pass takes fifteen steps, in this order, and each is recorded:
   that run, so none of its sessions or checks is going; the processes of a run
   still at work are left alone, and an identifier no run of this product has,
   such as another product's run, is never touched
-  ([the design](designs/stopping-what-a-run-started.md)). A `yoyo work`
+  ([the design](designs/stopping-what-a-run-started.md)). The step also says
+  whether this machine lets the harness read the starting environment of a
+  system program such as `/bin/sleep`, which macOS may withhold; where it does
+  not, a leftover running one is found only through a running parent carrying
+  its run's identifier. A `yoyo work`
   session takes the same stop once as it starts, and says what it did in its
   log. Each process a run's record names as still running is tried again, and
   its line goes from the run and from `yoyo status` once it is gone. One still

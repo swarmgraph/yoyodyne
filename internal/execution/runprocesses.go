@@ -120,6 +120,11 @@ func (l LeftProcess) Describe() string {
 // unmarkedWhy is what is said of a process found only by its working directory.
 const unmarkedWhy = "not stopped: it carries no sign that this run started it"
 
+// unreadableWhy is what is said of one found only by its working directory
+// whose starting environment could not be read at all, as macOS withholds it
+// for some programs: unread is never taken as the run's.
+const unreadableWhy = "not stopped: its starting environment could not be read, and it carries no other sign that this run started it"
+
 // RunProcessesRequest names the run whose processes are stopped, the files the
 // harness handed the run's launches to tell whether anything from them still
 // lives (LaunchGate.Hold), and the folders a process left inside is named from:
@@ -196,6 +201,10 @@ func (r RunProcesses) Stop(ctx context.Context, request RunProcessesRequest) []L
 	if len(request.Holds) > 0 {
 		holders = table.holding(request.Holds)
 	}
+	byPID := make(map[int]processEntry, len(entries))
+	for _, entry := range entries {
+		byPID[entry.PID] = entry
+	}
 	var marked []processEntry
 	var others []processEntry
 	for _, entry := range entries {
@@ -203,10 +212,11 @@ func (r RunProcesses) Stop(ctx context.Context, request RunProcessesRequest) []L
 			continue
 		}
 		// A process carrying another run's identifier is that run's, whatever
-		// it holds: stopping the wrong process is the worse mistake.
+		// it holds or descends from: stopping the wrong process is the worse
+		// mistake.
 		id, carries := runIdentityIn(entry.Environment)
 		switch {
-		case carries && id == runID, !carries && holders[entry.PID]:
+		case carries && id == runID, !carries && holders[entry.PID], !carries && descendsFromRun(byPID, entry, runID):
 			marked = append(marked, entry)
 		case !carries:
 			others = append(others, entry)
@@ -344,6 +354,28 @@ func waitGone(ctx context.Context, table processTable, targets []processEntry, w
 	}
 }
 
+// descendsFromRun reports a process one of whose running ancestors carries
+// runID's identifier: a run's own program that started a system program, whose
+// starting environment macOS withholds. The walk stops at the nearest ancestor
+// carrying any run's identifier, so a process under another run is never taken
+// for this one's, and at a parent that has ended, because a process whose
+// parents have ended passes to process 1 and has lost this sign.
+func descendsFromRun(byPID map[int]processEntry, entry processEntry, runID string) bool {
+	seen := map[int]bool{entry.PID: true}
+	for pid := entry.Parent; pid > 1 && !seen[pid]; {
+		seen[pid] = true
+		parent, ok := byPID[pid]
+		if !ok || parent.Gone {
+			return false
+		}
+		if id, carries := runIdentityIn(parent.Environment); carries {
+			return id == runID
+		}
+		pid = parent.Parent
+	}
+	return false
+}
+
 // unmarkedInside is every process working inside one of the folders that does
 // not carry a run's identifier, named and never stopped.
 func unmarkedInside(table processTable, candidates []processEntry, folders []string) []LeftProcess {
@@ -371,7 +403,11 @@ func unmarkedInside(table processTable, candidates []processEntry, folders []str
 		if !ok || !insideAny(directory, roots) {
 			continue
 		}
-		named = append(named, LeftProcess{PID: candidate.PID, Command: candidate.Command, Unmarked: true, Why: unmarkedWhy})
+		why := unmarkedWhy
+		if candidate.Environment == nil {
+			why = unreadableWhy
+		}
+		named = append(named, LeftProcess{PID: candidate.PID, Command: candidate.Command, Unmarked: true, Why: why})
 	}
 	return named
 }
