@@ -2054,11 +2054,18 @@ A question about scope is a report the harness files to the Lead Product Manager
 naming the epic, the piece and the text judged. Her handling of that report is her
 answer, and nothing else counts: not a note, and not what the item says. Until her
 handling is recorded, an edit to the piece is judged by nobody; after it, the first edit
-seen is judged again. Where the epic can be delivered without the piece, she handles the
-report as needing you, for the reason of lifting a hold you placed: the piece waits,
-nothing more is judged, and `yoyo status` shows the step as yours, with the
-`yoyo epic remove` command that takes it out. While a piece waits on its text it does not
-count as work ready to start.
+seen is judged again. Where the epic cannot be delivered without the piece, or a person
+asked for it in review, she handles the report as needing you, for the reason of lifting
+a hold you placed. Her handling decides only that you are asked: the harness then writes
+you one question for that piece, sent to you directly once, with the commands built from
+the epic and the piece and her words beside them as her reason. A piece that never joined
+is offered `yoyo epic add <epic> <piece>`, which puts it in. A piece that joined and whose
+edited text was judged outside is offered two answers: `yoyo epic add <epic> <piece>`,
+which keeps it as it now reads, because an item you added is never compared again, or
+`yoyo epic remove <epic> <piece> --words <text>`, which lets the epic be delivered without
+it. Until you answer, the piece starts nothing, nothing more is judged, `yoyo status`
+shows the step as yours with the same commands, and the other members carry on. While a
+piece waits on its text it does not count as work ready to start.
 
 A piece that joined starts a developer only on a title, description and acceptance
 criteria that a judgment found inside the epic. A change to its notes, priority or
