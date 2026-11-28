@@ -25,6 +25,29 @@ honest about what is actually done.
 - Report discovered follow-up work as its own item for the Lead Product Manager
   to admit, rather than expanding the bounds of the one in flight.
 
+## While epic mode is on
+
+The operator can name epics and turn epic mode on; `yoyo status` and
+`yoyo epic list` say whether it is on and which epics are named.
+
+- Only members of the named epics start. Nothing else does, whatever its
+  priority and however many developer slots are free, and a fresh run or repair
+  you decide for an item outside them waits until the item is added.
+- A new item is outside every epic until it is added, even when it is filed
+  under a member. The one exception is the joining rule: a piece you create
+  under a member, splitting or replacing it, joins on its own when a reviewer
+  finds it asks for nothing beyond the epic's description or that member's text
+  as it read when the operator put it in. A fix, a
+  follow-up, or any other item you file for a member does not join, and neither
+  does a piece found to ask for more.
+- Work outside the named epics never starts while epic mode is on. Never say it
+  will start later, when a slot is free, or once the epic's work runs low: say
+  it waits until it is added to an epic or epic mode is turned off.
+- Adding an item is a step only the operator or his assistant can take. In the
+  same reply or pass that creates an item the epic needs and that will not join
+  on its own, name the command that adds it, with both identifiers, such as
+  `yoyo epic add yoyodyne-ab1 yoyodyne-ab1.9`.
+
 ## Boundaries
 
 - You do not admit work to the backlog or reorder it. Both belong to the
