@@ -55,6 +55,10 @@ revisions:
       by: architect
       at: 2026-11-28T05:13:53.334235Z
       reason: 'yoyodyne-9k1y.23: answers the reviewer''s report b5b78229. A proposal a role made to create an item under a parent or with dependencies is a write made for that role when it is carried out, whoever decided it, so the outside blocker check of point 4 applies; a refused one creates nothing and goes back to the role that made it. Point 6 names the operator''s own commands. The rest of the subsection is copied unchanged from main 13838732.'
+    - action: amended
+      by: architect
+      at: 2026-11-28T09:01:45.370391Z
+      reason: 'yoyodyne-9k1y.13.4: answers its developer''s question. Her handling decides only whether the operator is asked; the harness writes his one question from the identifiers, with her words beside it. A piece that never joined is offered the add; a joined piece whose edited text was judged outside is offered the add, which keeps it as it reads, or the remove, which delivers the epic without it. Points 1 to 4 and the first two rejections are copied unchanged from main 1e5512caec64.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -116,6 +120,11 @@ approvals:
       by: harness
       at: 2026-11-28T05:13:53.334235Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4295, for document-4295.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-11-28T09:01:45.370391Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4334, for document-4334.1 under the automatic approval policy
 ---
 # Epic mode, second part
 
@@ -372,8 +381,17 @@ Ruled on November 26, 2026, for piece 10d (yoyodyne-9k1y.12.4), and used by piec
 2. The answer is that role's recorded handling of the report: what was decided, and when it was recorded. Nothing else counts as the answer, whatever a note or the item says.
 3. A text that differs from every text judged inside makes a new judgment only once that handling is recorded, and only for an edit seen after the handling's time. An edit seen before it makes no call, and the piece waits. Where the answer is that the epic can be delivered without the piece, the piece waits, and status says that only the operator can take it out, as piece 8 says.
 4. Each new judgment of outside, or cannot tell, files a new question, so each answer is to one judged text.
+5. **Whether the operator is asked.** Ruled on November 27, 2026, for piece 11d (yoyodyne-9k1y.13.4), from the question its developer raised in run run-23984d35df689a3c64e637df2455836c. Her handling decides only whether the operator is asked: it names him, for the reason of lifting a hold he placed, or it does not. The harness reads nothing from her words to choose a command. Where she does not name him, the development manager acts on what her handling says: a piece rewritten is judged again under point 3, and a piece she leaves out stays outside and starts nothing.
+6. **What the harness asks him.** Where she names him, the harness writes the one question itself, building each command from the identifiers, and gives her words beside it as her reason. What it offers depends only on where the piece stands:
+   - a piece that never joined is offered `yoyo epic add <epic> <piece>`, which puts it in; while he has not acted, it stays outside and starts nothing;
+   - a piece that joined, whose edited text was judged outside, is offered two answers to one decision: `yoyo epic add <epic> <piece>`, which keeps it as it now reads, because an item the operator added is never compared again, as the rule for an edited piece says; or `yoyo epic remove <epic> <piece> --words <text>`, which lets the epic be delivered without it. While he has not acted, the piece waits.
 
-Rejected: a separate command or record for the answer, because the handling of a report already records the decision and its time; reading the answer from a note, because any role can write a note.
+   One piece gets one question. Its identifier is written in the piece's judgment entry before it is sent, so a restart sends nothing twice. The other members carry on meanwhile. Where piece 11 says the question carries the command that adds the piece, this point says what it carries.
+7. **What was built for piece 10d.** A joined piece whose answer is that the epic can be delivered without it is the second case of point 6. Its question now offers the add as well as the remove, so the operator may keep the piece; nothing else of what was built changes.
+
+Rejected: a separate command or record for the answer, because the handling of a report already records the decision and its time; reading the answer from a note, because any role can write a note; choosing which command to offer from her words, because the harness decides nothing by reading words; giving her wording to the operator as the question, because the command would then be whatever she wrote; offering only the remove for a joined piece, because the operator may want the edited piece kept, and only his add keeps it.
+
+A reviewer can check: a handling that does not name the operator sends him nothing; one that names him for a piece that never joined sends one question offering the add, built from the identifiers; one for a joined piece judged outside after an edit offers the add and the remove as two answers to one question; the add of such a piece stops it being compared; a restart after the question's identifier is written sends no second question; with no epic named, nothing here runs.
 
 ### What a reviewer checks in piece 10
 
