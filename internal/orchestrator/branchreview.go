@@ -359,14 +359,7 @@ func (b BranchReviewer) conduct(ctx context.Context, in conducted) (BranchReview
 	outcome.Findings = result.Verdict.Findings
 	// What the reviewer reported is collected before its verdict is read,
 	// because a report survives a review that produced no verdict at all.
-	b.collectReports(&outcome, result.Reports, &result.LastSequence, result.ReportProblem, len(result.RefusedReports) > 0)
-	for _, refused := range result.RefusedReports {
-		outcome.RefusedReports = append(outcome.RefusedReports, report.RefusedBy{Role: domain.RoleReviewer, Refused: refused})
-		if outcome.ReportProblem != "" {
-			outcome.ReportProblem += "; "
-		}
-		outcome.ReportProblem += refused.Says(domain.RoleReviewer)
-	}
+	b.collectReports(&outcome, result.Reports, &result.LastSequence, result.ReportProblem, result.RefusedReports)
 	if result.Decision == review.DecisionApprove || result.Decision == review.DecisionRepair {
 		outcome.Decision = result.Decision
 	}
@@ -530,11 +523,20 @@ func (b BranchReviewer) record(outcome *BranchReviewOutcome, change gitworktree.
 // review that failed because the reviewer mentioned a risk would teach every
 // reviewer to stop mentioning them.
 //
-// refused says the block carried entries the harness refused one at a time,
-// which the caller says on the outcome; a block of nothing else is audited as
-// a refused call.
-func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []report.Entry, sequence *uint64, unreadable string, refused bool) {
-	if len(entries) == 0 && unreadable == "" && !refused {
+// refused is the entries of the block the harness refused one at a time. Each
+// is kept on the outcome with what it said and said in its report problems,
+// and a block of nothing else is audited as a refused call.
+func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []report.Entry, sequence *uint64, unreadable string, refused []report.Refused) {
+	defer func() {
+		for _, entry := range refused {
+			outcome.RefusedReports = append(outcome.RefusedReports, report.RefusedBy{Role: domain.RoleReviewer, Refused: entry})
+			if outcome.ReportProblem != "" {
+				outcome.ReportProblem += "; "
+			}
+			outcome.ReportProblem += entry.Says(domain.RoleReviewer)
+		}
+	}()
+	if len(entries) == 0 && unreadable == "" && len(refused) == 0 {
 		return
 	}
 	registered, _ := toolcatalog.Registry().Lookup(string(capability.ReportFile))
