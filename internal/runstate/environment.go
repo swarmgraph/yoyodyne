@@ -185,6 +185,66 @@ func (s State) EnvironmentsStillToCheckSays() string {
 	return "environments still to be checked, because their checks did not pass: " + strings.Join(missing, "; ")
 }
 
+// LeavesEnvironmentsToCheck reports a run whose latest checks left any
+// environment its item names still to be checked. Such a run does not
+// discharge its item even where its change lands: the criteria those
+// environments serve were never judged, so the item stays open for the
+// development manager, who may decide a fresh run of it once she judges them
+// available (docs/designs/checking-a-run-environment.md, section 7).
+func (s State) LeavesEnvironmentsToCheck() bool {
+	return len(s.EnvironmentsStillToCheck()) > 0
+}
+
+// EnvironmentsLeftAtLandingSays is what an item whose change landed with
+// environments still to be checked is told: each such environment, the
+// criteria it serves, and the commit the change landed at.
+func (s State) EnvironmentsLeftAtLandingSays() string {
+	pending := s.EnvironmentsStillToCheck()
+	if len(pending) == 0 {
+		return ""
+	}
+	at := "on the target branch"
+	if landed := s.landedCommit(); landed != "" {
+		at = "at commit " + landed
+	}
+	missing := make([]string, 0, len(pending))
+	for _, check := range pending {
+		missing = append(missing, check.Missing())
+	}
+	return fmt.Sprintf("Yoyodyne run %s landed its change %s while environments this item names were still to be checked, so the item stays open, parked for the development manager rather than closed: %s. "+
+		"Once she judges them available she may decide a fresh run, which starts from the target branch, runs the checks and only these environments' tests at its head, and closes the item with no developer turn where they all pass.",
+		s.RunID, at, strings.Join(missing, "; "))
+}
+
+// LandedEnvironmentsRecheck is what a re-run of this run is given to check, where
+// its change landed with environments still to be checked, and nil otherwise.
+func (s State) LandedEnvironmentsRecheck() *EnvironmentsRecheck {
+	if s.Status != StatusSucceeded || s.Integration == nil || !s.LeavesEnvironmentsToCheck() {
+		return nil
+	}
+	recheck := &EnvironmentsRecheck{RunID: s.RunID, Landed: s.landedCommit()}
+	for _, check := range s.EnvironmentsStillToCheck() {
+		recheck.Names = append(recheck.Names, check.Name)
+	}
+	return recheck
+}
+
+// landedCommit is the commit the run's recorded integration left on the target,
+// and empty where it recorded none.
+func (s State) landedCommit() string {
+	if s.Integration == nil {
+		return ""
+	}
+	landed := strings.TrimSpace(s.Integration.TargetCommit)
+	if landed == "" {
+		landed = strings.TrimSpace(s.Integration.SourceCommit)
+	}
+	if !commitPattern.MatchString(landed) {
+		return ""
+	}
+	return landed
+}
+
 // EnvironmentsMissingHeld reports a run held because no environment its item
 // names was usable before its developer's turn.
 func (s State) EnvironmentsMissingHeld() bool {
@@ -247,5 +307,32 @@ type EnvironmentsTested struct {
 func (u EnvironmentsTested) apply(state *State) (bool, error) {
 	state.EnvironmentTests = append([]EnvironmentCheck(nil), u.Tests...)
 	state.UpdatedAt = u.At
+	return true, nil
+}
+
+// EnvironmentsConfirmedCompleted ends a re-run whose rechecked environments all
+// passed their tests at the target's head, with no developer turn and nothing
+// integrated: the run succeeds complete, and its item has been closed on those
+// results. It changes nothing on a run that has already ended this way.
+type EnvironmentsConfirmedCompleted struct {
+	At time.Time
+}
+
+func (u EnvironmentsConfirmedCompleted) apply(state *State) (bool, error) {
+	if state.Status == StatusSucceeded && state.Phase == PhaseComplete && state.EnvironmentsConfirmed {
+		return false, nil
+	}
+	if state.Status.Terminal() {
+		return false, fmt.Errorf("run %s has already ended %s, so it does not end again on its environments' tests", state.RunID, state.Status)
+	}
+	state.EnvironmentsConfirmed = true
+	state.ProviderStop = ""
+	state.RedeployStop = nil
+	state.OperatorHeldSince = nil
+	state.Status = StatusSucceeded
+	state.Phase = PhaseComplete
+	state.UpdatedAt = u.At
+	completed := u.At
+	state.CompletedAt = &completed
 	return true, nil
 }

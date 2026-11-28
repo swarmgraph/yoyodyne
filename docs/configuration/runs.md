@@ -877,10 +877,26 @@ ends, pass or fail. A test that changes state, such as starting a disposable
 server, booting a simulator device or making a browser profile, does it there
 and stops what it started itself; the harness starts none of them.
 
-Leaving an item open when it lands with environments still to be checked is
-not built yet.
+A change that lands while any environment its item names is still to be
+checked does not close the item, even where the developer and the reviewer
+both say it is the work: the criteria those environments serve were never
+judged. The item goes back open and parked by the run, with a note naming each
+such environment, the criteria it serves and the commit the change landed at,
+and the run is put on the development manager's list (`yoyo triage`).
+
+Once she judges those environments available, for example after a person has
+installed a `machine` prerequisite, she may decide a re-run of that run. The
+re-run starts from the target branch, not from the landed run's branch, and
+before any developer turn it checks only the environments still to be checked,
+runs the configured checks, and runs those environments' tests at the target
+branch's head, recording each result under `environment_tests` against that
+commit. Where all of them pass, the item closes with no developer turn, no
+review and nothing integrated, because there is no change. Where any does not,
+the run goes on as an ordinary run to repair it from that head, and the
+developer is told, before its first turn, what failed there.
+
 [Checking a run's environment before implementation starts](../designs/checking-a-run-environment.md)
-is the design the rest follows.
+is the design all of this follows.
 
 ### How many of a heavy check may run at once
 
