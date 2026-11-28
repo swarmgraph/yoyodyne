@@ -4563,6 +4563,11 @@ type State struct {
 	// the last, and only a result on the commit under review is shown as
 	// evidence for it (EnvironmentTestsAt).
 	EnvironmentTests []EnvironmentCheck `json:"environment_tests,omitempty"`
+	// EnvironmentsConfirmed says the run closed its item with no developer turn:
+	// it was a re-run of an item whose change landed with environments still to
+	// be checked, and the checks and those environments' tests all passed at the
+	// target's head, recorded in EnvironmentTests against that commit.
+	EnvironmentsConfirmed bool `json:"environments_confirmed,omitempty"`
 	// RepairAttempts counts the repair attempts already handed back to the
 	// developer, whichever kind of failure triggered them: one budget covers
 	// both, so it bounds the developer invocations a run can make rather than
@@ -6416,9 +6421,12 @@ func (s State) PublicationUnasked() bool {
 // say it.
 //
 // A release item's run never discharges it: its tag is still owed when its
-// notes land (ReleaseTagOwed).
+// notes land (ReleaseTagOwed). Nor does a run that leaves environments its item
+// names still to be checked: the criteria they serve were never judged, so the
+// item stays open for the development manager (LeavesEnvironmentsToCheck).
 func (s State) Discharges() bool {
-	return s.LandingDischarges() && s.ApprovalDischarges() && !s.Escalated() && strings.TrimSpace(s.ReleaseTagOwed) == ""
+	return s.LandingDischarges() && s.ApprovalDischarges() && !s.Escalated() && strings.TrimSpace(s.ReleaseTagOwed) == "" &&
+		!s.LeavesEnvironmentsToCheck()
 }
 
 // OwesReleaseTag reports a run whose item is left open only because its release

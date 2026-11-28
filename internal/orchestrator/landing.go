@@ -234,7 +234,8 @@ func describeLanding(state runstate.State) string {
 // surface describing a run from what it returned and one describing it from its
 // record cannot disagree about whether the item was discharged.
 func (o Outcome) Discharges() bool {
-	return o.LandingDischarges() && o.ApprovalDischarges() && !o.Escalated() && strings.TrimSpace(o.ReleaseTagOwed) == ""
+	return o.LandingDischarges() && o.ApprovalDischarges() && !o.Escalated() && strings.TrimSpace(o.ReleaseTagOwed) == "" &&
+		len(o.EnvironmentsStillToCheck) == 0
 }
 
 // OwesReleaseTag is the outcome's half of runstate.State.OwesReleaseTag.
@@ -342,6 +343,9 @@ func (o Outcome) UndischargedDisposition() string {
 	if o.OwesReleaseTag() {
 		return "stays open, parked, until the " + o.ReleaseTagOwed + " tag is on the remote, and the release step closes it then"
 	}
+	if len(o.EnvironmentsStillToCheck) > 0 && o.LandingDischarges() && o.ApprovalDischarges() {
+		return "stays open, parked for the development manager, because environments it names are still to be checked"
+	}
 	if impediment := strings.TrimSpace(o.LandingBlockedBy); impediment != "" {
 		return "stays open waiting on " + impediment
 	}
@@ -408,6 +412,12 @@ func undischargedLandingReason(state runstate.State) string {
 		return fmt.Sprintf("Yoyodyne run %s raised this item as one that cannot be met as it stands, so nothing was integrated and the item is parked with the escalation in front of the development manager to decide — replan, park, resequence, or redirect. The %s's account: %s",
 			state.RunID, state.EscalatedBy().Title(), state.EscalationReason())
 	}
+	// A change that landed with environments still to be checked is otherwise
+	// the work, so the item is told which environments, the criteria they serve
+	// and the commit it landed at (environmentsleft.go).
+	if leftOnlyForEnvironments(state) {
+		return state.EnvironmentsLeftAtLandingSays()
+	}
 	// A run approved with no file changes integrated nothing, so it is told in
 	// words that do not send a reader looking for a change (approvedunchanged.go).
 	if state.ApprovedWithNoChanges && !state.OwesReleaseTag() {
@@ -472,6 +482,9 @@ func undischargedParking(state runstate.State) domain.WorkItemParking {
 	if state.Escalated() {
 		return domain.WorkItemParking(singleLine(
 			runstate.RaiseParking(state.RunID, state.EscalationReason()), domain.MaxWorkItemParkingBytes))
+	}
+	if leftOnlyForEnvironments(state) {
+		return domain.WorkItemParking(singleLine(environmentsLeftParking(state), domain.MaxWorkItemParkingBytes))
 	}
 	// An item its reviewer left open is parked in the reviewer's words, because
 	// they are the only account of that decision: the developer claimed the

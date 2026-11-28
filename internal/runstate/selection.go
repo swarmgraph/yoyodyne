@@ -76,6 +76,57 @@ type Selection struct {
 	// carrying out of the development manager's repair, from feedback, of an item
 	// whose change waits on a pull request the harness opened.
 	UpdatePullRequest *PullRequestUpdate `json:"update_pull_request,omitempty"`
+	// Environments names the environments an earlier run of the item left still
+	// to be checked when its change landed. It is set by one selection only: the
+	// development manager's re-run of such an item, which runs the checks and
+	// only those environments' tests at the target's head before any developer
+	// turn (docs/designs/checking-a-run-environment.md, section 7).
+	Environments *EnvironmentsRecheck `json:"environments,omitempty"`
+}
+
+// EnvironmentsRecheck is the earlier run whose change landed with environments
+// still to be checked, the commit it landed at, and those environments' names.
+type EnvironmentsRecheck struct {
+	RunID  string   `json:"run_id"`
+	Landed string   `json:"landed_commit,omitempty"`
+	Names  []string `json:"names"`
+}
+
+// maxRecheckNameBytes bounds each environment name a recheck carries, which is
+// a name the project declared and so far shorter than this.
+const maxRecheckNameBytes = 256
+
+// Validate refuses a recheck that names no run or no environment.
+func (r EnvironmentsRecheck) Validate() error {
+	var problems []error
+	if !ValidRunID(strings.TrimSpace(r.RunID)) {
+		problems = append(problems, fmt.Errorf("environments recheck run %q is not a run identifier", r.RunID))
+	}
+	if len(r.Names) == 0 {
+		problems = append(problems, errors.New("an environments recheck names at least one environment"))
+	}
+	for _, name := range r.Names {
+		if trimmed := strings.TrimSpace(name); trimmed == "" || len(trimmed) > maxRecheckNameBytes {
+			problems = append(problems, fmt.Errorf("environments recheck name %q is not an environment name", name))
+		}
+	}
+	if r.Landed != "" && !commitPattern.MatchString(r.Landed) {
+		problems = append(problems, fmt.Errorf("environments recheck commit %q is not a commit", r.Landed))
+	}
+	return errors.Join(problems...)
+}
+
+// Rechecks reports whether name is one of the environments the recheck names.
+func (r *EnvironmentsRecheck) Rechecks(name string) bool {
+	if r == nil {
+		return false
+	}
+	for _, named := range r.Names {
+		if strings.TrimSpace(named) == strings.TrimSpace(name) {
+			return true
+		}
+	}
+	return false
 }
 
 // PullRequestUpdate is the pull request a run publishes onto: the earlier run
@@ -180,6 +231,11 @@ func (s Selection) Validate() error {
 			problems = append(problems, err)
 		}
 	}
+	if s.Environments != nil {
+		if err := s.Environments.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	return errors.Join(problems...)
 }
 
@@ -204,7 +260,7 @@ func (s Selection) Stamped(at time.Time) (Selection, bool) {
 	if !s.Stated() {
 		return Selection{}, false
 	}
-	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At, Lift: s.Lift, UpdatePullRequest: s.UpdatePullRequest}
+	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At, Lift: s.Lift, UpdatePullRequest: s.UpdatePullRequest, Environments: s.Environments}
 	if stamped.At.IsZero() {
 		stamped.At = at.UTC()
 	}

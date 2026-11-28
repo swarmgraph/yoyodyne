@@ -66,8 +66,22 @@ func (a *activeRun) checkEnvironmentsBeforeTurn(ctx context.Context) error {
 	for _, environment := range p.Config.Environments {
 		declared[strings.TrimSpace(environment.Name)] = environment
 	}
-	results := make([]runstate.EnvironmentCheck, 0, len(line.Needs))
-	for index, need := range line.Needs {
+	// A re-run of an item whose change landed with environments still to be
+	// checked checks only those (environmentsleft.go).
+	needs := line.Needs
+	if recheck := a.recheck(); recheck != nil {
+		needs = nil
+		for _, need := range line.Needs {
+			if recheck.Rechecks(need.Name) {
+				needs = append(needs, need)
+			}
+		}
+		if len(needs) == 0 {
+			return nil
+		}
+	}
+	results := make([]runstate.EnvironmentCheck, 0, len(needs))
+	for index, need := range needs {
 		environment, ok := declared[need.Name]
 		if !ok {
 			// Admission refuses an item naming an undeclared environment, so this
@@ -96,6 +110,7 @@ func (a *activeRun) checkEnvironmentsBeforeTurn(ctx context.Context) error {
 		a.state = written
 	}
 	pending := a.state.EnvironmentsStillToCheck()
+	a.outcome.EnvironmentsStillToCheck = environmentNames(pending)
 	if len(pending) == 0 {
 		return nil
 	}
