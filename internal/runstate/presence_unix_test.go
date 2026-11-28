@@ -145,4 +145,38 @@ func TestDeadRunRemedyNamesWhatActuallyEndsTheRun(t *testing.T) {
 	if says := DeadRunRemedy(away, grace); !strings.Contains(says, "`yoyo reconcile` settles it") {
 		t.Fatalf("remedy for an outage wait = %q, want the sweep's settlement named", says)
 	}
+
+	// A wait for the forge's checks taken up again and let go of: the sweep
+	// settles it once the forge has answered, and leaves it to the pull before.
+	takenUp := base
+	takenUp.CIWait = &CIWait{Commit: "9afda54ec758f261fd2f6dd6bc74645d6c9b98e8", Branch: "yoyodyne/task", PushedAt: base.UpdatedAt, Required: []string{"test"}, SlotTaken: true}
+	if says := DeadRunRemedy(takenUp, grace); !strings.Contains(says, "before the forge had answered") || strings.Contains(says, "settles") {
+		t.Fatalf("remedy for an unanswered wait taken up = %q, want the pull's continuation named", says)
+	}
+	answered := takenUp
+	wait := *takenUp.CIWait
+	wait.Decided = &CIWaitDecision{At: base.UpdatedAt, Passed: true, Says: "every required check passed on the commit pushed"}
+	answered.CIWait = &wait
+	says := DeadRunRemedy(answered, grace)
+	if !strings.Contains(says, "the forge has answered its wait") || !strings.Contains(says, "`yoyo reconcile`, which a watching session's maintenance pass runs, settles it once its record has not moved for 30m0s") ||
+		strings.Contains(says, "could not") {
+		t.Fatalf("remedy for an answered wait taken up = %q, want the sweep's settlement after the grace named", says)
+	}
+
+	// Where the sweep tried and failed, the remedy says why rather than
+	// promising a settlement that keeps not happening.
+	failed := answered
+	failed.ReconcileFindings = []ReconcileFinding{{Step: ReconcileRun, Problem: "observe run artifacts: worktree is locked."}}
+	if says := DeadRunRemedy(failed, grace); !strings.HasSuffix(says, "; the last `yoyo reconcile` tried to settle it and could not: observe run artifacts: worktree is locked") {
+		t.Fatalf("remedy after a failed settlement = %q, want the failure said", says)
+	}
+	failed.ReconcileFindings[0].Resolved = true
+	if says := DeadRunRemedy(failed, grace); strings.Contains(says, "could not") {
+		t.Fatalf("remedy after a resolved settlement finding = %q, want no failure said", says)
+	}
+	parkedFailed := parked
+	parkedFailed.ReconcileFindings = []ReconcileFinding{{Step: ReconcileRun, Problem: "adopt run: store unreadable"}}
+	if says := DeadRunRemedy(parkedFailed, grace); !strings.Contains(says, "tried to settle it and could not: adopt run: store unreadable") {
+		t.Fatalf("remedy for a parked run after a failed settlement = %q, want the failure said", says)
+	}
 }

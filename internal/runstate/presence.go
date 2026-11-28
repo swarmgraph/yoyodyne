@@ -290,7 +290,10 @@ func readRunHolder(path string, forShowing bool) (runHolder, error) {
 // a run parked on the operator's pause while the pause stands, it continues
 // a usage-limit or overload wait once its deadline has passed rather than
 // settling it, and it leaves a run paused on work its item waits on to the
-// watching session's pull, which continues it once that work closes. Those are
+// watching session's pull, which continues it once that work closes. A wait for
+// the forge's checks is the pull's until the forge has answered and the run has
+// been taken up again; after that it is settled like any park. Where the sweep
+// tried to settle the run and could not, the remedy says why. Those are
 // the sweep's own rules (Reconciler.parkNothingServes in
 // internal/orchestrator), read here from the same fields, so the surfaces carry
 // the answer rather than each writing their own.
@@ -305,9 +308,34 @@ func DeadRunRemedy(state State, grace time.Duration) string {
 		return fmt.Sprintf("it is paused because %s waits on unfinished work (%s): a watching `yoyo work` session continues it at the first pull after that work closes, and the sweep leaves it until then", item, state.DependencyPause.Summary())
 	case state.CIWait.Waiting():
 		return fmt.Sprintf("it is waiting for %s: a watching `yoyo work` session continues it once the forge has answered or the wait limit has passed, and the sweep leaves it until then", state.CIWait.Summary())
+	case state.CIWait != nil && state.CIWait.Decided == nil:
+		// Taken up to read the forge before it had answered, and let go of.
+		return fmt.Sprintf("it was taken up to read the forge for %s before the forge had answered: a watching `yoyo work` session continues it once the forge has answered or the wait limit has passed, and the sweep leaves it until then", state.CIWait.Summary())
+	case state.CIWait != nil:
+		// The sweep settles it after the grace (answeredCIWaitTakenUp in
+		// internal/orchestrator).
+		return withSettleProblem(state, fmt.Sprintf("the forge has answered its wait for %s (%s) and it was taken up again, but nothing is carrying it on: `yoyo reconcile`, which a watching session's maintenance pass runs, settles it once its record has not moved for %s, and `yoyo run %s` continues it before then",
+			state.CIWait.Summary(), state.CIWait.DecidedSays(), grace, item))
 	case state.UsageLimitResetsAt != nil && (state.PauseCause == PauseUsageLimit || state.PauseCause == PauseServerOverload || state.PauseCause == ""):
 		return fmt.Sprintf("it is waiting out %s until %s: `yoyo reconcile` continues it once that has passed, and `yoyo run %s` continues it sooner",
 			DescribePause(state.PauseCause, state.UsageLimitKind), state.UsageLimitResetsAt.UTC().Format(time.RFC3339), item)
 	}
-	return fmt.Sprintf("`yoyo reconcile` settles it — a parked run once its record has not moved for %s — and `yoyo run %s` continues it before then", grace, item)
+	return withSettleProblem(state, fmt.Sprintf("`yoyo reconcile` settles it — a parked run once its record has not moved for %s — and `yoyo run %s` continues it before then", grace, item))
+}
+
+// withSettleProblem adds to a remedy that promises the sweep settles a run why
+// the last sweep that tried could not, where the run's record keeps that
+// (ReconcileFinding on the run's own settlement step). Without it, a run the
+// sweep keeps failing to settle reads as one it will settle at the next pass,
+// for as long as it keeps failing.
+func withSettleProblem(state State, remedy string) string {
+	for _, finding := range state.ReconcileFindings {
+		if finding.Step != ReconcileRun || finding.Resolved {
+			continue
+		}
+		if problem := strings.TrimSpace(finding.Problem); problem != "" {
+			return remedy + "; the last `yoyo reconcile` tried to settle it and could not: " + strings.TrimSuffix(problem, ".")
+		}
+	}
+	return remedy
 }
