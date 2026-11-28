@@ -3,6 +3,7 @@ package runstate
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // Each environment's check is held to the shapes the harness writes, and its
@@ -71,5 +72,60 @@ func TestAMissingMachineEnvironmentQuotesItsInstruction(t *testing.T) {
 		if !strings.Contains(said, want) {
 			t.Fatalf("missing says %q, want %q", said, want)
 		}
+	}
+}
+
+// A run that leaves an environment still to be checked does not discharge its
+// item, and its account names the environment, its criteria and the commit the
+// change landed at.
+func TestARunLeavingAnEnvironmentToCheckDoesNotDischargeItsItem(t *testing.T) {
+	t.Parallel()
+	landed := strings.Repeat("f", 40)
+	state := State{RunID: "run-a", Status: StatusSucceeded, Integration: &Integration{TargetCommit: landed}, Environments: []EnvironmentCheck{
+		{Name: "android client", Result: EnvironmentPassed, Where: "harness", Criteria: []int{1}},
+		{Name: "ios client", Result: EnvironmentFailed, Where: "harness", Criteria: []int{3}},
+	}}
+	if state.Discharges() || !state.LeavesEnvironmentsToCheck() || !state.Parks() {
+		t.Fatalf("discharges %v, leaves %v, parks %v; want the item parked open", state.Discharges(), state.LeavesEnvironmentsToCheck(), state.Parks())
+	}
+	says := state.EnvironmentsLeftAtLandingSays()
+	for _, want := range []string{"run-a", `"ios client"`, "criterion 3", "commit " + landed, "development manager"} {
+		if !strings.Contains(says, want) {
+			t.Errorf("says %q, want %q", says, want)
+		}
+	}
+	state.Environments[1].Result = EnvironmentPassed
+	if !state.Discharges() || state.EnvironmentsLeftAtLandingSays() != "" || state.LandedEnvironmentsRecheck() != nil {
+		t.Fatal("a run whose every environment passed was left open")
+	}
+}
+
+// What a re-run is given to check names a run and at least one environment,
+// and the run it ends with no developer turn succeeds complete, once.
+func TestAnEnvironmentsRecheckIsHeldToItsShapeAndEndsOnce(t *testing.T) {
+	t.Parallel()
+	for name, bad := range map[string]EnvironmentsRecheck{
+		"no run":         {Names: []string{"ios client"}},
+		"no environment": {RunID: "run-0123456789abcdef0123456789abcdef"},
+		"bad commit":     {RunID: "run-0123456789abcdef0123456789abcdef", Names: []string{"ios client"}, Landed: "main"},
+	} {
+		if err := bad.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %#v", name, bad)
+		}
+	}
+	state := State{RunID: "run-b", Status: StatusRunning, Phase: PhaseDeveloping}
+	at := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	if changed, err := (EnvironmentsConfirmedCompleted{At: at}).apply(&state); err != nil || !changed {
+		t.Fatalf("apply() = %v, %v", changed, err)
+	}
+	if !state.EnvironmentsConfirmed || state.Status != StatusSucceeded || state.Phase != PhaseComplete || state.CompletedAt == nil || !state.CompletedAt.Equal(at) {
+		t.Fatalf("state = %#v", state)
+	}
+	if changed, err := (EnvironmentsConfirmedCompleted{At: at}).apply(&state); err != nil || changed {
+		t.Fatalf("second apply() = %v, %v; want nothing changed", changed, err)
+	}
+	failed := State{RunID: "run-c", Status: StatusFailed}
+	if _, err := (EnvironmentsConfirmedCompleted{At: at}).apply(&failed); err == nil {
+		t.Fatal("a run that already failed was ended again")
 	}
 }

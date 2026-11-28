@@ -1017,6 +1017,16 @@ func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 	if err := d.validate(); err != nil {
 		return false, err
 	}
+	// A run whose change landed with environments still to be checked is put on
+	// the list as well, so the development manager can decide a fresh run of its
+	// item (environmentsleft.go).
+	if landedLeavingEnvironments(state) {
+		entry, err := d.environmentsLeftEntry(state, d.now())
+		if err != nil {
+			return false, err
+		}
+		return d.Docket.RecordOnce(entry)
+	}
 	found := d.look(state)
 	if !stoppedRun(state) && !diedHolding(state, found) && !stageBoundHolding(state, found) && !state.CancelledHoldingItem(found.Holds()) {
 		return false, nil
@@ -1780,6 +1790,14 @@ func (d Docketer) entriesFor(state runstate.State, now time.Time, already standi
 	var problems []error
 	if stoppedRun(state) && already.dockets(triage.Key(triage.ClassStoppedRun, state.RunID), stoppedAt(state)) {
 		entry, err := d.stoppedRunEntry(state, now, d.look(state))
+		if err != nil {
+			problems = append(problems, err)
+		} else {
+			entries = append(entries, entry)
+		}
+	}
+	if landedLeavingEnvironments(state) && already.dockets(triage.Key(triage.ClassStoppedRun, state.RunID), stoppedAt(state)) {
+		entry, err := d.environmentsLeftEntry(state, now)
 		if err != nil {
 			problems = append(problems, err)
 		} else {

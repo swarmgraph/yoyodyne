@@ -1004,6 +1004,14 @@ type Outcome struct {
 	// keeps the item open after its notes land until the tag is on the remote,
 	// for the reason its durable twin gives.
 	ReleaseTagOwed string `json:"release_tag_owed,omitempty"`
+	// EnvironmentsStillToCheck names the environments the run's latest checks
+	// left still to be checked, which keeps the item open after its change
+	// lands, for the reason runstate.State.LeavesEnvironmentsToCheck gives.
+	EnvironmentsStillToCheck []string `json:"environments_still_to_check,omitempty"`
+	// EnvironmentsConfirmed says the run closed its item with no developer turn,
+	// because the environments an earlier landed run left still to be checked
+	// all passed their tests at the target's head (environmentsleft.go).
+	EnvironmentsConfirmed bool `json:"environments_confirmed,omitempty"`
 	// Cost is what every run made for this work item has cost, as the provider
 	// reported it: this run and every earlier one, the attempts that failed as
 	// well as the one that finished. It is absent when nothing priced the item,
@@ -3053,6 +3061,15 @@ type activeRun struct {
 	// not durable: a resumed or continued run is a new process and runs them
 	// again before its next developer turn.
 	environmentsChecked bool
+	// environmentsRechecked is set once this process has run, for a re-run of
+	// an item whose change landed with environments still to be checked, the
+	// checks and those environments' tests at the target's head
+	// (environmentsleft.go). A repair round in the same process does not run
+	// them again.
+	environmentsRechecked bool
+	// recheckFailure is what failed at the target's head on that re-check, said
+	// to the developer before its first turn, and empty where nothing did.
+	recheckFailure string
 
 	// promotionLease is the target branch's promotion lease while integrate
 	// holds it, and nil otherwise. A wait for GitHub part-way through a
@@ -5247,6 +5264,13 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		a.observeDevelopEnded(ctx, err)
 		return err
 	}
+	// A re-run of an item whose change landed with environments still to be
+	// checked runs the checks and only those environments' tests at the
+	// target's head first, and ends here, closing the item, where all pass
+	// (environmentsleft.go).
+	if err := a.recheckLeftEnvironments(ctx); err != nil {
+		return err
+	}
 	// A change this developer proposed that the harness refused opens the prompt,
 	// ahead of the contract and of whatever this invocation is actually for. It is
 	// prepended here rather than built into each kind of prompt because here is the
@@ -5258,7 +5282,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	// The developer is told which environments the item names and which
 	// criteria each serves, and is given their tests' results only after it
 	// submits (environmenttests.go).
-	prompt += environmentsBeforeTurnSection(a.state)
+	prompt += environmentsBeforeTurnSection(a.state) + a.recheckSection()
 	// A run whose recorded backend cannot be invoked here ends before anything is
 	// spent, rather than offering its session to a provider that never opened it
 	// (recordedbackend.go).
@@ -9182,6 +9206,13 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	if err := p.Store.Save(a.state); err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("save successful run state: %w", err)), runstate.StatusFailed)
 	}
+	// A change that landed with environments still to be checked is put on the
+	// development manager's list once the run's record says how it ended. A
+	// write that failed fails nothing: the change is integrated, and the sweep
+	// that rebuilds the list puts it there (environmentsleft.go).
+	if p.Docket != nil && landedLeavingEnvironments(a.state) {
+		_, _ = p.Docket.RecordStoppedRun(a.state)
+	}
 	a.outcome.Status = runstate.StatusSucceeded
 	a.outcome.Phase = a.state.Phase
 	return a.outcome, nil
@@ -9281,6 +9312,11 @@ func (e completionRecordingFailure) Unwrap() error { return e.cause }
 // deadline passes, and a provider the harness stopped on time, which a later
 // invocation resumes straight away.
 func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
+	// A re-run whose rechecked environments all passed before any developer
+	// turn is not a stop: it closes its item (environmentsleft.go).
+	if isEnvironmentsConfirmed(cause) {
+		return a.completeEnvironmentsConfirmed(ctx)
+	}
 	var paused usageLimitPause
 	if errors.As(cause, &paused) {
 		return a.pause(paused)
@@ -11224,6 +11260,7 @@ func (a *activeRun) carryReviewEvidence() {
 	a.outcome.LandingImpedimentProblem = state.LandingImpedimentProblem
 	a.outcome.LandingProblem = state.LandingProblem
 	a.outcome.ReleaseTagOwed = state.ReleaseTagOwed
+	a.outcome.EnvironmentsStillToCheck = environmentNames(state.EnvironmentsStillToCheck())
 }
 
 // reportedFindings converts durable findings back into the reviewer's own
@@ -12603,6 +12640,9 @@ func renderOutcomeNotes(outcome Outcome) string {
 		case !outcome.ApprovalDischarges():
 			headline = "Yoyodyne run passed checks and " + integrated + "; the independent reviewer approved the change as evidence rather than as the work this item asked for, so the item " +
 				outcome.UndischargedDisposition() + "."
+		case len(outcome.EnvironmentsStillToCheck) > 0 && strings.TrimSpace(outcome.ReleaseTagOwed) == "":
+			headline = "Yoyodyne run passed checks, was approved by an independent reviewer, and " + integrated + "; environments this item names were still to be checked (" +
+				strings.Join(outcome.EnvironmentsStillToCheck, ", ") + "), so the item " + outcome.UndischargedDisposition() + "."
 		}
 	}
 	// A change a person merges is said as waiting on that person, in the words

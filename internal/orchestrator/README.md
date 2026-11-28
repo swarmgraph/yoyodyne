@@ -196,7 +196,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     the lease go and waits in probes (`awaitLandingHold`) with its evidence
     kept, the merge queue's `fresh` refuses, and `armRecoveredMerge` and
     `Rearmer.repeat` stop before asking the forge.
-15. **Endings.** `complete` (outcome notes, close, price, terminal record),
+15. **Endings.** `complete` (outcome notes, close, price, terminal record;
+    a change that lands with environments still to be checked leaves its item
+    open and parked and is put on the development manager's list, and a re-run
+    of it checks only those at the target's head before any developer turn,
+    `recheckLeftEnvironments`, and closes the item with none where they pass,
+    `completeEnvironmentsConfirmed`, all in `environmentsleft.go`),
     `cleanUp`, `stop` (routes a stop to a pause or an ending), `escalate`,
     `pause`, `pauseForProviderStop`, `pauseForDirective`,
     `pauseForDependency`, `pauseForTracker`, `pauseForOperatorHold`, `fail`

@@ -578,12 +578,7 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	// the docket say the decision is not happening while it runs. A refusal past
 	// this point writes a fresh finding of its own.
 	result.note(clearCarryOutFinding(ctx, r.Decisions, entry.WorkItemID, entry.RunID, r.now()))
-	outcome, runErr := r.Start(ctx, entry.WorkItemID, runstate.Selection{
-		By:     runstate.SelectedByDevelopmentManager,
-		Reason: result.Reason,
-		At:     r.now(),
-		Lift:   liftOf(prior, result.Preserved),
-	})
+	outcome, runErr := r.Start(ctx, entry.WorkItemID, rerunSelection(prior, result.Preserved, result.Reason, r.now()))
 	// The last free slot going to another run between the reading above and the
 	// reservation is the same waiting state read a moment too late, and it has to
 	// cost the same: the claim taken for a run that never existed is given back,
@@ -792,6 +787,25 @@ func raiseReleased(item beads.WorkItem, prior runstate.State) error {
 	}
 	return fmt.Errorf("%s is parked (%s), and a re-run of the raise run %s made is not started until the item is released",
 		item.ID, singleLine(item.Parking.Reason(), 300), prior.RunID)
+}
+
+// rerunSelection is what a re-run of prior is started with: the development
+// manager's decision as its reason, and the change prior kept where one stands.
+// A re-run of a run whose change landed with environments still to be checked
+// starts from the target instead, where that change already is, and is given
+// those environments to check before any developer turn (environmentsleft.go).
+func rerunSelection(prior runstate.State, preserved runstate.PreservedArtifacts, reason string, at time.Time) runstate.Selection {
+	selection := runstate.Selection{
+		By:     runstate.SelectedByDevelopmentManager,
+		Reason: reason,
+		At:     at,
+		Lift:   liftOf(prior, preserved),
+	}
+	if recheck := prior.LandedEnvironmentsRecheck(); recheck != nil {
+		selection.Lift = nil
+		selection.Environments = recheck
+	}
+	return selection
 }
 
 // liftOf is the preserved change a re-run starts from, where one stands: the
