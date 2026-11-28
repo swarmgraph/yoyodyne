@@ -40,6 +40,10 @@ type EnvironmentCheck struct {
 	// Output is the last InstallOutputLines lines the check printed, at most
 	// MaxInstallOutputBytes.
 	Output string `json:"output,omitempty"`
+	// Commit is the commit an environment's test ran on, the developer's
+	// submitted change as the harness committed it. It is empty on a check made
+	// before a developer turn, which judges the machine rather than a change.
+	Commit string `json:"commit,omitempty"`
 }
 
 // EnvironmentResult is how one run of an environment's check ended.
@@ -74,6 +78,9 @@ func (c EnvironmentCheck) Validate() error {
 	}
 	if c.DurationMilliseconds < 0 {
 		problems = append(problems, errors.New("duration cannot be negative"))
+	}
+	if c.Commit != "" && !commitPattern.MatchString(c.Commit) {
+		problems = append(problems, fmt.Errorf("commit %q is not a commit", c.Commit))
 	}
 	if len(c.Output) > MaxInstallOutputBytes {
 		problems = append(problems, fmt.Errorf("output is %d bytes, over the %d an environment's check keeps", len(c.Output), MaxInstallOutputBytes))
@@ -118,6 +125,20 @@ func (c EnvironmentCheck) Describe() string {
 		return fmt.Sprintf("the check of the environment %q, for %s, did not finish in time and was stopped at its time limit after %s %s", c.Name, c.Serves(), took, c.PlaceSays())
 	default:
 		return fmt.Sprintf("the check of the environment %q, for %s, failed with exit status %d after %s %s", c.Name, c.Serves(), c.ExitCode, took, c.PlaceSays())
+	}
+}
+
+// DescribeTest says in one sentence what became of one run of the
+// environment's test, naming the commit it ran on.
+func (c EnvironmentCheck) DescribeTest() string {
+	took := (time.Duration(c.DurationMilliseconds) * time.Millisecond).Round(time.Second)
+	switch c.Result {
+	case EnvironmentPassed:
+		return fmt.Sprintf("the test of the environment %q, for %s, passed at commit %s %s in %s", c.Name, c.Serves(), c.Commit, c.PlaceSays(), took)
+	case EnvironmentTimedOut:
+		return fmt.Sprintf("the test of the environment %q, for %s, did not finish in time at commit %s and was stopped at its time limit after %s %s", c.Name, c.Serves(), c.Commit, took, c.PlaceSays())
+	default:
+		return fmt.Sprintf("the test of the environment %q, for %s, failed with exit status %d at commit %s after %s %s", c.Name, c.Serves(), c.ExitCode, c.Commit, took, c.PlaceSays())
 	}
 }
 
@@ -194,6 +215,37 @@ type EnvironmentsChecked struct {
 
 func (u EnvironmentsChecked) apply(state *State) (bool, error) {
 	state.Environments = append([]EnvironmentCheck(nil), u.Checks...)
+	state.UpdatedAt = u.At
+	return true, nil
+}
+
+// EnvironmentTestsAt is the results of the environments' tests recorded on
+// commit, in the order the item names the environments. A result recorded on
+// any other commit is left out, so it is never shown as evidence for a change
+// it did not test (docs/designs/checking-a-run-environment.md, section 6). A
+// change with no commit has no result.
+func (s State) EnvironmentTestsAt(commit string) []EnvironmentCheck {
+	if strings.TrimSpace(commit) == "" {
+		return nil
+	}
+	var at []EnvironmentCheck
+	for _, test := range s.EnvironmentTests {
+		if test.Commit == commit {
+			at = append(at, test)
+		}
+	}
+	return at
+}
+
+// EnvironmentsTested replaces the run's record of its environments' tests with
+// one round's results, each carrying the commit it ran on.
+type EnvironmentsTested struct {
+	Tests []EnvironmentCheck
+	At    time.Time
+}
+
+func (u EnvironmentsTested) apply(state *State) (bool, error) {
+	state.EnvironmentTests = append([]EnvironmentCheck(nil), u.Tests...)
 	state.UpdatedAt = u.At
 	return true, nil
 }

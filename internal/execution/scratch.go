@@ -457,3 +457,88 @@ func scratchRunID(runID string) (string, bool) {
 	}
 	return id, true
 }
+
+// testScratchDirectoryName is the folder inside a run's scratch directory that
+// holds the folder each run of an environment's check or test is given.
+const testScratchDirectoryName = "environment-runs"
+
+// PrepareTestScratch creates the empty folder one run of an environment's check
+// or test is given, named in YOYODYNE_TEST_SCRATCH
+// (docs/designs/checking-a-run-environment.md, section 6), at
+// scratch/<run id>/environment-runs/<name> under the state directory, and
+// reports where it is. Whatever an earlier run of the same name left there is
+// removed first, so the folder is always empty when the command starts. The
+// writes go through the confinement primitive with the state directory as their
+// root, so a link anywhere along the way is refused or removed, never followed.
+func PrepareTestScratch(stateRoot, runID, name string) (string, error) {
+	relative, err := testScratchUnder(runID, name)
+	if err != nil {
+		return "", err
+	}
+	if err := RemoveTestScratch(stateRoot, runID, name); err != nil {
+		return "", err
+	}
+	root, _, err := scratchUnder(stateRoot, runID)
+	if err != nil {
+		return "", err
+	}
+	created, err := prepareDirectory(root, relative)
+	if err != nil {
+		return "", fmt.Errorf("create the folder %s for run %s's environment command: %w", name, runID, err)
+	}
+	if want := filepath.Join(root.Path(), filepath.FromSlash(relative)); created != want {
+		return "", fmt.Errorf("the folder %s for run %s's environment command is redirected by a symlink to %s", name, runID, created)
+	}
+	return created, nil
+}
+
+// RemoveTestScratch removes the folder PrepareTestScratch made, and everything
+// in it, through held directories and without following a link. A folder
+// already gone is a removal already made.
+func RemoveTestScratch(stateRoot, runID, name string) error {
+	if _, err := testScratchUnder(runID, name); err != nil {
+		return err
+	}
+	root, _, err := scratchUnder(stateRoot, runID)
+	if err != nil {
+		return err
+	}
+	id, _ := scratchRunID(runID)
+	state, err := repowrite.OpenPinnedRoot(root.Path())
+	if err != nil {
+		return fmt.Errorf("open the state directory to remove run %s's folder %s: %w", runID, name, err)
+	}
+	defer state.Close()
+	held := state
+	for _, component := range []string{scratchDirectoryName, id, testScratchDirectoryName} {
+		next, err := held.OpenDirectory(component)
+		if held != state {
+			held.Close()
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("open the folders to remove run %s's folder %s: %w", runID, name, err)
+		}
+		held = next
+	}
+	defer held.Close()
+	if err := held.RemoveAll(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove run %s's folder %s: %w", runID, name, err)
+	}
+	return nil
+}
+
+// testScratchUnder is the folder named name, relative to the state directory,
+// refusing a name that is not one plain path component.
+func testScratchUnder(runID, name string) (string, error) {
+	id, named := scratchRunID(runID)
+	if !named {
+		return "", fmt.Errorf("run id %q is not a name a scratch directory can be cut for", runID)
+	}
+	if name != filepath.Base(name) || name == "." || name == ".." || strings.TrimSpace(name) == "" || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("%q is not a name a folder for an environment command can be given", name)
+	}
+	return path.Join(scratchDirectoryName, id, testScratchDirectoryName, name), nil
+}
