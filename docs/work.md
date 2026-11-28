@@ -109,7 +109,14 @@ free — is written onto her request, and the status line and
 runs. One whose work is still open is
 passed over naming what it waits on, and the sweep leaves it alone however long
 that lasts, rather than settling it after half an hour as it does a park
-nothing continues. A stop recorded on such a run is honoured before any
+nothing continues. So does the sweep leave a run whose GitHub checks are still
+running, or that is waiting for a slot. A run whose GitHub checks were read as
+decided and that was taken up again is different: its wait is over, and once
+no process holds it and its record has not moved for half an hour, the sweep —
+which a watching session's maintenance pass runs, so nobody has to type `yoyo
+reconcile` — settles it as a park nothing continues, keeping its branch and
+worktree and charging no repair, and puts it in front of the development
+manager. A stop recorded on such a run is honoured before any
 continuation: the pull does not pick it up, and the next `yoyo reconcile` ends
 it as the stop asked. One waiting for GitHub's checks is ended by the next pull
 instead, under a hold or a pause too, with its branch and worktree kept.
