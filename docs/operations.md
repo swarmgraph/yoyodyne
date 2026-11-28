@@ -502,7 +502,7 @@ services:
       max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes fifteen steps, in this order, and each is recorded:
+Each pass takes sixteen steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
