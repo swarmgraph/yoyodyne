@@ -212,19 +212,48 @@ func (p Piece) MayReread() bool {
 
 // ScopeAnswer is what the Lead Product Manager's handling of a question about
 // scope recorded: when, and, where it recorded that only the operator can act,
-// the reason from his closed list and what it said he has to do. That is how she
-// says the epic can be delivered without the piece, which only the operator can
-// then take out; the piece waits and is judged no more. Any other answer has the
-// development manager rewrite the piece, and the first edit seen after it is
-// judged.
+// the reason from his closed list and her words. Naming him decides only that he
+// is asked: the harness puts one question to him (Asked), and the piece waits and
+// is judged no more. Any other answer has the development manager act on it: a
+// piece rewritten is judged again at the first edit seen after it, and one she
+// leaves out stays as it is.
 type ScopeAnswer struct {
 	At       time.Time                `json:"at"`
 	Operator ownership.OperatorReason `json:"operator,omitempty"`
 	Says     string                   `json:"says,omitempty"`
+	// Asked is the one question the harness put to the operator, where her
+	// handling named him: its identifier is written here before it is filed, so a
+	// restart files that same question and no second one.
+	Asked *OperatorQuestion `json:"asked,omitempty"`
+}
+
+// OperatorQuestion is the question about scope the harness put to the operator
+// once the Lead Product Manager's handling named him. It is built from the
+// identifiers and offers what where the piece stands allows: a piece that never
+// joined is offered the add, and one that joined, whose edited text was judged
+// outside, the add, which keeps it as it now reads, or the remove, which lets the
+// epic be delivered without it. docs/designs/epic-mode-second-part.md, "What
+// records the answer on scope", points 5 to 7, states the rule.
+type OperatorQuestion struct {
+	Report string    `json:"report"`
+	At     time.Time `json:"at"`
+	// Joined is that the piece had joined the epic when it was asked.
+	Joined bool `json:"joined,omitempty"`
 }
 
 func (a *ScopeAnswer) valid() bool {
-	return a == nil || !a.At.IsZero() && (a.Operator == "" && a.Says == "" || a.Operator.Valid() && strings.TrimSpace(a.Says) != "")
+	return a == nil || !a.At.IsZero() && (a.Operator == "" && a.Says == "" && a.Asked == nil || a.Operator.Valid() && strings.TrimSpace(a.Says) != "") &&
+		(a.Asked == nil || report.ValidID(a.Asked.Report) && !a.Asked.At.IsZero())
+}
+
+// Offers is each command the operator is offered for a piece, in the order the
+// question names them: the add, and the remove where the piece joined.
+func (q OperatorQuestion) Offers(epic, piece string) []string {
+	offers := []string{fmt.Sprintf("yoyo epic add %s %s", epic, piece)}
+	if q.Joined {
+		offers = append(offers, fmt.Sprintf("yoyo epic remove %s %s --words <text>", epic, piece))
+	}
+	return offers
 }
 
 // Seen is a text first seen at a time.
@@ -311,7 +340,7 @@ func (v View) TextWait(item beads.WorkItem) string {
 		case judged && answer == AnswerInside:
 			return ""
 		case piece.Outcome != nil && piece.Outcome.Answer.Asks() && piece.Answered != nil && piece.Answered.Operator != "":
-			return fmt.Sprintf("the Lead Product Manager's answer to %s is that epic %s can be delivered without it, so it waits, and only the operator can take it out with `yoyo epic remove`", piece.Question, epic.WorkItemID)
+			return fmt.Sprintf("the Lead Product Manager's answer to %s names the operator, so it waits until he keeps it with `yoyo epic add` or takes it out of epic %s with `yoyo epic remove`", piece.Question, epic.WorkItemID)
 		case judged:
 			question := ""
 			if piece.Digest == digest && piece.Question != "" {
