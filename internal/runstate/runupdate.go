@@ -275,6 +275,45 @@ func (u RaisedForDesignCompleted) apply(state *State) (bool, error) {
 	return true, nil
 }
 
+// UnchangedRunCompleted ends a run whose reviewer approved a change with no
+// file differences from its base, once its item is settled: it succeeds,
+// complete, with nothing queued or integrated, and every pause it was carrying
+// is over. LandingBlockedBy and LandingImpedimentProblem are where the
+// settlement left an item the run did not discharge, which a tracker refusing
+// the dependency moves; Divergence is what the run's workflow observation has
+// to say about ending there, kept only where the run carries none already. It
+// is refused on a run that has already ended some other way.
+type UnchangedRunCompleted struct {
+	LandingBlockedBy         string
+	LandingImpedimentProblem string
+	Divergence               string
+	At                       time.Time
+}
+
+func (u UnchangedRunCompleted) apply(state *State) (bool, error) {
+	if state.Status == StatusSucceeded && state.Phase == PhaseComplete && state.ApprovedWithNoChanges {
+		return false, nil
+	}
+	if state.Status.Terminal() {
+		return false, fmt.Errorf("run %s has already ended %s, so it does not end again as approved with no file changes", state.RunID, state.Status)
+	}
+	state.ApprovedWithNoChanges = true
+	state.LandingBlockedBy = u.LandingBlockedBy
+	state.LandingImpedimentProblem = u.LandingImpedimentProblem
+	state.ProviderStop = ""
+	state.RedeployStop = nil
+	state.OperatorHeldSince = nil
+	state.Status = StatusSucceeded
+	state.Phase = PhaseComplete
+	if u.Divergence != "" && state.WorkflowDivergence == "" {
+		state.WorkflowDivergence = u.Divergence
+	}
+	state.UpdatedAt = u.At
+	completed := u.At
+	state.CompletedAt = &completed
+	return true, nil
+}
+
 // MergeQueueEntryLost stops a run that ended waiting on the merge queue and
 // whose entry the queue no longer holds, with nothing landed and nothing handed
 // back to the run: it fails with the reason and the blocker the item was given,

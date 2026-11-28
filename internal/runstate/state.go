@@ -4594,6 +4594,12 @@ type State struct {
 	// or hands it back to this run for repair. Absent is every run that
 	// promoted its own change.
 	MergeQueue *MergeQueueAdmissionRecord `json:"merge_queue,omitempty"`
+	// ApprovedWithNoChanges says the reviewer approved a change that had no file
+	// differences from its base, so the run admitted nothing to the merge queue,
+	// promoted nothing, and ended complete: its item closed where the approval
+	// discharged it, and went back open as its landing said otherwise. Absent is
+	// every run whose approved change carried something.
+	ApprovedWithNoChanges bool `json:"approved_with_no_changes,omitempty"`
 	// DocumentItem is the work item the harness filed for a document run whose
 	// document's revision names no item of its own, so every publication is
 	// recorded against an item its owner's conversation carries

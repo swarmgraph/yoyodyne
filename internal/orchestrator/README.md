@@ -78,7 +78,11 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    context). Invariant delivery: `deliveredInvariants`, `reviewedInvariants`,
    `workItemEvidence`, `grantEvidence`, `refuseProviderGrant`.
 7. **The gate.** `verifyReviewAndFinish` → `repairLoop` → `promoteApproved` →
-   `integrate` → `finish`. Promotion races: `contendedIntegration`,
+   `integrate` → `finish`. An approved change with no file differences from
+   its base is neither queued nor promoted: `admitToMergeQueue` and
+   `promoteApproved` hand it to `completeUnchanged` (`approvedunchanged.go`),
+   which ends the run complete and closes the item, or puts it back open
+   where the landing or an evidence approval says. Promotion races: `contendedIntegration`,
    `prepareIntegrationRetry`, `lostRacesBeforeGivingBackTheSlot` and
    `blockOnLostRaces` (a run that keeps losing gives back its slot with its
    work kept), `replayOntoTarget` (a replay the harness stopped on its time
