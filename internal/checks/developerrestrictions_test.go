@@ -69,21 +69,24 @@ func TestACommandUnderTheDevelopersRestrictionsCannotReachTheNetwork(t *testing.
 	}()
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 
-	if output, ok := runRestricted(t, restrictions, "/usr/bin/nc -z -G 5 127.0.0.1 "+port); !ok {
+	// nc says why a connection failed only when given -v; without it a refused
+	// connection exits 1 and writes nothing, so "Operation not permitted", which
+	// is what tells the sandbox's refusal from the network's, is never seen.
+	if output, ok := runRestricted(t, restrictions, "/usr/bin/nc -v -z -G 5 127.0.0.1 "+port); !ok {
 		t.Fatalf("localhost was not reached under the developer's restrictions: %s", output)
 	}
 	if address := machineAddress(t); address != "" {
-		if output, err := exec.Command("/usr/bin/nc", "-z", "-G", "5", address, port).CombinedOutput(); err != nil {
+		if output, err := exec.Command("/usr/bin/nc", "-v", "-z", "-G", "5", address, port).CombinedOutput(); err != nil {
 			t.Skipf("this machine's own address %s is not reachable unrestricted either, so refusing it proves nothing: %s", address, output)
 		}
-		output, ok := runRestricted(t, restrictions, "/usr/bin/nc -z -G 5 "+address+" "+port)
+		output, ok := runRestricted(t, restrictions, "/usr/bin/nc -v -z -G 5 "+address+" "+port)
 		if ok || !strings.Contains(output, "Operation not permitted") {
 			t.Fatalf("connecting to %s under the developer's restrictions = %v, %q; want it refused by the sandbox", address, ok, output)
 		}
 	}
 	// An address that is no host at all is refused at once rather than timing
 	// out, which is the sandbox and not the network answering.
-	if output, ok := runRestricted(t, restrictions, "/usr/bin/nc -z -G 5 192.0.2.1 80"); ok || !strings.Contains(output, "Operation not permitted") {
+	if output, ok := runRestricted(t, restrictions, "/usr/bin/nc -v -z -G 5 192.0.2.1 80"); ok || !strings.Contains(output, "Operation not permitted") {
 		t.Fatalf("connecting off the machine = %v, %q; want it refused by the sandbox", ok, output)
 	}
 
