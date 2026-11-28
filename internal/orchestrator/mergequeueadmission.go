@@ -169,6 +169,12 @@ func (a *activeRun) admitToMergeQueue(ctx context.Context, resolution *runstate.
 	// a worktree: a published run's change is committed already, and a local
 	// one's is committed here with nothing about its content changed.
 	head, err := p.Worktrees.CommitAttempt(a.recordingGitLocks(ctx), a.worktree, integrationMessage(a.item, a.outcome))
+	if approvedUnchanged(err) && resolution == nil {
+		// An approved change with nothing above its base has nothing for the
+		// queue to land, and the run ends complete (approvedunchanged.go).
+		outcome, err := a.completeUnchanged(ctx)
+		return outcome, true, err
+	}
 	if err != nil {
 		return end(fmt.Errorf("commit the approved change for the merge queue: %w", err))
 	}

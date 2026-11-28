@@ -408,6 +408,11 @@ func undischargedLandingReason(state runstate.State) string {
 		return fmt.Sprintf("Yoyodyne run %s raised this item as one that cannot be met as it stands, so nothing was integrated and the item is parked with the escalation in front of the development manager to decide — replan, park, resequence, or redirect. The %s's account: %s",
 			state.RunID, state.EscalatedBy().Title(), state.EscalationReason())
 	}
+	// A run approved with no file changes integrated nothing, so it is told in
+	// words that do not send a reader looking for a change (approvedunchanged.go).
+	if state.ApprovedWithNoChanges && !state.OwesReleaseTag() {
+		return unchangedUndischargedReason(state)
+	}
 	if state.OwesReleaseTag() {
 		return fmt.Sprintf("Yoyodyne run %s integrated this release's notes into %s, and the %s tag is still owed, so the item stays open, parked, until the tag is on the remote. The release step of the maintenance pass closes it then, recording the tag and the commit it names: it cuts the tag itself under approvals.releases: automatic, and under human it says here that the cut is a step only the operator can take.",
 			state.RunID, nonEmpty(state.TargetBranch, "the target branch"), state.ReleaseTagOwed)
