@@ -19,7 +19,9 @@ package orchestrator
 // run's verdicts, and a verdict that decided nothing must not be among them.
 // The cost log carries it too, against this run and item as a review, on a line
 // marked as a comparison: the accomplishment reading takes every other review
-// line as a review that judged the change.
+// line as a review that judged the change. The sessions those lines name are
+// recorded on the run's record of the second review, which is how the reading
+// counts each line as that review's own cost (readmodel/comparisoncost.go).
 //
 // It is a provider call, so it is not made while the operator holds harness
 // activity or once a stop of the run was requested. It is skipped rather than
@@ -27,6 +29,8 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/cost/costevent"
@@ -66,6 +70,7 @@ func (a *activeRun) compareDocumentReview(ctx context.Context, request review.Re
 		if !costevent.Carries(event) {
 			return nil
 		}
+		comparison.Sessions = withSession(comparison.Sessions, eventSession(event))
 		return a.sink(event)
 	}
 	request.Spend.Comparison = true
@@ -73,6 +78,7 @@ func (a *activeRun) compareDocumentReview(ctx context.Context, request review.Re
 	if result.LastSequence > a.state.LastSequence {
 		a.state.LastSequence = result.LastSequence
 	}
+	comparison.Sessions = withSession(comparison.Sessions, result.SessionID)
 	comparison.At = p.clock().Now().UTC()
 	switch {
 	case err != nil:
@@ -85,6 +91,27 @@ func (a *activeRun) compareDocumentReview(ctx context.Context, request review.Re
 		comparison.CheaperFindings = len(result.Verdict.Findings)
 	}
 	a.state.RecordReviewComparison(comparison)
+}
+
+// eventSession is the provider session a cost-carrying event names, and empty
+// where it names none.
+func eventSession(event execution.Event) string {
+	var payload struct {
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(event.Payload, &payload) != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.SessionID)
+}
+
+// withSession adds a session to the list once.
+func withSession(sessions []string, session string) []string {
+	session = strings.TrimSpace(session)
+	if session == "" || slices.Contains(sessions, session) {
+		return sessions
+	}
+	return append(sessions, session)
 }
 
 // comparisonWithheld says why a second review must not be started now, and is

@@ -3,6 +3,7 @@ package readmodel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -298,19 +299,64 @@ func TestAccomplishmentLeavesComparisonReviewsOutOfTheReviews(t *testing.T) {
 		return RoleAccomplishment{}
 	}
 	lines := append(fakeAccomplishmentSpend(nil), sources.Spend.(fakeAccomplishmentSpend)...)
-	// After run-a1's first verdict, so before its second, and after run-doc's only one.
-	for _, at := range []struct{ when, run, item string }{{"2026-10-17 13:05", "run-a1", "yoyodyne-aaa"}, {"2026-10-21 15:04", "run-doc", "run-doc"}} {
-		line := inRun(spent(domain.RoleReviewer, runstate.SpendPhaseReview, atPacific(t, at.when), 0.25), at.run, at.item)
-		line.Comparison = true
+	runs := sources.Runs.(fakeAccomplishmentRuns)
+	runs.states = append([]runstate.State(nil), runs.states...)
+	// One after run-a1's first verdict, so followed by a further verdict, and one
+	// after run-doc's only verdict, so followed by none. A third on run-doc names
+	// a session no recorded second review names, as a pair recorded before the
+	// sessions were kept does.
+	for _, at := range []struct {
+		when, run, item, session string
+		amount                   float64
+	}{
+		{"2026-10-17 13:05", "run-a1", "yoyodyne-aaa", "second-a1", 0.25},
+		{"2026-10-21 15:04", "run-doc", "run-doc", "second-doc", 0.25},
+		{"2026-10-21 15:04", "run-doc", "run-doc", "unrecorded", 0.1},
+	} {
+		line := inRun(spent(domain.RoleReviewer, runstate.SpendPhaseReview, atPacific(t, at.when), at.amount), at.run, at.item)
+		line.Comparison, line.SessionID = true, at.session
 		lines = append(lines, line)
+		if at.session == "unrecorded" {
+			continue
+		}
+		for index := range runs.states {
+			if runs.states[index].RunID == at.run {
+				runs.states[index].ReviewComparisons = append(runs.states[index].ReviewComparisons, runstate.ReviewComparison{
+					At: atPacific(t, at.when).Add(time.Second), CheaperModel: "sonnet", CheaperDecision: "repair", Sessions: []string{at.session}})
+			}
+		}
 	}
-	sources.Spend = lines
+	sources.Spend, sources.Runs = lines, runs
 	with := ReadAccomplishment(context.Background(), sources, week)
 	if with.Problem != "" || len(without.Reviews) == 0 || !reflect.DeepEqual(with.Reviews, without.Reviews) || !reflect.DeepEqual(with.ReviewOutcomes, without.ReviewOutcomes) {
 		t.Fatalf("reviews with comparisons = %+v, want %+v (%s)", with.Reviews, without.Reviews, with.Problem)
 	}
-	if got, want := reviewer(with).CostUSD, reviewer(without).CostUSD+0.5; math.Abs(got-want) > 1e-9 {
+	if got, want := reviewer(with).CostUSD, reviewer(without).CostUSD+0.6; math.Abs(got-want) > 1e-9 {
 		t.Fatalf("the reviewer's spend is %v, want %v with the comparisons counted", got, want)
+	}
+	if got, want := with.CostUSD, without.CostUSD+0.6; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("the total is %v, want %v: every comparison line counted once", got, want)
+	}
+	// Each second review's cost is its own, once, and the line no record names
+	// is the comparison's without being any one review's.
+	var got []string
+	for _, second := range with.Comparisons {
+		got = append(got, fmt.Sprintf("%s %s %q %.2f %d %t", second.RunID, second.Model, second.Decision, second.CostUSD, second.Invocations, second.Unattributed))
+	}
+	want := []string{
+		`run-a1 sonnet "repair" 0.25 1 false`,
+		`run-doc  "" 0.10 1 true`,
+		`run-doc sonnet "repair" 0.25 1 false`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("second reviews are\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if math.Abs(with.ComparisonCostUSD-0.6) > 1e-9 || !strings.Contains(with.ComparisonsSays, "2 second reviews of documents on the cheaper model cost $0.60") ||
+		!strings.Contains(with.ComparisonsSays, "1 provider call costing $0.10 could not be tied to one second review") {
+		t.Fatalf("second reviews cost %v, said %q", with.ComparisonCostUSD, with.ComparisonsSays)
+	}
+	if len(without.Comparisons) != 0 || without.ComparisonsSays != "" {
+		t.Fatalf("with no second review the reading says %+v, %q", without.Comparisons, without.ComparisonsSays)
 	}
 }
 

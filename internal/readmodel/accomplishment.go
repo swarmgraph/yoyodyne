@@ -268,6 +268,28 @@ type ReviewAccomplishment struct {
 	Outcome     ReviewOutcome `json:"outcome"`
 }
 
+// SecondReviewCost is one second review of a document publication, made only to
+// compare a cheaper model's verdict with the deciding one, and what it cost
+// (comparisoncost.go). It judged nothing, so it is never one of the reviews.
+type SecondReviewCost struct {
+	RunID      string    `json:"run_id"`
+	WorkItemID string    `json:"work_item_id"`
+	Title      string    `json:"title,omitempty"`
+	At         time.Time `json:"at"`
+	// Model and Decision are the cheaper model and what it decided, empty where
+	// the review reached no verdict, and both empty on an unattributed entry.
+	Model       string  `json:"model,omitempty"`
+	Decision    string  `json:"decision,omitempty"`
+	CostUSD     float64 `json:"cost_usd"`
+	Invocations int     `json:"invocations"`
+	// Unpriced counts its invocations whose cost was never reported.
+	Unpriced int `json:"unpriced,omitempty"`
+	// Unattributed marks the cost of second reviews of this run that no recorded
+	// second review names, which is known to be the comparison's but not which
+	// of them it was.
+	Unattributed bool `json:"unattributed,omitempty"`
+}
+
 // CompletedItemCost is one item whose change merged in the range and what it
 // cost, broken down.
 type CompletedItemCost struct {
@@ -304,6 +326,12 @@ type Accomplishment struct {
 	// their totals.
 	Reviews        []ReviewAccomplishment `json:"reviews"`
 	ReviewOutcomes []OutcomeShare         `json:"review_outcomes"`
+	// Comparisons are every second document review in the range, oldest first,
+	// each with its own cost; ComparisonCostUSD is what they cost together, and
+	// ComparisonsSays says it in a sentence, empty where there were none.
+	Comparisons       []SecondReviewCost `json:"comparisons"`
+	ComparisonCostUSD float64            `json:"comparison_cost_usd"`
+	ComparisonsSays   string             `json:"comparisons_says,omitempty"`
 	// Completed are the items whose change merged in the range, newest first,
 	// with their mean full cost.
 	Completed            []CompletedItemCost `json:"completed"`
@@ -372,7 +400,7 @@ func ReadAccomplishment(ctx context.Context, sources AccomplishmentSources, span
 		now = sources.Now()
 	}
 	reading := Accomplishment{ObservedAt: now, Zone: zone.String(), Roles: []RoleAccomplishment{}, Weeks: []WeekAccomplishment{},
-		Passes: []ManagementPass{}, Reviews: []ReviewAccomplishment{}, Completed: []CompletedItemCost{}}
+		Passes: []ManagementPass{}, Reviews: []ReviewAccomplishment{}, Comparisons: []SecondReviewCost{}, Completed: []CompletedItemCost{}}
 	from, to, err := accomplishmentSpan(span, now, zone)
 	if err != nil {
 		reading.Problem = err.Error()
@@ -429,6 +457,8 @@ func ReadAccomplishment(ctx context.Context, sources AccomplishmentSources, span
 	}
 	reading.Reviews = append(reading.Reviews, reviews...)
 	reading.ReviewOutcomes = reviewShares(reviews)
+	reading.Comparisons = append(reading.Comparisons, comparisonReviews(lines, runs, from, to)...)
+	reading.ComparisonCostUSD, reading.ComparisonsSays = comparisonsSaid(reading.Comparisons)
 	reading.Completed = append(reading.Completed, completed...)
 	reading.CompletedCostUSD, reading.CostPerCompletedItem = completedMean(completed)
 
