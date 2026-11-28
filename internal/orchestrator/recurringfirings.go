@@ -313,7 +313,13 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 			known[due.Task] = true
 		}
 	}
-	var candidates []candidate
+	// While epic mode is on, an event of an open epic starts the three roles'
+	// passes in place of the clock, and a critical report waiting on the
+	// development manager or the architect is one such event (epicwakes.go).
+	candidates, epicMode, err := t.epicWakeCandidates(ctx, away)
+	if err != nil {
+		problems = append(problems, err)
+	}
 	// A critical report nobody has put in front of the Lead Product Manager is
 	// delivered as a firing of her task, in place of her task's own firing: the
 	// delivery is her pass, and it moves her cadence as one. A provider answering
@@ -325,6 +331,7 @@ func (t Trigger) candidates(ctx context.Context, outage runstate.ProviderOutage,
 		if err != nil {
 			problems = append(problems, err)
 		}
+		pending = leftToTheirRoles(pending, epicMode)
 		if len(pending) > 0 {
 			delivering = name
 			due := pending[0].RecordedAt

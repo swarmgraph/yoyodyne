@@ -100,7 +100,7 @@ func TestAnUnreadableEpicStartsNothingOfItsOwnAndOthersCarryOn(t *testing.T) {
 			for _, start := range []Start{Run(ReadyWork, member), DocumentRun(PublishDocument, member), DocumentRun(PublishDocument, openEpicID), JudgmentOfAPiece(named(openEpicID)), CheckOfTheEpic(named(openEpicID)), JudgmentOfAComment(named(openEpicID))} {
 				wantAnswer(t, root, start, CouldNotTell, openEpicID, "`yoyo epic end "+openEpicID+"`")
 			}
-			for _, start := range []Start{Run(ReadyWork, otherItem), DocumentRun(PublishDocument, member, otherItem), Pass(RecurringPass, "architect"), UpdateFromTeam("staging"), JudgmentOfAPiece(named(otherEpic)), CheckOfTheEpic(named(otherEpic)), JudgmentOfAComment(named(otherEpic))} {
+			for _, start := range []Start{Run(ReadyWork, otherItem), DocumentRun(PublishDocument, member, otherItem), Pass(PromptedPass, "architect"), UpdateFromTeam("staging"), JudgmentOfAPiece(named(otherEpic)), CheckOfTheEpic(named(otherEpic)), JudgmentOfAComment(named(otherEpic))} {
 				wantAnswer(t, root, start, May)
 			}
 			end(t, root, otherEpic)

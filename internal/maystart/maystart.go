@@ -280,7 +280,7 @@ func decide(view epicprogress.View, start Start) Decision {
 	case documentRun:
 		return decideDocument(view, start.items)
 	case rolePass:
-		return decidePass(view, start.role)
+		return decidePass(view, start.path, start.role)
 	case goalReview:
 		return mayNot("the review of unmet goals does not start while the factory works only on the epics the operator named")
 	case messageReading:
@@ -448,13 +448,22 @@ func decideDocument(view epicprogress.View, answers []string) Decision {
 	return mayNot("the document answers no open epic the operator named and no work item in one")
 }
 
-func decidePass(view epicprogress.View, role domain.AgentRole) Decision {
+// decidePass lets a pass of the three roles start while an epic is open, and then
+// only one an event, a label or a request started: while epic mode is on the
+// clock starts none (docs/designs/epic-mode-second-part.md, "When each role
+// runs: piece 13"; internal/epicwake paces the passes events start).
+func decidePass(view epicprogress.View, path Path, role domain.AgentRole) Decision {
 	switch role {
 	case domain.RoleProductManager, domain.RoleDevelopmentManager, domain.RoleArchitect:
-		if openEpic(view, func(string) bool { return true }) {
-			return Decision{Answer: May}
+		if !openEpic(view, func(string) bool { return true }) {
+			return noEpic(view)
 		}
-		return noEpic(view)
+		if path == RecurringPass {
+			decision := mayNot("a role's pass is not started by the clock while the factory works only on the epics the operator named; an event of an open epic that the role owes something for starts it")
+			decision.Clears = "an event of an open epic owes the role a step, or the operator runs `yoyo epic off`"
+			return decision
+		}
+		return Decision{Answer: May}
 	case domain.RoleProgramManager:
 		return mayNot("a program manager's pass does not start while the factory works only on the epics the operator named")
 	default:

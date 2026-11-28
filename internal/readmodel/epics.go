@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epiccost"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
+	"github.com/mason-bryant/yoyodyne/internal/epicwake"
 	"github.com/mason-bryant/yoyodyne/internal/maystart"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -85,6 +86,18 @@ func (e epicRecords) Progress(record epicscope.Record) (epicprogress.View, strin
 
 func (e epicRecords) Cost(view epicprogress.View, epic epicscope.Epic) (epiccost.Standing, error) {
 	return epiccost.Read(e.stateRoot, e.product, view, epic)
+}
+
+// EpicWakesRaised is each event of a named epic that no pass settled, which
+// status shows as a problem (internal/epicwake). It is an optional capability of
+// EpicRecords.
+type EpicWakesRaised interface {
+	Raised() ([]epicwake.Kept, error)
+}
+
+func (e epicRecords) Raised() ([]epicwake.Kept, error) {
+	record, err := epicwake.Read(e.stateRoot, e.product)
+	return record.Raised(), err
 }
 
 // Epics is the mode and the named epics as of one reading.
@@ -276,6 +289,16 @@ func readEpics(ctx context.Context, sources Sources, standing Standing, needs []
 		epics.Ended = append(epics.Ended, EndedEpic{WorkItemID: epic.WorkItemID, Title: facts.title(epic.WorkItemID, ""), EpicStanding: standings.of(epic)})
 	}
 	epics.Suggestions, epics.SuggestionsProblem = facts.suggestions(sources)
+	if wakes, readable := sources.Epics.(EpicWakesRaised); readable && record.On() {
+		raised, err := wakes.Raised()
+		if err != nil {
+			epics.Problems = append(epics.Problems, fmt.Sprintf("Which events of the named epics no pass settled could not be read (%s).", singleLine(err.Error(), maxEpicReasonBytes)))
+		}
+		for _, event := range raised {
+			epics.Problems = append(epics.Problems, fmt.Sprintf("Since %s nothing more starts for this, because %d passes of the Lead Product Manager ended without settling it: %s",
+				localMoment(*event.Raised), epicwake.PassesBeforeMoving, singleLine(event.Says, maxEpicReasonBytes)))
+		}
+	}
 	refusedSince := map[string]time.Time{}
 	for _, refused := range refusals.Items {
 		if since, known := refusedSince[refused.WorkItemID]; !known || refused.Since.Before(since) {

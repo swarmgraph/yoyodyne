@@ -165,6 +165,9 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			return standing.NeedsHuman, standing.NeedsHumanProblem
 		}
 	}
+	// While epic mode is on the three roles' passes are started by events of the
+	// named epics, read from the same standing status shows (epicwake.go).
+	trigger.EpicWakes = epicWakes{parts: parts, configPath: configPath}
 	// The docket a development manager's pass carries, built by the docketer her
 	// conversation builds it with and rendered by the section her conversation
 	// renders, so the two never disagree about what is waiting on her.

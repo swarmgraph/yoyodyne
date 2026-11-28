@@ -54,7 +54,7 @@ func TestPastItsBudgetAnEpicStartsNoMemberAndWorkUnderWayGoesOn(t *testing.T) {
 		}
 	}
 	// Nothing else the decision answers is changed by the budget.
-	for _, start := range []Start{Pass(RecurringPass, domain.RoleArchitect), JudgmentOfAPiece(named(openEpicID)), DocumentRun(PublishDocument, member)} {
+	for _, start := range []Start{Pass(PromptedPass, domain.RoleArchitect), JudgmentOfAPiece(named(openEpicID)), DocumentRun(PublishDocument, member)} {
 		if decision := decideWith(root, product, start, spent(25)); !decision.MayStart() {
 			t.Errorf("%+v past the limit is %+v", start, decision)
 		}
