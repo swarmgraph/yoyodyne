@@ -149,3 +149,67 @@ func TestAPieceWhoseLinkFailsIsSaidNotToJoin(t *testing.T) {
 		t.Fatalf("outcome %#v, updates %#v", outcome, tracker.updates)
 	}
 }
+
+// fakeCommentCorrections owes a correction for the review comment "comment-21" of
+// "yoyodyne-ep" only, beside what fakeCorrections owes for checks.
+type fakeCommentCorrections struct {
+	fakeCorrections
+	commentLinked, commentNoted []string
+}
+
+func (f *fakeCommentCorrections) MayCorrectComment(epic, comment string) error {
+	if epic != "yoyodyne-ep" || comment != "comment-21" {
+		return errors.New("no correction is owed for the review comment " + comment + " of epic " + epic)
+	}
+	if len(f.commentLinked) > 0 {
+		return errors.New("the correction owed for the review comment comment-21 of epic yoyodyne-ep has already been written, as yoyodyne-1")
+	}
+	return nil
+}
+
+func (f *fakeCommentCorrections) CorrectingComment(epic, comment, piece string) (string, error) {
+	f.commentLinked = append(f.commentLinked, epic+" "+comment+" "+piece)
+	return "Written as the correction owed by review comment " + comment + " on merged pull request #7 of yoyodyne-ep.1, in the epic " + epic + ".", nil
+}
+
+func (f *fakeCommentCorrections) NotedComment(epic, comment string) error {
+	f.commentNoted = append(f.commentNoted, epic+" "+comment)
+	return nil
+}
+
+var commentAction = strings.Replace(correctingAction, `"epic_check":"check-1"`, `"epic_comment":"comment-21"`, 1)
+
+// The development manager's piece naming a review comment with a correction owed
+// is linked to that comment and noted; naming one with none owed, or a second
+// piece for one, is refused with the reason before anything is created.
+func TestAPieceNamingAnOwedReviewCommentIsLinkedOnce(t *testing.T) {
+	t.Parallel()
+	corrections := &fakeCommentCorrections{}
+	outcome, tracker := createCorrecting(t, domain.RoleDevelopmentManager, commentAction, corrections)
+	if !outcome.Applied || len(tracker.created) != 1 || !strings.Contains(outcome.Summary, "as the correction owed by the review comment comment-21 of epic yoyodyne-ep") {
+		t.Fatalf("outcome %#v, created %d", outcome, len(tracker.created))
+	}
+	if len(corrections.commentLinked) != 1 || corrections.commentLinked[0] != "yoyodyne-ep comment-21 yoyodyne-1" || len(corrections.commentNoted) != 1 || len(corrections.linked) != 0 {
+		t.Fatalf("linked %v, noted %v, checks linked %v", corrections.commentLinked, corrections.commentNoted, corrections.linked)
+	}
+	if len(tracker.updates) != 1 || !strings.Contains(tracker.updates[0].change.AppendNotes, "review comment comment-21 on merged pull request #7") {
+		t.Fatalf("updates %#v, want the note of fixed form on the piece", tracker.updates)
+	}
+	for name, test := range map[string]struct {
+		action      string
+		corrections EpicCorrections
+		says        string
+	}{
+		"no correction owed":  {strings.Replace(commentAction, "comment-21", "comment-22", 1), &fakeCommentCorrections{}, "no correction is owed for the review comment comment-22"},
+		"a second piece":      {commentAction, corrections, "has already been written, as yoyodyne-1"},
+		"comments not wired":  {commentAction, &fakeCorrections{}, "no piece can be linked to a review comment"},
+		"a check and comment": {strings.Replace(commentAction, `"epic_comment"`, `"epic_check":"check-1","epic_comment"`, 1), &fakeCommentCorrections{}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			outcome, tracker := createCorrecting(t, domain.RoleDevelopmentManager, test.action, test.corrections)
+			if outcome.Applied || len(tracker.created) != 0 || !strings.Contains(outcome.Failure, test.says) {
+				t.Fatalf("outcome %#v, created %d; want refused saying %q", outcome, len(tracker.created), test.says)
+			}
+		})
+	}
+}

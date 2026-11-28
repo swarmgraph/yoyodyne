@@ -88,7 +88,9 @@ func (s *Store) Ask(naming Naming, piece Piece) error {
 			return err
 		}
 		entry, _ := view.Entry(naming)
-		if check, correcting := entry.Correcting(piece.WorkItemID); correcting {
+		if comment, correcting := entry.CorrectingComment(piece.WorkItemID); correcting {
+			piece.From = FromComment(comment.ID)
+		} else if check, correcting := entry.Correcting(piece.WorkItemID); correcting {
 			piece.From = FromCheck(check.ID)
 		} else if !slices.Contains(view.Items(epic), piece.From) {
 			return fmt.Errorf("work item %s is not in epic %s, so a piece of it cannot join", piece.From, epic.WorkItemID)
@@ -369,6 +371,119 @@ func (s *Store) CommentQuestioned(naming Naming, id, report string) (string, err
 		return nil
 	})
 	return standing, err
+}
+
+// MergedCommentRead writes feedback on a member's merged pull request, under the
+// forge's identifier, with the one correction it owes, before anything else is
+// done with it: the development manager then writes the piece. It answers the
+// comment that stands and whether this write made it, so the same comment read
+// twice, or again after a restart, owes one correction.
+func (s *Store) MergedCommentRead(naming Naming, comment Comment, missing string) (Comment, bool, error) {
+	if comment.ID == "" || comment.PullRequest <= 0 || !beads.ValidIssueID(comment.Member) || strings.TrimSpace(missing) == "" {
+		return Comment{}, false, errors.New("feedback on a merged pull request needs the forge's identifier, its member, its pull request and what it asks")
+	}
+	standing, made := comment, false
+	err := epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		view, epic, err := s.open(record, naming)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(view.Items(epic), comment.Member) {
+			return fmt.Errorf("work item %s is not in epic %s", comment.Member, epic.WorkItemID)
+		}
+		return s.change(naming, func(entry *Entry) error {
+			if kept, found := entry.Comment(comment.ID); found {
+				standing = kept
+				return errUnchanged
+			}
+			standing.At, standing.Judgment, standing.Outcome, standing.Question = s.now().UTC(), "", nil, ""
+			standing.Owed = &Correction{Missing: strings.TrimSpace(missing), At: standing.At}
+			standing.Became = fmt.Sprintf("read on merged pull request #%d of %s while the epic was open and not delivered, so one correcting piece is owed for it, for the development manager to write", comment.PullRequest, comment.Member)
+			entry.Comments = append(entry.Comments, standing)
+			made = true
+			return nil
+		})
+	})
+	return standing, made, err
+}
+
+// commentOwedFor is why a piece may not be written for a review comment of an
+// open epic, and nil where a correction is owed for it that names no piece, or
+// names this one.
+func commentOwedFor(view View, epic epicscope.Epic, commentID, piece string) error {
+	entry, _ := view.Entry(Of(epic))
+	comment, found := entry.Comment(commentID)
+	switch {
+	case !found:
+		return fmt.Errorf("epic %s has read no review comment %s", epic.WorkItemID, commentID)
+	case comment.Owed == nil:
+		return fmt.Errorf("no correction is owed for the review comment %s of epic %s", commentID, epic.WorkItemID)
+	case comment.Owed.Piece != "" && comment.Owed.Piece != piece:
+		return fmt.Errorf("the correction owed for the review comment %s of epic %s has already been written, as %s", commentID, epic.WorkItemID, comment.Owed.Piece)
+	}
+	return nil
+}
+
+// MayCorrectComment is why a piece correcting a review comment of the epic may not
+// be written, and nil where it may: the epic is open and a correction is owed for
+// the comment that no piece has been written for.
+func (s *Store) MayCorrectComment(epic, commentID string) error {
+	record, err := epicscope.Read(s.stateRoot, s.product)
+	if err != nil {
+		return err
+	}
+	view, named, err := s.openNamed(record, epic)
+	if err != nil {
+		return err
+	}
+	return commentOwedFor(view, named, commentID, "")
+}
+
+// CorrectingComment writes the piece written for a review comment's owed
+// correction into that correction, and answers the note of fixed form to write on
+// the piece after it. Writing the same piece again changes nothing.
+func (s *Store) CorrectingComment(epic, commentID, piece string) (note string, err error) {
+	err = epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		view, named, err := s.openNamed(record, epic)
+		if err != nil {
+			return err
+		}
+		if err := commentOwedFor(view, named, commentID, piece); err != nil {
+			return err
+		}
+		if holders := view.Holders(piece); len(holders) > 0 {
+			return fmt.Errorf("work item %s is already in epic %s", piece, holders[0].WorkItemID)
+		}
+		return s.changeComment(Of(named), commentID, func(comment *Comment) error {
+			note = CommentCorrectionNote(epic, *comment)
+			if comment.Owed.Piece == piece {
+				return errUnchanged
+			}
+			comment.Owed.Piece = piece
+			return nil
+		})
+	})
+	return note, err
+}
+
+// NotedComment writes that the note of fixed form is on the piece a review
+// comment's correction names.
+func (s *Store) NotedComment(epic, commentID string) error {
+	record, err := epicscope.Read(s.stateRoot, s.product)
+	if err != nil {
+		return err
+	}
+	named, found := record.Named(epic)
+	if !found || !named.Open() {
+		return fmt.Errorf("%s is not an open epic the operator named", epic)
+	}
+	return s.changeComment(Of(named), commentID, func(comment *Comment) error {
+		if comment.Owed == nil || comment.Owed.Piece == "" || comment.Owed.Noted {
+			return errUnchanged
+		}
+		comment.Owed.Noted = true
+		return nil
+	})
 }
 
 func (s *Store) changeComment(naming Naming, id string, apply func(*Comment) error) error {

@@ -189,6 +189,10 @@ type Reconciler struct {
 	// answers it (forgefeedback.go). Nil judges nothing, and every change request
 	// is answered as it is without epic mode.
 	EpicComments EpicComments
+	// EpicMerged lists the members of the epics the operator named and has not
+	// ended, and records feedback on their merged pull requests
+	// (epicmergedfeedback.go). Nil reads no merged pull request.
+	EpicMerged EpicMergedFeedback
 	// UpdateNotDue takes away the refused update of a run by one path, kept by
 	// MayStart, where a check of the run finds no update due, cannot tell, or
 	// finds the run cannot be put back (maystart.UpdateNotDue). The list of

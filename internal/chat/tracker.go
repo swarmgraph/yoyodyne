@@ -315,7 +315,7 @@ const (
 var trackerActionArguments = map[string][]string{
 	actionRead:         {"report", "offset"},
 	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects", "epic_check"},
+	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects", "epic_check", "epic_comment"},
 	actionAttribute:    {"goal"},
 	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals", "kind", "corrects"},
 	actionLabel:        {"add", "remove"},
@@ -590,6 +590,11 @@ type TrackerAction struct {
 	// for it already, and otherwise links the piece to the check in the epic's
 	// progress (epiccorrection.go).
 	EpicCheck string `json:"epic_check,omitempty"`
+	// EpicComment names, by the forge's identifier, the review comment on a member's
+	// merged pull request that a correcting piece answers, the same way: taken by a
+	// creation alone, the parent is the epic, and the harness refuses it where no
+	// correction is owed for the comment or one has been written for it already.
+	EpicComment string `json:"epic_comment,omitempty"`
 	// Proposal names the undecided proposal a withdrawal takes back, exactly as
 	// it was listed, and is taken by a withdrawal and by nothing else.
 	Proposal string `json:"proposal,omitempty"`
@@ -1671,6 +1676,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.EpicCheck) != "" {
 		carried = append(carried, "epic_check")
+	}
+	if strings.TrimSpace(a.EpicComment) != "" {
+		carried = append(carried, "epic_comment")
 	}
 	if strings.TrimSpace(a.Proposal) != "" {
 		carried = append(carried, "proposal")

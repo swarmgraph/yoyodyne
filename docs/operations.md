@@ -2103,6 +2103,35 @@ epic is Working, and status names the repair. Once the repaired change is approv
 check of the whole epic is made again on the new approved heads before the epic is
 shown as delivered again, and that check is not a round of correction.
 
+### A comment on a member's merged pull request
+
+Every other reader of pull request feedback stops once a pull request is no longer
+open. While you have an epic named and not ended, the forge check also reads each
+member's merged pull request: the one whose merge, with its merge commit, the harness
+recorded for that member. It reads them on the same schedule as the pull requests
+waiting for a person's merge, with the same rule for whose words count, so the
+factory's own comments are left out, and approvals are not feedback. Only what was
+said after the recorded merge is read. A pull request closed unmerged is not read,
+because the item already went back to the Lead Product Manager, and a member done with
+no pull request has nothing to read. With no epic named, or once you end the naming, no
+merged pull request is read.
+
+While the epic is not delivered, each such comment is written into the epic's entry in
+`epic-progress.json` by its forge identifier, together with the one correcting piece it
+owes, in the same write and before anything else is done with it. The same comment
+read twice, or again after a restart, owes that one piece. Status names it as the
+development manager's step: she writes the piece with a `create` whose `parent` is the
+epic and whose `epic_comment` names the comment as status shows it. The harness refuses
+that creation, saying why, where no correction is owed for the comment or a piece was
+already written for it. It writes the piece's identifier into the comment's entry
+first and then a note of fixed form on the piece, and the piece joins the epic only
+once a reviewer session that did not write it, given the epic's description, the member
+and the comment, judges it inside. Judged outside, or where the session cannot tell, it
+is a question about scope for the Lead Product Manager.
+
+A comment read once the epic is delivered, integrated or handed over, is left as it is
+and records nothing yet; it is read again by every check.
+
 ## Holding landing on one branch
 
 Your own script may need the harness to land nothing on a branch for a while: a
