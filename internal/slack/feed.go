@@ -197,7 +197,9 @@ type Delivery struct {
 	// at three in the morning, as well as in the channel. It is set on the one
 	// class of message that is about the harness itself being degraded rather than
 	// about any work, because a channel is a place somebody chooses to look and a
-	// degraded harness is exactly what they will not think to look for.
+	// degraded harness is exactly what they will not think to look for. It is also
+	// set on the question about an open item outside a named epic that could block
+	// a member, which the design has said to them once, as information.
 	//
 	// It names nobody. Who the operators are is the surface's — the same member
 	// ids a reply is authorized against — and a feed that named them would be a
@@ -537,6 +539,15 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 		})
 	if err != nil {
 		return Batch{}, err
+	}
+	// The question about an open item outside a named epic that could block a
+	// member is said to the operators directly as well, once, as information: it
+	// names the add only he can make (docs/designs/epic-mode-second-part.md, "An
+	// item outside the epic that could block a member", point 5).
+	for at := range reported {
+		if strings.HasPrefix(reported[at].Notification.Event.Refs.RunID, report.OutsideEpicBlockerRun) {
+			reported[at].Direct = true
+		}
 	}
 	batch.Deliveries = append(batch.Deliveries, reported...)
 

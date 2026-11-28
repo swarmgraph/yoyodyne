@@ -268,6 +268,17 @@ func (c components) epicStarts() orchestrator.EpicStarts {
 	}
 }
 
+// epicHolding is which named epic an item is in, read from the epics' progress.
+func (c components) epicHolding() orchestrator.EpicHolding {
+	return func(item string) (string, func(string) bool, error) {
+		store, err := c.epicProgress()
+		if err != nil {
+			return "", nil, err
+		}
+		return store.EpicHolding(item)
+	}
+}
+
 // pieceTexts compares the text of a piece that joined a named epic with the texts
 // judged inside it.
 func (c components) pieceTexts() orchestrator.PieceTexts {
@@ -861,9 +872,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	mcpCalls, mcpRecords := runMCPCalls(parts)
 
 	return orchestrator.Pipeline{
-		MayStart:   parts.mayStart(),
-		EpicStarts: parts.epicStarts(),
-		PieceTexts: parts.pieceTexts(),
+		MayStart:    parts.mayStart(),
+		EpicStarts:  parts.epicStarts(),
+		EpicHolding: parts.epicHolding(),
+		PieceTexts:  parts.pieceTexts(),
 		// A document that no longer waits is no longer one the named epics hold out.
 		EndRefusedDocument: func(id string) {
 			sayNotKept(maystart.DocumentEnded(parts.stateRoot, parts.config.Product.ID, id))

@@ -138,18 +138,41 @@ func (o *Operator) Add(epic, item string, at time.Time) (Record, error) {
 // AddCopying is Add with the item's text as it reads now copied beside it, which
 // is what the operator's command does.
 func (o *Operator) AddCopying(epic, item string, text *Text, at time.Time) (Record, error) {
+	texts := map[string]Text{}
+	if text != nil {
+		texts[item] = *text
+	}
+	return o.AddAll(epic, []string{item}, texts, at)
+}
+
+// AddAll adds several items to an open epic's members in one write, so they come
+// in as one act or not at all: an item another open epic holds refuses them all.
+// Each item's text in texts is copied beside it; one with none is kept without.
+func (o *Operator) AddAll(epic string, items []string, texts map[string]Text, at time.Time) (Record, error) {
 	return o.change(func(record *Record) error {
 		index, err := record.open(epic)
 		if err != nil {
 			return fmt.Errorf("%w; `yoyo epic start %s` names it", err, epic)
 		}
-		if record.Epics[index].Has(item) {
+		var adding []string
+		for _, item := range items {
+			if !record.Epics[index].Has(item) && !slices.Contains(adding, item) {
+				adding = append(adding, item)
+			}
+		}
+		if len(adding) == 0 {
 			return errUnchanged
 		}
-		if err := o.free(*record, epic, item); err != nil {
+		if err := o.free(*record, epic, adding...); err != nil {
 			return err
 		}
-		record.Epics[index].Members = append(record.Epics[index].Members, Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActAdd, Text: text})
+		for _, item := range adding {
+			member := Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActAdd}
+			if text, copied := texts[item]; copied {
+				member.Text = &text
+			}
+			record.Epics[index].Members = append(record.Epics[index].Members, member)
+		}
 		return nil
 	})
 }

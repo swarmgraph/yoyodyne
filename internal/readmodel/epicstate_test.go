@@ -1044,3 +1044,23 @@ func TestAChangeRequestWhoseJudgmentIsUnknownIsTheDevelopmentManagers(t *testing
 		t.Errorf("waits = %+v, want the development manager's", standing.Waits)
 	}
 }
+
+// An open item outside the epic that a pass asked the Lead Product Manager about,
+// because it could block a member, is named on status as her step with the add
+// that would bring it in, while it stays open and outside; once it closes, or the
+// operator adds it, it is named no more.
+func TestAnOutsideBlockerAskedAboutIsAStepOfTheLeadProductManagers(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.set(stateTwo, func(item *beads.WorkItem) {
+		item.Dependencies = []beads.Dependency{{ID: stateOther, Type: beads.BlocksDependency}}
+	})
+	b.entry.Blockers = []epicprogress.Blocker{{WorkItemID: stateOther, Member: stateTwo, Link: stateTwo + " waits on it", Report: "report-0123456789abcdef0123456789abcdef", At: hours(1)}}
+	b.wants(EpicWorking, "Waiting on the Lead Product Manager: Title "+stateOther+" ("+stateOther+") is open outside the epic and could block",
+		"report report-0123456789abcdef0123456789abcdef", "`yoyo epic add "+stateEpic+" "+stateOther+"` adds it")
+
+	b.status(stateOther, "closed")
+	if standing := b.read().Open[0].EpicStanding; strings.Contains(standing.render(), "is open outside the epic") {
+		t.Errorf("a closed blocker is still named: %s", standing.render())
+	}
+}
