@@ -841,9 +841,35 @@ secrets removed.
 A resumed or continued run checks the environments again before its next
 developer turn, because the machine may have changed; an environment that now
 passes stops being recorded as still to be checked. A repair round inside the
-same run does not check them again. Running each passing environment's `test`
-and leaving an item open when it lands with environments still to be checked
-are not built yet.
+same run does not check them again.
+
+The developer is told, before each turn, which environments the item names and
+which criteria each serves. For a `harness` environment it is told that only
+the harness can run its test, and that it is given the result only after it
+submits; a `developer` environment's test it can run itself.
+
+After the developer submits and its configured checks pass, and before review,
+the harness runs the `test` of each environment whose check passed, at the
+commit it made of the submitted change, in the same place and under the same
+limits as that environment's check. Each result is recorded on the run under
+`environment_tests`, with the same fields as a check's and the commit it ran
+on, and each round replaces the last. A test that fails, or does not finish
+within its `time_limit`, goes back to the developer as a failed check with the
+test's output, and spends one repair round, as any failed check does. The
+reviewer is given each test's result recorded on the commit under review, with
+that commit and where the test ran, and the list of environments still to be
+checked; a result recorded on any other commit is never shown to it. The merge
+candidate's checks do not run the tests again.
+
+Each run of a `check` or a `test` is given an empty folder of its own, named in
+`YOYODYNE_TEST_SCRATCH`, under the run's scratch folder at
+`scratch/<run id>/environment-runs/`, and the folder is removed when the command
+ends, pass or fail. A test that changes state, such as starting a disposable
+server, booting a simulator device or making a browser profile, does it there
+and stops what it started itself; the harness starts none of them.
+
+Leaving an item open when it lands with environments still to be checked is
+not built yet.
 [Checking a run's environment before implementation starts](../designs/checking-a-run-environment.md)
 is the design the rest follows.
 

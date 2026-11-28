@@ -152,7 +152,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `settleStopRequest`).
 13. **Checks.** `verify` (path gate, review-bound gate — `gateReviewBound`
     and `blockOnReviewBound` in `reviewbound.go` — self-verification gate,
-    configured checks), `integrationEarned` (reads the record, compares
+    configured checks, then `testEnvironmentsAtSubmittedHead` in
+    `environmenttests.go`: each passing environment's test at the submitted
+    commit, a failure handed back as a `checkFailure`, and the reviewer's
+    account of each result, `describeEnvironmentEvidence`; the checks before
+    the developer's turn and `runEnvironmentCommand`, which both run through,
+    are `environments.go`), `integrationEarned` (reads the record, compares
     `ContentIdentity`), `closeCheckStage`, `scaleCheckStage`,
     `checkStageTimeout`, `checkLimit` and `checkTimeout` (each check's own
     limit, scaled and capped), `checkTimedOut` (a check unfinished at its own

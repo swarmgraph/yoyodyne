@@ -67,7 +67,7 @@ func (a *activeRun) checkEnvironmentsBeforeTurn(ctx context.Context) error {
 		declared[strings.TrimSpace(environment.Name)] = environment
 	}
 	results := make([]runstate.EnvironmentCheck, 0, len(line.Needs))
-	for _, need := range line.Needs {
+	for index, need := range line.Needs {
 		environment, ok := declared[need.Name]
 		if !ok {
 			// Admission refuses an item naming an undeclared environment, so this
@@ -79,7 +79,7 @@ func (a *activeRun) checkEnvironmentsBeforeTurn(ctx context.Context) error {
 			})
 			continue
 		}
-		result, err := a.checkNamedEnvironment(ctx, environment, need)
+		result, err := a.checkNamedEnvironment(ctx, environment, need, index)
 		if err != nil {
 			return err
 		}
@@ -109,8 +109,21 @@ func (a *activeRun) checkEnvironmentsBeforeTurn(ctx context.Context) error {
 // checkNamedEnvironment runs one environment's check once, in the place its where
 // gives it, and says what became of it. Only a stop of the run itself is an
 // error; a check that could not be started is a check that failed, with why
-// as its output.
-func (a *activeRun) checkNamedEnvironment(ctx context.Context, environment config.Environment, need config.EnvironmentNeed) (runstate.EnvironmentCheck, error) {
+// as its output. index is the environment's place on the item's line, which
+// names the folder this run of the check is given.
+func (a *activeRun) checkNamedEnvironment(ctx context.Context, environment config.Environment, need config.EnvironmentNeed, index int) (runstate.EnvironmentCheck, error) {
+	record, _, err := a.runEnvironmentCommand(ctx, environment, need, environment.Check, a.state.BaseCommit, fmt.Sprintf("check-%d", index+1))
+	return record, err
+}
+
+// runEnvironmentCommand runs one of an environment's commands, its check or
+// its test, once, in the place its where gives it, and says what became of it
+// along with the runner's own result. commit is what the command is run
+// against, for the heavy-check record. Each run is given an empty folder of its
+// own under the run's scratch space, named in YOYODYNE_TEST_SCRATCH and
+// removed once the command ends (docs/designs/checking-a-run-environment.md,
+// section 6); folder is its name there.
+func (a *activeRun) runEnvironmentCommand(ctx context.Context, environment config.Environment, need config.EnvironmentNeed, command, commit, folder string) (runstate.EnvironmentCheck, checks.Result, error) {
 	p := a.pipeline
 	place := environment.Place()
 	record := runstate.EnvironmentCheck{
@@ -124,12 +137,12 @@ func (a *activeRun) checkNamedEnvironment(ctx context.Context, environment confi
 	request := checks.EnvironmentRequest{
 		RunID:        a.state.RunID,
 		Directory:    a.worktree.Path,
-		Command:      environment.Check,
+		Command:      command,
 		LastSequence: a.state.LastSequence,
 		TimeLimit:    environment.Limit(),
 		Permit: checks.PermitRequest{
 			WorkItemID: a.state.WorkItemID,
-			Commit:     a.state.BaseCommit,
+			Commit:     commit,
 			Priority:   heavyCheckPriority(a.state),
 		},
 	}
@@ -137,10 +150,22 @@ func (a *activeRun) checkNamedEnvironment(ctx context.Context, environment confi
 		restrictions, err := a.developerRestrictions()
 		if err != nil {
 			record.Result = runstate.EnvironmentFailed
-			record.Output = runstate.InstallOutputTail([]string{"the developer session's restrictions could not be stated for the check, so it was not run: " + err.Error()})
-			return record, nil
+			record.Output = runstate.InstallOutputTail([]string{"the developer session's restrictions could not be stated for the command, so it was not run: " + err.Error()})
+			return record, checks.Result{Command: command, Process: execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: -1, Stderr: record.Output}}, nil
 		}
 		request.Restrictions = &restrictions
+	}
+	if strings.TrimSpace(p.StateRoot) != "" {
+		scratch, err := execution.PrepareTestScratch(p.StateRoot, a.state.RunID, folder)
+		if err != nil {
+			record.Result = runstate.EnvironmentFailed
+			record.Output = runstate.InstallOutputTail([]string{"the empty folder the command is given could not be made, so it was not run: " + err.Error()})
+			return record, checks.Result{Command: command, Process: execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: -1, Stderr: record.Output}}, nil
+		}
+		request.TestScratch = scratch
+		// Removed however the command ends. A removal that fails leaves a folder
+		// inside the run's own scratch directory, which goes with the run.
+		defer func() { _ = execution.RemoveTestScratch(p.StateRoot, a.state.RunID, folder) }()
 	}
 	var output []string
 	collect := func(event execution.Event) error {
@@ -156,7 +181,7 @@ func (a *activeRun) checkNamedEnvironment(ctx context.Context, environment confi
 	finished := p.clock().Now()
 	record.DurationMilliseconds = max(finished.Sub(record.StartedAt).Milliseconds(), 0)
 	if runErr != nil && ctx.Err() != nil {
-		return record, context.Cause(ctx)
+		return record, result, context.Cause(ctx)
 	}
 	switch {
 	case runErr == nil && result.Passed:
@@ -171,10 +196,13 @@ func (a *activeRun) checkNamedEnvironment(ctx context.Context, environment confi
 		output = append(output, runErr.Error())
 	}
 	if request.Restrictions != nil && checks.DeveloperSandboxRefused(strings.Join(output, "\n")) {
-		output = append(output, "the developer session's restrictions could not be applied, because the harness is itself running inside a sandbox; the check never ran")
+		output = append(output, "the developer session's restrictions could not be applied, because the harness is itself running inside a sandbox; the command never ran")
 	}
 	record.Output = runstate.InstallOutputTail(output)
-	return record, nil
+	if result.Command == "" {
+		result.Command = command
+	}
+	return record, result, nil
 }
 
 // processOutputText is the text of one line a check printed, where event is

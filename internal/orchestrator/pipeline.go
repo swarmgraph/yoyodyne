@@ -4600,6 +4600,14 @@ func (a *activeRun) recordCheckFailure(failing checkFailure) {
 		TouchedTests: judgeFailingTests(failing),
 		ReviewBefore: before,
 	}
+	if failing.environment != nil {
+		said := environmentTestFailureSays(*failing.environment) + "\n\n"
+		output := a.state.CheckFailure.Output
+		if output == "" {
+			output = failing.environment.Output
+		}
+		a.state.CheckFailure.Output = said + boundedTail(output, max(runstate.MaxCheckOutputBytes-len(said), 0))
+	}
 }
 
 // judgeFailingTests is the judgment of a failed check's failing tests against
@@ -5243,6 +5251,10 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	// refusal that reached only some of them would be a refusal the developer
 	// learns of depending on why it was asked again.
 	prompt = a.openWithDeveloperRefusals(prompt)
+	// The developer is told which environments the item names and which
+	// criteria each serves, and is given their tests' results only after it
+	// submits (environmenttests.go).
+	prompt += environmentsBeforeTurnSection(a.state)
 	// A run whose recorded backend cannot be invoked here ends before anything is
 	// spent, rather than offering its session to a provider that never opened it
 	// (recordedbackend.go).
@@ -7926,6 +7938,16 @@ func (a *activeRun) verify(ctx context.Context) error {
 		a.state.KeptChecks = nil
 		return a.blockOnNoCheckRan(refused)
 	}
+	// Once the configured checks pass, the test of each environment whose check
+	// passed runs at the submitted commit, before review, and a failure is handed
+	// back as a failed check is (environmenttests.go). The merge candidate's
+	// checks do not run them again: their results are evidence for the commit
+	// they ran on, and for no other.
+	if !whole {
+		if err := a.testEnvironmentsAtSubmittedHead(ctx, changed); err != nil {
+			return err
+		}
+	}
 	// The change in the worktree now passes, so any failure an earlier attempt
 	// was handed is no longer this run's outstanding repair input. What replaces
 	// it is the evidence the promotion reads: these checks passed over this
@@ -8410,9 +8432,16 @@ type checkFailure struct {
 	// untouched (recordCheckFailure).
 	changed       []string
 	changedListed bool
+	// environment is the result of the environment's test that failed, where
+	// what failed is one of those rather than a configured check
+	// (environmenttests.go).
+	environment *runstate.EnvironmentCheck
 }
 
 func (e checkFailure) Error() string {
+	if e.environment != nil {
+		return "verification failed: " + e.environment.DescribeTest()
+	}
 	return fmt.Sprintf("verification failed: %s exited with %d", e.result.Command, e.result.Process.ExitCode)
 }
 
@@ -10828,7 +10857,11 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		CIChecks:     a.describeCIEvidence(ctx),
 		// Every test that failed and then passed when run once more on this
 		// candidate, with the first failure's output (untouchedrerun.go).
-		UntouchedReruns:         describeUntouchedReruns(a.state),
+		UntouchedReruns: describeUntouchedReruns(a.state),
+		// Each environment's test result on the commit under review, with that
+		// commit and where it ran, and the environments still to be checked
+		// (environmenttests.go).
+		Environments:            describeEnvironmentEvidence(a.state),
 		DeveloperSummary:        developerSummary,
 		DeveloperSummaryContext: summaryContext,
 		// Every earlier attempt's account too, so a repair's summary that leans
@@ -11828,6 +11861,9 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, lim
 	prompt.WriteString("# Failing check: repair required\n\n")
 	if failure.ForgeHeadCommit != "" {
 		fmt.Fprintf(&prompt, "The forge checks failed on your change and the harness withdrew its queued merge. This is repair attempt %d of %d. Continue the preserved change in your worktree and fix the reported failure.\n\nForge check: %s\nChecked commit: %s\n\n", attempt, limit, failure.Command, failure.ForgeHeadCommit)
+	} else if environmentTestFailed(failure) {
+		fmt.Fprintf(&prompt, "The test of an environment the work item names failed on your change. This is repair attempt %d of %d. Continue the change already in your worktree instead of starting over, and make this test pass.\n\n", attempt, limit)
+		fmt.Fprintf(&prompt, "Command: %s\nExit code: %d\n\n", failure.Command, failure.ExitCode)
 	} else {
 		fmt.Fprintf(&prompt, "A configured check failed on your change. This is repair attempt %d of %d. Continue the change already in your worktree instead of starting over, and make this check pass.\n\n", attempt, limit)
 		fmt.Fprintf(&prompt, "Command: %s\nExit code: %d\n\n", failure.Command, failure.ExitCode)
@@ -11864,6 +11900,8 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, lim
 	}
 	if failure.ForgeHeadCommit != "" {
 		prompt.WriteString("Work from the forge's account above; nothing asks you to fetch the forge. Run the relevant local checks and finish with a concise summary of what you changed. The harness runs fresh configured checks and independent review before publishing the repaired change.")
+	} else if environmentTestFailed(failure) {
+		prompt.WriteString("Fix the cause, run what you can yourself to confirm it, and finish with a concise summary of what you changed. The harness re-runs every configured check and this test afterwards; review and integration stay out of reach until they all pass.")
 	} else {
 		prompt.WriteString("Fix the cause, run the command yourself to confirm it passes, and finish with a concise summary of what you changed. The harness re-runs every configured check afterwards; review and integration stay out of reach until they all pass.")
 	}

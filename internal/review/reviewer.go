@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -167,6 +168,12 @@ type Request struct {
 	// record. It comes from the harness, not from the developer, and it is empty
 	// where no such rerun passed.
 	UntouchedReruns string
+	// Environments is the result of each environment's test the work item
+	// names, recorded on the commit under review, with that commit and where
+	// the test ran, and the environments still to be checked, already rendered
+	// by the caller from the run's record. It comes from the harness, not from
+	// the developer, and it is empty where the item names no environment.
+	Environments string
 	// DeveloperSummary is the latest completed account saved in the run record.
 	// DeveloperSummaryContext states its attempt and content relation to the
 	// candidate, or explains why no account is available.
@@ -1354,6 +1361,7 @@ func reviewEvidencePrompt(request Request) string {
 	}
 	prompt.WriteString(renderChecks(request.Checks, request.CheckPatterns, execution.EventLogOf(request.RunID)))
 	prompt.WriteString(renderUntouchedReruns(request.UntouchedReruns))
+	prompt.WriteString(renderEnvironments(request.Environments))
 	return prompt.String()
 }
 
@@ -1787,6 +1795,31 @@ func renderUntouchedReruns(described string) string {
 	}
 	return "\n## Tests that failed and then passed\n\n" +
 		"Each check below failed on its first run only in tests the change does not touch, so the harness ran just those tests once more on the same commit, and they passed; the check is counted as passed above. A test listed here may fail only when the machine is busy, or may fail now and then because of this change. Each first failure's output is " + checkOutputLabel + ".\n\n" +
+		described + "\n"
+}
+
+// MaxEnvironmentEvidenceBytes bounds the account of the environments' tests a
+// review is shown, so it fits the review's evidence budget however many
+// environments an item names.
+const MaxEnvironmentEvidenceBytes = 6 << 10
+
+// renderEnvironments is each environment's test result on the commit under
+// review and the environments still to be checked, under a heading of their
+// own. A test's output is quoted as untrusted, the way every check's is.
+func renderEnvironments(described string) string {
+	described = strings.TrimSpace(described)
+	if described == "" {
+		return ""
+	}
+	if len(described) > MaxEnvironmentEvidenceBytes {
+		cut := MaxEnvironmentEvidenceBytes
+		for cut > 0 && !utf8.RuneStart(described[cut]) {
+			cut--
+		}
+		described = described[:cut] + "\n[the rest of the environments' results was cut at " + strconv.Itoa(MaxEnvironmentEvidenceBytes) + " bytes]"
+	}
+	return "\n## Environments the work item names\n\n" +
+		"The harness ran the test of each environment below whose check passed before the developer's turn, after the developer submitted, in the place each says, and recorded each result with the commit it ran on. Only results recorded on the commit under review are shown. An environment still to be checked has no result here, so the criteria it serves are not judged by any test. Each test's output is " + checkOutputLabel + ".\n\n" +
 		described + "\n"
 }
 

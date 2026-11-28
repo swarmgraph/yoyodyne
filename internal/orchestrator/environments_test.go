@@ -208,12 +208,15 @@ func TestADeveloperEnvironmentsCheckRunsUnderTheDevelopersRestrictions(t *testin
 			t.Fatalf("the developer check was given the install step's cache: %q", variable)
 		}
 	}
-	if len(recorded.wrapped) != 1 {
-		t.Fatalf("wrapped commands = %#v, want the environment's check wrapped once", recorded.wrapped)
+	// The check before the turn, then the test after the developer submits,
+	// both in the developer's restrictions (environmenttests.go).
+	if len(recorded.wrapped) != 2 || recorded.wrapped[0].Args[len(recorded.wrapped[0].Args)-1] != "echo ready" || recorded.wrapped[1].Args[len(recorded.wrapped[1].Args)-1] != "true" {
+		t.Fatalf("wrapped commands = %#v, want the environment's check and then its test wrapped", recorded.wrapped)
 	}
-	wrapped := recorded.wrapped[0]
-	if wrapped.Name != "/usr/bin/sandbox-exec" || len(wrapped.Args) < 2 || !strings.Contains(wrapped.Args[1], "(deny network*)") || !strings.Contains(wrapped.Args[1], "(deny file-write*)") {
-		t.Fatalf("wrapped = %#v, want the developer's sandbox profile", wrapped)
+	for _, wrapped := range recorded.wrapped {
+		if wrapped.Name != "/usr/bin/sandbox-exec" || len(wrapped.Args) < 2 || !strings.Contains(wrapped.Args[1], "(deny network*)") || !strings.Contains(wrapped.Args[1], "(deny file-write*)") {
+			t.Fatalf("wrapped = %#v, want the developer's sandbox profile", wrapped)
+		}
 	}
 	state, err := store.Load(outcome.RunID)
 	if err != nil {
