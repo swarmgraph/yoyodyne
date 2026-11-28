@@ -14,6 +14,10 @@ revisions:
       by: architect
       at: 2026-11-27T23:57:41.876902Z
       reason: 'Answers the helper check (yoyodyne-ifd.428.233), reviewer report d485972e: the design never said when a leftover process is still used. A marked process holding an open local connection to a process the same stop would leave alone, or whose other end cannot be found, is left running and shown as in use; a listening port with nothing connected is not use, and connections are read again before every signal. It applies to every stop and needs a build piece of its own, since the scheduler start piece (428.218.1) was approved without it.'
+    - action: amended
+      by: architect
+      at: 2026-11-28T06:44:51.527313Z
+      reason: 'yoyodyne-ifd.428.218.1: answers the developer''s report 9f2df9c3 that macOS gave no environment for a system program. An unreadable environment still never makes a process the run''s; a running parent carrying the run''s identifier now does; a named process says when its environment could not be read; the build records whether the harness outside the sandbox can read it. Only Decision 2 changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -25,6 +29,11 @@ approvals:
       by: harness
       at: 2026-11-27T23:57:41.876902Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4298, for document-4298.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-11-28T06:44:51.527313Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4326, for document-4326.1 under the automatic approval policy
 ---
 # Stopping every process a run started when the run ends
 
@@ -52,16 +61,23 @@ The identifier is the run's own, so two runs never share one, and attempts withi
 
 The harness lists the processes of the user it runs as. It never looks at another user's processes, at process 1, or at the harness's own process and the processes it descends from.
 
-For each process it reads the environment the process started with. On macOS this is the kernel's argument and environment record for the process. On Linux it is the process's environ file.
+For each process it reads the environment the process started with. On macOS this is the kernel's argument and environment record for the process. On Linux it is the process's environ file. macOS can withhold that record. On November 27, 2026, in a developer run's sandbox, it gave no environment for a test process running /bin/sleep, while it gave one for the same kind of process started from the Go test binary. A process whose environment cannot be read is treated as carrying no identifier. It is never taken to be the run's on that account alone.
 
-A process is the run's, and is stopped unless Decision 6 leaves it running, when either of these holds:
+A process is the run's, and is stopped, when any of these holds:
 
 - its starting environment carries this run's identifier;
+- a process it descends from, still running, carries this run's identifier;
 - it holds the file the harness already hands a launch to tell whether anything from it still lives.
 
-A process whose working directory is inside the run's worktree or scratch folder, but which shows neither, is **never stopped**. It is named on the run and on `yoyo status`, with the words "not stopped: it carries no sign that this run started it". This is the case of a process that cleared its environment, and also the case of a person's own shell opened in the worktree.
+The second sign covers a run's own program starting a system program whose environment macOS withholds. It is as safe as the first, because the parent's identifier shows the run started the chain. A process whose parents have all ended passes to process 1 and loses this sign. That is accepted: it is then named as the next paragraph says.
+
+A process whose working directory is inside the run's worktree or scratch folder, but which shows none of these signs, is **never stopped**. It is named on the run and on `yoyo status`, with the words "not stopped: it carries no sign that this run started it". Where its environment could not be read, the words are "not stopped: its starting environment could not be read, and it carries no other sign that this run started it". This is the case of a process that cleared its environment, of a system program whose environment is withheld, and also of a person's own shell opened in the worktree.
 
 **Stopping the wrong process is the worse mistake.** It can destroy a person's work, or another run's, and nothing brings that back. A process missed is named and can still be stopped, so a miss costs a port or some memory until someone acts.
+
+The build of the maintenance pass (yoyodyne-ifd.428.218.1) records, from a pass made outside any sandbox, whether macOS gives the harness the environment of a system program such as /bin/sleep, and its run's account says which. A test covers the second sign with a child whose environment the test's process list hides and whose parent carries the identifier.
+
+Rejected: stopping any process in the run's folders whose environment cannot be read, because a person's shell in the worktree is such a process. Rejected: matching processes by command name, because a person runs the same commands.
 
 ## Decision 3: when it runs
 
