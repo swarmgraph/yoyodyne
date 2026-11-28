@@ -797,12 +797,18 @@ func TestAPieceThatHasNotJoinedIsAStepOwed(t *testing.T) {
 			b.entry.Pieces[0].Digest, b.entry.Pieces[0].Question = epicprogress.TextDigest(b.items[statePiece]), "report-0123456789abcdef0123456789abcdef"
 			b.entry.Pieces[0].Answered = &epicprogress.ScopeAnswer{At: hours(3), Operator: ownership.OperatorOwnHold, Says: "the epic is delivered without it"}
 			b.ready = []string{statePiece}
-		}, "only the operator can take it out, with `yoyo epic remove " + stateEpic + " " + statePiece + " --words ...`", EpicWaitsOnOperator},
+		}, "the operator is asked, and answers with `yoyo epic add " + stateEpic + " " + statePiece + "` or `yoyo epic remove " + stateEpic + " " + statePiece + " --words <text>`", EpicWaitsOnOperator},
 		"judged outside and answered with a rewrite": {func(b *stateBench) {
 			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(2), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
 			b.entry.Pieces[0].Digest, b.entry.Pieces[0].Question = epicprogress.TextDigest(b.items[statePiece]), "report-0123456789abcdef0123456789abcdef"
 			b.entry.Pieces[0].Answered = &epicprogress.ScopeAnswer{At: hours(3)}
 		}, "the Lead Product Manager answered report-0123456789abcdef0123456789abcdef: rewrite it to fit", EpicWorking},
+		"never joined, judged outside, and answered by naming the operator": {func(b *stateBench) {
+			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(2), Answer: epicprogress.AnswerOutside, Why: "it adds a page"}
+			b.entry.Pieces[0].Digest, b.entry.Pieces[0].Question = epicprogress.TextDigest(b.items[statePiece]), "report-0123456789abcdef0123456789abcdef"
+			b.entry.Pieces[0].Answered = &epicprogress.ScopeAnswer{At: hours(3), Operator: ownership.OperatorOwnHold, Says: "the epic cannot be delivered without it",
+				Asked: &epicprogress.OperatorQuestion{Report: "report-fedcba9876543210fedcba9876543210", At: hours(3)}}
+		}, "the operator is asked in report-fedcba9876543210fedcba9876543210, and answers with `yoyo epic add " + stateEpic + " " + statePiece + "`", EpicWaitsOnOperator},
 		"joined on the text it has": {func(b *stateBench) {
 			b.join(statePiece, stateOne, hours(1))
 			b.entry.Pieces[0].Outcome = &epicprogress.Outcome{At: hours(1), Answer: epicprogress.AnswerInside, Why: "it is asked for"}
