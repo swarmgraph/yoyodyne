@@ -1213,7 +1213,7 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 					owner = MoverProductManager
 				}
 				says := "starts no developer: " + why
-				if answered, said, ok := s.scopeStep(epic, piece); ok {
+				if answered, said, ok := s.scopeStep(epic, piece, true); ok {
 					owner, says = answered, "starts no developer: it "+said
 				}
 				waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), s.name(piece.From, ""), says)})
@@ -1227,7 +1227,7 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 		switch {
 		case piece.Outcome != nil:
 			owner, says = MoverProductManager, "is a question about scope and does not start: "+scopeQuestion(*piece.Outcome)
-			if answered, said, ok := s.scopeStep(epic, piece); ok {
+			if answered, said, ok := s.scopeStep(epic, piece, entry.Has(id)); ok {
 				owner, says = answered, "does not start: it "+said
 			}
 		case reserved.Result != nil && reserved.Result.Unknown:
@@ -1285,19 +1285,28 @@ func commentsUnknown(entry epicprogress.Entry) []EpicWait {
 // scopeStep is whose step a piece waits on once the Lead Product Manager has
 // answered the question about scope its latest judgment put to her, and what it
 // says; ok is false until she has. Where her handling recorded that only the
-// operator can act, the epic can be delivered without the piece and only he can
-// take it out, so the step is his, as the ownership registry resolves it.
-// Otherwise the development manager rewrites the piece, and an edit seen after
-// her answer waits to be judged.
-func (s *epicStandings) scopeStep(epic epicscope.Epic, piece epicprogress.Piece) (owner Mover, says string, ok bool) {
+// operator can act, the harness asks him, and the step is his, as the ownership
+// registry resolves it: a piece that never joined, joined is false, is offered
+// the add, and one that joined the add or the remove. Otherwise the development
+// manager rewrites the piece, and an edit seen after her answer waits to be
+// judged.
+func (s *epicStandings) scopeStep(epic epicscope.Epic, piece epicprogress.Piece, joined bool) (owner Mover, says string, ok bool) {
 	answer := piece.Answered
 	if piece.Outcome == nil || !piece.Outcome.Answer.Asks() || answer == nil {
 		return "", "", false
 	}
 	if answer.Operator != "" {
 		owner = resolved(Attention{Kind: AttentionOperatorAction, OperatorAction: &OperatorAction{Needs: answer.Says, Reason: answer.Operator, ReportID: piece.Question}}).Ownership.Owner
-		return owner, fmt.Sprintf("was judged not to be asked for by the epic, and the Lead Product Manager's answer to %s is that the epic can be delivered without it (%s); only the operator can take it out, with `yoyo epic remove %s %s --words ...`",
-			piece.Question, singleLine(answer.Says, maxEpicReasonBytes), epic.WorkItemID, piece.WorkItemID), true
+		question := epicprogress.OperatorQuestion{Joined: joined}
+		if answer.Asked != nil {
+			question = *answer.Asked
+		}
+		asked := "the operator is asked"
+		if answer.Asked != nil {
+			asked += " in " + answer.Asked.Report
+		}
+		return owner, fmt.Sprintf("was judged not to be asked for by the epic, and the Lead Product Manager's answer to %s names the operator (%s); %s, and answers with `%s`",
+			piece.Question, singleLine(answer.Says, maxEpicReasonBytes), asked, strings.Join(question.Offers(epic.WorkItemID, piece.WorkItemID), "` or `")), true
 	}
 	if item, read := s.items[piece.WorkItemID]; read {
 		digest := epicprogress.TextDigest(item)
