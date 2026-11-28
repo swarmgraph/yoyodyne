@@ -803,41 +803,168 @@ environments:
 ```
 
 `environments` is a list, empty by default, and an empty list changes nothing
-about any run. Each entry takes `name`; `needs`, the names of install steps
-above that must have succeeded first; `machine`, false by default, for
-something installed for the whole machine, which a person installs;
-`how_to_install`, the instruction a person follows for it, which the harness
-never runs; `where`, `developer` by default or `harness`; `check`, a short
-command that exits zero when the environment is usable; `test`, the
-integration test that judges the criteria it serves; and `time_limit`, 15
-minutes by default. The configuration is refused when it is read, naming the
-entry, where two entries share a name, `needs` names an install step the
-project does not declare, `how_to_install` is set without `machine: true`, or
-`where` is neither `developer` nor `harness`. `yoyo doctor` lists each entry
-with its fields. Like `install`, it is the operator's to write and never a
-role's.
+about any run. Each entry takes these fields and no others:
+
+| Field | Required | What it is |
+| --- | --- | --- |
+| `name` | yes | how a work item's `Environments:` line refers to the environment |
+| `needs` | no | the names of [install steps](#installing-a-projects-dependencies) that must have succeeded in the checkout before the check runs; this is the only way the harness fetches anything for an environment |
+| `machine` | no | `true` where the environment needs something installed for the whole machine rather than in the checkout, such as a browser in the user's caches or a phone simulator; false where left out |
+| `how_to_install` | no, and only with `machine: true` | the plain instruction a person follows to install that machine prerequisite; the harness shows it as written and never runs it |
+| `where` | no | `developer` (the default) or `harness`: where the check and the test run, [below](#where-a-check-and-a-test-run) |
+| `check` | yes | a short command that exits zero when the environment is usable. It must run the tool, not only find it: a browser check opens a page, a simulator check boots a device and runs one command on it |
+| `test` | yes | the integration test that judges the criteria the environment serves |
+| `time_limit` | no | how long one run of `check` or `test` may take, written like `15m`; 15 minutes where left out |
+
+The configuration is refused when it is read, naming the entry, where:
+
+- an entry has no `name`, or two entries share one;
+- `needs` names an install step the project does not declare;
+- `how_to_install` is set without `machine: true`;
+- `where` is neither `developer` nor `harness`;
+- `check` or `test` is empty;
+- `time_limit` is negative.
+
+`yoyo doctor` lists each entry with its fields. Like `install`, it is the
+operator's to write and never a role's, because its check and its test are
+commands that run on this machine; a role may recommend one in a report.
+
+#### Where a check and a test run
+
+An environment's `check` and its `test` always run in the same place, and
+`where` chooses it.
+
+- **`where: developer`**, the default, runs them under the restrictions a
+  Claude Code developer's own commands run under, which the harness reproduces
+  on macOS with `sandbox-exec`: no network but localhost, no socket file,
+  writes only to the worktree, the repository's Git directory and the run's
+  scratch folder (which is also its `TMPDIR`), and the harness's `services/`
+  folder unreadable. It is never given an install step's network or package
+  cache, because then a passing check would say the environment exists on the
+  machine rather than that the run can use it. Off macOS, where those
+  restrictions are not reproduced, a `developer` check is recorded as failed,
+  saying why.
+- **`where: harness`** runs them exactly as a declared check runs, with no
+  sandbox: with the network, writing anywhere the harness's user can, and able
+  to use socket files. It is given no more than the declared checks already
+  have.
+
+Both run through the declared checks' runner and its limits on how many heavy
+checks run at once.
+
+Choose `developer` wherever the tool works inside the developer's sandbox: a
+test client built from the checkout, a library an install step fetched, a
+server the test starts on `127.0.0.1`. The developer can then run the same test
+itself before it submits, and is judged on a result it has already seen.
+
+Choose `harness` only for a tool that sandbox refuses: headless Chrome, which
+stops when it cannot make the socket file it creates on start, or a phone
+simulator, which talks to the system's simulator service. The developer cannot
+run such a test. It is told the environment exists and which criteria it
+serves, and is given each result only after it submits. Nothing about the
+developer's sandbox is widened for it.
+
+#### A prerequisite installed for the whole machine
+
+A browser downloaded into the user's caches, the iOS simulator, an Android
+system image: none of these can come from an install step, whose outputs are
+ignored folders inside the checkout. Mark such an environment `machine: true`
+and write in `how_to_install` what a person types to install it. The harness
+never installs it and never runs that text, because an unattended run changing
+software for the whole machine would reach outside every boundary the harness
+keeps for its own writes. A person installs it, once, on the machine the
+harness runs on.
+
+The `check` is what finds out whether it is there, by running it. When a
+`machine` environment's check fails, the development manager's notice and the
+note on the item quote `how_to_install` and say that a person has to run it on
+this machine. Once somebody has, the next run's check passes.
+
+#### Two complete examples
+
+A browser test, for a web project whose criteria are judged in a real browser
+driven by Playwright. The npm packages come from an install step; the browser
+itself installs into the user's caches, so it is a machine prerequisite, and it
+needs a socket file, so it runs where the harness runs:
+
+```yaml
+install:
+  - name: npm packages
+    run: npm ci --cache "$YOYODYNE_INSTALL_CACHE" --prefer-offline
+    inputs: [package.json, package-lock.json]
+    outputs: [node_modules]
+
+environments:
+  - name: web ui
+    needs: [npm packages]
+    machine: true
+    how_to_install: "In the project folder, run: npx playwright install chromium"
+    where: harness
+    check: npx playwright test tests/ready.spec.ts --reporter=line
+    test: npx playwright test tests/integration --reporter=line
+    time_limit: 15m
+```
+
+`tests/ready.spec.ts` opens one page from a server it starts and checks the
+page's title; if Chromium is missing, Playwright says so and exits non-zero. An
+item's line reads `Environments: web ui (criteria 2, 3)`.
+
+A phone simulator, for an iOS app whose criteria are judged on a booted
+simulator. Xcode and its simulator runtime install for the whole machine, and
+the simulator service is outside the developer's sandbox:
+
+```yaml
+environments:
+  - name: ios simulator
+    machine: true
+    how_to_install: "Install Xcode from the App Store, open it once to accept the licence, then run: xcodebuild -downloadPlatform iOS"
+    where: harness
+    check: scripts/ready-ios.sh
+    test: scripts/integration-ios.sh
+    time_limit: 20m
+```
+
+```sh
+#!/bin/sh
+# scripts/ready-ios.sh: boot a throwaway device, run one command on it, delete it.
+set -eu
+simctl() { xcrun simctl --set "$YOYODYNE_TEST_SCRATCH" "$@"; }
+device=$(simctl create "yoyo-ready" "iPhone 16")
+trap 'simctl shutdown "$device" 2>/dev/null; simctl delete "$device"' EXIT
+simctl boot "$device"
+simctl bootstatus "$device" -b
+simctl spawn "$device" launchctl print system >/dev/null
+```
+
+The device is kept in the run's own throwaway folder (`--set`), so nothing is
+added to the machine's own list of simulators. `scripts/integration-ios.sh`
+creates and boots a device of its own, runs the app's tests on it, and deletes
+the device when it exits, whether the tests passed or not. An Android emulator is declared the same way, with `how_to_install`
+naming the `sdkmanager` command for its system image and the scripts using
+`emulator` and `adb`. The harness starts no simulator, browser or server for
+either example: each script starts what it needs and stops it, working in the
+folder named in `YOYODYNE_TEST_SCRATCH`, [below](#what-a-check-or-a-test-may-change).
+
+#### The Environments: line on a work item
 
 A work item names the environments its criteria need on one line of its
 description, such as
 `Environments: android client (criteria 1, 2); ios client (criterion 3)`.
-An item whose line names an environment the project does not declare is
-refused where it is created, rewritten, or proposed, with the line quoted. An
-item with no such line is unchanged.
+Each entry is an environment's name, optionally followed by the criteria it
+serves in brackets, and entries are separated by semicolons. The Lead Product
+Manager writes the line when she admits the item, and the development manager
+when she splits one. An item whose line names an environment the project does
+not declare, or that has more than one such line, is refused where it is
+created, rewritten, or proposed, with the line quoted. An item with no such
+line needs no environment, and its run is unchanged.
+
+#### What happens to a run
 
 After the worktree is made and its due install steps have run, and before the
 developer's first turn, the harness runs the `check` of each environment the
-item's line names, each bound by its `time_limit`. Both kinds run through the
-declared checks' runner and its limits on how many heavy checks run at once.
-A `harness` environment's check runs exactly as a declared check does, with no
-sandbox: with the network, writing anywhere the harness's user can, and able
-to use socket files. A `developer` environment's check runs under the
-restrictions a Claude Code developer's own commands run under instead, which
-the harness reproduces on macOS with `sandbox-exec`: no network but localhost,
-no socket file, writes only to the worktree, the repository's Git directory
-and the run's scratch folder (which is also its `TMPDIR`), and the harness's
-`services/` folder unreadable. It is never given an install step's network or
-package cache. Off macOS, where those restrictions are not reproduced, a
-`developer` check is recorded as failed, saying why.
+item's line names, in the place its `where` gives, each bound by its
+`time_limit`. What follows depends on how many of them pass, and one passing
+never hides another that did not.
 
 Each environment's result is recorded on the run under `environments`, apart
 from the others: its name, `passed`, `failed` or `timed_out`, where it ran, the
@@ -865,6 +992,8 @@ which criteria each serves. For a `harness` environment it is told that only
 the harness can run its test, and that it is given the result only after it
 submits; a `developer` environment's test it can run itself.
 
+#### The test, after the developer submits
+
 After the developer submits and its configured checks pass, and before review,
 the harness runs the `test` of each environment whose check passed, at the
 commit it made of the submitted change, in the same place and under the same
@@ -878,12 +1007,16 @@ that commit and where the test ran, and the list of environments still to be
 checked; a result recorded on any other commit is never shown to it. The merge
 candidate's checks do not run the tests again.
 
+#### What a check or a test may change
+
 Each run of a `check` or a `test` is given an empty folder of its own, named in
 `YOYODYNE_TEST_SCRATCH`, under the run's scratch folder at
 `scratch/<run id>/environment-runs/`, and the folder is removed when the command
 ends, pass or fail. A test that changes state, such as starting a disposable
 server, booting a simulator device or making a browser profile, does it there
 and stops what it started itself; the harness starts none of them.
+
+#### A change that lands with environments still to be checked
 
 A change that lands while any environment its item names is still to be
 checked does not close the item, even where the developer and the reviewer
