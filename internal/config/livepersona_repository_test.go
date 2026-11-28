@@ -31,15 +31,39 @@ import (
 var templateOnlyPassages = map[string]map[string]string{
 	"development-manager.md": {
 		"Escalate to him with `\"to\": \"operator\"`":  "The Lead Product Manager's grant of raises past the development manager's five (yoyodyne-ifd.432.25.13) rewords this passage to send such a raise to her instead of the operator's hand, but grants no write to .yoyodyne/personas/development-manager.md. The compiled contract carries the change and the harness refuses the old escalation with the new path; remove this declaration once an authorized change carries the rewording into the bound copy.",
+		"## While epic mode is on":                     epicModePassage("development-manager.md"),
+		"The operator can name epics":                  epicModePassage("development-manager.md"),
+		"- Only members of the named epics start.":     epicModePassage("development-manager.md"),
+		"- A new item is outside every epic":           epicModePassage("development-manager.md"),
+		"- Work outside the named epics never starts":  epicModePassage("development-manager.md"),
+		"- Adding an item is a step only":              epicModePassage("development-manager.md"),
 		"- Check what appears to wait on the operator": "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"whose move\", but grants no write to .yoyodyne/personas/development-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
 	},
 	"product-manager.md": {
 		"- Open a project that has not written its intent down": "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"gate\", but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
+		"## While epic mode is on":                              epicModePassage("product-manager.md"),
+		"The operator can name epics":                           epicModePassage("product-manager.md"),
+		"- Only members of the named epics start.":              epicModePassage("product-manager.md"),
+		"- An item you admit is outside every epic":             epicModePassage("product-manager.md"),
+		"- Work outside the named epics never starts":           epicModePassage("product-manager.md"),
+		"- Adding an item is a step only":                       epicModePassage("product-manager.md"),
 		"- Sequencing lives in dependency links":                "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"gate\", but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
 	},
 	"program-manager.md": {
-		"You own one outcome": "the live copy also names docs/designs/program-manager.md, this repository's own design for the role, which a new project does not have",
+		"## While epic mode is on":                    epicModePassage("program-manager.md"),
+		"The operator can name epics":                 epicModePassage("program-manager.md"),
+		"- Only members of the named epics start.":    epicModePassage("program-manager.md"),
+		"- An item you admit is outside every epic":   epicModePassage("program-manager.md"),
+		"- Work outside the named epics never starts": epicModePassage("program-manager.md"),
+		"- Adding an item is a step only":             epicModePassage("program-manager.md"),
+		"You own one outcome":                         "the live copy also names docs/designs/program-manager.md, this repository's own design for the role, which a new project does not have",
 	},
+}
+
+// epicModePassage is the reason for each passage of the epic-mode section
+// (yoyodyne-9k1y.24) that the persona's bound copy does not carry yet.
+func epicModePassage(persona string) string {
+	return "Telling each role what changes in epic mode (yoyodyne-9k1y.24) adds this passage, but grants no write to .yoyodyne/personas/" + persona + ". The change lands with the text a person has to add by hand named in its summary; remove this declaration once the bound copy carries it."
 }
 
 // TestThisRepositorysPersonasCarryEveryTemplatePassage fails when a passage of a
