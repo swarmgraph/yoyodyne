@@ -70,6 +70,10 @@ revisions:
       by: architect
       at: 2026-11-28T07:34:17.15648Z
       reason: 'yoyodyne-ifd.428.225: the scheduler''s move limit counts from when the supervisor first saw it behind and a newer landing never starts the count again; the code at ae320477 counts from when the binary was written, so each landing pushes the deadline later. The scheduler reaches a point with nothing in flight by pausing its runs and continuing them on the new build. The supervisor''s own move gets a 15 minute limit and is named on status past it. Two build pieces and reviewer lines added; the rest is copied from main ae320477.'
+    - action: amended
+      by: architect
+      at: 2026-11-28T09:48:33.154907Z
+      reason: 'yoyodyne-ifd.428.225: the paragraph before the move ruling said a watch session takes up a new build between runs, never interrupting one, which a reader could take to forbid the pause part 4 requires (report-820b94a963fd0e14875535c013446448). It now says a move never ends a run, and that where runs are in flight the scheduler pauses each, keeps its work, and continues it on the new build. Nothing else in the section changes; it is copied from main 915924052928.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -116,6 +120,11 @@ approvals:
       by: harness
       at: 2026-11-28T07:34:17.15648Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4331, for document-4331.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 16
+      by: harness
+      at: 2026-11-28T09:48:33.154907Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4348, for document-4348.1 under the automatic approval policy
 ---
 # Management and supervision: the typed request contract and process residency
 
@@ -210,7 +219,7 @@ A role resolves what its own authority covers, and requests the role that owns w
 
 The long-term shape is **one durable interaction and state service**, with local chat, Slack, and the CLI as conversational clients and the dashboard as a projection whose only acts are the operator's own decisions, carried out by the same code the command line runs — "one pane" means shared state and supervision, not one literal interface. The residency: `yoyo chat` is the single entry point for a person; the resident processes, the Slack sink included, run under one supervisor, the process `yoyo start` runs (yoyodyne-ifd.413), under launchd on macOS, the tested platform; and chat is a thin attach-detach client of them rather than the process that starts them. The supervising process holds the Slack tokens and **constructs every child's environment by allowlist, never inheritance**, so no provider subprocess ever receives them; that construction is the enforced boundary and is covered by a test. Separately started services are acceptable while they keep clean service boundaries and health/readiness hooks; model sessions are execution details and are never the durable conversation record. Process separation now must not force a new state model later.
 
-A watch session takes up a build installed over it by itself: between runs, never interrupting one. The takeover happens only at a boundary where the process has nothing in flight; the new process reattaches through the normal lease machinery; and pinned workflow instances continue on their pinned definitions and authority — a new binary changes the executor, never in-flight work's contract. This is settled here rather than deferred: a later headless supervisor inherits this behavior rather than re-deciding it.
+A watch session takes up a build installed over it by itself, and never ends a run to do so. It takes the new build only at a point where the process has nothing in flight; where runs are in flight, it reaches that point by pausing each run it holds, keeping its work, and continuing each one on the new build, as part 4 below says. The new process reattaches through the normal lease machinery; and pinned workflow instances continue on their pinned definitions and authority — a new binary changes the executor, never in-flight work's contract. This is settled here rather than deferred: a later headless supervisor inherits this behavior rather than re-deciding it.
 
 **How often a move happens, and what waits for it** *(yoyodyne-ifd.428.161, revised for yoyodyne-ifd.428.225)*. On November 18, 2026, five moves onto new builds between midnight and 05:30 PST held back new work and the merge queue for 58 minutes, and one of them cut off a queue check about a minute before it would have finished. The first ruling answered that with a least time of three hours between moves. On November 27, 2026 the dashboard, Slack and the supervisor moved onto a new build at 11:18 AKST while the scheduler stayed on an older one that refused every new start, leaving three developer slots empty, and the scheduler was left behind again at about 15:54, 16:15, 19:00, 20:25 and 21:19 AKST, twice with the supervisor itself also on an older build. The three hour minimum allowed exactly this, and it contradicted the operating rule that Slack, the dashboard, the scheduler and maintenance move onto a new build together. The rule is product intent and this design yields to it. The ruling now has six parts:
 
