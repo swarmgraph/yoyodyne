@@ -364,6 +364,10 @@ type Sources struct {
 	// reported anything" and "nothing was wired to read what anybody reported" are
 	// opposite answers, and only one of them means there is nothing to do.
 	Reports Reports
+	// ReportReaders is the roles an enabled recurring task wakes in the project's
+	// configuration, which is what says whether any pass reads an addressee's
+	// reports. Nil is a project with none enabled.
+	ReportReaders report.Readers
 	// SharedRecords is the state of this machine's record sharing with the team's
 	// other factories. It is optional, and a reading without one says nothing
 	// about shared records rather than that none wait: only team mode writes the
@@ -1205,14 +1209,19 @@ type Standing struct {
 	NeedsHuman        []Attention `json:"needs_human"`
 	NeedsHumanProblem string      `json:"needs_human_problem,omitempty"`
 
-	// Reports is how the collected pile stands. It is not a fifth line and is not
-	// rendered as one: the four are a contract the operator ratified, and this is
-	// carried for the surfaces that read the model rather than its lines — the
-	// JSON a script or a dashboard reads, and the arithmetic behind the attention
-	// entry below. Whether the pile is draining is a question about a week rather
-	// than a moment, and it is answerable only if each reading says how deep the
-	// pile is and how old the oldest undecided report in it was.
+	// Reports is how the collected pile stands. It is not a fifth line among the
+	// four, which are a contract the operator ratified; it is carried for the
+	// JSON a script or a dashboard reads, for the arithmetic behind the attention
+	// entry below, and for the reports line printed under the four
+	// (RenderReports). Whether the pile is draining is a question about a week
+	// rather than a moment, and it is answerable only if each reading says how
+	// deep the pile is and how old the oldest undecided report in it was. Its
+	// addressees say how many wait on each role and whether a pass reads them.
 	Reports report.Pile `json:"reports"`
+	// ReportsSays is the reports line as `yoyo status` prints it after
+	// "reports: ", and empty where no report stands unhandled
+	// (docs/designs/reports-nobody-reads.md, Decision 1).
+	ReportsSays string `json:"reports_says,omitempty"`
 	// ReportsProblem is a pile that could not be read. It is stated rather than
 	// reported as an empty pile, for the reason every other line here states its
 	// own failure: a reader told nothing concludes there is nothing.
@@ -1483,6 +1492,8 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// apart could disagree about whether a report is handled.
 	reports, handlings, pileProblem := readPile(sources)
 	standing.Reports, standing.ReportsProblem = summarizePile(reports, handlings, pileProblem, now)
+	standing.Reports = standing.Reports.ReadBy(sources.ReportReaders)
+	standing.ReportsSays = standing.Reports.StatusLine()
 	// An escalated stoppage is a finding while its item is still admitted and not
 	// parked: an item the operator retired, or closed after doing what was asked,
 	// and an item the Lead Product Manager parked are read from the same queue the

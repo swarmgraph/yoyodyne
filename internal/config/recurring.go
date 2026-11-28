@@ -194,6 +194,24 @@ func (c Config) RecurringTaskNames() []string {
 	return names
 }
 
+// RecurringPassRoles is every role at least one enabled recurring task wakes,
+// in a stable order. It is what says whether any pass reads a role's reports
+// (report.Readers).
+func (c Config) RecurringPassRoles() []domain.AgentRole {
+	seen := map[domain.AgentRole]bool{}
+	var roles []domain.AgentRole
+	for _, name := range c.RecurringTaskNames() {
+		task := c.RecurringTasks[name]
+		if !task.Enabled || seen[task.Role] {
+			continue
+		}
+		seen[task.Role] = true
+		roles = append(roles, task.Role)
+	}
+	sort.Slice(roles, func(i, j int) bool { return roles[i] < roles[j] })
+	return roles
+}
+
 // problems reports every contract violation in one task at once, named by the
 // key it was written under.
 func (t RecurringTask) problems(name string, agents map[string]AgentConfig) []string {
