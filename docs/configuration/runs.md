@@ -187,7 +187,15 @@ whether anything from it lives; one that shows none of these and is working
 inside the run's worktree or scratch folder is named on the run and on
 `yoyo status` instead, never stopped, as is
 any process the harness could not stop, with its number and the ports it
-listens on. A harness that stopped between a session's end and that stop is
+listens on. A process of the run that something still alive is connected to,
+over TCP between loopback addresses or over a socket file, is left running too:
+another run's process while that run has something going, a person's process,
+the harness's own, or an end the harness cannot find or read keeps it, while a
+port with nothing connected, or a connection only to another process the same
+stop is stopping, does not. The connections are read again before every
+signal, the run and `yoyo status` name the process at the other end, and the
+first maintenance pass that finds nothing of that kind connected stops it; it
+is never reported, because being in use is not a fault. A harness that stopped between a session's end and that stop is
 covered too: as a `yoyo work` session starts, and on every maintenance pass,
 the harness looks for every process carrying a run's identifier and stops
 those of each run nothing holds, so no session or check of it is going. Every

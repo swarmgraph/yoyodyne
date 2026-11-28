@@ -509,9 +509,11 @@ func (u LeftProcessesFound) apply(state *State) (bool, error) {
 
 // SameLeftProcess reports two findings of one process: the same number and
 // command, found the same way. A number the system handed to another program
-// is another process.
+// is another process. A process in use and the same process the harness could
+// not stop are two findings, so the passes of one never count toward the
+// other.
 func SameLeftProcess(a, b execution.LeftProcess) bool {
-	return a.PID > 0 && a.PID == b.PID && a.Command == b.Command && a.Unmarked == b.Unmarked
+	return a.PID > 0 && a.PID == b.PID && a.Command == b.Command && a.Unmarked == b.Unmarked && a.InUse == b.InUse
 }
 
 // LateStopRecorded records a stop that reached the run only after its checks

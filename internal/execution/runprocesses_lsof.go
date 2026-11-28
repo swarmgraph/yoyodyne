@@ -4,6 +4,8 @@ package execution
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -70,4 +72,23 @@ func lsofHolding(paths []string) map[int]bool {
 		holding[pid] = true
 	}
 	return holding
+}
+
+// lsofOutput runs lsof with field output and returns what it printed. lsof
+// exits 1 both when it finds nothing and when it could not read some of what
+// it was asked about, and prints what it could read either way, so only a
+// listing that never ran, or ran out of time, is an error.
+func lsofOutput(fields string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), lsofTimeout)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "lsof", append([]string{"-nP", "-w", "-F", fields}, args...)...).Output()
+	var exit *exec.ExitError
+	switch {
+	case ctx.Err() != nil:
+		return nil, fmt.Errorf("lsof did not answer within %s", lsofTimeout)
+	case err == nil, errors.As(err, &exit) && exit.ExitCode() == 1:
+		return output, nil
+	default:
+		return nil, fmt.Errorf("lsof could not be run: %w", err)
+	}
 }

@@ -27,10 +27,17 @@ type fakeProcesses struct {
 	ports     map[int][]string
 	holders   map[string][]int
 	signalled []string
+	// connected is each process's live local connections, and onConnections
+	// is called with the number of each reading of them before it is answered,
+	// so a test can connect or close between one reading and the next.
+	connected     map[int][]localConnection
+	connectionsAt int
+	onConnections func(reading int)
+	connectionErr error
 }
 
 func newFakeProcesses(entries ...processEntry) *fakeProcesses {
-	fake := &fakeProcesses{entries: map[int]processEntry{}, ignore: map[int]syscall.Signal{}, refuse: map[int]error{}, reuse: map[int]string{}, cwd: map[int]string{}, ports: map[int][]string{}, holders: map[string][]int{}}
+	fake := &fakeProcesses{entries: map[int]processEntry{}, ignore: map[int]syscall.Signal{}, refuse: map[int]error{}, reuse: map[int]string{}, cwd: map[int]string{}, ports: map[int][]string{}, holders: map[string][]int{}, connected: map[int][]localConnection{}}
 	for _, entry := range entries {
 		fake.entries[entry.PID] = entry
 	}
@@ -67,6 +74,41 @@ func (f *fakeProcesses) holding(paths []string) map[int]bool {
 		}
 	}
 	return holding
+}
+
+func (f *fakeProcesses) connections() (map[int][]localConnection, error) {
+	f.mu.Lock()
+	f.connectionsAt++
+	reading, hook := f.connectionsAt, f.onConnections
+	f.mu.Unlock()
+	if hook != nil {
+		hook(reading)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.connectionErr != nil {
+		return nil, f.connectionErr
+	}
+	answered := map[int][]localConnection{}
+	for pid, connections := range f.connected {
+		answered[pid] = append([]localConnection(nil), connections...)
+	}
+	return answered, nil
+}
+
+// connect records a live local connection between two processes, as each end
+// would be read.
+func (f *fakeProcesses) connect(a, b int, over string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connected[a] = append(f.connected[a], localConnection{Over: over, Peers: []int{b}})
+	f.connected[b] = append(f.connected[b], localConnection{Over: over, Peers: []int{a}})
+}
+
+func (f *fakeProcesses) disconnect() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connected = map[int][]localConnection{}
 }
 
 func (f *fakeProcesses) listening(pid int) []string {
@@ -222,6 +264,9 @@ func (unreadableTable) list() ([]processEntry, error)           { return nil, er
 func (unreadableTable) workingDirectories([]int) map[int]string { return nil }
 func (unreadableTable) listening(int) []string                  { return nil }
 func (unreadableTable) holding([]string) map[int]bool           { return nil }
+func (unreadableTable) connections() (map[int][]localConnection, error) {
+	return nil, errors.New("refused")
+}
 
 // MarkedRuns names every run a process started with, once each and in order,
 // and leaves out a process that has exited, process 1, and this process.
