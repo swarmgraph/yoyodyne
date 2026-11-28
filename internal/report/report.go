@@ -322,6 +322,20 @@ const HarnessReporter domain.AgentRole = "harness"
 // a surface knows it by.
 const OutsideEpicBlockerRun = "epic-outside-blocker:"
 
+// ScopeQuestionRun opens the run identifier of the question about scope the
+// harness files the Lead Product Manager when a piece of a named epic was judged
+// outside it or could not be told (internal/epicjoin).
+const ScopeQuestionRun = "epic-join:"
+
+// ScopeOperatorQuestionRun opens the run identifier of the one question the
+// harness puts to the operator about such a piece, once her handling of its
+// question about scope named him. The harness writes it from the identifiers,
+// with her words beside it, so it is said to the operators directly, once, and
+// her handling is not said to him as a question of its own
+// (docs/designs/epic-mode-second-part.md, "What records the answer on scope",
+// points 5 and 6).
+const ScopeOperatorQuestionRun = "epic-operator-question:"
+
 var (
 	idPattern = regexp.MustCompile(`^report-[a-f0-9]{32}$`)
 	// buildPattern is what a recorded build may look like: a Git object name,

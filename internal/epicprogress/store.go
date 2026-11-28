@@ -284,6 +284,30 @@ func (s *Store) ScopeAnswered(naming Naming, item, reportID, reason string, reco
 	})
 }
 
+// OperatorAsked writes the identifier of the one question the harness puts to the
+// operator about a piece, once the Lead Product Manager's handling of its question
+// about scope named him, before that question is filed. It answers the question
+// that stands, which is this one or one written before.
+func (s *Store) OperatorAsked(naming Naming, item string, asked OperatorQuestion) (OperatorQuestion, error) {
+	if !report.ValidID(asked.Report) || asked.At.IsZero() {
+		return OperatorQuestion{}, errors.New("the question to the operator needs a report identifier and a time")
+	}
+	standing := asked
+	err := s.changePiece(naming, item, func(piece *Piece) error {
+		switch answer := piece.Answered; {
+		case answer == nil || answer.Operator == "":
+			return fmt.Errorf("the Lead Product Manager's answer about work item %s does not name the operator", item)
+		case answer.Asked != nil:
+			standing = *answer.Asked
+			return errUnchanged
+		}
+		asked.At = asked.At.UTC()
+		piece.Answered.Asked = &asked
+		return nil
+	})
+	return standing, err
+}
+
 // SawText writes when a text no judgment judged was first seen, while the piece
 // waits on its question. A text already seen keeps its first time.
 func (s *Store) SawText(naming Naming, item, digest string) error {
