@@ -264,9 +264,9 @@ moves the part onto it, one part at a time, and never in the middle of what
 the part is doing:
 
 - **The scheduler restarts itself**, as it always has: the watch session sees
-  the binary replaced and, at most once every `execution.build_move_interval`
-  (three hours by default), stops pulling, waits out the runs it hosts under
-  `execution.redeploy_drain_limit`, and re-executes in place
+  the binary replaced and, at once, stops pulling, waits out the runs it hosts
+  under `execution.redeploy_drain_limit`, pausing the rest with their work kept,
+  and re-executes in place
   ([a session draining to restart into a deployed build](#a-session-draining-to-restart-into-a-deployed-build)).
   The supervisor waits for it rather than stopping it, since stopping it would
   cancel those runs. The moment the session lets its lease go to re-execute is
@@ -299,24 +299,35 @@ the part is doing:
   check's service entry carries it as `forced_stop`, `forced_stop_at` and
   `forced_stops`.
 
-  The supervisor also reads, with its own build, when the scheduler's move
-  falls due: three hours (`execution.build_move_interval`) after the last
-  move in the watch log, or when the deployed binary was written, whichever
-  is later. Both are recorded times, so a supervisor that restarts, as it does
-  onto every build installed, works out the same moment and the same deadline
-  as the one before it. The last move is the session that stopped to
-  restart, or the first session on a different build from the one before it,
-  so a move the supervisor made itself counts and the next move waits the full
-  interval after it. Until the move is due, the scheduler's line says when it
-  moves and that it goes on working on its own build. Once it is due and the
-  session has not begun winding down, the line says the scheduler is on its
-  build while the rest of the product is on the deployed one, when the move
-  was due, and when the supervisor moves it; the next maintenance pass's
-  `redeploy` step and `yoyo status` both carry that line, and the development manager's health reading names the scheduler as left behind, with both builds and when the move was due. While the move is not yet due, that reading does not count the scheduler's old build as a problem. A session that has
-  not begun its move by its limit for winding down and five more minutes past the
-  moment it fell due is restarted the same way as one stuck winding down. Where the operating system's own sleep history records the machine waking after that moment, the time is counted from the wake instead, so a laptop that slept across the due moment never has the scheduler's runs stopped at the first look on waking. That
-  holds whatever build the scheduler runs, since it is the supervisor's
-  build that decides it.
+  The supervisor also times the scheduler's move, with its own build. It
+  records when it first saw the scheduler behind the binary on disk, and the
+  scheduler must be running on the newest installed build within 15 minutes of
+  that, or, where it waits out a merge queue check while winding down, within that
+  check's own time limit and 15 minutes past it. The limit is counted from that
+  first record and never from when the binary was written, so builds landing
+  every few minutes while the scheduler is behind leave its deadline where it
+  was; counting from the binary's write time is what let the scheduler stay
+  behind all of November 27, 2026. The timing is kept in the supervisor's record,
+  so a supervisor that restarts, as it does onto every build installed, carries
+  on the same deadline. Until the deadline, the scheduler's line says since when
+  it has been behind and by when it is to move. A scheduler that has not begun
+  winding down by then is restarted the same way as one stuck winding down,
+  which pauses its runs with their work kept for the session that comes back.
+  One still winding down past it is left to finish — nothing ends a run to meet
+  the limit — and the line says what holds it: the queue check by name, a run
+  not yet at a point where it can be paused, by its run and item, or a restart
+  that failed, with its reason. The next maintenance pass's `redeploy` step and
+  `yoyo status` both carry that line, and the development manager's health
+  reading names the scheduler as left behind past its limit; within the limit,
+  that reading does not count the scheduler's old build as a problem. Where the
+  operating system's own sleep history records the machine waking after the
+  scheduler fell behind, the 15 minutes are counted from the wake instead, so a
+  laptop that slept never has the scheduler's runs paused at the first look on
+  waking. That holds whatever build the scheduler runs, since it is the
+  supervisor's build that decides it. The supervisor times its own move the same
+  way: it must be on the newest installed build within 15 minutes of first
+  recording itself behind, and past that `yoyo status` and the health reading
+  say it is on the older build, since when, and what holds it.
 - **The Slack sink is restarted by the supervisor**, between two passes over
   the records and never while it is answering a product manager turn in a
   thread. The sink makes each pass under a lease of its own; the supervisor
@@ -398,7 +409,7 @@ Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1
   at login: the launch agent com.yoyodyne.supervisor.yoyodyne starts the supervisor when you log in, so a restart of the machine brings the product back by itself
   slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-09-28 09:40 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
-  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, at most once every execution.build_move_interval, waiting out the runs it hosts under execution.redeploy_drain_limit, and is restarted into it by the supervisor if it has not restarted five minutes past that limit (thirty while it waits out a promotion or a document landing), or has not begun its move within that limit and five minutes after the move fell due
+  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it as soon as it is installed, winding down the runs it hosts under execution.redeploy_drain_limit and pausing the rest with their work kept, and is restarted into it by the supervisor if it has not begun its move within 15 minutes of falling behind, or has not restarted five minutes past its limit for winding down (thirty while it waits out a promotion or a document landing)
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 
@@ -4717,11 +4728,9 @@ in the configuration guide are the settings and the arithmetic.
 A watching `yoyo work` session runs the binary it was started from, so when you
 install or rebuild `yoyo` over it, the session restarts itself into the new
 build — [how work flows](work.md#letting-the-harness-choose-the-work) says why
-nothing outside the process can. It moves at most once every
-`execution.build_move_interval`, three hours by default: a build installed
-sooner than that after the last move waits, the session says once in its log
-when it will move, and when the time is up it moves onto the newest build
-installed then. The session looks for that moment at the top of every pull and
+nothing outside the process can. It begins its move as soon as a newer build is
+installed, with no least time between moves, and moves onto the newest build
+installed when it restarts. The session looks for a newer build at the top of every pull and
 also on a timer of its own, about once a minute, so a pull held up for minutes
 by a slow tracker does not hold the move back: the drain is dated from the
 moment the timer found the move due, and the pull it found it in starts

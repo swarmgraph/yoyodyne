@@ -1643,14 +1643,14 @@ the configuration rather than a reading that failed.
 **Beyond the three: a watching session takes up a build deployed over it.** When
 the `yoyo` it is running is written over — you rebuild it, you install it — the
 session stops choosing, waits out every run it already started, and restarts into
-what you deployed. A run in flight is never interrupted for it. It moves at most
-once every
-[`execution.build_move_interval`](../configuration.md#watching-instead-of-draining),
-three hours unless the project sets otherwise, between one and twenty-four
-hours: a build installed sooner waits, and once the time is up the session moves
-onto the newest build installed then, never onto the ones in between one by one.
-What that costs is one restart per interval at most, and the queue is re-read
-from scratch on the way back in exactly as it is at every poll.
+what you deployed. A run in flight is never ended for it. It begins its move as
+soon as a newer build is installed, together with the other parts of the
+product, and moves onto the newest build installed when it restarts, never onto
+the ones in between one by one; it must be on that build within 15 minutes of
+falling behind, or past the time limit of a merge queue check it waits out
+([watching instead of draining](../configuration.md#watching-instead-of-draining)).
+The queue is re-read from scratch on the way back in exactly as it is at every
+poll.
 
 The bounds cross the restart reduced to what is left of them — `--budget` less
 what the session has spent, `--limit` less what it has started — because a bound

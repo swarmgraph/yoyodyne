@@ -145,9 +145,9 @@ type Installed struct {
 	// and empty where the supervisor could not read one.
 	Build string
 	// MoveDue, MoveBy, and MoveHeld are the scheduler's move onto Build as the
-	// supervisor records it (runstate.SupervisedChild): when the move falls due
-	// under execution.build_move_interval, when the supervisor restarts the
-	// session itself if it has not moved, and what holds that restart.
+	// supervisor records it (runstate.SupervisedChild): when the supervisor
+	// first recorded it behind, when it must be on Build, and what holds it
+	// past that.
 	MoveDue  time.Time
 	MoveBy   time.Time
 	MoveHeld string
@@ -572,12 +572,12 @@ func (f *HarnessFeed) residentDeliveries(ctx context.Context, cursor Cursor, ses
 //
 // Nothing is said while the session is behind by design. The supervisor builds
 // and installs each landing that changes the build by itself, and the session
-// moves onto the installed build by itself between runs, at most once every
-// execution.build_move_interval; a session on the installed build while the
-// next is being made, or one waiting out that interval with a newer build
-// installed, is the harness doing what it was built to. What is said is what
-// has stopped: a landing left unbuilt past the time a build takes, a move past
-// due, or no supervisor at all. Who moves each is the ownership registry's
+// moves onto the installed build by itself, within a limit counted from when
+// the supervisor first recorded it behind; a session on the installed build
+// while the next is being made, or one moving within that limit with a newer
+// build installed, is the harness doing what it was built to. What is said is
+// what has stopped: a landing left unbuilt past the time a build takes, a move
+// past its limit, or no supervisor at all. Who moves each is the ownership registry's
 // answer (ownership.ResolveStaleBuild), never this sink's.
 func (f *HarnessFeed) staleBuild(ctx context.Context, build string, behind int, now time.Time) (report.Severity, string, bool, bool, error) {
 	if f.Installation == nil {
@@ -616,16 +616,17 @@ func (f *HarnessFeed) staleBuild(ctx context.Context, build string, behind int, 
 			// On the installed build while the next is being made, or moving
 			// onto the installed build now.
 			return "", "", false, true, nil
-		case installed.MoveDue.IsZero() || now.Before(installed.MoveDue):
-			// A newer build installed, held off by rule until the least time
-			// between two moves is up. A record with no due moment is a move the
-			// supervisor has not timed yet, which it does at its next look.
+		case installed.MoveDue.IsZero() || installed.MoveBy.IsZero() || now.Before(installed.MoveBy):
+			// A newer build installed and the session moving onto it within its
+			// limit. A record with no timing is a move the supervisor has not
+			// timed yet, which it does at its next look.
 			return "", "", false, true, nil
 		case installed.MoveHeld == "" && !installed.MoveBy.IsZero() && !now.Before(installed.MoveBy.Add(f.buildGrace())):
 			cause = ownership.StaleBuildMoveStuck
 		default:
-			// Due, and the supervisor restarts the session itself if it has not
-			// moved by its own deadline, or once what holds that restart ends.
+			// Past its limit with what holds it named on the record, or just past
+			// it, where the supervisor restarts the session itself at its next
+			// look if it has not begun.
 			cause = ownership.StaleBuildMoveDue
 			severity = report.SeverityNote
 		}

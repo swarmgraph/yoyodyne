@@ -27,6 +27,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -40,6 +41,15 @@ const (
 	// its lease again before the supervisor starts it. Re-executing is a moment,
 	// and a part not back after this is started from the deployed binary.
 	SelfRestartGrace = 30 * time.Second
+	// MoveLimit is how long after the supervisor first records a part behind
+	// the newest installed build that part must be running on it: the
+	// scheduler, past the time limit of a merge queue check its wind-down waits
+	// out, and the supervisor itself. It is counted from that first record and
+	// never started again by a newer build landing meanwhile, so a day of
+	// landings every few minutes cannot put the move off. It is held in code,
+	// not a setting (docs/designs/management-and-supervision.md,
+	// yoyodyne-ifd.428.225).
+	MoveLimit = 15 * time.Minute
 )
 
 // Deployable is a child whose build the supervisor can read, and so move onto a
@@ -89,22 +99,32 @@ type OverdueRestart interface {
 	RestartOverdue(ctx context.Context, now time.Time) (string, error)
 }
 
-// ScheduledMove is a child that restarts itself onto a deployed build no
-// sooner than a set time after its last move — the scheduler, under
-// execution.build_move_interval — and says from its own records when that is.
-// The supervisor reads it so a move that is due reaches the child whatever
-// build the child runs: the child's own build decides when it moves, and a
-// build from before a fix to that decision, or one a fault has stopped from
-// beginning its wind-down, would otherwise hold the product on it unnoticed.
+// ScheduledMove is a child that restarts itself onto a deployed build and
+// whose move the supervisor times: the scheduler. The child's own build
+// decides when it begins its move, and a build from before a fix to that
+// decision — such as one still keeping three hours between moves — or one a
+// fault has stopped from beginning its wind-down would otherwise hold the
+// product on it unnoticed, so the supervisor reads where the move stands from
+// the child's own records and restarts a child that has not begun by its limit.
 type ScheduledMove interface {
-	// NextMove is the earliest the child may next move onto a newer build, zero
-	// where it may move at once, and whether it has already begun winding down
-	// for a move, which OverdueRestart then answers for.
-	NextMove(ctx context.Context) (next time.Time, windingDown bool, err error)
-	// MoveGrace is how long past the moment its move fell due the child is left
-	// to have begun it on its own before the supervisor moves it: as long as a
-	// move begun on time is left before the supervisor restarts it.
-	MoveGrace() time.Duration
+	MoveStanding(ctx context.Context) (MoveStanding, error)
+}
+
+// MoveStanding is where a child's own move onto a new build stands, as its
+// records say.
+type MoveStanding struct {
+	// WindingDown is a child that has begun winding down for the move.
+	WindingDown bool
+	// QueueCheck names a merge queue check the wind-down waits out, and
+	// QueueCheckUntil the latest that check can run to under its own time
+	// limit; both are empty where the wind-down waits on no queue check.
+	QueueCheck      string
+	QueueCheckUntil time.Time
+	// Waiting is what the wind-down still waits out before the child has
+	// nothing in flight, in words that follow "held by": the checks by run and
+	// item, promotions, or the runs it has not yet paused. Empty where it waits
+	// on nothing it named.
+	Waiting string
 }
 
 // DeployedBinary is the binary the parts are started from, and the revision it
@@ -210,6 +230,7 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		s.log("which build the %s service is running could not be read, so it is not compared with the deployed binary this look: %v", child.Name(), err)
 		return
 	}
+	s.carryMoveTiming(child, state, build)
 	if build != "" && build != state.Build {
 		// When a part moved is known only where the supervisor saw it move: a
 		// part it reattached was on its build since some moment before the
@@ -217,6 +238,9 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		// date the record does not have.
 		if state.Build != "" {
 			state.BuildSince = now
+			// It moved, so a move that was being timed is over, even where a
+			// newer build has landed since and it is behind again.
+			clearMove(state)
 		} else {
 			state.BuildSince = time.Time{}
 		}
@@ -226,7 +250,7 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		s.restarted(child, state, now, "took the deployed build up itself")
 	}
 	if build == "" || build == s.deployed {
-		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
+		clearMove(state)
 		state.RestartingInto = ""
 		state.Redeploy = ""
 		return
@@ -235,10 +259,12 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 	if self {
 		state.RestartingInto = s.deployed
 		state.Redeploy = behind + "; " + child.(RestartsItself).RestartsItself()
-		if s.restartOverdue(ctx, child, state, now, build, behind) {
-			// Winding down and stuck: that is said as its own problem.
-			state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
-		} else {
+		if _, timed := child.(ScheduledMove); timed && state.MoveDue.IsZero() {
+			// First recorded behind: the limit counts from now, and nothing that
+			// lands while it is behind starts it again.
+			state.MoveDue, state.MoveBy, state.MoveCheck, state.MoveHeld = now, now.Add(MoveLimit), "", ""
+		}
+		if !s.restartOverdue(ctx, child, state, now, build, behind) {
 			s.moveOverdue(ctx, child, state, now, build)
 		}
 		return
@@ -292,6 +318,9 @@ func (s *Supervisor) restartOverdue(ctx context.Context, child Child, state *run
 	}
 	if held := s.restartHold(); held != "" {
 		state.Redeploy = fmt.Sprintf("%s; it %s, and is not restarted while %s", behind, why, held)
+		if !state.MoveBy.IsZero() && !now.Before(state.MoveBy) {
+			state.MoveHeld = "nothing is restarted while " + held
+		}
 		return true
 	}
 	s.log("the %s service %s, so the supervisor restarts it into the deployed build %s rather than wait any longer", child.Name(), why, short(s.deployed))
@@ -299,64 +328,98 @@ func (s *Supervisor) restartOverdue(ctx context.Context, child Child, state *run
 	return true
 }
 
-// moveOverdue moves a child that restarts itself and has not begun a move that
-// is due. Every moment it works with is one a record holds, so a supervisor
-// that restarts — and it restarts onto every build installed — reaches the
-// same deadline as the one before it. The move falls due at the later of two
-// moments: the earliest the child may move after its last one, from its own
-// records, and when the binary on disk was written, which no child on another
-// build can have been behind for longer than. A child that has begun winding
-// down is left to its bounded wind-down and restartOverdue. One that has not
-// begun by the time its grace past the due moment is up is restarted the
-// ordinary way, as a session stuck winding down is; before then, the record
-// says when the move is due and when the supervisor makes it, so every surface
-// reading the record names a scheduler left behind, and on which builds, at
-// its next look.
+// moveOverdue times the move of a child that restarts itself onto a new build.
+// The limit counts from when the supervisor first recorded the child behind
+// (MoveDue), never from when the binary on disk was written: a binary is
+// written by every build installed, and counting from it let builds landing
+// every half hour put the deadline off all day. A merge queue check the
+// child's wind-down waits out lengthens the limit once, to that check's own
+// time limit and MoveLimit past it. A machine that slept after the move fell
+// due has the limit counted again from its wake (observeMachine), because the
+// child's own loop has yet to run then.
+//
+// A child that has begun winding down is left to reach a point where nothing
+// is in flight the way it does by itself — after its own bounded wind-down it
+// pauses each run it holds, keeping its work, for the session on the new build
+// to continue — and to restartOverdue if it sticks; nothing here ends a run to
+// meet the limit. Past the limit the record says what holds it. One that has
+// not begun by its limit is restarted the ordinary way, which pauses the runs
+// it holds the same way (the child's Stop).
 func (s *Supervisor) moveOverdue(ctx context.Context, child Child, state *runstate.SupervisedChild, now time.Time, from string) {
 	scheduled, ok := child.(ScheduledMove)
 	if !ok {
 		return
 	}
-	next, windingDown, err := scheduled.NextMove(ctx)
+	if s.awakeSince.After(state.MoveDue) && s.awakeSince.Add(MoveLimit).After(state.MoveBy) {
+		state.MoveBy = s.awakeSince.Add(MoveLimit)
+	}
+	standing, err := scheduled.MoveStanding(ctx)
 	if err != nil {
-		s.log("when the %s service may next move onto a new build could not be read, so whether its move is overdue is asked again at the next look: %v", child.Name(), err)
+		s.log("where the %s service's move onto a new build stands could not be read, so it is asked again at the next look: %v", child.Name(), err)
 		return
 	}
-	if windingDown {
-		state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
+	if state.MoveCheck == "" && standing.QueueCheck != "" {
+		state.MoveCheck = oneline.Bound(standing.QueueCheck, runstate.MaxChildReasonBytes)
+		if by := standing.QueueCheckUntil.Add(MoveLimit); by.After(state.MoveBy) {
+			state.MoveBy = by
+		}
+	}
+	apart := fmt.Sprintf("on build %s while the rest of the product is on the newest installed build %s, since %s", short(from), short(s.deployed), localStamp(state.MoveDue))
+	overdue := !now.Before(state.MoveBy)
+	switch {
+	case standing.WindingDown && !overdue:
+		state.MoveHeld = ""
+		state.Redeploy = fmt.Sprintf("%s; it is winding down to move onto it, and is to be on it by %s", apart, localStamp(state.MoveBy))
+		return
+	case standing.WindingDown:
+		held := "its own winding down, which has not yet reached a point where nothing is in flight"
+		switch {
+		case standing.Waiting != "" && state.MoveCheck != "":
+			held = state.MoveCheck + "; " + standing.Waiting
+		case standing.Waiting != "":
+			held = standing.Waiting
+		case state.MoveCheck != "":
+			held = state.MoveCheck
+		}
+		state.MoveHeld = oneline.Bound(held, runstate.MaxChildReasonBytes)
+		state.Redeploy = fmt.Sprintf("%s; it was to be on it by %s and is still winding down, held by %s", apart, localStamp(state.MoveBy), state.MoveHeld)
+		return
+	case !overdue:
+		state.MoveHeld = ""
+		state.Redeploy = fmt.Sprintf("%s; it has not begun winding down to move onto it, and the supervisor restarts it into the newest build at %s if it has not begun by then", apart, localStamp(state.MoveBy))
 		return
 	}
-	apart := fmt.Sprintf("on build %s while the rest of the product is on the deployed build %s", short(from), short(s.deployed))
-	due := next
-	if s.deployedAt.After(due) {
-		due = s.deployedAt
-	}
-	// A machine that slept across the due moment wakes with the scheduler's own
-	// loop yet to run, and stopping it then would cut live runs short because
-	// the laptop slept. So where the operating system records a wake after the
-	// due moment, the grace is counted from that wake instead (observeMachine).
-	counted := due
-	if s.awakeSince.After(counted) {
-		counted = s.awakeSince
-	}
-	deadline := counted.Add(scheduled.MoveGrace())
-	state.MoveDue, state.MoveBy, state.MoveHeld = due, deadline, ""
-	if now.Before(due) {
-		state.Redeploy = fmt.Sprintf("%s; it moves onto it at %s, the least time after its last move (execution.build_move_interval), and goes on working on its own build until then", apart, localStamp(due))
-		return
-	}
-	if now.Before(deadline) {
-		state.Redeploy = fmt.Sprintf("%s; its move onto it was due at %s and it has not begun winding down for it; the supervisor restarts it into the deployed build at %s if it has not moved by then", apart, localStamp(due), localStamp(deadline))
-		return
-	}
-	why := fmt.Sprintf("was due to move onto a new build at %s and has not begun to, %s later", localStamp(due), now.Sub(due).Round(time.Second))
+	why := fmt.Sprintf("was to be on the newest build by %s and has not begun to move, %s after it fell behind", localStamp(state.MoveBy), now.Sub(state.MoveDue).Round(time.Second))
 	if held := s.restartHold(); held != "" {
-		state.MoveHeld = held
-		state.Redeploy = fmt.Sprintf("%s; it cannot move when due: it %s, and is not restarted while %s", apart, why, held)
+		state.MoveHeld = "nothing is restarted while " + held
+		state.Redeploy = fmt.Sprintf("%s; it %s, and is not restarted while %s", apart, why, held)
 		return
 	}
-	s.log("the %s service is %s: it %s, so the supervisor restarts it into the deployed build rather than wait any longer", child.Name(), apart, why)
+	s.log("the %s service is %s: it %s, so the supervisor restarts it into the newest build rather than wait any longer", child.Name(), apart, why)
 	s.restart(ctx, child, state, now, from)
+}
+
+// carryMoveTiming takes up, at the supervisor's first reading of a child's
+// build, the timing of its move that the supervisor before this one left in
+// the record, where the child is still on the build it was timed on. That is
+// what keeps a supervisor's own restart — and it restarts onto every build
+// installed — from starting the count again.
+func (s *Supervisor) carryMoveTiming(child Child, state *runstate.SupervisedChild, build string) {
+	previous, found := s.previous[child.Name()]
+	if !found {
+		return
+	}
+	delete(s.previous, child.Name())
+	if previous.MoveDue.IsZero() || build == "" || previous.Build != build || !state.MoveDue.IsZero() {
+		return
+	}
+	state.MoveDue, state.MoveBy, state.MoveCheck, state.MoveHeld = previous.MoveDue, previous.MoveBy, previous.MoveCheck, previous.MoveHeld
+}
+
+// clearMove forgets the timing of a child's move: it is on the newest build,
+// or it has moved.
+func clearMove(state *runstate.SupervisedChild) {
+	state.MoveDue, state.MoveBy, state.MoveCheck, state.MoveHeld = time.Time{}, time.Time{}, "", ""
 }
 
 // localStamp is a moment in the reader's own zone, with the zone named.
@@ -399,6 +462,9 @@ func (s *Supervisor) restart(ctx context.Context, child Child, state *runstate.S
 	if err != nil {
 		state.RestartingInto = ""
 		state.Redeploy = fmt.Sprintf("on build %s, behind the deployed %s; it could not be stopped to move it, and is tried again at the next look: %v", short(from), short(s.deployed), err)
+		if !state.MoveDue.IsZero() {
+			state.MoveHeld = oneline.Bound(fmt.Sprintf("a restart that failed: it could not be stopped to move it: %v", err), runstate.MaxChildReasonBytes)
+		}
 		s.log("the %s service %s", child.Name(), state.Redeploy)
 		return
 	}
@@ -448,7 +514,7 @@ func (s *Supervisor) restarted(child Child, state *runstate.SupervisedChild, now
 	state.BuildSince = now
 	state.RestartingInto = ""
 	state.Redeploy = ""
-	state.MoveDue, state.MoveBy, state.MoveHeld = time.Time{}, time.Time{}, ""
+	clearMove(state)
 	s.log("the %s service %s and is on build %s: restart %d into a deployed build, a restart rather than a death, so its restart bound is untouched", child.Name(), how, short(into), state.Restarts)
 }
 

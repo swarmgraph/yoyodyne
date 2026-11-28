@@ -135,16 +135,22 @@ type SupervisedChild struct {
 	// that the restart waits out, or that the child restarts itself.
 	RestartingInto string `json:"restarting_into,omitempty"`
 	Redeploy       string `json:"redeploy,omitempty"`
-	// MoveDue is when a child that moves onto a deployed build on a schedule
-	// of its own — the scheduler, under execution.build_move_interval — is due
-	// to move, for as long as it is behind and has not begun the move; MoveBy
-	// is when the supervisor restarts it into the deployed build if it has not
-	// begun by then, and MoveHeld what holds that restart, where something
-	// does. All three are empty for a child on the deployed build or already
-	// winding down for its move.
-	MoveDue  time.Time `json:"move_due,omitempty"`
-	MoveBy   time.Time `json:"move_by,omitempty"`
-	MoveHeld string    `json:"move_held,omitempty"`
+	// MoveDue is when the supervisor first recorded a child that moves itself
+	// onto a new build — the scheduler — as behind the newest installed build,
+	// which is the moment its move fell due; MoveBy is when it must be running
+	// on the newest build, counted from MoveDue and never started again by a
+	// newer build landing while it is behind (supervise.MoveLimit); MoveCheck
+	// names the merge queue check whose own time limit lengthened MoveBy, where
+	// one did; and MoveHeld is what holds the move once MoveBy has passed: the
+	// queue check by name, a run not yet at a point where it can be paused, a
+	// restart that failed with its reason, or what holds every restart. All of
+	// them are empty for a child on the newest installed build. A supervisor
+	// that restarts reads them back from the record it left, so the count goes
+	// on across it.
+	MoveDue   time.Time `json:"move_due,omitempty"`
+	MoveBy    time.Time `json:"move_by,omitempty"`
+	MoveCheck string    `json:"move_check,omitempty"`
+	MoveHeld  string    `json:"move_held,omitempty"`
 	// Restarts is how many times the supervisor has moved the child onto a
 	// deployed build, and RestartedAt when it last did. They are counted apart
 	// from Failures on purpose: a restart into a deployed build is not a death,
@@ -205,9 +211,16 @@ type Supervision struct {
 	// It is empty where the binary carries no revision, and then nothing is
 	// compared or restarted.
 	Deployed string `json:"deployed,omitempty"`
-	// DeployedAt is when that binary was written, which is since when every part
-	// on another build has been behind it.
+	// DeployedAt is when that binary was written. It moves with every build
+	// installed, so it is not since when a part has been behind: MoveDue on a
+	// child, and BehindSince for the supervisor, are.
 	DeployedAt time.Time `json:"deployed_at,omitempty"`
+	// BehindSince is when the supervisor first recorded itself on a build other
+	// than Deployed, kept across its own restarts while it stays behind, and
+	// BehindBy when it must be running on the newest installed build
+	// (supervise.MoveLimit). Both are empty while it is on Deployed.
+	BehindSince time.Time `json:"behind_since,omitzero"`
+	BehindBy    time.Time `json:"behind_by,omitzero"`
 	// TakeUpWait is, while the supervisor itself is on a build other than
 	// Deployed, what it waits for before it re-executes into Deployed, in words
 	// that finish "it moves onto it": "at its next look" where nothing holds it.
@@ -262,6 +275,9 @@ func (s Supervision) Validate() error {
 		}
 		if len(child.Reason) > MaxChildReasonBytes {
 			problems = append(problems, fmt.Errorf("child %s reason is %d bytes, which exceeds the %d byte bound", child.Service, len(child.Reason), MaxChildReasonBytes))
+		}
+		if len(child.MoveHeld) > MaxChildReasonBytes || len(child.MoveCheck) > MaxChildReasonBytes {
+			problems = append(problems, fmt.Errorf("child %s account of what holds its move is longer than the %d byte bound", child.Service, MaxChildReasonBytes))
 		}
 		if len(child.Redeploy) > MaxChildReasonBytes {
 			problems = append(problems, fmt.Errorf("child %s redeploy account is %d bytes, which exceeds the %d byte bound", child.Service, len(child.Redeploy), MaxChildReasonBytes))

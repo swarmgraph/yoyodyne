@@ -16,13 +16,12 @@ const KindStaleBuild Kind = "stale-build"
 type StaleBuildCause string
 
 const (
-	// StaleBuildMoveWaiting is a newer build installed and the session holding
-	// its own until the least time between two moves is up
-	// (execution.build_move_interval). It moves by itself, by rule.
+	// StaleBuildMoveWaiting is a newer build installed and the session moving
+	// onto it within its limit. It moves by itself.
 	StaleBuildMoveWaiting StaleBuildCause = "move-waiting"
-	// StaleBuildMoveDue is a move that has fallen due and that the session has
-	// not begun, inside the grace after which the supervisor restarts it onto
-	// the installed build itself.
+	// StaleBuildMoveDue is a move past its limit that something the record
+	// names holds, or one just past it that the supervisor restarts onto the
+	// installed build itself.
 	StaleBuildMoveDue StaleBuildCause = "move-due"
 	// StaleBuildMoveStuck is a move past the moment the supervisor was to
 	// restart the session itself, with the session still on its old build.
@@ -62,9 +61,9 @@ func ResolveStaleBuild(cause StaleBuildCause) Answer {
 func staleBuildRule(r Record) (Answer, bool) {
 	switch r.StaleBuild {
 	case StaleBuildMoveWaiting:
-		return owned(MoverHarness, "nothing: the session moves onto the installed build by itself once the least time between two moves is up", "")
+		return owned(MoverHarness, "nothing: the session moves onto the installed build by itself, within its limit", "")
 	case StaleBuildMoveDue:
-		return owned(MoverHarness, "nothing: the supervisor restarts the session onto the installed build if it has not moved by itself", "")
+		return owned(MoverHarness, "nothing: the session moves once what holds it ends, and the supervisor restarts it onto the installed build if it has not begun to move by itself", "")
 	case StaleBuildMoveStuck:
 		return owned(MoverDevelopmentManager, "find why the session has not moved onto the installed build, which the supervisor was to restart it onto", "health.observe")
 	case StaleBuildNotBuilt:

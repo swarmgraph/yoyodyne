@@ -166,29 +166,23 @@ func TestADrainBegunInsideAPullDeclinesThatPullsStarts(t *testing.T) {
 	}
 }
 
-// The timer finds nothing before a pull has said how long moves are apart,
-// nothing while no newer build is installed or the move is not yet due, and
-// keeps the first moment it found the move due.
+// The timer finds nothing while no newer build is installed, finds the move
+// due as soon as one is, and keeps the first moment it found it.
 func TestTheMoveTimerKeepsTheFirstMomentTheMoveWasDue(t *testing.T) {
 	t.Parallel()
 
 	deployment := &deployedOver{}
 	watch := &moveWatch{}
-	last := time.Date(2026, 11, 22, 18, 0, 0, 0, time.Local)
-	at := last.Add(time.Hour)
+	at := time.Date(2026, 11, 22, 18, 0, 0, 0, time.Local)
+	if watch.look(deployment, at) {
+		t.Fatal("the timer found a move due with no newer build installed")
+	}
 	deployment.deploy()
-	if watch.look(deployment, last, at) {
-		t.Fatal("the timer found a move due before any pull read the least time between moves")
+	due := at.Add(time.Minute)
+	if !watch.look(deployment, due) {
+		t.Fatal("the timer did not find the move due once a newer build was installed")
 	}
-	watch.interval(3 * time.Hour)
-	if watch.look(deployment, last, at) {
-		t.Fatal("the timer found a move due an hour after the last one, want it due three hours after")
-	}
-	due := last.Add(3 * time.Hour)
-	if !watch.look(deployment, last, due) {
-		t.Fatal("the timer did not find the move due at its due moment")
-	}
-	watch.look(deployment, last, due.Add(time.Minute))
+	watch.look(deployment, due.Add(time.Minute))
 	if found, ok := watch.due(); !ok || !found.Equal(due) {
 		t.Fatalf("due() = %s, %t; want the first moment it was found due, %s", found, ok, due)
 	}

@@ -524,7 +524,6 @@ func newSharedPipeline(t *testing.T, repository, worktreeRoot string, store Stat
 			LandingCheckTimeout:                    config.Duration(2 * time.Hour),
 			WorkPoll:                               config.Duration(60 * time.Second),
 			RedeployDrainLimit:                     config.Duration(15 * time.Minute),
-			BuildMoveInterval:                      config.DefaultBuildMoveInterval,
 			BuildCacheLimitGiB:                     config.DefaultBuildCacheLimitGiB,
 			BlockedRunsBeforeIntakeHold:            3,
 			// What a loaded configuration fills in, and what every run this suite

@@ -66,6 +66,11 @@ type Resolved struct {
 	// bound repository instead, which is what every command uses; this keeps
 	// what the out-of-date file said, for the surfaces that report it.
 	ConfiguredRepository string `json:"configured_repository,omitempty"`
+	// NoLongerRead is each setting a layer still names that no part of the
+	// harness reads any more, with the layer that names it. The file loads, so
+	// a project is never refused for a setting it was once told to write, and
+	// `yoyo doctor` says the setting does nothing (RetiredSettings).
+	NoLongerRead map[string]string `json:"no_longer_read,omitempty"`
 }
 
 // OriginKeys lists every recorded key in a stable order.
@@ -312,6 +317,8 @@ type resolution struct {
 	config  Config
 	origins map[string]string
 	agents  map[string]*agentResolution
+	// noLongerRead is Resolved.NoLongerRead as the layers are applied.
+	noLongerRead map[string]string
 }
 
 type agentResolution struct {
@@ -368,7 +375,6 @@ func newResolution() *resolution {
 				ForgeCheckInterval:                    DefaultForgeCheckInterval,
 				MainCheckInterval:                     DefaultMainCheckInterval,
 				RedeployDrainLimit:                    defaultRedeployDrainLimit,
-				BuildMoveInterval:                     DefaultBuildMoveInterval,
 				BuildCacheLimitGiB:                    DefaultBuildCacheLimitGiB,
 				FactoryStallAfter:                     defaultFactoryStallAfter,
 				CouldNotRunBeforeStatus:               defaultCouldNotRunBeforeStatus,
@@ -478,7 +484,6 @@ func newResolution() *resolution {
 			"execution.forge_check_interval":                       OriginDefault,
 			"execution.main_check_interval":                        OriginDefault,
 			"execution.redeploy_drain_limit":                       OriginDefault,
-			"execution.build_move_interval":                        OriginDefault,
 			"execution.build_cache_limit_gib":                      OriginDefault,
 			"execution.factory_stall_after":                        OriginDefault,
 			"execution.could_not_run_before_status":                OriginDefault,
@@ -544,7 +549,9 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.forge_check_interval", execution.ForgeCheckInterval, &r.config.Execution.ForgeCheckInterval, applied.origin)
 		setValue(r.origins, "execution.main_check_interval", execution.MainCheckInterval, &r.config.Execution.MainCheckInterval, applied.origin)
 		setValue(r.origins, "execution.redeploy_drain_limit", execution.RedeployDrainLimit, &r.config.Execution.RedeployDrainLimit, applied.origin)
-		setValue(r.origins, "execution.build_move_interval", execution.BuildMoveInterval, &r.config.Execution.BuildMoveInterval, applied.origin)
+		if execution.BuildMoveInterval != nil {
+			r.retired("execution.build_move_interval", applied.origin)
+		}
 		setValue(r.origins, "execution.build_cache_limit_gib", execution.BuildCacheLimitGiB, &r.config.Execution.BuildCacheLimitGiB, applied.origin)
 		setValue(r.origins, "execution.factory_stall_after", execution.FactoryStallAfter, &r.config.Execution.FactoryStallAfter, applied.origin)
 		setValue(r.origins, "execution.could_not_run_before_status", execution.CouldNotRunBeforeStatus, &r.config.Execution.CouldNotRunBeforeStatus, applied.origin)
@@ -1147,7 +1154,15 @@ func (r *resolution) finish(sources []string) (Resolved, error) {
 		origins["product.repository_id"] = OriginDerived
 	}
 
-	return Resolved{Config: effective, Sources: sources, Origins: origins}, nil
+	return Resolved{Config: effective, Sources: sources, Origins: origins, NoLongerRead: r.noLongerRead}, nil
+}
+
+// retired records that a layer names a setting nothing reads any more.
+func (r *resolution) retired(key, origin string) {
+	if r.noLongerRead == nil {
+		r.noLongerRead = make(map[string]string)
+	}
+	r.noLongerRead[key] = origin
 }
 
 // derivedRepairGrant sizes an unstated triage grant from the repair budget a

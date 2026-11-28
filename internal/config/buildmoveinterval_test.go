@@ -3,51 +3,33 @@ package config
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
-// The least time between two moves onto a new build is three hours unless the
-// project says otherwise.
-func TestTheBuildMoveIntervalIsThreeHoursUnlessTheProjectSetsIt(t *testing.T) {
+// The least time between two moves onto a new build is gone: a project file
+// that still names it loads, at any value it was once allowed or not, and the
+// setting is listed as one nothing reads so `yoyo doctor` can say so. Neither
+// the built-in defaults nor a generated file names it (yoyodyne-ifd.428.225).
+func TestAFileStillNamingTheBuildMoveIntervalLoadsAndTheSettingIsListedAsNoLongerRead(t *testing.T) {
 	t.Parallel()
 
 	inherited := loadProject(t, minimalProjectConfig, nil)
-	if got := inherited.Config.Execution.BuildMoveEvery(); got != 3*time.Hour {
-		t.Fatalf("inherited build_move_interval = %s, want 3h", got)
+	if _, named := inherited.NoLongerRead["execution.build_move_interval"]; named {
+		t.Fatalf("a file that does not name build_move_interval lists it as no longer read: %v", inherited.NoLongerRead)
 	}
-	if origin := inherited.Origins["execution.build_move_interval"]; origin != BuiltinV1 {
-		t.Fatalf("build_move_interval origin = %q, want %q", origin, BuiltinV1)
+	if _, origin := inherited.Origins["execution.build_move_interval"]; origin {
+		t.Fatal("build_move_interval still has an origin, want the built-in defaults to name it no more")
 	}
-	if got := (Execution{}).BuildMoveEvery(); got != 3*time.Hour {
-		t.Fatalf("a configuration built in code reads build_move_interval as %s, want 3h", got)
-	}
-
-	for body, want := range map[string]time.Duration{
-		"execution:\n  build_move_interval: 1h\n":  time.Hour,
-		"execution:\n  build_move_interval: 6h\n":  6 * time.Hour,
-		"execution:\n  build_move_interval: 24h\n": 24 * time.Hour,
-	} {
-		overridden := loadProject(t, minimalProjectConfig+body, nil)
-		if got := overridden.Config.Execution.BuildMoveEvery(); got != want {
-			t.Fatalf("%q: build_move_interval = %s, want %s", body, got, want)
+	for _, value := range []string{"3h", "30m", "48h"} {
+		named := loadProject(t, minimalProjectConfig+"execution:\n  build_move_interval: "+value+"\n", nil)
+		if origin := named.NoLongerRead["execution.build_move_interval"]; origin == "" {
+			t.Fatalf("build_move_interval %s: NoLongerRead = %v, want the setting listed with the file that names it", value, named.NoLongerRead)
 		}
 	}
-
-	generated := loadScaffold(t, ScaffoldOptions{ProductID: "example", Repository: "."}).Config
-	if got := generated.Execution.BuildMoveInterval; got != Duration(3*time.Hour) {
-		t.Fatalf("generated build_move_interval = %s, want 3h", got)
+	scaffold, err := NewScaffold(BuiltinV1, ScaffoldOptions{ProductID: "example", Repository: "."})
+	if err != nil {
+		t.Fatalf("NewScaffold() error = %v", err)
 	}
-}
-
-// A value under one hour or over twenty-four hours is refused when the
-// configuration is read, saying what the limits are.
-func TestABuildMoveIntervalOutsideOneToTwentyFourHoursIsRefused(t *testing.T) {
-	t.Parallel()
-
-	for _, value := range []string{"0s", "59m", "30m", "24h1m", "48h", "-1h"} {
-		_, err := loadProjectError(t, minimalProjectConfig+"execution:\n  build_move_interval: "+value+"\n", nil)
-		if err == nil || !strings.Contains(err.Error(), "must be at least one hour and at most twenty-four hours") {
-			t.Fatalf("build_move_interval %s: LoadResolved() error = %v, want it refused naming the limits", value, err)
-		}
+	if strings.Contains(string(scaffold.Config.Content), "build_move_interval") {
+		t.Fatal("a generated configuration still names build_move_interval")
 	}
 }

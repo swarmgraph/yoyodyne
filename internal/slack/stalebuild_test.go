@@ -52,8 +52,8 @@ func TestASessionOnTheInstalledBuildWhileTheNextIsMadeSaysNothing(t *testing.T) 
 	harness.poll(t, harness.start())
 }
 
-// A newer build is installed and the session holds its own until the least
-// time between two moves is up, which is the rule rather than a fault.
+// A newer build is installed and the session is moving onto it within its
+// limit, which is the harness doing what it was built to rather than a fault.
 func TestANewerBuildWaitingInsideTheMoveIntervalSaysNothing(t *testing.T) {
 	t.Parallel()
 	harness := newTestHarness(t, time.Time{})
@@ -62,13 +62,13 @@ func TestANewerBuildWaitingInsideTheMoveIntervalSaysNothing(t *testing.T) {
 	harness.feed.Installation = &fakeInstallation{installed: Installed{
 		Supervised: true,
 		Build:      currentResidentBuild,
-		MoveDue:    harness.now.Add(2 * time.Hour),
-		MoveBy:     harness.now.Add(2*time.Hour + 30*time.Minute),
+		MoveDue:    harness.now.Add(-2 * time.Minute),
+		MoveBy:     harness.now.Add(13 * time.Minute),
 	}}
 	harness.watchedBuild(t, runstate.WatchWatching, "watching the backlog until stopped", moment, staleResidentBuild)
 
 	cursors := harness.poll(t, harness.start())
-	harness.now = harness.now.Add(time.Hour + time.Minute)
+	harness.now = harness.now.Add(10 * time.Minute)
 	harness.poll(t, cursors)
 }
 
@@ -108,9 +108,9 @@ func TestUncommittedChangesStoppingTheBuildAreAWarning(t *testing.T) {
 	assertStaleBuild(t, said, report.SeverityWarning, "the Lead Product Manager's", "uncommitted changes")
 }
 
-// A move that has fallen due and that the session has not begun is a note
-// while the supervisor's own deadline for restarting it stands, and a warning
-// for the development manager once that deadline is well past.
+// A move just past its limit is a note while the supervisor restarts the
+// session itself, and a warning for the development manager once the limit is
+// well past.
 func TestAMovePastDueIsANoteAndThenAWarning(t *testing.T) {
 	t.Parallel()
 	harness := newTestHarness(t, time.Time{})
@@ -119,8 +119,8 @@ func TestAMovePastDueIsANoteAndThenAWarning(t *testing.T) {
 	installation := &fakeInstallation{installed: Installed{
 		Supervised: true,
 		Build:      currentResidentBuild,
-		MoveDue:    harness.now.Add(-10 * time.Minute),
-		MoveBy:     harness.now.Add(5 * time.Minute),
+		MoveDue:    harness.now.Add(-20 * time.Minute),
+		MoveBy:     harness.now.Add(-5 * time.Minute),
 	}}
 	harness.feed.Installation = installation
 	harness.watchedBuild(t, runstate.WatchWatching, "watching the backlog until stopped", moment, staleResidentBuild)
