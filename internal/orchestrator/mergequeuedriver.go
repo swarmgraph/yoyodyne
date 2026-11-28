@@ -247,7 +247,9 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 	landed, handedBack := 0, 0
 	var untidied []string
 	// retried is each candidate checkout the worker tried again within this
-	// pass, so a pass that went on to land says what the busy machine cost it.
+	// pass, so a pass that went on to land says what the busy machine cost it,
+	// and each candidate whose cut-off checks it took up again or built anew
+	// instead, and why (resumedSays).
 	var retried []string
 	// unrecorded is a landing whose work item the last Promote could not record
 	// in time. It holds no entry up, and a pass that would otherwise end with
@@ -495,6 +497,7 @@ func (d MergeQueueDriver) pass(ctx context.Context, key runstate.MergeQueueKey) 
 		conflicts(watched)
 		watched = mergeQueueConflictsFound{}
 		retried = append(retried, verified.CheckoutRetries...)
+		retried = append(retried, verified.Resumed...)
 		if verified.Ahead != nil {
 			retried = append(retried, verified.Ahead.CheckoutRetries...)
 		}

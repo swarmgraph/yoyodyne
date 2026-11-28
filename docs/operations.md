@@ -4763,7 +4763,14 @@ attempt, as the point on promotions below says:
   recorded on the candidate as cut off by the restart, not as a failure, and
   nothing is charged to the change for it. Where the record of the stopped
   attempt cannot say which checks passed on that same candidate, every check
-  runs again and the candidate's record says why. Past the bound no queue pass
+  runs again and the candidate's record says why. Before the session that
+  comes back runs the checks again, it fetches the target branch: where the
+  target has moved since the candidate was built, as when a merge landed on
+  GitHub while the checks were stopped, it builds a new candidate on the
+  target as it stands and checks that instead, rather than finishing the old
+  candidate's checks only to rebuild it afterwards. The queue's pass record
+  says which of the two it did, where it read the target, and why. Past the
+  bound no queue pass
   starts, and none starts a check stage or a review. The exception to the wait
   is a developer slot sitting empty with work for it, as the point above says:
   then the pass is stopped part-way at once, keeping what had passed as

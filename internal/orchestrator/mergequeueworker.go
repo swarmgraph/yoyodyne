@@ -32,7 +32,11 @@ package orchestrator
 // or by the process working the queue ending — keeps the results of the checks
 // that had passed on the same candidate and check list, and runs only the
 // others, the one cut off included (keptQueueChecks). A cut-off check is an
-// interruption, never a failure, and nothing is charged for it.
+// interruption, never a failure, and nothing is charged for it. Before cut-off
+// checks are taken up again the target is fetched (fetchBeforeResuming): a
+// candidate whose base the target has moved off meanwhile is built again on
+// the target as it stands instead, and the pass's record says which was done
+// and why (resumedSays).
 //
 // The protected-path gate is asked of the candidate before anything runs on
 // it: it is a string comparison over the paths the candidate changes, and a
@@ -163,6 +167,19 @@ type MergeQueueWorker struct {
 	// into conflict with (mergequeueconflicts.go). Nil looks for none.
 	TargetMoved func(ctx context.Context, lease *runstate.Lease, working string)
 	TargetWatch time.Duration
+	// Fetch brings the local target branch onto the remote's before a
+	// candidate's cut-off checks are taken up again (resumeChecks), so a target
+	// that moved on the forge meanwhile is seen and the candidate is built
+	// again on it instead. It is satisfied by *gitworktree.Manager; nil goes by
+	// the local branch alone.
+	Fetch MergeQueueTargetFetcher
+}
+
+// MergeQueueTargetFetcher brings a local target branch onto the remote's and
+// reports what it found (gitworktree.Manager.FetchTarget). Its caller holds the
+// target's promotion lease, because the local branch may move.
+type MergeQueueTargetFetcher interface {
+	FetchTarget(ctx context.Context, targetBranch string, now time.Time) gitworktree.TargetFetch
 }
 
 // mergeQueueWait is a stage the worker did not start, and why: a process an
@@ -204,6 +221,11 @@ type MergeQueueVerification struct {
 	// CheckoutRetries says each candidate checkout that failed outside the
 	// change and was removed and tried again within this call, in order.
 	CheckoutRetries []string
+	// Resumed says, for a candidate whose checks had been cut off, whether the
+	// call took them up again on the same candidate or built a new one because
+	// the target had moved, and where the target was read as standing
+	// (resumeChecks).
+	Resumed []string
 	// Ahead is what the call did with the next entry's candidate, checked
 	// beside this one's on top of this one's candidate, and nil where it
 	// checked none ahead. Nothing it says is charged to that entry or handed
@@ -286,7 +308,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 // refuses, to a wait, or to the target moving under it, which is reported by
 // returning with neither a verdict nor a refusal so the caller builds again.
 func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, author mergeQueueAuthors, configured runstate.MergeQueueCheckConfiguration, outcome MergeQueueVerification, ahead *aheadCheck) (MergeQueueVerification, error) {
-	generation, err := w.current(ctx, lease, key, entry, author, configured, outcome.Choice.Selection(), &outcome.CheckoutRetries)
+	generation, err := w.current(ctx, lease, key, entry, author, configured, outcome.Choice.Selection(), &outcome.CheckoutRetries, &outcome.Resumed)
 	outcome.Generation = generation
 	if err != nil {
 		return outcome, err
@@ -442,8 +464,9 @@ func (w MergeQueueWorker) now() time.Time {
 // when there is none or the standing one can no longer be promoted.
 //
 // Each checkout attempt that failed outside the change and was tried again is
-// added to retried.
-func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author mergeQueueAuthors, configured runstate.MergeQueueCheckConfiguration, selection *runstate.MergeQueueSelection, retried *[]string) (runstate.MergeQueueGeneration, error) {
+// added to retried. Where the standing generation's checks were cut off, what
+// was done about them, and why, is added to resumed.
+func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, author mergeQueueAuthors, configured runstate.MergeQueueCheckConfiguration, selection *runstate.MergeQueueSelection, retried, resumed *[]string) (runstate.MergeQueueGeneration, error) {
 	generations, err := w.Queue.Generations(key, entry.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, err
@@ -453,6 +476,19 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 	// started, set aside, rebuilt, or restored.
 	if count := len(generations); count > 0 {
 		if err := w.awaitUnfinished(key, generations[count-1]); err != nil {
+			return generations[count-1], err
+		}
+	}
+	// Checks cut off part-way are taken up again only on a candidate that still
+	// stands on the target, and the target may have moved on the forge while
+	// they were stopped, which the local branch does not show until it is
+	// fetched. So it is fetched first: a candidate whose base is gone is built
+	// again on the target as it stands, rather than checked again only to be
+	// rebuilt and checked a second time once its checks pass.
+	resuming, read := false, ""
+	if count := len(generations); count > 0 && checksToResume(generations[count-1]) {
+		resuming = true
+		if read, err = w.fetchBeforeResuming(ctx, key); err != nil {
 			return generations[count-1], err
 		}
 	}
@@ -480,13 +516,86 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 			}
 		}
 		if reason == "" {
+			if resuming {
+				*resumed = append(*resumed, resumedSays(key, standing, target, read, reason))
+			}
 			return w.reconcile(ctx, lease, key, standing)
 		}
 		if _, err := w.invalidate(lease, key, standing, reason, target); err != nil {
 			return standing, err
 		}
+		if resuming {
+			*resumed = append(*resumed, resumedSays(key, standing, target, read, reason))
+		}
 	}
 	return w.build(ctx, lease, key, entry, author, configured, uint64(len(generations)+1), nil, selection, retried)
+}
+
+// checksToResume reports a standing generation whose checks were started and
+// earned nothing yet: still recorded as running, ended without judging the
+// candidate, or set aside and not yet started again.
+func checksToResume(generation runstate.MergeQueueGeneration) bool {
+	if generation.Invalidated != nil {
+		return false
+	}
+	if run := generation.CheckRun; run != nil {
+		return run.FinishedAt == nil || run.Problem != ""
+	}
+	return slices.ContainsFunc(generation.Interruptions, func(set runstate.MergeQueueInterruption) bool {
+		return set.Stage == runstate.MergeQueueStageChecks
+	})
+}
+
+// fetchBeforeResuming brings the local target onto the remote's, under the
+// target's promotion lease because the local branch may move, and says where
+// the reading of the target that follows came from. A remote that cannot be
+// read, or a local branch that cannot be moved onto it, leaves the local branch
+// as it stood, and the decision goes by that, saying so: the promotion reads
+// the target again under its lease before anything lands, so a stale reading
+// costs at most the rebuild this fetch is meant to save.
+func (w MergeQueueWorker) fetchBeforeResuming(ctx context.Context, key runstate.MergeQueueKey) (string, error) {
+	if w.Fetch == nil {
+		return "as the local branch has it", nil
+	}
+	promotion, err := w.Pipeline.Store.LeasePromotion(ctx, key.TargetBranch)
+	if err != nil {
+		return "", fmt.Errorf("wait for the turn to fetch %s before taking up cut-off checks: %w", key.TargetBranch, err)
+	}
+	defer func() { _ = promotion.Release() }()
+	fetch := w.Fetch.FetchTarget(ctx, key.TargetBranch, w.now())
+	switch {
+	case fetch.Failure != "":
+		return fmt.Sprintf("as the local branch has it, because %s could not be read (%s)", nonEmpty(fetch.Remote, "the remote"), fetch.Failure), nil
+	case fetch.Held != "":
+		return fmt.Sprintf("as the local branch has it, because it was not moved onto %s's (%s)", fetch.Remote, fetch.Held), nil
+	case fetch.Remote == "":
+		return "as the local branch has it, the repository having no remote", nil
+	}
+	return fmt.Sprintf("as read from %s just now", fetch.Remote), nil
+}
+
+// resumedSays is what the queue's record says about a generation whose checks
+// had been cut off: taken up again on the same candidate, where reason is
+// empty, or a new candidate built instead, and why.
+func resumedSays(key runstate.MergeQueueKey, standing runstate.MergeQueueGeneration, target, read string, reason runstate.MergeQueueInvalidationReason) string {
+	cut := fmt.Sprintf("the checks of generation %d of merge queue entry %d had been cut off", standing.Number, standing.EntryOrder)
+	rebuilt := fmt.Sprintf("so a new candidate was built on %s as it stands rather than checking the old one again", key.TargetBranch)
+	switch reason {
+	case "":
+		return fmt.Sprintf("%s; %s still stood at %s, %s, where the candidate was built, so they were taken up again on the same candidate",
+			cut, key.TargetBranch, shortCommit(target), read)
+	case runstate.MergeQueueTargetMoved:
+		return fmt.Sprintf("%s; %s had moved from %s to %s, %s, %s",
+			cut, key.TargetBranch, shortCommit(standing.TargetBase), shortCommit(target), read, rebuilt)
+	case runstate.MergeQueueBaseNotLanded:
+		return fmt.Sprintf("%s; it was built on the candidate %s of the entry ahead, which %s does not stand on (it stands at %s, %s), %s",
+			cut, shortCommit(standing.TargetBase), key.TargetBranch, shortCommit(target), read, rebuilt)
+	case runstate.MergeQueueChecksChanged:
+		return fmt.Sprintf("%s; the project's configured checks have changed since it was built, %s", cut, rebuilt)
+	case runstate.MergeQueueCandidateLost:
+		return fmt.Sprintf("%s; the repository no longer holds its candidate commit %s, %s", cut, shortCommit(standing.Candidate), rebuilt)
+	}
+	return fmt.Sprintf("%s; it can no longer be promoted (%s), %s", cut, reason, rebuilt)
 }
 
 // build builds the entry's candidate and records it as generation number: on
