@@ -881,6 +881,7 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		Log:            log,
 		RecordFailures: recordFailures,
 		BuildCache:     buildCache,
+		Leftovers:      leftoversFrom(runIndex, reports, p.stateRoot, p.resolved.Config, p.now),
 	}
 	// Assigned only where there is one: an interface holding a nil pointer is
 	// not nil, and the pass reads a nil rebuilder as the reason above.
@@ -930,6 +931,22 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		pass.Build = buildinfo.Commit()
 	}
 	return append(residents, pass), pass, nil
+}
+
+// leftoversFrom is the stop of what runs with nothing going left running,
+// which every maintenance pass takes and a scheduler takes as it starts
+// (maintain.Leftovers).
+func leftoversFrom(store *runstate.Store, reports *runstate.ReportStore, stateRoot string, cfg config.Config, now func() time.Time) *maintain.Leftovers {
+	return &maintain.Leftovers{
+		Runs:         store,
+		Processes:    execution.RunProcesses{},
+		StateRoot:    stateRoot,
+		Reports:      reports,
+		Product:      cfg.Product.ID,
+		RepositoryID: string(cfg.Product.RepositoryID),
+		Build:        buildinfo.Commit(),
+		Now:          now,
+	}
 }
 
 // trackerServer is the tracker's server, as the supervisor runs it and `yoyo

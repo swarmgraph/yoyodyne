@@ -726,6 +726,23 @@ func (s *Store) AdoptRun(ctx context.Context, runID string) (State, *Lease, erro
 	return state, lease, nil
 }
 
+// TryIdleRun takes the lease of a run nothing holds, without waiting and
+// without stamping a holder, and reports whether it got it. Every developer
+// session, reviewer session and check of a run runs under the run's lease, so a
+// lease nobody holds is a run with none of them going; holding it keeps any
+// from starting until it is released. It is for the stop of a run's leftover
+// processes (internal/maintain, leftovers.go), which must never stop a process
+// while a session or check of its run is going, and holds it only for as long
+// as that stop takes. A process adopting the run in that time is told the run
+// is held, as it is by any live holder.
+func (s *Store) TryIdleRun(runID string) (*Lease, bool, error) {
+	path, err := s.leasePath(runID)
+	if err != nil {
+		return nil, false, err
+	}
+	return TryLeasePath(path, "run")
+}
+
 // lockReservations serializes the reservation and adoption critical sections
 // against every other Yoyodyne process.
 func (s *Store) lockReservations(ctx context.Context) (func(), error) {

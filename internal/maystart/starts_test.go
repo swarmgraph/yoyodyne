@@ -178,6 +178,7 @@ var starts = map[string]launch{
 	"internal/runstate/store.go Store.AdoptRun takeLease":                                               because("the lease itself, taken for whoever called; each caller is listed"),
 	"internal/runstate/store.go Store.AdoptWithin takeLease":                                            because("the lease itself, taken for whoever called; each caller is listed"),
 	"internal/runstate/store.go Store.reserve takeLease":                                                because("the lease itself, taken for whoever called; each caller is listed"),
+	"internal/runstate/store.go Store.TryIdleRun TryLeasePath":                                          because("holds a run nothing holds while the processes it left running are stopped, and starts nothing"),
 	"internal/runstate/supervision.go SupervisionStore.Lease TryLeasePath":                              because("a lease on something other than a run"),
 	"internal/runstate/watch.go WatchStore.Held TryLeasePath":                                           because("a lease on something other than a run"),
 	"internal/runstate/watch.go WatchStore.Lease TryLeasePath":                                          because("a lease on something other than a run"),

@@ -5,7 +5,9 @@ package orchestrator
 // session's process group (docs/designs/stopping-what-a-run-started.md). The
 // search and the stop are internal/execution's (execution.RunProcesses); this
 // file makes the calls and records on the run what was left running, which
-// yoyo status shows under the run.
+// yoyo status shows under the run. What a harness that stopped before making
+// them left behind is stopped as a session starts and by every maintenance
+// pass (internal/maintain, leftovers.go).
 
 import (
 	"context"

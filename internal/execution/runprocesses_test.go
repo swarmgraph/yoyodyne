@@ -222,3 +222,58 @@ func (unreadableTable) list() ([]processEntry, error)           { return nil, er
 func (unreadableTable) workingDirectories([]int) map[int]string { return nil }
 func (unreadableTable) listening(int) []string                  { return nil }
 func (unreadableTable) holding([]string) map[int]bool           { return nil }
+
+// MarkedRuns names every run a process started with, once each and in order,
+// and leaves out a process that has exited, process 1, and this process.
+func TestMarkedRunsNamesEachRunAProcessCarries(t *testing.T) {
+	fake := newFakeProcesses(
+		processEntry{PID: 1, Environment: []string{RunIdentityVariable + "=run-init"}},
+		processEntry{PID: os.Getpid(), Environment: []string{RunIdentityVariable + "=run-self"}},
+		processEntry{PID: 501, Start: "a", Environment: []string{RunIdentityVariable + "=run-b"}},
+		processEntry{PID: 502, Start: "a", Environment: []string{RunIdentityVariable + "=run-a"}},
+		processEntry{PID: 503, Start: "a", Environment: []string{RunIdentityVariable + "=run-b"}},
+		processEntry{PID: 504, Start: "a", Gone: true, Environment: []string{RunIdentityVariable + "=run-gone"}},
+		processEntry{PID: 505, Start: "a", Environment: []string{"PATH=/bin"}},
+	)
+	marked, err := (RunProcesses{table: fake}).MarkedRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"run-a", "run-b"}; !slices.Equal(marked, want) {
+		t.Fatalf("MarkedRuns() = %v, want %v", marked, want)
+	}
+	if _, err := (RunProcesses{table: unreadableTable{}}).MarkedRuns(); err == nil {
+		t.Fatal("MarkedRuns() said nothing of a table it could not read")
+	}
+}
+
+// A child whose starting environment the process list hides, as macOS hides a
+// system program's, is the run's while a running parent carries the run's
+// identifier, and is stopped with it. One under another run's process, or one
+// whose parent has ended, is not; one of the latter working in the worktree is
+// named, saying its environment could not be read.
+func TestRunProcessesStopsAHiddenChildOfTheRunsProcess(t *testing.T) {
+	worktree := t.TempDir()
+	parent := marked(4100, "run-a")
+	hidden := processEntry{PID: 4101, Parent: 4100, Start: "1", Command: "sleep"}
+	grandchild := processEntry{PID: 4102, Parent: 4101, Start: "1", Command: "sleep"}
+	theirs := processEntry{PID: 4201, Parent: 4200, Start: "1", Command: "sleep"}
+	orphan := processEntry{PID: 4301, Parent: 1, Start: "1", Command: "sleep"}
+	fake := newFakeProcesses(parent, hidden, grandchild, marked(4200, "run-b"), theirs, orphan)
+	fake.cwd[4301] = worktree
+	left := quickStop(fake).Stop(context.Background(), RunProcessesRequest{RunID: "run-a", Folders: []string{worktree}})
+	for _, pid := range []int{4100, 4101, 4102} {
+		if _, ok := fake.entries[pid]; ok {
+			t.Errorf("process %d, the run's or under it, is still running", pid)
+		}
+	}
+	for _, pid := range []int{4200, 4201, 4301} {
+		if _, ok := fake.entries[pid]; !ok {
+			t.Errorf("process %d, which is not the run's, was stopped", pid)
+		}
+	}
+	if len(left) != 1 || left[0].PID != 4301 || !left[0].Unmarked ||
+		!strings.Contains(left[0].Describe(), "not stopped: its starting environment could not be read, and it carries no other sign that this run started it") {
+		t.Fatalf("Stop() left %+v", left)
+	}
+}
