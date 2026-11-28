@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -168,7 +169,11 @@ const maxQuotedBytes = 4000
 // quoteLines quotes what a person wrote, so no line of it reads as the harness's.
 func quoteLines(body string) string {
 	if len(body) > maxQuotedBytes {
-		body = strings.ToValidUTF8(body[:maxQuotedBytes], "") + " [cut]"
+		cut := maxQuotedBytes
+		for cut > 0 && !utf8.RuneStart(body[cut]) {
+			cut--
+		}
+		body = body[:cut] + " [cut]"
 	}
 	lines := strings.Split(strings.TrimSpace(body), "\n")
 	for at, line := range lines {

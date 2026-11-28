@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -158,5 +159,14 @@ func TestACommentAfterDeliveryFilesOneParkedItem(t *testing.T) {
 		if asked, err := requests.List(string(role)); err != nil || len(asked) != 0 {
 			t.Fatalf("the %s was asked for %#v, %v; want no pass", role, asked, err)
 		}
+	}
+}
+
+// A long comment is quoted up to the bound, cut where a character starts.
+func TestALongCommentIsQuotedWholeCharactersOnly(t *testing.T) {
+	t.Parallel()
+	quoted := quoteLines("a" + strings.Repeat("é", maxQuotedBytes))
+	if !utf8.ValidString(quoted) || !strings.HasSuffix(quoted, " [cut]") || len(quoted) > maxQuotedBytes+len("> ")+len(" [cut]") {
+		t.Fatalf("quoted %d bytes, valid %t", len(quoted), utf8.ValidString(quoted))
 	}
 }
