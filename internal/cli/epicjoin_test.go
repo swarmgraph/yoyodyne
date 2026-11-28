@@ -25,6 +25,9 @@ func TestTheJudgmentOfAPieceIsAFreshReadOnlyReviewerSession(t *testing.T) {
 	if epicJoinsFrom(components{config: cfg, branchReviews: &runstate.BranchReviewStore{}}) != nil {
 		t.Fatal("a project with no reviewer judges pieces")
 	}
+	if epicCommentsFrom(components{config: cfg, branchReviews: &runstate.BranchReviewStore{}}) != nil {
+		t.Fatal("a project with no reviewer judges review comments")
+	}
 	binary := filepath.Join(t.TempDir(), "codex")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -32,6 +35,9 @@ func TestTheJudgmentOfAPieceIsAFreshReadOnlyReviewerSession(t *testing.T) {
 	cfg.Providers = map[string]backend.ProviderPlugin{string(domain.BackendCodex): {Binary: binary}}
 	cfg.Accounts = map[string]config.Account{"reviewing": {Provider: domain.BackendCodex}}
 	cfg.Agents["reviewer"] = config.AgentConfig{Role: domain.RoleReviewer, Backend: domain.BackendCodex, Model: "gpt-6.1-sol", Account: "reviewing"}
+	if epicCommentsFrom(components{config: cfg, branchReviews: &runstate.BranchReviewStore{}}) == nil {
+		t.Fatal("a project with a reviewer does not judge review comments")
+	}
 	cli := &answeringCLIRunner{}
 	root := t.TempDir()
 	spends, err := runstate.NewSpendStore(root, cfg.Product.ID)

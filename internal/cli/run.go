@@ -1248,9 +1248,12 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// read through the same access: a requested change starts a repair round
 		// counted against the project's repair budget, and a comment goes on the
 		// development manager's list as a report.
-		Feedback:    forge,
-		Reports:     reportsOf(parts),
-		RepairLimit: parts.config.Execution.RepairAttemptsBeforeReplan,
+		Feedback: forge,
+		Reports:  reportsOf(parts),
+		// While the item is in an epic the operator named, a change request is
+		// judged against the epic before a repair answers it.
+		EpicComments: epicCommentsFrom(parts),
+		RepairLimit:  parts.config.Execution.RepairAttemptsBeforeReplan,
 		// A line comment on a tracked pull request into the team's branch names
 		// the items whose landing commits touched its file, read from the
 		// repository.

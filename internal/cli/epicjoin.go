@@ -33,6 +33,28 @@ func epicJoinsFrom(parts components) orchestrator.ScheduleEpicJoins {
 	return epicJoins{parts, parts.runner}
 }
 
+// epicCommentsFrom judges a change request on a pull request waiting for a
+// person's merge against the named epic its item is in (epicjoin.Joiner.
+// JudgeComment), in a session of the same kind as a piece's judgment. It is nil
+// where these parts have no reviewer to judge with, and a change request is then
+// answered as it is without epic mode.
+func epicCommentsFrom(parts components) orchestrator.EpicComments {
+	if epicJoinsFrom(parts) == nil {
+		return nil
+	}
+	return epicComments{epicJoins{parts, parts.runner}}
+}
+
+type epicComments struct{ joins epicJoins }
+
+func (e epicComments) JudgeComment(ctx context.Context, comment epicjoin.Comment) (epicjoin.Verdict, error) {
+	joiner, err := e.joins.joiner(nil)
+	if err != nil {
+		return epicjoin.Later, err
+	}
+	return joiner.JudgeComment(ctx, comment)
+}
+
 // Owed answers no while the operator has paused what the harness spends.
 func (e epicJoins) Owed(ctx context.Context) (bool, error) {
 	if paused, err := e.paused(); err != nil || paused {
@@ -149,7 +171,7 @@ func (e epicJoins) judge(ctx context.Context, request epicjoin.Request, spent fu
 			SchemaVersion: runstate.UsageLimitSchemaVersion,
 			ProductID:     cfg.Product.ID,
 			At:            time.Now().UTC(),
-			Waiting:       "the judgment of a piece that may join a named epic, " + request.ID,
+			Waiting:       "a judgment against a named epic, of a piece that may join it or of a review comment, " + request.ID,
 			Kind:          limit.Kind,
 			AccountAlias:  account.Alias,
 			Model:         strings.TrimSpace(reviewer.Model),

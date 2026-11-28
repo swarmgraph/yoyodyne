@@ -52,7 +52,9 @@ type Member struct {
 // Given is what one check reads. Epic is the operator's record of the naming,
 // Entry what is kept of its progress, and Commits the target branch at the one
 // commit recorded, or each approved head where changes were handed over. Titles
-// names the items the operator took out.
+// names the items the operator took out. Again is a check made again on new
+// approved heads after a change handed over was repaired (Entry.Repaired), which
+// is not a round of correction.
 type Given struct {
 	Epic       epicscope.Epic
 	Entry      epicprogress.Entry
@@ -60,6 +62,7 @@ type Given struct {
 	Commits    []string
 	HandedOver bool
 	Titles     map[string]string
+	Again      bool
 }
 
 // Checker makes checks of the whole epic.
@@ -151,7 +154,7 @@ func (c Checker) Check(ctx context.Context, naming epicprogress.Naming, id strin
 	if answer.Session == "" || slices.Contains(Worked(given), answer.Session) {
 		return epicprogress.Check{}, decision, fmt.Errorf("the session %q that answered check %s is not one that did none of the epic's work, so its answer is not kept", answer.Session, id)
 	}
-	check, err := c.Progress.Checked(naming, epicprogress.Check{ID: id, Commit: commit, Findings: answer.Findings})
+	check, err := c.Progress.Checked(naming, epicprogress.Check{ID: id, Commit: commit, Findings: answer.Findings, Again: given.Again})
 	return check, decision, err
 }
 

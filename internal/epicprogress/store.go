@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
 	"github.com/mason-bryant/yoyodyne/internal/home"
@@ -237,6 +238,83 @@ func (s *Store) changePiece(naming Naming, item string, apply func(*Piece) error
 			return fmt.Errorf("work item %s was not asked about", item)
 		}
 		return apply(&entry.Pieces[at])
+	})
+}
+
+// CommentRead writes a change request on a member's pull request, under the
+// forge's identifier, with the identifier its judgment will be reserved under,
+// before anything is done with it. It answers the comment that stands, which is
+// this one or one written before, whose judgment is then the one to make.
+func (s *Store) CommentRead(naming Naming, comment Comment) (Comment, error) {
+	if comment.ID == "" || comment.Judgment == "" || !beads.ValidIssueID(comment.Member) {
+		return Comment{}, errors.New("a review comment needs the forge's identifier, its member and the identifier of its judgment")
+	}
+	standing := comment
+	err := epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		view, epic, err := s.open(record, naming)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(view.Items(epic), comment.Member) {
+			return fmt.Errorf("work item %s is not in epic %s", comment.Member, epic.WorkItemID)
+		}
+		return s.change(naming, func(entry *Entry) error {
+			if kept, found := entry.Comment(comment.ID); found {
+				standing = kept
+				return errUnchanged
+			}
+			standing.At, standing.Outcome, standing.Question = s.now().UTC(), nil, ""
+			standing.Became = "read; judgment " + comment.Judgment + " is owed before any repair"
+			entry.Comments = append(entry.Comments, standing)
+			return nil
+		})
+	})
+	return standing, err
+}
+
+// CommentJudged writes what the judgment of a review comment answered. One
+// already answered is left as it is.
+func (s *Store) CommentJudged(naming Naming, id string, outcome Outcome) error {
+	outcome.At = s.now().UTC()
+	return s.changeComment(naming, id, func(comment *Comment) error {
+		if comment.Outcome != nil {
+			return errUnchanged
+		}
+		comment.Outcome = &outcome
+		comment.Became = fmt.Sprintf("judged %s by %s, so the existing repair from pull request feedback answers it on pull request #%d", outcome.Answer, comment.Judgment, comment.PullRequest)
+		if outcome.Answer.Asks() {
+			comment.Became = fmt.Sprintf("judged %s by %s, so no repair starts and it is a question about scope", outcome.Answer, comment.Judgment)
+		}
+		return nil
+	})
+}
+
+// CommentQuestioned writes the identifier of the report that puts a review
+// comment judged outside, or that could not be told, to the Lead Product
+// Manager, before that report is filed. It answers the identifier that stands.
+func (s *Store) CommentQuestioned(naming Naming, id, report string) (string, error) {
+	standing := report
+	err := s.changeComment(naming, id, func(comment *Comment) error {
+		if comment.Outcome == nil || !comment.Outcome.Answer.Asks() {
+			return fmt.Errorf("review comment %s was not judged outside or could not be told", id)
+		}
+		if comment.Question != "" {
+			standing = comment.Question
+			return errUnchanged
+		}
+		comment.Question = report
+		return nil
+	})
+	return standing, err
+}
+
+func (s *Store) changeComment(naming Naming, id string, apply func(*Comment) error) error {
+	return s.change(naming, func(entry *Entry) error {
+		at := slices.IndexFunc(entry.Comments, func(c Comment) bool { return c.ID == id })
+		if at < 0 {
+			return fmt.Errorf("review comment %s was not read", id)
+		}
+		return apply(&entry.Comments[at])
 	})
 }
 
