@@ -572,7 +572,13 @@ Each pass takes sixteen steps, in this order, and each is recorded:
   running after three passes is reported to the development manager once,
   with the run, its number, its command and its ports; one named only because
   it works inside the run's worktree or scratch folder is shown and never
-  reported, because only a person can say whether it is theirs.
+  reported, because only a person can say whether it is theirs. One left
+  running because something the stop leaves alone is connected to it — another
+  run's process while that run has something going, a person's process, the
+  harness's own, or an end the harness cannot read — is shown as in use,
+  naming the process at the other end, counts no passes and is never
+  reported; the first pass that finds nothing of that kind connected stops it
+  and clears the line.
 - **`build-cache`** — the build cache folder the harness names for every run, held
   under `execution.build_cache_limit_gib`, 40 GiB by default
   ([the design](designs/shared-build-cache-size.md)). Over the limit, files are

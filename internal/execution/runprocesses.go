@@ -81,6 +81,9 @@ type LeftProcess struct {
 	// Unmarked is a process found only by its working directory, which the
 	// harness never stops because only a person can say whether it is theirs.
 	Unmarked bool `json:"unmarked,omitempty"`
+	// InUse is a process of the run left running because something the stop
+	// leaves alone is connected to it (runprocesses_inuse.go). Why names what.
+	InUse bool `json:"in_use,omitempty"`
 	// Why says why it is still running.
 	Why string `json:"why"`
 	// Passes is how many maintenance passes, or scheduler starts, have tried to
@@ -113,7 +116,11 @@ func (l LeftProcess) Describe() string {
 	if len(l.Listening) > 0 {
 		line.WriteString(", listening on " + strings.Join(l.Listening, ", "))
 	}
-	line.WriteString("; " + l.Why)
+	if l.InUse {
+		line.WriteString(", " + l.Why)
+	} else {
+		line.WriteString("; " + l.Why)
+	}
 	return line.String()
 }
 
@@ -129,10 +136,16 @@ const unreadableWhy = "not stopped: its starting environment could not be read, 
 // harness handed the run's launches to tell whether anything from them still
 // lives (LaunchGate.Hold), and the folders a process left inside is named from:
 // the run's worktree and scratch folder.
+//
+// Idle says of another run's identifier that the run has nothing going, so its
+// processes are being stopped too and one connected to this run's process does
+// not keep it running. Nil is every other run having something going, which is
+// what a stop made as a session or the run ends can say: it does not know.
 type RunProcessesRequest struct {
 	RunID   string
 	Holds   []string
 	Folders []string
+	Idle    func(runID string) bool
 }
 
 // RunProcesses finds and stops the processes a run started. The zero value
@@ -172,6 +185,9 @@ type processTable interface {
 	listening(pid int) []string
 	// holding is every process that has one of the files open.
 	holding(paths []string) map[int]bool
+	// connections is every live local connection of the user's processes, by
+	// process (runprocesses_inuse.go).
+	connections() (map[int][]localConnection, error)
 }
 
 // Stop stops every process that started with this run's identifier, or that
@@ -222,7 +238,8 @@ func (r RunProcesses) Stop(ctx context.Context, request RunProcessesRequest) []L
 			others = append(others, entry)
 		}
 	}
-	left := r.stopAll(ctx, table, signal, marked)
+	use := inUseCheck{runID: runID, idle: request.Idle}
+	left := r.stopAll(ctx, table, signal, marked, use)
 	left = append(left, unmarkedInside(table, others, request.Folders)...)
 	for index := range left {
 		if left[index].PID > 0 {
@@ -269,8 +286,10 @@ func (r RunProcesses) MarkedRuns() ([]string, error) {
 // stopAll sends the stop signal to every target, waits, sends the kill signal
 // to what is left, waits again, and returns what is still running. Before every
 // signal the table is read again, and a number now held by a process with a
-// different start time is left alone: it is somebody else's.
-func (r RunProcesses) stopAll(ctx context.Context, table processTable, signal func(int, syscall.Signal) error, targets []processEntry) []LeftProcess {
+// different start time is left alone: it is somebody else's. The connections
+// are read again too, and a target something the stop leaves alone is now
+// connected to is left running (inUseCheck).
+func (r RunProcesses) stopAll(ctx context.Context, table processTable, signal func(int, syscall.Signal) error, targets []processEntry, use inUseCheck) []LeftProcess {
 	if len(targets) == 0 {
 		return nil
 	}
@@ -282,12 +301,16 @@ func (r RunProcesses) stopAll(ctx context.Context, table processTable, signal fu
 		killWait = 5 * time.Second
 	}
 	refused := map[int]string{}
+	var inUse []LeftProcess
 	remaining := targets
 	for _, round := range []struct {
 		signal syscall.Signal
 		wait   time.Duration
 	}{{syscall.SIGTERM, termWait}, {syscall.SIGKILL, killWait}} {
 		remaining = stillTheSame(table, remaining)
+		var used []LeftProcess
+		remaining, used = use.leaveInUse(table, remaining)
+		inUse = append(inUse, used...)
 		for _, target := range remaining {
 			if err := signal(target.PID, round.signal); err != nil && !errors.Is(err, syscall.ESRCH) {
 				refused[target.PID] = signalRefusal(err)
@@ -295,10 +318,11 @@ func (r RunProcesses) stopAll(ctx context.Context, table processTable, signal fu
 		}
 		remaining = waitGone(ctx, table, remaining, round.wait)
 		if len(remaining) == 0 {
-			return nil
+			return inUse
 		}
 	}
-	left := make([]LeftProcess, 0, len(remaining))
+	left := make([]LeftProcess, 0, len(remaining)+len(inUse))
+	left = append(left, inUse...)
 	for _, target := range remaining {
 		why := "the harness could not stop it: it was still running after the kill signal"
 		if refusal, ok := refused[target.PID]; ok {

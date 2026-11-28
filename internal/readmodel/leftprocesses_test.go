@@ -45,3 +45,19 @@ func TestStatusNamesAProcessARunLeftRunning(t *testing.T) {
 		t.Fatal("status says something about left processes where there are none")
 	}
 }
+
+// A process left running because something is connected to it is shown under
+// its run naming the process at the other end.
+func TestStatusNamesAProcessLeftRunningBecauseItIsInUse(t *testing.T) {
+	process := execution.LeftProcess{PID: 4242, Command: "gradle", InUse: true, Why: "left running because process 5150 (java, run run-1a2b3c4d) is connected to it over a local socket"}
+	sources := Sources{Runs: leftRuns{left: []runstate.State{{RunID: "run-1", WorkItemID: "item-1", Status: runstate.StatusFailed, LeftProcesses: []execution.LeftProcess{process}}}}}
+	left, problem := readLeftProcesses(sources)
+	if problem != "" || len(left) != 1 {
+		t.Fatalf("readLeftProcesses() = %+v, %q", left, problem)
+	}
+	rendered := Standing{LeftProcesses: left}.renderLeftProcesses()
+	want := "item-1, run run-1: a process this run started is still running: process 4242, gradle, left running because process 5150 (java, run run-1a2b3c4d) is connected to it over a local socket"
+	if !strings.Contains(rendered, want) {
+		t.Fatalf("status does not say %q:\n%s", want, rendered)
+	}
+}
