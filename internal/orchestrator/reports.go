@@ -34,13 +34,19 @@ type ReportCollector interface {
 // carrying both loses neither, and an unreadable report block still has the
 // proposals in front of it read rather than swallowed with it.
 func (a *activeRun) collectFromReply(role domain.AgentRole, text string) string {
-	rest, entries, err := report.Extract(text)
-	if err != nil {
+	unread, kept := len(a.outcome.UnreadReports), len(a.outcome.RefusedReports)
+	rest, entries, refused, err := report.ExtractKeeping(text)
+	switch {
+	case err != nil:
 		a.auditUnreadableTool(role, capability.ReportFile)
 		a.noteReportProblem(role, err)
-	} else {
+	case len(entries) == 0 && len(refused) > 0:
+		a.auditUnreadableTool(role, capability.ReportFile)
+	default:
 		a.collectReports(role, entries)
 	}
+	a.keepRefusedReports(role, refused)
+	a.noteUnreachedReports(unread, kept)
 	rest, proposed, err := amendment.Extract(rest)
 	if err != nil {
 		a.auditUnreadableTool(role, capability.AmendmentPropose)
@@ -100,6 +106,39 @@ func (a *activeRun) collectReportsWithoutToolAudit(role domain.AgentRole, entrie
 			a.outcome.ReportNotes = note
 		}
 		a.outcome.Reports = append(a.outcome.Reports, reported)
+		if report.ReadersOf(a.pipeline.Config.RecurringPassRoles()).ReachesNoPass(reported.For) {
+			a.outcome.UnreadReports = append(a.outcome.UnreadReports, reported)
+		}
+	}
+}
+
+// keepRefusedReports keeps what a run's agent said in report entries the
+// harness could not accept as written. Each refusal is said in the run's
+// closing lines, with what was wrong and that the fact is kept, and its message
+// is kept on the outcome for what the run prints when it ends and for the
+// item's notes (noteUnreachedReports).
+func (a *activeRun) keepRefusedReports(role domain.AgentRole, refused []report.Refused) {
+	for _, entry := range refused {
+		a.outcome.RefusedReports = append(a.outcome.RefusedReports, report.RefusedBy{Role: role, Refused: entry})
+		a.addReportProblem(entry.Says(role))
+	}
+}
+
+// noteUnreachedReports writes into the work item's notes the reports no pass
+// reads and the refused messages one reply added to the outcome, after the
+// first unread and refused ones already there. It is the same text the run
+// prints when it ends, and the durable copy of it: what a run prints is gone
+// with the process, and a run the scheduler started prints to nobody. A note
+// that cannot be written costs the run nothing and is said on its outcome.
+func (a *activeRun) noteUnreachedReports(unread, refused int) {
+	block := report.ClosingBlock(a.outcome.UnreadReports[unread:], a.outcome.RefusedReports[refused:])
+	if block == "" || a.pipeline.Tracker == nil || a.state.WorkItemID == "" {
+		return
+	}
+	ctx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
+	defer cancel()
+	if _, err := a.pipeline.Tracker.RecordOutcome(ctx, a.state.WorkItemID, "Yoyodyne run "+a.state.RunID+".\n"+block); err != nil {
+		a.addReportProblem("the reports above could not be written into the work item's notes: " + singleLine(err.Error(), maxReportProblemBytes))
 	}
 }
 
@@ -177,7 +216,12 @@ const maxReportProblemBytes = 512
 // anybody reads afterwards, and a report lost only on the outcome was, after the
 // fact, a report nobody ever filed.
 func (a *activeRun) noteReportProblem(role domain.AgentRole, cause error) {
-	problem := fmt.Sprintf("a %s report was not collected: %s", role, singleLine(cause.Error(), maxReportProblemBytes))
+	a.addReportProblem(fmt.Sprintf("a %s report was not collected: %s", role, singleLine(cause.Error(), maxReportProblemBytes)))
+}
+
+// addReportProblem adds one sentence to what the run says of its reports'
+// problems, on its outcome and its record.
+func (a *activeRun) addReportProblem(problem string) {
 	if a.outcome.ReportProblem == "" {
 		a.outcome.ReportProblem = problem
 	} else {

@@ -273,6 +273,11 @@ type Attention struct {
 	Stall *Stall `json:"stall,omitempty"`
 	// Reports is how the pile stands, on an AttentionReports entry.
 	Reports *report.Pile `json:"reports,omitempty"`
+	// UnreadReports says an AttentionReports entry is on the line because some
+	// of the pile's reports reach no pass at all, the Lead Product Manager's
+	// included, rather than because its oldest has waited a week; it is put
+	// there at once (docs/designs/reports-nobody-reads.md, Decision 3).
+	UnreadReports bool `json:"unread_reports,omitempty"`
 	// AmendmentQueue is how the queue of proposed changes stands, on an
 	// AttentionAmendmentQueue entry, and OldestProposal the undecided proposal
 	// that has waited longest, whose decider is whose move the queue is.
@@ -696,6 +701,11 @@ func (a Attention) What() string {
 			return a.Outage.Says()
 		}
 	case AttentionReports:
+		if a.Reports != nil && a.UnreadReports {
+			if says := a.Reports.UnreachedSays(); says != "" {
+				return says
+			}
+		}
 		if a.Reports != nil {
 			return a.Reports.Describe()
 		}
@@ -933,6 +943,9 @@ func (a Attention) Whose() string {
 			return Stall{Reason: ReasonProviderAway, Cause: a.Outage.Cause}.Whose()
 		}
 	case AttentionReports:
+		if a.UnreadReports {
+			return a.Mover.Possessive() + " — reports are decided in conversation, and no recurring pass reads these here, hers included, so they wait until somebody reads them; enabling a pass for the role that handles them sends them to it"
+		}
 		return a.Mover.Possessive() + " — reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up"
 	case AttentionAmendmentQueue:
 		if a.Mover.IsOperator() {
@@ -1276,6 +1289,13 @@ func (s Sources) OutageAttention(outage runstate.ProviderOutage) Attention {
 // long, as the attention line carries it.
 func reportsAttention(pile report.Pile) Attention {
 	return resolved(Attention{Kind: AttentionReports, Reports: &pile})
+}
+
+// unreadReportsAttention is a pile holding reports no pass reads, the Lead
+// Product Manager's included, as the attention line carries it at once: how
+// many, for whom, and the command that reads them.
+func unreadReportsAttention(pile report.Pile) Attention {
+	return resolved(Attention{Kind: AttentionReports, Reports: &pile, UnreadReports: true})
 }
 
 // amendmentQueueAttention is a queue of proposed changes whose oldest

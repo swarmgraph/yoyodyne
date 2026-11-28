@@ -113,3 +113,72 @@ func TestStatusPrintsNoReportsLineWhenNothingStandsUnhandled(t *testing.T) {
 		t.Fatalf("rendered = %q, says = %q, want nothing", got, standing.ReportsSays)
 	}
 }
+
+// reportsNeeds is the entries for the report pile on the line of things
+// needing a person.
+func reportsNeeds(standing Standing) []Attention {
+	var found []Attention
+	for _, attention := range standing.NeedsHuman {
+		if attention.Kind == AttentionReports {
+			found = append(found, attention)
+		}
+	}
+	return found
+}
+
+// With no recurring pass at all, the Lead Product Manager's included, the line
+// of things needing a person names the reports at once, how many and for
+// whom, with the command that reads them, though the oldest is hours old.
+func TestReportsNoPassReadsAreNamedAtOnceOnTheLineOfThingsNeedingAPerson(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	sources.Reports = fakeReports{reports: unreadPile()}
+	sources.ReportReaders = report.ReadersOf(nil)
+	needs := reportsNeeds(ReadStanding(context.Background(), sources))
+	if len(needs) != 1 || !needs[0].UnreadReports {
+		t.Fatalf("report entries on the line = %+v, want one for reports no pass reads", needs)
+	}
+	want := "3 unhandled report(s) that no pass reads here, the Lead Product Manager's included (development manager 2, no role named 1); read them with yoyo reports"
+	if got := needs[0].What(); got != want {
+		t.Fatalf("what = %q\nwant   %q", got, want)
+	}
+	if got := needs[0].Whose(); !strings.Contains(got, "no recurring pass reads these here") {
+		t.Fatalf("whose = %q", got)
+	}
+}
+
+// Where her pass runs, reports for a role no pass reads go to it, so nothing
+// is put on the line before the week; and a reading made without the
+// configuration says nothing either way.
+func TestReportsHerPassReadsAreNotNamedAtOnce(t *testing.T) {
+	t.Parallel()
+
+	for name, readers := range map[string]report.Readers{
+		"her pass runs":    report.ReadersOf([]domain.AgentRole{domain.RoleProductManager}),
+		"no configuration": nil,
+	} {
+		sources := quietSources()
+		sources.Reports = fakeReports{reports: unreadPile()}
+		sources.ReportReaders = readers
+		if needs := reportsNeeds(ReadStanding(context.Background(), sources)); len(needs) != 0 {
+			t.Fatalf("%s: report entries on the line = %+v, want none", name, needs)
+		}
+	}
+}
+
+// Enabling a pass later takes the reports off the line, because the reader is
+// worked out from the configuration and never written on the report: the same
+// reports, read again with a pass for the development manager, name only the
+// one naming no role.
+func TestEnablingAPassLaterSendsWaitingReportsToIt(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	sources.Reports = fakeReports{reports: unreadPile()}
+	sources.ReportReaders = report.ReadersOf([]domain.AgentRole{domain.RoleDevelopmentManager})
+	needs := reportsNeeds(ReadStanding(context.Background(), sources))
+	if len(needs) != 1 || !strings.HasPrefix(needs[0].What(), "1 unhandled report(s) that no pass reads here, the Lead Product Manager's included (no role named 1)") {
+		t.Fatalf("report entries on the line = %+v", needs)
+	}
+}

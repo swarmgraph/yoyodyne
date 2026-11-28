@@ -365,6 +365,10 @@ type RunReport struct {
 	// back to the count alone rather than claiming a severity it does not have.
 	ReportedWorst report.Severity `json:"reported_worst,omitempty"`
 	ReportProblem string          `json:"report_problem,omitempty"`
+	// ReportsKept is the block a run prints after its outcome: the reports it
+	// filed that no pass reads, whole, and then what its refused reports said
+	// (report.ClosingBlock). It is empty where there is neither.
+	ReportsKept string `json:"reports_kept,omitempty"`
 }
 
 // RunChanges is what one recorded run changed, as the durable record holds it.
@@ -865,6 +869,11 @@ func (r RunReport) Render(theme console.Theme) string {
 	}
 	if r.ReportProblem != "" {
 		fmt.Fprintf(&rendered, "  %s\n", singleLine(r.ReportProblem, MaxOperatorMessageBytes))
+	}
+	if r.ReportsKept != "" {
+		for _, line := range strings.Split(r.ReportsKept, "\n") {
+			fmt.Fprintf(&rendered, "  %s\n", line)
+		}
 	}
 	if r.Failure != "" {
 		fmt.Fprintf(&rendered, "  failure: %s\n", singleLine(r.Failure, MaxOperatorMessageBytes))

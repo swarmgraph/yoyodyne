@@ -172,6 +172,14 @@ type Entry struct {
 
 // Validate reports every contract violation in the entry at once.
 func (e Entry) Validate() error {
+	if err := errors.Join(e.problems()...); err != nil {
+		return fmt.Errorf("invalid report: %w", err)
+	}
+	return nil
+}
+
+// problems is every contract violation in the entry.
+func (e Entry) problems() []error {
 	var problems []error
 	if !e.Severity.Valid() {
 		problems = append(problems, fmt.Errorf("severity %q must be %q, %q, or %q",
@@ -190,10 +198,7 @@ func (e Entry) Validate() error {
 	if e.For != "" && !addressable(e.For) {
 		problems = append(problems, fmt.Errorf("for %q must be one of %v; a report is never addressed to the operator", e.For, Addressees()))
 	}
-	if err := errors.Join(problems...); err != nil {
-		return fmt.Errorf("invalid report: %w", err)
-	}
-	return nil
+	return problems
 }
 
 // Report is one durable collected report: the entry an agent wrote, and the
@@ -409,21 +414,41 @@ func (r Report) Validate() error {
 // to read as prose. A report never costs its own reply, so the error is for
 // saying the report was lost rather than for abandoning anything.
 func Extract(reply string) (string, []Entry, error) {
+	rest, entries, refused, err := ExtractKeeping(reply)
+	if err == nil && len(refused) > 0 {
+		return beforeBlock(reply), nil, refusedError(refused)
+	}
+	return rest, entries, err
+}
+
+// ExtractKeeping is Extract for a run, which keeps what it can of a block
+// rather than refusing it whole (docs/designs/reports-nobody-reads.md,
+// Decision 3). An entry the harness cannot accept as written is returned as
+// refused, with the reason and the message it gave, and every other entry in
+// the block is returned to be filed. A block that cannot be read at all is
+// still an error, because nothing in it can be told apart from anything else.
+func ExtractKeeping(reply string) (string, []Entry, []Refused, error) {
 	// A second report block is refused by the split, because a reply reports what
 	// it has to report in one place and reading only the first would silently
 	// drop the rest.
 	block, err := fenced.Split(reply, Fence, "report")
 	if err != nil {
-		return block.Before, nil, err
+		return block.Before, nil, nil, err
 	}
 	if !block.Found {
-		return block.Before, nil, nil
+		return block.Before, nil, nil, nil
 	}
-	entries, err := Decode(block.Payload)
+	entries, refused, err := DecodeKeeping(block.Payload)
 	if err != nil {
-		return block.Before, nil, err
+		return block.Before, nil, nil, err
 	}
-	return block.Rest, entries, nil
+	return block.Rest, entries, refused, nil
+}
+
+// beforeBlock is what a reply said ahead of its report block.
+func beforeBlock(reply string) string {
+	block, _ := fenced.Split(reply, Fence, "report")
+	return block.Before
 }
 
 // document is the payload shape of the fenced block. It always carries a list,
@@ -436,41 +461,55 @@ type document struct {
 // and oversized input are refused rather than tolerated: what an operator is
 // shown has to be exactly what the agent wrote.
 func Decode(payload string) ([]Entry, error) {
+	entries, refused, err := DecodeKeeping(payload)
+	if err != nil {
+		return nil, err
+	}
+	if len(refused) > 0 {
+		return nil, refusedError(refused)
+	}
+	return entries, nil
+}
+
+// DecodeKeeping strictly decodes the block payload as Decode does, except that
+// an entry the contract does not accept is returned as refused, with why and
+// what it said, rather than refusing the entries beside it.
+func DecodeKeeping(payload string) ([]Entry, []Refused, error) {
 	trimmed := strings.TrimSpace(payload)
 	if trimmed == "" {
-		return nil, errors.New("decode reports: the report block is empty")
+		return nil, nil, errors.New("decode reports: the report block is empty")
 	}
 	if len(trimmed) > MaxBlockBytes {
-		return nil, fmt.Errorf("decode reports: block is %d bytes, limit is %d", len(trimmed), MaxBlockBytes)
+		return nil, nil, fmt.Errorf("decode reports: block is %d bytes, limit is %d", len(trimmed), MaxBlockBytes)
 	}
 	decoder := json.NewDecoder(bytes.NewReader([]byte(trimmed)))
 	decoder.DisallowUnknownFields()
 	var decoded document
 	if err := decoder.Decode(&decoded); err != nil {
-		return nil, fmt.Errorf("decode reports: %w", err)
+		return nil, nil, fmt.Errorf("decode reports: %w", err)
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return nil, errors.New("decode reports: unexpected trailing content after the reports")
+		return nil, nil, errors.New("decode reports: unexpected trailing content after the reports")
 	}
 	if len(decoded.Reports) == 0 {
-		return nil, errors.New("decode reports: a report block must carry at least one report")
+		return nil, nil, errors.New("decode reports: a report block must carry at least one report")
 	}
 	if len(decoded.Reports) > MaxEntriesPerReply {
-		return nil, fmt.Errorf("decode reports: %d reports in one reply, limit is %d", len(decoded.Reports), MaxEntriesPerReply)
+		return nil, nil, fmt.Errorf("decode reports: %d reports in one reply, limit is %d", len(decoded.Reports), MaxEntriesPerReply)
 	}
 	// A digest's own shape, and how many a reply carried, are not judged here:
 	// a refused digest must not cost the reports filed beside it, so they are
 	// judged as the block is collected, by SeparateDigests.
-	var problems []error
+	var entries []Entry
+	var refused []Refused
 	for i, entry := range decoded.Reports {
-		if err := entry.Validate(); err != nil {
-			problems = append(problems, fmt.Errorf("reports[%d]: %w", i, err))
+		if problems := entry.problems(); len(problems) > 0 {
+			refused = append(refused, refuse(i, entry, problems))
+			continue
 		}
+		entries = append(entries, entry)
 	}
-	if len(problems) > 0 {
-		return nil, fmt.Errorf("invalid reports: %w", errors.Join(problems...))
-	}
-	return decoded.Reports, nil
+	return entries, refused, nil
 }
 
 // Attribution is what the harness knows about a reporter, which is everything
