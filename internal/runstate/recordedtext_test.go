@@ -393,6 +393,7 @@ var structuredStrings = map[string]string{
 	"pull_request.state":                                                                     "the forge's state name",
 	"pull_request.merge_method":                                                              "an enumeration",
 	"pull_request.merge_commit":                                                              "a commit",
+	"pull_request.forge_merge_commit":                                                        "matched against the commit pattern",
 	"person_merge.merge_commit":                                                              "matched against the commit pattern",
 	"upstream_branch":                                                                        "a local branch name, validated",
 	"team_merge.target_branch":                                                               "a local branch name, matched against the recorded target branch",
