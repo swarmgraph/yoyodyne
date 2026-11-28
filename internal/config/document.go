@@ -150,18 +150,22 @@ type executionDocument struct {
 	ForgeCheckInterval                     *Duration `yaml:"forge_check_interval"`
 	MainCheckInterval                      *Duration `yaml:"main_check_interval"`
 	RedeployDrainLimit                     *Duration `yaml:"redeploy_drain_limit"`
-	BuildMoveInterval                      *Duration `yaml:"build_move_interval"`
-	BuildCacheLimitGiB                     *int      `yaml:"build_cache_limit_gib"`
-	FactoryStallAfter                      *Duration `yaml:"factory_stall_after"`
-	CouldNotRunBeforeStatus                *int      `yaml:"could_not_run_before_status"`
-	UsageWindowDegradedPercent             *int      `yaml:"usage_window_degraded_percent"`
-	MissingReportsBeforeFreshConversation  *int      `yaml:"missing_reports_before_fresh_conversation"`
-	BlockedRunsBeforeIntakeHold            *int      `yaml:"blocked_runs_before_intake_hold"`
-	MaxWaitingPullRequests                 *int      `yaml:"max_waiting_pull_requests"`
-	SchedulingWaitProblemAfter             *Duration `yaml:"scheduling_wait_problem_after"`
-	BrakeCooldown                          *Duration `yaml:"brake_cooldown"`
-	BrakeEscalationCycles                  *int      `yaml:"brake_escalation_cycles"`
-	BrakeProbeOverdueAfter                 *Duration `yaml:"brake_probe_overdue_after"`
+	// BuildMoveInterval is the least time between two moves onto a new build
+	// that the harness once kept. It is still accepted so a file naming it
+	// loads, and nothing reads it: every part now moves onto a new build
+	// together (Resolved.NoLongerRead).
+	BuildMoveInterval                     *Duration `yaml:"build_move_interval"`
+	BuildCacheLimitGiB                    *int      `yaml:"build_cache_limit_gib"`
+	FactoryStallAfter                     *Duration `yaml:"factory_stall_after"`
+	CouldNotRunBeforeStatus               *int      `yaml:"could_not_run_before_status"`
+	UsageWindowDegradedPercent            *int      `yaml:"usage_window_degraded_percent"`
+	MissingReportsBeforeFreshConversation *int      `yaml:"missing_reports_before_fresh_conversation"`
+	BlockedRunsBeforeIntakeHold           *int      `yaml:"blocked_runs_before_intake_hold"`
+	MaxWaitingPullRequests                *int      `yaml:"max_waiting_pull_requests"`
+	SchedulingWaitProblemAfter            *Duration `yaml:"scheduling_wait_problem_after"`
+	BrakeCooldown                         *Duration `yaml:"brake_cooldown"`
+	BrakeEscalationCycles                 *int      `yaml:"brake_escalation_cycles"`
+	BrakeProbeOverdueAfter                *Duration `yaml:"brake_probe_overdue_after"`
 	// DeveloperSlots is what each developer slot prefers, one entry per slot in
 	// slot order. A supplied list replaces an inherited one wholesale rather than
 	// merging with it, the way the check list does: which slot prefers what is one

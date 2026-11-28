@@ -32,6 +32,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -110,6 +111,13 @@ type Stopped struct {
 type NotYet struct {
 	Name   config.ServiceName
 	Reason string
+}
+
+// PreviousRecords is Records that can also read back the record a supervisor
+// before this one left, so the timing of a move under way survives a
+// supervisor's own restart. A store that cannot is read as having none.
+type PreviousRecords interface {
+	Load() (runstate.Supervision, bool, error)
 }
 
 // Records is where the supervisor keeps its lease and its account of the
@@ -197,9 +205,19 @@ type Supervisor struct {
 	// may (AwaitTakeUp).
 	takeUp     string
 	takeUpWait string
-	// deployedAt is when the binary on disk was written, as the tick read it:
-	// since when a part behind it has been behind.
+	// deployedAt is when the binary on disk was written, as the tick read it.
+	// Every build installed writes it, so nothing is timed from it.
 	deployedAt time.Time
+	// behindSince is when this supervisor first recorded itself behind the
+	// binary on disk, and behindBy when it must be on it (timeSelf).
+	behindSince time.Time
+	behindBy    time.Time
+	// previous is the record the supervisor before this one left, read at the
+	// first tick, from which the timing of a move under way is carried on
+	// (carryMoveTiming, timeSelf); each entry is taken once and dropped.
+	previous       map[config.ServiceName]runstate.SupervisedChild
+	previousRecord runstate.Supervision
+	previousRead   bool
 	// applying is the changed settings each child was stopped to start on, said
 	// once it has started again.
 	applying map[config.ServiceName]string
@@ -260,12 +278,14 @@ func (s *Supervisor) Tick(ctx context.Context) {
 	if s.states == nil {
 		s.states = make(map[config.ServiceName]*runstate.SupervisedChild, len(s.Children))
 	}
+	s.readPrevious()
 	if s.startedAt.IsZero() {
 		s.startedAt = s.now()
 	}
 	now := s.now()
 	s.observeMachine(ctx, now)
 	s.readDeployed()
+	s.timeSelf(now)
 	s.deployLook = s.lastDeployLook.IsZero() || !now.Before(s.lastDeployLook.Add(DeployEvery))
 	if s.deployLook {
 		s.lastDeployLook = now
@@ -443,6 +463,9 @@ func (s *Supervisor) start(ctx context.Context, child Child, state *runstate.Sup
 		state.NextStartAt = now.Add(wait)
 		state.Reason = fmt.Sprintf("could not be started: %v; trying again in %s (attempt %d of %d before it is left down)",
 			err, wait, state.Failures, MaxRapidFailures)
+		if !state.MoveDue.IsZero() {
+			state.MoveHeld = oneline.Bound("a restart that failed: it "+state.Reason, runstate.MaxChildReasonBytes)
+		}
 		s.log("the %s service %s", child.Name(), state.Reason)
 		return
 	}
@@ -512,7 +535,7 @@ func (s *Supervisor) record(now time.Time) {
 	supervision := s.Supervision(now)
 	// Compared without the observation time, which moves on every tick and
 	// would make every tick a write.
-	rendered := fmt.Sprintf("%+v %s %s %s", supervision.Children, supervision.Deployed, supervision.DeployedAt, supervision.TakeUpWait)
+	rendered := fmt.Sprintf("%+v %s %s %s %s %s", supervision.Children, supervision.Deployed, supervision.DeployedAt, supervision.TakeUpWait, supervision.BehindSince, supervision.BehindBy)
 	if rendered == s.recorded {
 		return
 	}
@@ -555,11 +578,69 @@ func (s *Supervisor) Supervision(now time.Time) runstate.Supervision {
 		Deployed:      s.deployed,
 		DeployedAt:    s.deployedAt.UTC(),
 		TakeUpWait:    s.behindWait(),
+		BehindSince:   utc(s.behindSince),
+		BehindBy:      utc(s.behindBy),
 		StartedAt:     s.startedAt.UTC(),
 		StartedBy:     s.StartedBy,
 		ObservedAt:    now.UTC(),
 		Children:      children,
 	}
+}
+
+// readPrevious reads, once, the record the supervisor before this one left.
+// One that cannot be read is said and treated as none: the timing of a move
+// then starts at this supervisor's first look, which is late rather than
+// wrong.
+func (s *Supervisor) readPrevious() {
+	if s.previousRead {
+		return
+	}
+	s.previousRead = true
+	loader, ok := s.Records.(PreviousRecords)
+	if !ok {
+		return
+	}
+	previous, found, err := loader.Load()
+	if err != nil {
+		s.log("the record the supervisor before this one left could not be read, so the timing of any move under way starts again from now: %v", err)
+		return
+	}
+	if !found {
+		return
+	}
+	s.previousRecord = previous
+	s.previous = make(map[config.ServiceName]runstate.SupervisedChild, len(previous.Children))
+	for _, child := range previous.Children {
+		s.previous[child.Service] = child
+	}
+}
+
+// timeSelf times the supervisor's own move onto the binary on disk: from when
+// it first recorded itself behind, carried from the record the supervisor
+// before it left where that one was behind on this same build, and MoveLimit
+// past that, or past a machine wake after it. On the binary's build there is
+// nothing to time.
+func (s *Supervisor) timeSelf(now time.Time) {
+	if s.Build == "" || s.deployed == "" || s.Build == s.deployed {
+		s.behindSince, s.behindBy = time.Time{}, time.Time{}
+		return
+	}
+	if s.behindSince.IsZero() {
+		s.behindSince, s.behindBy = now, now.Add(MoveLimit)
+		if previous := s.previousRecord; previous.Build == s.Build && !previous.BehindSince.IsZero() {
+			s.behindSince, s.behindBy = previous.BehindSince, previous.BehindBy
+		}
+	}
+	if s.awakeSince.After(s.behindSince) && s.awakeSince.Add(MoveLimit).After(s.behindBy) {
+		s.behindBy = s.awakeSince.Add(MoveLimit)
+	}
+}
+
+func utc(at time.Time) time.Time {
+	if at.IsZero() {
+		return at
+	}
+	return at.UTC()
 }
 
 func (s *Supervisor) scheduled(name config.ServiceName) (Scheduled, bool) {

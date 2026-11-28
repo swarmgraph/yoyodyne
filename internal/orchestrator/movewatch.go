@@ -16,24 +16,15 @@ import (
 const buildMoveCheckEvery = time.Minute
 
 // moveWatch is what the timer found: the first moment it saw a newer build
-// installed with the session's move onto it due. The timer runs on a
-// goroutine of its own and the session's loop reads what it found, so both
-// go through the lock. The timer only notices; beginning the move, and
+// installed, which is the moment the session's move onto it fell due, since a
+// move is due as soon as a newer build is installed
+// (docs/designs/management-and-supervision.md, yoyodyne-ifd.428.225). The timer
+// runs on a goroutine of its own and the session's loop reads what it found,
+// so both go through the lock. The timer only notices; beginning the move, and
 // everything the session says about it, stays on the session's own goroutine.
 type moveWatch struct {
-	mu sync.Mutex
-	// every is execution.build_move_interval as the last pull read it, and
-	// zero before the first pull, when the timer does not yet know when a
-	// move may be made and so finds nothing.
-	every time.Duration
+	mu    sync.Mutex
 	found time.Time
-}
-
-// interval keeps the least time between moves the latest pull read.
-func (w *moveWatch) interval(every time.Duration) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.every = every
 }
 
 // due is the first moment the timer found the move due, and whether it has.
@@ -46,18 +37,15 @@ func (w *moveWatch) due() (time.Time, bool) {
 // look is one look by the timer, and reports whether the move is due. A
 // deployment that cannot be read is left to the top of the loop, which says
 // so on the schedule.
-func (w *moveWatch) look(deployment ScheduleDeployment, last time.Time, now time.Time) bool {
+func (w *moveWatch) look(deployment ScheduleDeployment, now time.Time) bool {
 	w.mu.Lock()
-	every, found := w.every, w.found
+	found := w.found
 	w.mu.Unlock()
 	if !found.IsZero() {
 		return true
 	}
-	if every <= 0 {
-		return false
-	}
 	replaced, err := deployment.Replaced()
-	if err != nil || !replaced || !buildMoveDue(last, every, now) {
+	if err != nil || !replaced {
 		return false
 	}
 	w.mu.Lock()
@@ -91,7 +79,7 @@ func (s Scheduler) watchForMove(ctx context.Context, w *moveWatch) (stop func())
 				return
 			case <-ticker.C:
 			}
-			if w.look(s.Deployment, s.LastBuildMove, s.now()) {
+			if w.look(s.Deployment, s.now()) {
 				return
 			}
 		}

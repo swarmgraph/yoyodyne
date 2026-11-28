@@ -1631,20 +1631,20 @@ landings of documents, which build nothing and move no part.
 Being behind is usually by design, and then nothing is said. The supervisor
 builds and installs each such landing by itself, and
 [the session moves onto the installed build itself](work.md#letting-the-harness-choose-the-work),
-between the runs it is carrying, at most once every
-`execution.build_move_interval`. So the sink reads the supervisor's record
-beside the count, and is silent while the session runs the installed build
-(the next one being made, if any), and while a newer installed build waits
-within the move interval. It says something, every `--heartbeat` while it
+between the runs it is carrying, within 15 minutes of falling behind or past
+the time limit of a merge queue check it waits out. So the sink reads the
+supervisor's record beside the count, and is silent while the session runs the
+installed build (the next one being made, if any), and while it moves onto a
+newer installed build within that limit. It says something, every `--heartbeat` while it
 stands, only where something has stopped:
 
 - a landing that changes the build has stood unbuilt and uninstalled for twenty
   minutes, past the time a build takes: a warning that the main line's build is
   failing, or that the checkout holds uncommitted changes to what gets built,
   which the supervisor will not build over;
-- the move has fallen due and the session has not begun it: a note while the
-  supervisor's own deadline for restarting the session stands, and a warning
-  once that deadline is twenty minutes past;
+- the move is past its limit: a note while what holds it is named on the
+  supervisor's record, or the supervisor is about to restart the session, and
+  a warning once the limit is twenty minutes past with nothing named;
 - no supervisor is running, so nothing builds or installs a landing: a note,
   and a warning from six landings behind.
 

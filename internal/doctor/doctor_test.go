@@ -2083,3 +2083,29 @@ func TestDoctorSaysWhatARunningDashboardCouldNotApplyOfWhoItAccepts(t *testing.T
 		t.Fatalf("dashboard-access = %#v, want a warning carrying the dashboard's words: %s", finding, render(report))
 	}
 }
+
+// A configuration that still names the least time between moves onto a new
+// build loads, and the doctor says the setting no longer does anything, with
+// the file to take it out of; it is a warning, because nothing is refused.
+func TestTheDoctorSaysTheBuildMoveIntervalNoLongerDoesAnything(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	world.configuration = reportingConfig + "execution:\n  build_move_interval: 3h\n"
+	report := world.diagnose()
+	finding, found := findingFor(report, "retired setting")
+	if !found {
+		t.Fatalf("Diagnose() never named the retired setting: %s", render(report))
+	}
+	if finding.Status != StatusWarning || !strings.Contains(finding.Summary, "execution.build_move_interval") || !strings.Contains(finding.Summary, "no longer does anything") {
+		t.Fatalf("retired setting = %s %q, want a warning that build_move_interval no longer does anything", finding.Status, finding.Summary)
+	}
+	if !strings.Contains(finding.Detail, "every part of the product moves onto the newest installed build together") {
+		t.Errorf("detail = %q, want what took the setting's place", finding.Detail)
+	}
+
+	world.configuration = reportingConfig
+	if _, found := findingFor(world.diagnose(), "retired setting"); found {
+		t.Fatal("Diagnose() named a retired setting for a configuration that names none")
+	}
+}

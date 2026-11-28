@@ -2180,13 +2180,15 @@ the entry waits on and the commands that take it up again or hand it back. So is
 maintenance pass failure since your last pass that no finding has carried to a
 role yet; the ones a finding carries are listed as delivered.
 
-The scheduler is the one exception about old builds. It moves onto a new build
-at most once every `execution.build_move_interval`, so while the supervisor's
-record says its move is not yet due, its copy on an old build is not a
-condition. Once the move has fallen due and not begun, it is a condition that
-says the build the scheduler runs, the build the rest of the product is on,
-when the move was due, and when the supervisor restarts it, or what holds that
-restart.
+The scheduler and the supervisor are the exceptions about old builds. Each must
+be on the newest installed build within 15 minutes of when the supervisor first
+recorded it behind (the scheduler, past the time limit of a merge queue check it
+waits out), so while the supervisor's record says it is within that limit, its
+copy on an old build is not a condition. Past the limit it is a condition that
+says it is still on the older build, the build the rest of the product is on,
+since when, by when it was to move, and what holds it: the queue check by name,
+a run not yet at a point where it can be paused, by its run and item, or a
+restart that failed, with its reason.
 
 A developer slot the scheduler left empty while ready work waited is a
 condition too, needing an action: it carries the reason the scheduler recorded

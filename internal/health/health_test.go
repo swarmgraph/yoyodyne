@@ -945,16 +945,16 @@ func TestAnApprovedChangeWaitingInTheMergeQueueIsTheHarnesssWait(t *testing.T) {
 	}
 }
 
-// The scheduler moves onto a new build at most once every
-// execution.build_move_interval, so its copy on an old build is not a
-// condition while it waits that out. Once its move has fallen due and not
-// begun, the reading names it in one pass: the build it runs, the build the
-// rest of the product is on, when the move was due, and when the supervisor
-// restarts it, or what holds that restart.
+// The scheduler moves onto the newest build within a limit counted from when
+// the supervisor first recorded it behind, so its copy on an old build is not
+// a condition while it is within that limit. Past it, the reading names it in
+// one pass: that it is still on the older build, the build the rest of the
+// product is on, since when, when it was to be moved by, and what holds it
+// (yoyodyne-ifd.428.225).
 func TestASchedulerLeftBehindPastItsMoveIsNamed(t *testing.T) {
 	t.Parallel()
 
-	reading := func(due time.Time, held string) Observation {
+	reading := func(behind time.Time, held string) Observation {
 		t.Helper()
 		observer, _ := whole(t)
 		readers := observer.Sources.ConfigReaders.(fakeReaders)
@@ -962,21 +962,21 @@ func TestASchedulerLeftBehindPastItsMoveIsNamed(t *testing.T) {
 		observer.Sources.ConfigReaders = readers
 		standing := readmodel.Standing{Services: &readmodel.Services{SupervisorRunning: true, Recorded: true, Record: runstate.Supervision{
 			PID: 100, Deployed: "build-current", Children: []runstate.SupervisedChild{{Service: config.ServiceScheduler, State: runstate.ChildRunning, PID: 200,
-				Build: "build-old", MoveDue: due, MoveBy: due.Add(20 * time.Minute), MoveHeld: held}},
+				Build: "build-old", MoveDue: behind, MoveBy: behind.Add(15 * time.Minute), MoveHeld: held}},
 		}}}
 		return withStanding(observer, standing).Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
 	}
 
-	waiting := reading(observedAt.Add(time.Hour), "")
-	for _, anomaly := range waiting.Anomalies {
+	moving := reading(observedAt.Add(-5*time.Minute), "")
+	for _, anomaly := range moving.Anomalies {
 		if anomaly.Classification == ClassOldBuild {
-			t.Fatalf("a scheduler inside the time between moves was reported: %+v", anomaly)
+			t.Fatalf("a scheduler moving within its limit was reported: %+v", anomaly)
 		}
 	}
 
-	overdue := reading(observedAt.Add(-10*time.Minute), "")
+	overdue := reading(observedAt.Add(-30*time.Minute), "")
 	left := find(t, overdue, "yoyodyne/-/scheduler-move-overdue:build-current")
-	for _, want := range []string{"cannot move onto a new build when due", "runs build build-old", "the rest of the product is on the deployed build build-curren", "was due at", "restarts it into the deployed build at"} {
+	for _, want := range []string{"the scheduler is still on the older build build-old", "the newest installed build build-curren", "behind since", "was to be on the newest build by"} {
 		if !strings.Contains(left.Says, want) {
 			t.Fatalf("scheduler left behind says %q, want %q in it", left.Says, want)
 		}
@@ -990,9 +990,43 @@ func TestASchedulerLeftBehindPastItsMoveIsNamed(t *testing.T) {
 		}
 	}
 
-	held := find(t, reading(observedAt.Add(-time.Hour), "the provider cannot be reached"), "yoyodyne/-/scheduler-move-overdue:build-current")
-	if !strings.Contains(held.Says, "does not restart it while the provider cannot be reached") {
-		t.Fatalf("held scheduler says %q, want what holds the restart", held.Says)
+	queue := "the merge queue for main, checking build 4 of the queued change, to finish make test, until 2026-11-27 12:40 AKST at the latest"
+	held := find(t, reading(observedAt.Add(-time.Hour), queue), "yoyodyne/-/scheduler-move-overdue:build-current")
+	if !strings.Contains(held.Says, "held by "+queue) {
+		t.Fatalf("held scheduler says %q, want the queue check that holds it named", held.Says)
+	}
+}
+
+// The supervisor itself moves onto the newest build within 15 minutes of first
+// recording itself behind: within that it is not a condition, and past it the
+// reading says it is on the older build, since when, and what holds it.
+func TestASupervisorBehindPastItsLimitIsNamed(t *testing.T) {
+	t.Parallel()
+
+	reading := func(behind time.Time) Observation {
+		t.Helper()
+		observer, _ := whole(t)
+		readers := observer.Sources.ConfigReaders.(fakeReaders)
+		readers.running[0].Build = "build-old"
+		observer.Sources.ConfigReaders = readers
+		standing := readmodel.Standing{Services: &readmodel.Services{SupervisorRunning: true, Recorded: true, Record: runstate.Supervision{
+			PID: 100, Build: "build-old", Deployed: "build-current", BehindSince: behind, BehindBy: behind.Add(15 * time.Minute),
+			TakeUpWait: "once the dashboard has settled",
+			Children:   []runstate.SupervisedChild{{Service: config.ServiceScheduler, State: runstate.ChildRunning, PID: 200}},
+		}}}
+		return withStanding(observer, standing).Observe(context.Background(), Caller{Role: domain.RoleDevelopmentManager}, nil)
+	}
+
+	for _, anomaly := range reading(observedAt.Add(-5 * time.Minute)).Anomalies {
+		if anomaly.Classification == ClassOldBuild {
+			t.Fatalf("a supervisor moving within its limit was reported: %+v", anomaly)
+		}
+	}
+	left := find(t, reading(observedAt.Add(-20*time.Minute)), "yoyodyne/-/supervisor-move-overdue:build-current")
+	for _, want := range []string{"the supervisor is still on the older build build-old", "behind since", "was to be on the newest build by", "once the dashboard has settled"} {
+		if !strings.Contains(left.Says, want) {
+			t.Fatalf("supervisor left behind says %q, want %q in it", left.Says, want)
+		}
 	}
 }
 

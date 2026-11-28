@@ -2572,11 +2572,11 @@ binary it was started from, so every fix that lands behind it is a fix the work
 it dispatches is spent without — which reads as agents failing rather than as a
 process nobody restarted. It had already cost three review rounds against a bug
 dead before they started, and then a session was found forty-three changes old.
-So when the `yoyo` it is running is written over, the session moves onto it, at
-most once every
-[`execution.build_move_interval`](configuration.md#watching-instead-of-draining)
-(three hours by default) and onto the newest build installed when that time is
-up. When it moves, the session drains: it
+So when the `yoyo` it is running is written over, the session moves onto it as
+soon as it is installed, together with the other parts of the product, and onto
+the newest build installed when it restarts
+([watching instead of draining](configuration.md#watching-instead-of-draining)).
+When it moves, the session drains: it
 restarts into what you deployed the moment it hosts no run and no recurring
 pass is taking its turns, and until then it carries on — polling, pulling into
 free seats, and, while it still hosts a run, firing its recurring tasks —
@@ -2662,8 +2662,8 @@ given `--limit 10` that has started six comes back with four — because a bound
 carried whole would start again at every restart, and a machine that moves
 several times a day would have no bound at all. A session that has reached
 either bound stops on it instead of restarting: you set that number, and taking
-up a build is not you raising it. So what deploys cost the line is at most one
-restart per `execution.build_move_interval` and no work, and it costs a bounded session nothing of its cap.
+up a build is not you raising it. So what deploys cost the line is one restart
+for each build found installed and no work, and it costs a bounded session nothing of its cap.
 
 A drain never does this. It is a command you are waiting on the return of, and
 restarting it would run the pass again from the top.

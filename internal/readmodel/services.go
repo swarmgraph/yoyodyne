@@ -264,14 +264,18 @@ func (s Standing) RenderServices() string {
 	if services.SupervisorRunning && record.Build != "" && record.Deployed != "" && record.Build != record.Deployed {
 		// The supervisor moves itself last, and nothing else on this list says
 		// where it stands.
-		fmt.Fprintf(&rendered, "  supervisor: on build %s, behind the deployed %s", shortRevision(record.Build), shortRevision(record.Deployed))
-		if !record.DeployedAt.IsZero() {
-			fmt.Fprintf(&rendered, " since %s", localMoment(record.DeployedAt))
+		if behind, past := services.SupervisorBehind(s.ObservedAt); past {
+			fmt.Fprintf(&rendered, "  supervisor: %s\n", behind)
+		} else {
+			fmt.Fprintf(&rendered, "  supervisor: on build %s, behind the deployed %s", shortRevision(record.Build), shortRevision(record.Deployed))
+			if !record.BehindSince.IsZero() {
+				fmt.Fprintf(&rendered, " since %s, to be on it by %s", localMoment(record.BehindSince), localMoment(record.BehindBy))
+			}
+			if record.TakeUpWait != "" {
+				fmt.Fprintf(&rendered, "; it moves onto it %s", record.TakeUpWait)
+			}
+			rendered.WriteString("\n")
 		}
-		if record.TakeUpWait != "" {
-			fmt.Fprintf(&rendered, "; it moves onto it %s", record.TakeUpWait)
-		}
-		rendered.WriteString("\n")
 	}
 	if services.Recorded && !record.StartedAt.IsZero() {
 		// Said so that after a restart the operator can see whether the product
@@ -340,58 +344,82 @@ func shortRevision(revision string) string {
 	return revision
 }
 
-// SchedulerMove is where the scheduler's move onto the deployed build stands,
-// as the supervisor's record has it: the build the scheduler runs, the build
-// the rest of the product is on, when the move falls due under the least time
-// between moves (execution.build_move_interval), when the supervisor restarts
-// it if it has not begun by then, and what holds that restart. It is the one
-// derivation every surface reads, so a scheduler waiting out the time between
-// moves and one left behind past its move are told apart in one place.
+// SchedulerMove is where the scheduler's move onto the newest installed build
+// stands, as the supervisor's record has it: the build the scheduler runs, the
+// build the rest of the product is on, since when the supervisor has recorded
+// it behind, when it must be on the newest build (supervise.MoveLimit, counted
+// from that first record), and what holds it past that. It is the one
+// derivation every surface reads, so a scheduler moving within its limit and
+// one held past it are told apart in one place.
 type SchedulerMove struct {
 	Build    string
 	Deployed string
 	Due      time.Time
 	By       time.Time
 	Held     string
-	// Waiting is a scheduler still inside the time between moves: behind, and
-	// correctly so. Overdue is one whose move has fallen due and not begun.
+	// Waiting is a scheduler behind and still within its limit: moving, as it
+	// should. Overdue is one past its limit.
 	Waiting bool
 	Overdue bool
 }
 
 // SchedulerMove reads the scheduler's move from the record, and false where
-// the record says nothing about one: the scheduler is on the deployed build,
-// is already winding down for its move, or was recorded by a supervisor from
-// before the record carried it.
+// the record says nothing about one: the scheduler is on the newest installed
+// build, or was recorded by a supervisor from before the record carried it.
+// A scheduler down after a restart that failed is read too, so what holds its
+// move is said.
 func (s *Services) SchedulerMove(now time.Time) (SchedulerMove, bool) {
 	if s == nil || !s.Recorded {
 		return SchedulerMove{}, false
 	}
 	for _, child := range s.Record.Children {
-		if child.Service != config.ServiceScheduler || child.State != runstate.ChildRunning || child.MoveDue.IsZero() {
+		if child.Service != config.ServiceScheduler || child.MoveDue.IsZero() {
+			continue
+		}
+		if child.State != runstate.ChildRunning && child.State != runstate.ChildDown {
 			continue
 		}
 		move := SchedulerMove{Build: child.Build, Deployed: s.Record.Deployed, Due: child.MoveDue, By: child.MoveBy, Held: child.MoveHeld}
-		move.Waiting = now.Before(child.MoveDue)
+		move.Waiting = !move.By.IsZero() && now.Before(move.By)
 		move.Overdue = !move.Waiting
 		return move, true
 	}
 	return SchedulerMove{}, false
 }
 
-// Says is the scheduler left behind past its move, in plain words: the build
-// it is on, the build the rest of the product is on, when the move was due,
-// and what happens next.
+// Says is the scheduler held past its limit, in plain words: that it is still
+// on the older build, since when, when it was to be on the newest, and what
+// holds it.
 func (m SchedulerMove) Says() string {
-	said := fmt.Sprintf("the scheduler cannot move onto a new build when due: it runs build %s while the rest of the product is on the deployed build %s, and its move was due at %s and has not begun",
+	said := fmt.Sprintf("the scheduler is still on the older build %s while the rest of the product is on the newest installed build %s, behind since %s",
 		shortBuild(m.Build), shortBuild(m.Deployed), localMoment(m.Due))
-	switch {
-	case m.Held != "":
-		said += "; the supervisor does not restart it while " + m.Held
-	case !m.By.IsZero():
-		said += "; the supervisor restarts it into the deployed build at " + localMoment(m.By) + " if it has not moved by then"
+	if !m.By.IsZero() {
+		said += ", and it was to be on the newest build by " + localMoment(m.By)
 	}
-	return said
+	if m.Held != "" {
+		return said + "; held by " + m.Held
+	}
+	return said + "; nothing is recorded as holding it, and the supervisor restarts it into the newest build at its next look"
+}
+
+// SupervisorBehind is the supervisor itself on a build other than the newest
+// installed one past its limit (supervise.MoveLimit), and false where it is on
+// it, still within its limit, or recorded by a supervisor from before the
+// record carried the limit.
+func (s *Services) SupervisorBehind(now time.Time) (string, bool) {
+	if s == nil || !s.Recorded {
+		return "", false
+	}
+	record := s.Record
+	if record.BehindBy.IsZero() || record.Build == "" || record.Deployed == "" || record.Build == record.Deployed || now.Before(record.BehindBy) {
+		return "", false
+	}
+	said := fmt.Sprintf("the supervisor is still on the older build %s while the newest installed build is %s, behind since %s, and it was to be on the newest build by %s",
+		shortBuild(record.Build), shortBuild(record.Deployed), localMoment(record.BehindSince), localMoment(record.BehindBy))
+	if record.TakeUpWait != "" {
+		return said + "; it moves onto it " + record.TakeUpWait, true
+	}
+	return said, true
 }
 
 func shortBuild(build string) string {

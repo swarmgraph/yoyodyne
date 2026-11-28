@@ -4292,9 +4292,6 @@ type scheduleHarness struct {
 	// test reaches in real time; a test about the bound running out sets one
 	// short enough to.
 	drainLimit time.Duration
-	// buildMoveEvery is execution.build_move_interval as each pull reads it;
-	// zero is the configuration's default of three hours.
-	buildMoveEvery time.Duration
 	// hostedRun stands in for the pipeline where a test needs the run to see the
 	// context the session hosts it under — which is how the drain bound reaches
 	// a run. It takes precedence over run where both are set.
@@ -4427,7 +4424,7 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 	h.mu.Unlock()
 	h.mu.Lock()
 	tree := h.tree
-	poll, drainLimit, buildMoveEvery := h.poll, h.drainLimit, h.buildMoveEvery
+	poll, drainLimit := h.poll, h.drainLimit
 	// The docket is wired whether or not a tree is, because the two things it
 	// records are found at different moments: an unready item is found by reading
 	// the tree, and a dispatch that never became a run is found by making one. A
@@ -4478,7 +4475,6 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		Build:                       h.build,
 		DeveloperProvider:           h.developerProvider,
 		RedeployDrainLimit:          drainLimit,
-		BuildMoveInterval:           buildMoveEvery,
 	}, nil
 }
 

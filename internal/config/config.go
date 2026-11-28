@@ -356,15 +356,6 @@ func (e Execution) ForgeCheckEvery() time.Duration {
 	return e.ForgeCheckInterval.Duration()
 }
 
-// BuildMoveEvery is execution.build_move_interval, with zero read as the
-// default the way ForgeCheckEvery reads it.
-func (e Execution) BuildMoveEvery() time.Duration {
-	if e.BuildMoveInterval <= 0 {
-		return DefaultBuildMoveInterval.Duration()
-	}
-	return e.BuildMoveInterval.Duration()
-}
-
 // BuildCacheLimitBytes is execution.build_cache_limit_gib in bytes, with zero
 // read as the default the way ForgeCheckEvery reads it.
 func (e Execution) BuildCacheLimitBytes() int64 {
@@ -551,14 +542,6 @@ type Execution struct {
 	// right up to the restart; only the runs it hosts are what the drain is
 	// about.
 	RedeployDrainLimit Duration `yaml:"redeploy_drain_limit" json:"redeploy_drain_limit"`
-	// BuildMoveInterval is the least time between two moves of the watch
-	// session onto a new build. A build installed sooner than this after the
-	// last move waits; once the time is up the session moves onto the newest
-	// build installed at that moment, so builds that landed in between are
-	// never moved onto one by one. Held between MinBuildMoveInterval and
-	// MaxBuildMoveInterval when the configuration is read. Zero, which a
-	// configuration built in code rather than loaded carries, is the default.
-	BuildMoveInterval Duration `yaml:"build_move_interval" json:"build_move_interval"`
 	// BuildCacheLimitGiB is the size the build cache the harness names for every
 	// run is held to: past it, the oldest files in the folder are removed until
 	// it is at 80% of this (docs/designs/shared-build-cache-size.md). Held
@@ -853,14 +836,6 @@ const (
 	// the bound cuts off loses nothing but the minutes its current phase had
 	// spent: it is re-adopted from durable state by the session that comes back.
 	defaultRedeployDrainLimit = Duration(15 * time.Minute)
-	// DefaultBuildMoveInterval is three hours, and the limits one hour and
-	// twenty-four, as ruled in docs/designs/management-and-supervision.md
-	// (yoyodyne-ifd.428.161): main lands about once an hour, and moving on every
-	// landing spent a day's allowance for moves in a few hours. Under an hour
-	// is that again; over a day leaves fixes waiting in a build nobody runs.
-	DefaultBuildMoveInterval = Duration(3 * time.Hour)
-	MinBuildMoveInterval     = Duration(time.Hour)
-	MaxBuildMoveInterval     = Duration(24 * time.Hour)
 	// The shared build cache's size limit and its bounds, as ruled in
 	// docs/designs/shared-build-cache-size.md.
 	DefaultBuildCacheLimitGiB = 40
@@ -1539,14 +1514,8 @@ func (c Config) Validate() error {
 	if c.Execution.RedeployDrainLimit <= 0 {
 		problems = append(problems, "execution.redeploy_drain_limit must be positive")
 	}
-	// Zero is refused too: the shipped defaults always supply three hours, so a
-	// loaded configuration holds zero only where a project wrote it, and zero is
-	// under an hour. BuildMoveEvery still reads zero as the default for a
-	// configuration built in code, which is never validated with this key unset.
-	if c.Execution.BuildMoveInterval < MinBuildMoveInterval || c.Execution.BuildMoveInterval > MaxBuildMoveInterval {
-		problems = append(problems, fmt.Sprintf("execution.build_move_interval is %s, and the least time between two moves onto a new build must be at least one hour and at most twenty-four hours", time.Duration(c.Execution.BuildMoveInterval)))
-	}
-	// Zero is refused too, as it is for build_move_interval above.
+	// Zero is refused too: the shipped defaults always supply a size, so a
+	// loaded configuration holds zero only where a project wrote it.
 	if c.Execution.BuildCacheLimitGiB < MinBuildCacheLimitGiB || c.Execution.BuildCacheLimitGiB > MaxBuildCacheLimitGiB {
 		problems = append(problems, fmt.Sprintf("execution.build_cache_limit_gib is %d, and the limit on the shared build cache must be at least %d and at most %d GiB", c.Execution.BuildCacheLimitGiB, MinBuildCacheLimitGiB, MaxBuildCacheLimitGiB))
 	}
