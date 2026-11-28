@@ -44,7 +44,7 @@ func TestTheReportsCommandShowsEveryItemWithItsState(t *testing.T) {
 	}}
 
 	var out strings.Builder
-	writeReports(&out, console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, handled, nil, titles)
+	writeReports(&out, console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, handled, nil, nil, titles)
 	printed := out.String()
 	for _, want := range []string{
 		"admitted yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by)",
@@ -57,7 +57,7 @@ func TestTheReportsCommandShowsEveryItemWithItsState(t *testing.T) {
 	}
 
 	var unreadable strings.Builder
-	writeReports(&unreadable, console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, nil, nil, readmodel.UnreadableWorkItemTitles(at, "yoyodyne"))
+	writeReports(&unreadable, console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, nil, nil, nil, readmodel.UnreadableWorkItemTitles(at, "yoyodyne"))
 	if !strings.Contains(unreadable.String(), "yoyodyne-ifd.434.9 (tracker unreadable at ") {
 		t.Errorf("writeReports(unreadable) = %q, want each item marked as unreadable", unreadable.String())
 	}

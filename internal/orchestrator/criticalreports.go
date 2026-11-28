@@ -505,14 +505,33 @@ func (t Trigger) addressedTo(task config.RecurringTask) *addressedReports {
 	if len(listed) > maxAddressedListed {
 		listed = listed[:maxAddressedListed]
 	}
+	repeated := pileRepeats(t.Pile)
 	for _, reported := range listed {
 		fmt.Fprintf(&rendered, "- %s\n", addressedReportLine(reported))
+		rendered.WriteString(report.RepeatLine(repeated[reported.ID], time.Local))
 	}
 	if len(addressed) > len(listed) {
 		fmt.Fprintf(&rendered, "\n%d further report(s) addressed to your role are not listed here; the ones listed least often come first on your next pass.\n", len(addressed)-len(listed))
 	}
 	rendered.WriteString("\n" + sweep.ReportsContract() + "\n")
 	return &addressedReports{text: rendered.String(), waiting: addressed, shown: slices.Clone(listed)}
+}
+
+// pileRepeats indexes the repeats recorded of each report, where the pile
+// keeps them; a log that cannot be read costs a pass the counts and nothing
+// else.
+func pileRepeats(pile any) map[string][]report.Repeat {
+	keeps, ok := pile.(interface {
+		Repeats() ([]report.Repeat, error)
+	})
+	if !ok {
+		return nil
+	}
+	repeats, err := keeps.Repeats()
+	if err != nil {
+		return nil
+	}
+	return report.RepeatsOf(repeats)
 }
 
 // addressedReportLine is one report addressed to a role as its pass lists it:

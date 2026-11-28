@@ -41,7 +41,7 @@ func TestTheReportListingShowsEveryItemWithItsState(t *testing.T) {
 	// left as written, and not counted as written before references were kept.
 	kept := older
 	kept.ID, kept.Message, kept.ReferencesKept = "report-00112233445566778899aabbccddeeff", "kept: 434.9 was not yet admitted", true
-	rendered := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest, older, kept}, nil, nil, titles, fixedClock{}.Now())
+	rendered := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest, older, kept}, nil, nil, nil, titles, fixedClock{}.Now())
 	for _, want := range []string{
 		"admitted yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by)",
 		"objecting to yoyodyne-ifd.434.3 (P2: Say the provider's reset in local time)",

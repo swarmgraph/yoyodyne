@@ -43,6 +43,23 @@ type Reports interface {
 	Handlings() ([]report.Handling, error)
 }
 
+// reportRepeats indexes the repeats recorded of each report, where the pile
+// keeps them (runstate.ReportStore does). A log that cannot be read costs the
+// counts and nothing else: every report is still listed.
+func (s *Session) reportRepeats() map[string][]report.Repeat {
+	pile, ok := s.options.Reports.(interface {
+		Repeats() ([]report.Repeat, error)
+	})
+	if !ok {
+		return nil
+	}
+	repeats, err := pile.Repeats()
+	if err != nil {
+		return nil
+	}
+	return report.RepeatsOf(repeats)
+}
+
 // maxDeliveredReports and maxReportSectionBytes bound one delivery of the
 // unhandled pile into a turn. A backlog of reports nobody has worked through is
 // a real thing to be told about, and it must not become the whole of a turn:
@@ -309,6 +326,7 @@ func (s *Session) renderUnhandledReports() string {
 	gauge := s.buildGauge()
 	var body strings.Builder
 	var delivered []report.Report
+	repeated := s.reportRepeats()
 	// The position advances only over what the walk itself carried, which is why
 	// the two parts are filled in separate passes rather than concatenated. A
 	// critical jumped the walk to be here, and advancing the position to where it
@@ -325,6 +343,9 @@ func (s *Session) renderUnhandledReports() string {
 			// section. Keep its message whole using the same bound as a read.
 			text = renderReportEvidence(reported, gauge) + "\n\n"
 		}
+		// A report later runs repeated is shown once, with how often and by whom
+		// last, rather than once for every run that said it.
+		text += report.RepeatLine(repeated[reported.ID], time.Local)
 		if body.Len()+len(text) > bytesLeft {
 			return false
 		}
@@ -792,7 +813,7 @@ func reportedOn(subject report.Report) string {
 // A report is a role's own words, a program manager's digest among them, so
 // each work item it names is shown with its priority, labels, and title
 // (readmodel.WorkItemTitles), from the references recorded with it.
-func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, now time.Time, wording ...*readmodel.TextTerms) string {
+func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, repeated map[string][]report.Repeat, gauge *report.Gauge, titles *readmodel.WorkItemTitles, now time.Time, wording ...*readmodel.TextTerms) string {
 	var words *readmodel.TextTerms
 	if len(wording) > 0 {
 		words = wording[0]
@@ -825,6 +846,7 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 	for _, reported := range listed {
 		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		rendered.WriteString(theme.Severity(console.Severity(reported.Severity), text))
+		rendered.WriteString(report.RepeatLine(repeated[reported.ID], time.Local))
 		if !reported.ReferencesKept {
 			unresolved += titles.Unresolved(reported.Message)
 		}

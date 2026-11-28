@@ -8,6 +8,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
@@ -81,13 +82,87 @@ func (a *activeRun) collectReportsWithoutToolAudit(role domain.AgentRole, entrie
 		a.noteReportProblem(role, err)
 		return
 	}
-	for _, reported := range collected {
-		if err := a.pipeline.Reports.Append(reported); err != nil {
+	for index, reported := range collected {
+		filed, err := fileReport(a.pipeline.Reports, reported, entries[index].Repeats, a.state.StandingReportsOffered)
+		if err != nil {
 			a.noteReportProblem(role, err)
 			continue
 		}
+		if filed.Repeat != nil {
+			a.outcome.Repeats = append(a.outcome.Repeats, report.Counted{Repeat: *filed.Repeat, Count: filed.Count})
+			continue
+		}
+		if filed.NotUsed != "" {
+			note := fmt.Sprintf("report %s was filed as a new report because %s", reported.ID, filed.NotUsed)
+			if a.outcome.ReportNotes != "" {
+				note = a.outcome.ReportNotes + "; " + note
+			}
+			a.outcome.ReportNotes = note
+		}
 		a.outcome.Reports = append(a.outcome.Reports, reported)
 	}
+}
+
+// RepeatFiler is a collector that can keep a report as a repeat of a standing
+// one. It is satisfied by runstate.ReportStore; a collector that is not one
+// keeps every report as a new one.
+type RepeatFiler interface {
+	File(reported report.Report, named string, offered []string) (runstate.Filed, error)
+}
+
+// fileReport keeps one report a run's agent filed, as a repeat where the
+// collector can keep one and the report repeats a standing one.
+func fileReport(collector ReportCollector, reported report.Report, named string, offered []string) (runstate.Filed, error) {
+	if filer, ok := collector.(RepeatFiler); ok {
+		return filer.File(reported, named, offered)
+	}
+	return runstate.Filed{Report: reported}, collector.Append(reported)
+}
+
+// StandingReports is a collector that can say what stands in the project, for
+// the list a developer or reviewer is handed at its start.
+type StandingReports interface {
+	List() ([]report.Report, error)
+	Handlings() ([]report.Handling, error)
+	Repeats() ([]report.Repeat, error)
+}
+
+// standingReportsSection is the list of standing reports handed to the
+// developer or the reviewer at its start, recording on the run which reports
+// were on it, since those are the only ones its reports may name. It is empty
+// where nothing stands or nothing could be read: a run is never held up for
+// the list.
+func (a *activeRun) standingReportsSection() string {
+	pile, ok := a.pipeline.Reports.(StandingReports)
+	if !ok {
+		return ""
+	}
+	offered := offerStanding(pile)
+	for _, id := range offered.IDs {
+		if len(a.state.StandingReportsOffered) < runstate.MaxStandingReportsOffered && !slices.Contains(a.state.StandingReportsOffered, id) {
+			a.state.StandingReportsOffered = append(a.state.StandingReportsOffered, id)
+		}
+	}
+	if offered.Text == "" {
+		return ""
+	}
+	return offered.Text + "\n"
+}
+
+func offerStanding(pile StandingReports) report.Offered {
+	reports, err := pile.List()
+	if err != nil {
+		return report.Offered{}
+	}
+	handlings, err := pile.Handlings()
+	if err != nil {
+		return report.Offered{}
+	}
+	repeats, err := pile.Repeats()
+	if err != nil {
+		return report.Offered{}
+	}
+	return report.OfferStanding(reports, handlings, repeats)
 }
 
 // maxReportProblemBytes keeps one lost report to a readable line of the outcome.

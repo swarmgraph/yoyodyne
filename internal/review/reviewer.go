@@ -155,6 +155,11 @@ type Request struct {
 	// from the harness's own reading, not from the developer. It is empty where
 	// the run's checks did not wait on the forge.
 	CIChecks string
+	// StandingReports is the list of unhandled reports in the project the
+	// reviewer is handed at its start (report.OfferStanding), so a report of
+	// its own can name the one it repeats. It is empty where none stands, and
+	// at branch scope.
+	StandingReports string
 	// UntouchedReruns lists each check on the candidate that failed only in
 	// tests the change does not touch and passed when those tests were run once
 	// more on the same commit: every test that failed and then passed, with the
@@ -1328,6 +1333,14 @@ func reviewEvidencePrompt(request Request) string {
 		// the room the repository evidence is given (Review) already has it taken
 		// out.
 		prompt.WriteString(renderMCPCalls(request.MCPCalls))
+		// The reports standing in the project, for the reviewer's own reports to
+		// name the one they repeat. They are what other runs filed, so they sit
+		// inside the untrusted evidence.
+		if trimmed := strings.TrimSpace(request.StandingReports); trimmed != "" {
+			prompt.WriteString("\n")
+			prompt.WriteString(trimmed)
+			prompt.WriteString("\n")
+		}
 		prompt.WriteString("\n# The whole change under review\n\n")
 	}
 	prompt.WriteString(renderChanges(request.Changes, request.evidenceLocation()))

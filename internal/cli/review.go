@@ -239,6 +239,9 @@ func reportBranchReview(stdout, stderr io.Writer, jsonOutput bool, outcome orche
 				"%sreported %d thing(s) beside the verdict (%s); `yoyo reports` shows them, as does /reports in `yoyo chat`\n",
 				worst.Prefix(), len(outcome.Reports), report.Tally(outcome.Reports))))
 		}
+		for _, counted := range outcome.Repeats {
+			fmt.Fprint(stdout, theme.Severity(console.Severity(counted.Repeat.Severity), counted.Says()+"\n"))
+		}
 		if outcome.ReportProblem != "" {
 			fmt.Fprintln(stdout, outcome.ReportProblem)
 		}
