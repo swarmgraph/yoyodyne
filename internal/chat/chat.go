@@ -328,6 +328,10 @@ type Options struct {
 	// been answered by a judgment made once more (epicprogress), so the pile marks
 	// them. It is optional, and a conversation without one marks none.
 	EpicAnswers EpicAnswers
+	// EpicLinks says which open epic an item is in, so that a link leaving work in
+	// a named epic waiting on open work outside it is refused when written. It is
+	// optional, and a conversation without one checks no link.
+	EpicLinks EpicLinks
 	// TrackerMerge is where the development manager's decision about an item
 	// held because two machines' versions cannot be merged is recorded.
 	TrackerMerge TrackerMergeDecisions
@@ -1954,6 +1958,10 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				// What a proposal is placed against is confirmed to exist before the
 				// operator is asked about any of it.
 				proposalRefusal = &ProposalPlacementError{Err: err}
+			} else if err := s.verifyProposalEpics(ctx, parsed.Proposals); err != nil {
+				// A proposal placed under work in a named epic would be open work
+				// outside that epic held as its child, which nothing starts.
+				proposalRefusal = &ProposalEpicError{Err: err}
 			}
 			if proposalRefusal != nil {
 				parsed.Proposals = nil
@@ -3798,6 +3806,12 @@ func (s *Session) createFromProposal(ctx context.Context, record *proposalRecord
 	if err != nil {
 		return CreatedItem{}, err
 	}
+	// Carrying out a proposal writes its parent link for the role that made it,
+	// whoever decided it, so it is checked against the named epics as it stands
+	// now; a refused one creates nothing.
+	if refusal := s.outsideEpicRefusal(ctx, strings.TrimSpace(proposal.Parent), "", true); refusal != "" {
+		return CreatedItem{}, s.refuseProposal(record, refusal)
+	}
 	created, err := s.options.Tracker.Create(ctx, beads.NewWorkItem{
 		Title:         strings.TrimSpace(proposal.Title),
 		Description:   strings.TrimSpace(proposal.Description),
@@ -3978,7 +3992,12 @@ func (s *Session) admit(ctx context.Context, pending []PendingProposal) ([]Admit
 			continue
 		}
 		item, err := s.admitOne(ctx, proposal.ID)
+		var refused *ProposalRefusedError
 		switch {
+		case errors.As(err, &refused):
+			// Refused whole and decided: the role was told, and nothing waits on
+			// the operator.
+			continue
 		case err != nil && item.WorkItemID == "":
 			// Nothing was created, so the proposal goes back to being one the
 			// operator decides, and both they and the product manager are told why
@@ -4361,6 +4380,11 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		var unplaced *ProposalPlacementError
 		if errors.As(err, &unplaced) {
 			fmt.Fprintf(out, "%v\nNothing was proposed and nothing was created; ask it which items it meant.\n\n", unplaced)
+			continue
+		}
+		var outsideEpic *ProposalEpicError
+		if errors.As(err, &outsideEpic) {
+			fmt.Fprintf(out, "%v\nNothing was proposed and nothing was created; the Lead Product Manager places the work elsewhere.\n\n", outsideEpic)
 			continue
 		}
 		// A proposal whose done-conditions no run could meet is the same kind of

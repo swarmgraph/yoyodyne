@@ -105,8 +105,9 @@ func (a *activeRun) claimLanding(ctx context.Context, text string) string {
 // diagnosis, which is the loop the parking default exists to close.
 //
 // So the marker is only usable where the tracker has the work, the work is not
-// this item, the work is not finished, and the work does not already wait on this
-// item. Anything else takes the parking, which holds the item back whatever is
+// this item, the work is not finished, the work does not already wait on this
+// item, and, while epic mode is on, the work is not open outside the named epic
+// this item is in. Anything else takes the parking, which holds the item back whatever is
 // true of the tracker.
 //
 // A tracker that could not answer is treated as a tracker that has no such item,
@@ -136,6 +137,11 @@ func (a *activeRun) resolveImpediment(ctx context.Context, impediment string) (s
 	// on the item they follow make this shape ordinary rather than exotic.
 	if waitsOn(item, a.state.WorkItemID) {
 		return "", named + " and that work already waits on this item, so the two would wait on each other"
+	}
+	// A member of a named epic waiting on open work outside it would wait for the
+	// operator, so the item is parked and the reason says what would bring it in.
+	if why := a.pipeline.EpicHolding.outsideEpic(a.state.WorkItemID, impediment); why != "" {
+		return "", named + ", but " + why
 	}
 	return impediment, ""
 }

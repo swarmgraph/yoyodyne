@@ -403,6 +403,7 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		allDone = false
 		standing.Waits = append(standing.Waits, waits...)
 	}
+	standing.Waits = append(standing.Waits, s.blockersAsked(epic, entry)...)
 	delivered := EpicIntegrated
 	if handed {
 		delivered = EpicHandedOver
@@ -1441,4 +1442,23 @@ func (f epicFacts) suggestions(sources Sources) (int, string) {
 		}
 	}
 	return counted, ""
+}
+
+// blockersAsked is each open item outside the epic that a scheduler pass found
+// could block a member, and asked the Lead Product Manager about, while it stays
+// open and outside: it starts nothing and joins nothing, and her answer is the
+// next step (docs/designs/epic-mode-second-part.md, "An item outside the epic
+// that could block a member", point 5).
+func (s *epicStandings) blockersAsked(epic epicscope.Epic, entry epicprogress.Entry) []EpicWait {
+	var waits []EpicWait
+	for _, blocker := range entry.Blockers {
+		id := blocker.WorkItemID
+		if s.done(id) || s.gone(id) || slices.ContainsFunc(s.view.Holders(id), func(holder epicscope.Epic) bool { return holder.WorkItemID == epic.WorkItemID }) {
+			continue
+		}
+		waits = append(waits, EpicWait{WorkItemID: blocker.Member, Owner: MoverProductManager, Says: fmt.Sprintf(
+			"%s is open outside the epic and could block %s (%s), so it waits on the Lead Product Manager's answer to report %s; it starts nothing, and `yoyo epic add %s %s` adds it",
+			s.name(id, ""), s.name(blocker.Member, ""), blocker.Link, blocker.Report, epic.WorkItemID, id)})
+	}
+	return waits
 }

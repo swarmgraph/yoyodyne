@@ -99,6 +99,10 @@ type Entry struct {
 	// copied members' texts, copied the first time a piece of it was judged and
 	// used from then on.
 	CopiedLate []CopiedLate `json:"copied_late,omitempty"`
+	// Blockers is each open item outside the epic found able to block a member,
+	// with the question about scope filed for it. One item files one question
+	// for one naming, and its identifier is written here before it is filed.
+	Blockers []Blocker `json:"blockers,omitempty"`
 }
 
 // CopiedLate is a member's text copied by the harness, late, rather than by the
@@ -119,6 +123,27 @@ func (e Entry) MemberText(epic epicscope.Epic, item string) (text epicscope.Text
 		return e.CopiedLate[at].Text, true, true
 	}
 	return epicscope.Text{}, false, false
+}
+
+// Blocker is an open item outside the epic that a scheduler pass found able to
+// block a member, the member, how it is linked, and the report that asks the
+// Lead Product Manager about it (docs/designs/epic-mode-second-part.md, "An item
+// outside the epic that could block a member", point 5).
+type Blocker struct {
+	WorkItemID string    `json:"work_item_id"`
+	Member     string    `json:"member"`
+	Link       string    `json:"link"`
+	Report     string    `json:"report"`
+	At         time.Time `json:"at"`
+}
+
+// Blocker is the question kept for an item, where one is.
+func (e Entry) Blocker(item string) (Blocker, bool) {
+	at := slices.IndexFunc(e.Blockers, func(b Blocker) bool { return b.WorkItemID == item })
+	if at < 0 {
+		return Blocker{}, false
+	}
+	return e.Blockers[at], true
 }
 
 // Joined is a piece that joined the epic, the member or check it came from, and
@@ -663,7 +688,7 @@ type Result struct {
 }
 
 func (e Entry) empty() bool {
-	return len(e.Joined)+len(e.Pieces)+len(e.Comments)+len(e.Checks)+len(e.Deliveries)+len(e.Reservations)+len(e.CopiedLate) == 0
+	return len(e.Joined)+len(e.Pieces)+len(e.Comments)+len(e.Checks)+len(e.Deliveries)+len(e.Reservations)+len(e.CopiedLate)+len(e.Blockers) == 0
 }
 
 // Has reports whether the item joined.
@@ -749,6 +774,9 @@ func (e Entry) validate() error {
 	}
 	for _, d := range e.Deliveries {
 		part("delivery", d.At.String(), d.Evidence != "" && !d.At.IsZero())
+	}
+	for _, b := range e.Blockers {
+		part("outside blocker", b.WorkItemID, beads.ValidIssueID(b.WorkItemID) && b.WorkItemID != e.WorkItemID && beads.ValidIssueID(b.Member) && b.Link != "" && b.Report != "" && !b.At.IsZero())
 	}
 	for _, r := range e.Reservations {
 		part("reservation", r.ID, r.For != "" && !r.At.IsZero())

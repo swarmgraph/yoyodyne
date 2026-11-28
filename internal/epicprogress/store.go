@@ -925,3 +925,52 @@ func write[T any](product *repowrite.PinnedRoot, name string, content T, validat
 	}
 	return errors.Join(product.Unchanged(), product.Sync())
 }
+
+// EpicHolding is the open epic an item is in while epic mode is on, as a member,
+// a piece that joined, or the epic's own item, and whether another item is in
+// that same epic. It answers no epic while epic mode is off or where the item is
+// in none. A role's link is checked against it when written
+// (docs/designs/epic-mode-second-part.md, "An item outside the epic that could
+// block a member", point 4).
+func (s *Store) EpicHolding(item string) (epic string, inside func(string) bool, err error) {
+	record, err := epicscope.Read(s.stateRoot, s.product)
+	if err != nil || !record.On() {
+		return "", nil, err
+	}
+	view, err := Read(s.stateRoot, s.product, record)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, open := range record.OpenEpics() {
+		if open.WorkItemID != item && !slices.ContainsFunc(view.Holders(item), func(holder epicscope.Epic) bool { return holder.WorkItemID == open.WorkItemID }) {
+			continue
+		}
+		if why := view.Unreadable(Of(open)); why != "" {
+			return "", nil, fmt.Errorf("the progress of epic %s cannot be read: %s", open.WorkItemID, why)
+		}
+		items := view.Items(open)
+		return open.WorkItemID, func(other string) bool { return other == open.WorkItemID || slices.Contains(items, other) }, nil
+	}
+	return "", nil, nil
+}
+
+// BlockerAsked writes that a question about scope is filed for an open item
+// outside the epic that could block a member, before it is filed, and answers
+// the identifier of the one that stands: an item already asked about keeps its
+// first, so a stop between the two writes files that same report again and no
+// second one.
+func (s *Store) BlockerAsked(naming Naming, blocker Blocker) (string, error) {
+	standing := blocker.Report
+	err := s.change(naming, func(entry *Entry) error {
+		if kept, asked := entry.Blocker(blocker.WorkItemID); asked {
+			standing = kept.Report
+			return errUnchanged
+		}
+		if blocker.At.IsZero() {
+			blocker.At = s.now().UTC()
+		}
+		entry.Blockers = append(entry.Blockers, blocker)
+		return nil
+	})
+	return standing, err
+}
