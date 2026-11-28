@@ -78,10 +78,20 @@ func (b *bench) item(id, notes string) {
 	b.items = append(b.items, beads.WorkItem{ID: id, Title: "Title " + id, Description: "Text of " + id, Status: "open", Notes: notes, CreatedAt: namedAt.Add(time.Hour)})
 }
 
+// store is the progress store stamping its writes from the bench's clock, so no
+// result depends on the date a test runs.
+func (b *bench) store() (*epicprogress.Store, error) {
+	store, err := epicprogress.Open(b.root, product)
+	if err != nil {
+		return nil, err
+	}
+	return store.WithClock(func() time.Time { return b.now }), nil
+}
+
 // joiner is a process of the harness that has just started.
 func (b *bench) joiner() Joiner {
 	b.t.Helper()
-	store, err := epicprogress.Open(b.root, product)
+	store, err := b.store()
 	b.must(err)
 	log, err := runstate.NewBranchReviewStore(b.root, product)
 	b.must(err)
@@ -164,7 +174,7 @@ func TestAReplacementOfAClosedMemberAndASplitOfAPieceJoin(t *testing.T) {
 	b.round()
 	b.wants(piece, epicprogress.AnswerInside, true)
 	b.split(piece+".1", piece)
-	b.items[len(b.items)-1].CreatedAt = time.Now().Add(time.Hour)
+	b.items[len(b.items)-1].CreatedAt = b.now.Add(time.Hour)
 	b.round()
 	b.wants(piece+".1", epicprogress.AnswerInside, true)
 }
