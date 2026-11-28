@@ -149,6 +149,15 @@ func (s *Store) Judged(naming Naming, item string, outcome Outcome) error {
 			if joins {
 				entry.Joined = append(entry.Joined, Joined{WorkItemID: item, From: piece.From, Judgment: piece.Judgment + ": " + outcome.Why, Session: outcome.Session, At: outcome.At})
 			}
+			// A judgment made once more answers the question it carries where it
+			// was inside, and otherwise leaves that question standing.
+			switch reread := piece.Reread; {
+			case reread == nil:
+			case outcome.Answer == AnswerInside:
+				reread.Answered = true
+			case outcome.Answer.Asks():
+				piece.Question = reread.Question
+			}
 			return nil
 		})
 	})
@@ -171,9 +180,63 @@ func (s *Store) Rejudge(naming Naming, item, judgment, digest string) error {
 			}
 			piece.Earlier = append(piece.Earlier, EarlierJudgment{Judgment: piece.Judgment, Digest: piece.Digest, Outcome: *piece.Outcome, Question: piece.Question})
 			piece.Judgment, piece.Digest, piece.Outcome, piece.Question, piece.Answered, piece.Seen = judgment, digest, nil, "", nil, nil
+			// Every judgment this build makes is given the text of what the piece
+			// came from (internal/epicjoin).
+			piece.WithSource, piece.Reread = true, nil
 			return nil
 		})
 	})
+}
+
+// Reread begins the one judgment made once more, under a new reservation, of a
+// piece whose latest judgment was outside or cannot tell, made without the text
+// of what it came from, and whose question has no recorded handling
+// (Piece.MayReread). The latest is kept among the earlier ones, and its question
+// is carried, so that judged outside again the same report stands.
+func (s *Store) Reread(naming Naming, item, judgment string) error {
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		if _, _, err := s.open(record, naming); err != nil {
+			return err
+		}
+		return s.changePiece(naming, item, func(piece *Piece) error {
+			if !piece.MayReread() || judgment == "" {
+				return errUnchanged
+			}
+			piece.Earlier = append(piece.Earlier, EarlierJudgment{Judgment: piece.Judgment, Digest: piece.Digest, Outcome: *piece.Outcome, Question: piece.Question})
+			piece.Reread = &Reread{Question: piece.Question}
+			piece.Judgment, piece.Outcome, piece.Question, piece.Seen, piece.WithSource = judgment, nil, "", nil, true
+			return nil
+		})
+	})
+}
+
+// CopyLate copies the text of a member that has no copy in the operator's
+// record into the naming's entry, once, and answers the copy that stands, which
+// is this one or one made before. A later edit of the member changes nothing.
+func (s *Store) CopyLate(naming Naming, item string, text epicscope.Text) (epicscope.Text, error) {
+	standing := text
+	err := epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		_, epic, err := s.open(record, naming)
+		if err != nil {
+			return err
+		}
+		if kept, copied := epic.MemberText(item); copied {
+			standing = kept
+			return nil
+		}
+		if !epic.Has(item) {
+			return fmt.Errorf("work item %s is not a member of epic %s", item, naming.WorkItemID)
+		}
+		return s.change(naming, func(entry *Entry) error {
+			if kept, _, found := entry.MemberText(epic, item); found {
+				standing = kept
+				return errUnchanged
+			}
+			entry.CopiedLate = append(entry.CopiedLate, CopiedLate{WorkItemID: item, Text: text, At: s.now().UTC()})
+			return nil
+		})
+	})
+	return standing, err
 }
 
 // Questioned writes the identifier of the report that puts a piece's latest

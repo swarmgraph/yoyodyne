@@ -27,6 +27,26 @@ type EpicCorrections interface {
 	Noted(epic, check string) error
 }
 
+// EpicAnswers is, by report identifier, why a question about scope the harness
+// filed needs nothing more, because a judgment made once more found its piece
+// inside and it joined. It is satisfied by *epicprogress.Store.
+type EpicAnswers interface {
+	AnsweredByRereading() (map[string]string, error)
+}
+
+// epicAnswers reads them once for a turn. Where they cannot be read nothing is
+// marked, and the problem is said once under the reports.
+func (s *Session) epicAnswers() (map[string]string, string) {
+	if s.options.EpicAnswers == nil {
+		return nil, ""
+	}
+	answered, err := s.options.EpicAnswers.AnsweredByRereading()
+	if err != nil {
+		return nil, "Which questions about scope a judgment made once more has already answered could not be read, so none is marked: " + singleLine(err.Error(), maxTrackerFailureBytes)
+	}
+	return answered, ""
+}
+
 // epicCheckProblems refuses a creation naming a check that cannot be read as one.
 func (a TrackerAction) epicCheckProblems() []error {
 	check := strings.TrimSpace(a.EpicCheck)

@@ -95,6 +95,30 @@ type Entry struct {
 	Checks          []Check       `json:"checks,omitempty"`
 	Deliveries      []Delivery    `json:"deliveries,omitempty"`
 	Reservations    []Reservation `json:"reservations,omitempty"`
+	// CopiedLate is the text of each member put in before the operator's record
+	// copied members' texts, copied the first time a piece of it was judged and
+	// used from then on.
+	CopiedLate []CopiedLate `json:"copied_late,omitempty"`
+}
+
+// CopiedLate is a member's text copied by the harness, late, rather than by the
+// operator's act that put it in.
+type CopiedLate struct {
+	WorkItemID string         `json:"work_item_id"`
+	Text       epicscope.Text `json:"text"`
+	At         time.Time      `json:"at"`
+}
+
+// MemberText is the text a piece split from a member is judged against: the copy
+// the operator's act made, or the one copied late. late says it is the second.
+func (e Entry) MemberText(epic epicscope.Epic, item string) (text epicscope.Text, late, found bool) {
+	if text, copied := epic.MemberText(item); copied {
+		return text, false, true
+	}
+	if at := slices.IndexFunc(e.CopiedLate, func(c CopiedLate) bool { return c.WorkItemID == item }); at >= 0 {
+		return e.CopiedLate[at].Text, true, true
+	}
+	return epicscope.Text{}, false, false
 }
 
 // Joined is a piece that joined the epic, the member or check it came from, and
@@ -136,6 +160,29 @@ type Piece struct {
 	Seen []Seen `json:"seen,omitempty"`
 	// Earlier is each judgment of an earlier text, oldest first.
 	Earlier []EarlierJudgment `json:"earlier,omitempty"`
+	// WithSource is that the latest judgment was given the text of what the piece
+	// came from beside the epic's description. A judgment made before that was not.
+	WithSource bool `json:"with_source,omitempty"`
+	// Reread is the question about scope the latest judgment answers, where it is
+	// the one judgment made once more, with that text, of a piece judged outside or
+	// cannot tell before that text was given and whose question had no handling.
+	Reread *Reread `json:"reread,omitempty"`
+}
+
+// Reread is a question about scope that a judgment made once more answers. Judged
+// inside, Answered is set: the judgment answered the question, which the Lead
+// Product Manager's next pass is shown unhandled. Judged otherwise, the piece's
+// Question is that same report again, so no second one is filed.
+type Reread struct {
+	Question string `json:"question"`
+	Answered bool   `json:"answered,omitempty"`
+}
+
+// MayReread reports a piece whose latest judgment, of outside or cannot tell, was
+// made without the text of what it came from, and whose question has no recorded
+// handling: it is judged once more with that text.
+func (p Piece) MayReread() bool {
+	return !p.WithSource && p.Reread == nil && p.Outcome != nil && p.Outcome.Answer.Asks() && p.Question != "" && p.Answered == nil
 }
 
 // ScopeAnswer is what the Lead Product Manager's handling of a question about
@@ -616,7 +663,7 @@ type Result struct {
 }
 
 func (e Entry) empty() bool {
-	return len(e.Joined)+len(e.Pieces)+len(e.Comments)+len(e.Checks)+len(e.Deliveries)+len(e.Reservations) == 0
+	return len(e.Joined)+len(e.Pieces)+len(e.Comments)+len(e.Checks)+len(e.Deliveries)+len(e.Reservations)+len(e.CopiedLate) == 0
 }
 
 // Has reports whether the item joined.
@@ -679,7 +726,11 @@ func (e Entry) validate() error {
 			(p.Outcome == nil || p.Outcome.valid()) && (p.Question == "" || p.Outcome != nil && p.Outcome.Answer.Asks()) &&
 			p.Answered.valid() && (p.Answered == nil || p.Question != "") &&
 			!slices.ContainsFunc(p.Earlier, func(earlier EarlierJudgment) bool { return earlier.Judgment == "" || !earlier.Outcome.valid() }) &&
-			!slices.ContainsFunc(p.Seen, func(seen Seen) bool { return seen.Digest == "" || seen.At.IsZero() }))
+			!slices.ContainsFunc(p.Seen, func(seen Seen) bool { return seen.Digest == "" || seen.At.IsZero() }) &&
+			(p.Reread == nil || p.Reread.Question != "" && p.WithSource && (!p.Reread.Answered || p.Outcome != nil && p.Outcome.Answer == AnswerInside)))
+	}
+	for _, c := range e.CopiedLate {
+		part("late copy of", c.WorkItemID, beads.ValidIssueID(c.WorkItemID) && !c.At.IsZero())
 	}
 	for _, c := range e.Comments {
 		part("comment", c.ID, c.Became != "" && !c.At.IsZero() && (c.Outcome == nil || c.Outcome.valid() && c.Judgment != "") &&
@@ -973,4 +1024,38 @@ func (v View) Holders(item string) []epicscope.Epic {
 		}
 	}
 	return holders
+}
+
+// AnsweredByRereading is, by report identifier, why each question about scope
+// that the one judgment made once more answered needs nothing more: the piece was
+// judged inside with the text of what it came from and joined. The Lead Product
+// Manager's pass is shown it beside the report, so she can record that nothing
+// more is needed (the design's "A piece split from a member", point 5). A question
+// whose judgment made once more was outside again is not one.
+func (v View) AnsweredByRereading() map[string]string {
+	answered := map[string]string{}
+	for _, entry := range v.progress.Entries {
+		for _, piece := range entry.Pieces {
+			if piece.Reread == nil || !piece.Reread.Answered || !entry.Has(piece.WorkItemID) {
+				continue
+			}
+			answered[piece.Reread.Question] = fmt.Sprintf("This question about scope is already answered: %s was judged once more, given the text of %s, which it was made from, found inside epic %s, and joined it. Nothing more is needed; record that with a \"handle\" action naming this report.",
+				piece.WorkItemID, piece.From, entry.WorkItemID)
+		}
+	}
+	return answered
+}
+
+// AnsweredByRereading reads the records and answers View.AnsweredByRereading.
+// Where nothing is kept there is nothing answered.
+func (s *Store) AnsweredByRereading() (map[string]string, error) {
+	record, err := epicscope.Read(s.stateRoot, s.product)
+	if err != nil {
+		return nil, err
+	}
+	view, err := Read(s.stateRoot, s.product, record)
+	if err != nil {
+		return nil, err
+	}
+	return view.AnsweredByRereading(), nil
 }

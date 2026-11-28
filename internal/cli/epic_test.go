@@ -559,3 +559,20 @@ func TestAReportAboutAMemberNamesItsEpic(t *testing.T) {
 	bench.does("end", "yoyodyne-a")
 	file("yoyodyne-a.2", "")
 }
+
+// A member's text is copied beside it when the operator puts it in, so a piece
+// split from it is judged against what it said then.
+func TestStartAndAddCopyEachMembersText(t *testing.T) {
+	bench := newEpicBench(t)
+	bench.does("start", "yoyodyne-a")
+	bench.does("add", "yoyodyne-a", "yoyodyne-loose")
+	epic := bench.record().Epics[0]
+	for item, want := range map[string]epicscope.Text{
+		"yoyodyne-a.1.1": {Title: "Deep"},
+		"yoyodyne-loose": {Title: "Loose", Description: "?"},
+	} {
+		if text, copied := epic.MemberText(item); !copied || text != want {
+			t.Errorf("%s is kept with %+v, copied: %t; want %+v", item, text, copied, want)
+		}
+	}
+}

@@ -327,6 +327,7 @@ func (s *Session) renderUnhandledReports() string {
 	var body strings.Builder
 	var delivered []report.Report
 	repeated := s.reportRepeats()
+	answered, answersProblem := s.epicAnswers()
 	// The position advances only over what the walk itself carried, which is why
 	// the two parts are filled in separate passes rather than concatenated. A
 	// critical jumped the walk to be here, and advancing the position to where it
@@ -346,6 +347,9 @@ func (s *Session) renderUnhandledReports() string {
 		// A report later runs repeated is shown once, with how often and by whom
 		// last, rather than once for every run that said it.
 		text += report.RepeatLine(repeated[reported.ID], time.Local)
+		if says, settled := answered[reported.ID]; settled {
+			text += "  " + says + "\n\n"
+		}
 		if body.Len()+len(text) > bytesLeft {
 			return false
 		}
@@ -377,6 +381,9 @@ func (s *Session) renderUnhandledReports() string {
 	rendered.WriteString(body.String())
 	if problem := gauge.Problem(); problem != "" {
 		fmt.Fprintf(&rendered, "\n%s\n", problem)
+	}
+	if answersProblem != "" {
+		fmt.Fprintf(&rendered, "\n%s\n", answersProblem)
 	}
 	s.state.ReportPosition = position
 	s.shownCriticals = criticals
