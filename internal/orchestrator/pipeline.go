@@ -595,6 +595,11 @@ type Pipeline struct {
 	// wired without one lands exactly as it would have and names nothing.
 	ConfigReaders ConfigReaders
 	Clock         execution.Clock
+	// TakeUpLimit is how long a run taken up again may go from taking its
+	// developer slot back to being under way before the take-up is ended and
+	// the slot given back (takeup.go); zero is DefaultTakeUpLimit. It is a field
+	// so a test can reach the bound without spending the real time.
+	TakeUpLimit time.Duration
 	// Sleep waits out a usage-limit pause. It is a field so a test can drive a
 	// pause without spending the real time, and so the wait is always cut short
 	// by a cancelled context rather than holding the process past a shutdown.
@@ -1510,12 +1515,8 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 			return Outcome{}, err
 		}
 		waitedForEpic := inFlight.EpicWait != nil
-		inFlight, err = p.reclaimSlot(ctx, inFlight)
-		if err != nil {
-			return Outcome{}, err
-		}
-		outcome, err := p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
-		return p.refusedAfterTakeUp(ctx, inFlight.RunID, outcome, err)
+		// A refusal after the slot is taken back gives it back (takeup.go).
+		return p.takeUp(ctx, inFlight, item, publishing, skipped, waitedForEpic)
 	case errors.Is(err, runstate.ErrNoRunInFlight):
 	default:
 		var existing runstate.ExistingWorkItemError
@@ -2078,12 +2079,8 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 		return Outcome{}, err
 	}
 	waitedForEpic := inFlight.EpicWait != nil
-	inFlight, err = p.reclaimSlot(ctx, inFlight)
-	if err != nil {
-		return Outcome{}, err
-	}
-	outcome, err := p.resumeRun(ctx, inFlight, item, publishing, skipped, waitedForEpic)
-	return p.refusedAfterTakeUp(ctx, inFlight.RunID, outcome, err)
+	// A refusal after the slot is taken back gives it back (takeup.go).
+	return p.takeUp(ctx, inFlight, item, publishing, skipped, waitedForEpic)
 }
 
 // recordDependencyContinued tells the item a run paused on work it waited on is
@@ -2116,11 +2113,12 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 		return p.recordTakenUpSlot(ctx, state), nil
 	}
 	// The checkout is asked before the slot is taken, not only by resumeRun
-	// after it. Refused here, it stays parked holding none, and the next pull
-	// offers it again. A refusal in resumeRun after the slot is taken gives the
-	// slot back only for a run waiting on the forge (giveBackCIWaitSlot); a run
-	// paused on its dependencies or its epic would keep it with nobody working
-	// it. A pipeline built with no worktree manager has no checkout to ask.
+	// after it: refused here, the run stays parked holding no slot, and the next
+	// pull offers it again, with nothing written. A refusal by resumeRun once the
+	// slot is taken is given back by takeUp, which writes the wait back onto the
+	// run: giveBackCIWaitSlot for a wait on the forge, with why, and giveSlotBack
+	// for every other wait. A pipeline built with no worktree manager has no
+	// checkout to ask.
 	if p.Worktrees != nil {
 		if err := p.refuseUnreadyResume(ctx, state); err != nil {
 			return state, err
@@ -2243,37 +2241,42 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	if state.OutsideFile != nil {
 		return Outcome{}, errors.New("a run that brings a file in is continued by the scheduler's next look at its record")
 	}
-	retired, handled, err := (RunRetirer{Runs: p.Store, Tracker: p.Tracker, Now: p.clock().Now(), ReadItem: p.readWorkItem}).Retire(ctx, state)
+	// Every step up to the run being under way is bounded, because the run
+	// holds its developer slot and its lease through all of them, and a step
+	// that does not return would hold both with nothing worked (takeup.go).
+	up, endUp, ended := p.boundTakeUp(ctx, state)
+	defer endUp()
+	retired, handled, err := (RunRetirer{Runs: p.Store, Tracker: p.Tracker, Now: p.clock().Now(), ReadItem: p.readWorkItem}).Retire(up, state)
 	if handled {
 		if retired.Retirement == nil {
 			// A closed item with no later merge to retire the run against.
 			if err != nil && item.Status == closedStatus {
 				err = ItemStatusRefusal{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: item.Status, Err: err}
 			}
-			return Outcome{}, err
+			return Outcome{}, ended(err)
 		}
 		return Outcome{Retirement: retired.Retirement, RunID: retired.RunID, WorkItemID: retired.WorkItemID, Status: retired.Status, Phase: retired.Phase, Branch: retired.Branch, WorktreePath: retired.WorktreePath, Summary: retirementReason(retired)}, err
 	}
 	// The run holds its item, so an item that reads open is claimed again rather
 	// than refused; any other status but in progress is refused below.
-	if item, err = p.reclaimHeldItem(ctx, state, item); err != nil {
-		return Outcome{}, err
+	if item, err = p.reclaimHeldItem(up, state, item); err != nil {
+		return Outcome{}, ended(err)
 	}
 	if item.ID == state.WorkItemID && item.Status != "in_progress" {
 		return Outcome{}, ItemStatusRefusal{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: item.Status,
 			Err: errors.New("validate resumed work item: only an item in progress is one the harness continues a run on by itself")}
 	}
-	if err := validateClaimedItem(p.releaseTeamMerged(ctx, item, state.TargetBranch), state.WorkItemID); err != nil {
-		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
+	if err := validateClaimedItem(p.releaseTeamMerged(up, item, state.TargetBranch), state.WorkItemID); err != nil {
+		return Outcome{}, ended(fmt.Errorf("validate resumed work item: %w", err))
 	}
-	intentRevision, intentCommit, err := p.intentRevision(ctx, state.IntentCommit)
+	intentRevision, intentCommit, err := p.intentRevision(up, state.IntentCommit)
 	if err != nil {
-		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
+		return Outcome{}, ended(fmt.Errorf("assemble resumed work item context: %w", err))
 	}
 	state.IntentCommit = intentCommit
 	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository), IntentRevision: intentRevision, Withheld: p.Config.Intake.RulesPaths()})
 	if err != nil {
-		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
+		return Outcome{}, ended(fmt.Errorf("assemble resumed work item context: %w", err))
 	}
 	// The item's notes have grown since the interrupted process read them — this
 	// run's own stoppage is among them — so what they lost to the budget is
@@ -2283,8 +2286,8 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// Refusing here costs the run nothing: it stays exactly as the interrupted
 	// process left it, still resumable, rather than spending an attempt on work
 	// that could not be integrated afterwards anyway.
-	if err := p.refuseUnreadyResume(ctx, state); err != nil {
-		return Outcome{}, err
+	if err := p.refuseUnreadyResume(up, state); err != nil {
+		return Outcome{}, ended(err)
 	}
 	// And the provider after it, for the reason a fresh run asks in that order: the
 	// checkout is the same refusal on every machine, the provider is a refusal only
@@ -2307,24 +2310,24 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		provider, named, err := p.developerBackendFor(state)
 		switch {
 		case err == nil:
-			if err := p.requireBackendReady(ctx, state.WorkItemID, provider, named); err != nil {
-				return Outcome{}, err
+			if err := p.requireBackendReady(up, state.WorkItemID, provider, named); err != nil {
+				return Outcome{}, ended(err)
 			}
 			// A resumed developer is launched with the same settings as a fresh
 			// one, on whatever CLI is installed now. A refusal leaves the run
 			// exactly as it was and says on it that the environment turned it
 			// back, as the repository's refusal above does.
-			if err := p.requireLaunchSettings(ctx, fmt.Sprintf("run %s of %s", state.RunID, state.WorkItemID), provider, named); err != nil {
+			if err := p.requireLaunchSettings(up, fmt.Sprintf("run %s of %s", state.RunID, state.WorkItemID), provider, named); err != nil {
 				var held LaunchSettingsError
 				if errors.As(err, &held) {
 					if recordErr := p.refuseDispatchEnvironmentally(state, runstate.CauseDeveloperSettingsNotApplied, held.Error()); recordErr != nil {
 						err = errors.Join(err, recordErr)
 					}
 				}
-				return Outcome{}, err
+				return Outcome{}, ended(err)
 			}
 		case state.Phase == runstate.PhaseDeveloping:
-			return Outcome{}, err
+			return Outcome{}, ended(err)
 		}
 	}
 	// An environmental refusal on the record belongs to a round that is over: a
