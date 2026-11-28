@@ -166,6 +166,12 @@ type BranchReviewOutcome struct {
 	// standing report, matched by plain form: a branch review is handed no list
 	// of standing reports, so it names none.
 	Repeats []report.Counted `json:"repeats,omitempty"`
+	// UnreadReports are the reports the reviewer filed that no pass reads, the
+	// Lead Product Manager's included, and RefusedReports the entries the
+	// harness could not accept as written, with what each said; `yoyo review`
+	// prints both whole after the verdict (report.ClosingBlock).
+	UnreadReports  []report.Report    `json:"unread_reports,omitempty"`
+	RefusedReports []report.RefusedBy `json:"refused_reports,omitempty"`
 	// Shadow says this review was made to measure the reviewer, and gates
 	// nothing. It is carried on the outcome as well as the record so that a
 	// caller reading the verdict cannot read it as an approval either.
@@ -353,7 +359,14 @@ func (b BranchReviewer) conduct(ctx context.Context, in conducted) (BranchReview
 	outcome.Findings = result.Verdict.Findings
 	// What the reviewer reported is collected before its verdict is read,
 	// because a report survives a review that produced no verdict at all.
-	b.collectReports(&outcome, result.Reports, &result.LastSequence, result.ReportProblem)
+	b.collectReports(&outcome, result.Reports, &result.LastSequence, result.ReportProblem, len(result.RefusedReports) > 0)
+	for _, refused := range result.RefusedReports {
+		outcome.RefusedReports = append(outcome.RefusedReports, report.RefusedBy{Role: domain.RoleReviewer, Refused: refused})
+		if outcome.ReportProblem != "" {
+			outcome.ReportProblem += "; "
+		}
+		outcome.ReportProblem += refused.Says(domain.RoleReviewer)
+	}
 	if result.Decision == review.DecisionApprove || result.Decision == review.DecisionRepair {
 		outcome.Decision = result.Decision
 	}
@@ -516,8 +529,12 @@ func (b BranchReviewer) record(outcome *BranchReviewOutcome, change gitworktree.
 // failure here is noted and swallowed, for the same reason it is on a run: a
 // review that failed because the reviewer mentioned a risk would teach every
 // reviewer to stop mentioning them.
-func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []report.Entry, sequence *uint64, unreadable string) {
-	if len(entries) == 0 && unreadable == "" {
+//
+// refused says the block carried entries the harness refused one at a time,
+// which the caller says on the outcome; a block of nothing else is audited as
+// a refused call.
+func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []report.Entry, sequence *uint64, unreadable string, refused bool) {
+	if len(entries) == 0 && unreadable == "" && !refused {
 		return
 	}
 	registered, _ := toolcatalog.Registry().Lookup(string(capability.ReportFile))
@@ -539,20 +556,22 @@ func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []r
 	for _, granted := range agentTools(domain.RoleReviewer, Pipeline{Config: b.Config}.reviewer()) {
 		allowed = allowed || granted.Name == registered.Name
 	}
+	// A block whose every entry was refused is audited as a refused call, and
+	// the caller says each refusal, so nothing more is said here.
 	if unreadable != "" {
 		b.noteReportProblem(outcome, errors.New(unreadable))
-	} else if !allowed {
+	} else if len(entries) > 0 && !allowed {
 		b.noteReportProblem(outcome, errors.New("the role holds no grant for this tool"))
-	} else if len(entries) > audit.Bounds.RequestsPerReply {
+	} else if len(entries) > 0 && len(entries) > audit.Bounds.RequestsPerReply {
 		b.noteReportProblem(outcome, errors.New("tool request count exceeds its descriptor bound"))
-	} else {
+	} else if len(entries) > 0 {
 		err := registered.Perform(context.Background(), toolcatalog.Call{Perform: func(context.Context) error { b.collectReportsWithoutToolAudit(outcome, entries); return nil }})
 		if err != nil {
 			b.noteReportProblem(outcome, err)
 		}
 	}
 	kind := execution.EventToolPerformed
-	if outcome.ReportProblem != before {
+	if outcome.ReportProblem != before || len(entries) == 0 {
 		kind = execution.EventToolRefused
 	}
 	if err := emit(kind); err != nil {
@@ -592,6 +611,9 @@ func (b BranchReviewer) collectReportsWithoutToolAudit(outcome *BranchReviewOutc
 			continue
 		}
 		outcome.Reports = append(outcome.Reports, reported)
+		if report.ReadersOf(b.Config.RecurringPassRoles()).ReachesNoPass(reported.For) {
+			outcome.UnreadReports = append(outcome.UnreadReports, reported)
+		}
 	}
 }
 

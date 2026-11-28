@@ -1569,7 +1569,16 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// running. Nothing else says so: the pile is not work, so no queue holds it,
 	// and the reports themselves are filed and forgotten by the roles that filed
 	// them.
-	if standing.Reports.OldestAge > maxUndecidedReportAge {
+	//
+	// Reports that no pass reads at all, hers included, are named at once
+	// rather than after the week, with how many and for whom: nothing else will
+	// ever read them. Which pass reads them is read from the configuration now
+	// and never from the reports, so a pass enabled later takes them off this
+	// line. A reading with no configuration says nothing either way.
+	switch {
+	case sources.ReportReaders != nil && standing.Reports.UnreachedSays() != "":
+		needs = append(needs, unreadReportsAttention(standing.Reports))
+	case standing.Reports.OldestAge > maxUndecidedReportAge:
 		needs = append(needs, reportsAttention(standing.Reports))
 	}
 	// The pile's sibling: a queue of proposed changes whose oldest undecided one

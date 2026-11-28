@@ -631,8 +631,11 @@ func TestReviewDecodesTheVerdictWhenTheReportBlockCannotBeRead(t *testing.T) {
 	if result.Decision != DecisionApprove {
 		t.Fatalf("an unreadable report changed the decision: %#v", result)
 	}
-	if len(result.Reports) != 0 || !strings.Contains(result.ReportProblem, "severity") {
-		t.Fatalf("Review() report evidence = %#v, %q", result.Reports, result.ReportProblem)
+	// An entry with a severity not on the list is refused on its own, and what
+	// it said is kept for the run to print and note.
+	if len(result.Reports) != 0 || len(result.RefusedReports) != 1 ||
+		!strings.Contains(result.RefusedReports[0].Why, "severity") || result.RefusedReports[0].Message != "wrong vocabulary" {
+		t.Fatalf("Review() report evidence = %#v, %#v, %q", result.Reports, result.RefusedReports, result.ReportProblem)
 	}
 }
 

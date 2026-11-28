@@ -245,6 +245,9 @@ func reportBranchReview(stdout, stderr io.Writer, jsonOutput bool, outcome orche
 		if outcome.ReportProblem != "" {
 			fmt.Fprintln(stdout, outcome.ReportProblem)
 		}
+		if block := report.ClosingBlock(outcome.UnreadReports, outcome.RefusedReports); block != "" {
+			fmt.Fprintln(stdout, block)
+		}
 		// A shadow review decided nothing about the branch, and says so where a
 		// gating review would say what the branch now needs: what it produced is a
 		// measurement of the reviewer, and `yoyo review --compare` is what reads it.

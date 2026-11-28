@@ -32,6 +32,10 @@ type AddresseeCount struct {
 	// these reports (ReadsReports). It is set only by Pile.ReadBy; a pile counted
 	// without the project's configuration says false.
 	Read bool `json:"read"`
+	// ReachesNoPass is whether no pass reads these reports, the Lead Product
+	// Manager's included, so nothing but a person will (Readers.ReachesNoPass).
+	// It is set only by Pile.ReadBy.
+	ReachesNoPass bool `json:"reaches_no_pass,omitempty"`
 	// Name is the addressee in words, and Says the figures for it in the words
 	// the dashboard shows under the status line, so no surface words them again.
 	Name string `json:"name"`
@@ -98,12 +102,65 @@ func (r Readers) ReadsReports(addressee domain.AgentRole) bool {
 	return r[HandlerOf(addressee)]
 }
 
+// Who reads a report whose addressee no pass reads (docs/designs/
+// reports-nobody-reads.md, Decision 3). Nothing about it is written on the
+// report: it is worked out from the configuration whenever reports are listed,
+// so a pass enabled later reads the reports already waiting.
+
+// LeadReadsInstead is whether the reports for one addressee are read by the
+// Lead Product Manager's pass because no pass of the addressee's own runs:
+// she is shown them marked as addressed to a role no pass reads here, and
+// handles them as she handles a report naming no role.
+func (r Readers) LeadReadsInstead(addressee domain.AgentRole) bool {
+	return !r.ReadsReports(addressee) && r[domain.RoleProductManager]
+}
+
+// ReachesNoPass is whether no pass reads the reports for one addressee, the
+// Lead Product Manager's included, so only a person will: they are named at
+// once on status's line of things needing a person, and printed whole when
+// the run that filed one ends.
+func (r Readers) ReachesNoPass(addressee domain.AgentRole) bool {
+	return !r.ReadsReports(addressee) && !r[domain.RoleProductManager]
+}
+
+// ReachesNoPassSays is what the Lead Product Manager's pass is shown beside a
+// report it reads in place of the addressee's own, and empty for any other.
+func (r Readers) ReachesNoPassSays(reported Report) string {
+	addressee := namedAddressee(reported)
+	if !r.LeadReadsInstead(addressee) {
+		return ""
+	}
+	return "Addressed to the " + addresseeName(addressee) + ", a role no pass reads here, so it is yours to handle as you handle a report naming no role."
+}
+
+// UnreachedSays is the reports no pass reads, the Lead Product Manager's
+// included, as the line of things needing a person names them: how many, for
+// whom, and the command that reads them. It is empty where every unhandled
+// report reaches some pass.
+func (p Pile) UnreachedSays() string {
+	total := 0
+	var counts []string
+	for _, count := range p.Addressees {
+		if !count.ReachesNoPass {
+			continue
+		}
+		total += count.Unhandled
+		counts = append(counts, fmt.Sprintf("%s %d", count.Name, count.Unhandled))
+	}
+	if total == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d unhandled report(s) that no pass reads here, the Lead Product Manager's included (%s); read them with yoyo reports",
+		total, strings.Join(counts, ", "))
+}
+
 // ReadBy is the pile with each addressee marked by whether a pass reads its
 // reports.
 func (p Pile) ReadBy(readers Readers) Pile {
 	counted := make([]AddresseeCount, len(p.Addressees))
 	for i, count := range p.Addressees {
 		count.Read = readers.ReadsReports(count.Role)
+		count.ReachesNoPass = readers.ReachesNoPass(count.Role)
 		count.Says = count.figures()
 		counted[i] = count
 	}

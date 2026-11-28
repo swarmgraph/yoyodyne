@@ -1219,6 +1219,9 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// What an item's Environments: line may name: the environments the
 		// configuration declares, read as the conversation opens like the rest.
 		Environments: cfg.Environments,
+		// Which roles a recurring pass wakes, so her pass marks a report for a
+		// role no pass reads here as hers.
+		ReportReaders: report.ReadersOf(cfg.RecurringPassRoles()),
 		// What this project asks the operator about before work reaches the queue.
 		// It is read from the configuration rather than decided here, so the same
 		// answer governs a proposal and a direct admission.

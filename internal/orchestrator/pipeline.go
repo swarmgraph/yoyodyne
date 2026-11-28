@@ -975,6 +975,14 @@ type Outcome struct {
 	// could not be used, so its report was filed as a new one.
 	Repeats     []report.Counted `json:"repeats,omitempty"`
 	ReportNotes string           `json:"report_notes,omitempty"`
+	// UnreadReports are the reports this run's agents filed that no pass reads,
+	// the Lead Product Manager's included, and RefusedReports the entries the
+	// harness could not accept as written, each with the message it gave. The
+	// run prints both whole when it ends, in that order, and writes the same
+	// text into the item's notes (docs/designs/reports-nobody-reads.md,
+	// Decision 3).
+	UnreadReports  []report.Report    `json:"unread_reports,omitempty"`
+	RefusedReports []report.RefusedBy `json:"refused_reports,omitempty"`
 	// Amendments are the changes this run's agents proposed to documents they do
 	// not own. Like the reports they are recorded beside the run and decided
 	// nothing about it: each one is waiting on the role that owns the document or
@@ -10926,10 +10934,13 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 	// What the reviewer reported is collected before its verdict is read,
 	// because a report survives a review the harness went on to reject: the
 	// reviewer noticed the thing whatever became of the verdict beside it.
+	unread, refused := len(a.outcome.UnreadReports), len(a.outcome.RefusedReports)
 	a.collectReports(domain.RoleReviewer, result.Reports)
 	if result.ReportProblem != "" {
 		a.noteReportProblem(domain.RoleReviewer, errors.New(result.ReportProblem))
 	}
+	a.keepRefusedReports(domain.RoleReviewer, result.RefusedReports)
+	a.noteUnreachedReports(unread, refused)
 	a.state.ReviewSessionID = result.SessionID
 	a.state.ReviewModel = result.RequestedModel
 	a.state.ReviewResolvedModel = result.ResolvedModel

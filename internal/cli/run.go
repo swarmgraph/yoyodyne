@@ -1770,6 +1770,13 @@ func reportCollectedReports(writer io.Writer, theme console.Theme, outcome orche
 	if outcome.ReportProblem != "" {
 		fmt.Fprintln(writer, outcome.ReportProblem)
 	}
+	// After the run's outcome, one block holds the reports no pass reads and
+	// then what the refused reports said, whole, which is the same text the
+	// item's notes were given (docs/designs/reports-nobody-reads.md,
+	// Decision 3).
+	if block := report.ClosingBlock(outcome.UnreadReports, outcome.RefusedReports); block != "" {
+		fmt.Fprintln(writer, block)
+	}
 }
 
 // reportProposedAmendments names what this run's agents proposed changing in a

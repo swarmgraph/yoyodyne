@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/console"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -85,5 +86,28 @@ func TestARunsClosingLinesSayWhatItRepeated(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "reported 1 thing") {
 		t.Errorf("a repeat was said as a new report: %q", out.String())
+	}
+}
+
+// After the outcome, a run prints one block holding the reports it filed that
+// no pass reads, whole with severity and addressee, and then what its refused
+// reports said, after the closing line that says what was wrong.
+func TestARunsClosingLinesPrintUnreadReportsThenRefusedMessages(t *testing.T) {
+	t.Parallel()
+	unread := report.Report{ID: "report-0123456789abcdef0123456789abcde3", For: domain.RoleDevelopmentManager, Severity: report.SeverityWarning, Message: "the test server is left running"}
+	refused := report.RefusedBy{Role: domain.RoleDeveloper, Refused: report.Refused{Severity: "loud", Message: "the plugin crashes", Why: `severity "loud" must be "critical", "warning", or "note"`}}
+	var out bytes.Buffer
+	reportCollectedReports(&out, console.NewTheme(func(string) string { return "" }, nil), orchestrator.Outcome{
+		Reports:        []report.Report{unread},
+		ReportProblem:  refused.Refused.Says(refused.Role),
+		UnreadReports:  []report.Report{unread},
+		RefusedReports: []report.RefusedBy{refused},
+	})
+	said := out.String()
+	problem := strings.Index(said, `a developer report was refused: severity "loud"`)
+	whole := strings.Index(said, "warning report report-0123456789abcdef0123456789abcde3, for the development manager, which no pass reads here: the test server is left running")
+	message := strings.Index(said, "refused loud report from the developer, naming no role: the plugin crashes")
+	if problem < 0 || whole < problem || message < whole {
+		t.Fatalf("closing lines = %q", said)
 	}
 }

@@ -383,6 +383,10 @@ type Result struct {
 	// block that could not be read, which costs the verdict nothing.
 	Reports       []report.Entry
 	ReportProblem string
+	// RefusedReports are the entries of the reviewer's report block the
+	// harness could not accept as written, each with why and what it said, so
+	// the caller keeps the fact although no report was filed.
+	RefusedReports []report.Refused
 }
 
 // Reviewer runs one independent review of a developer's change. It owns the
@@ -668,7 +672,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	// is read as a verdict, and what is left is decoded exactly as it always was.
 	// A block that could not be read changes nothing about the review: the reply
 	// is decoded as it arrived, and the lost report is named instead.
-	answer, reported, reportErr := report.Extract(providerResult.FinalText)
+	answer, reported, refusedReports, reportErr := report.ExtractKeeping(providerResult.FinalText)
 	reportProblem := ""
 	if reportErr != nil {
 		reportProblem = reportErr.Error()
@@ -696,6 +700,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 			ProviderOutage:    providerResult.ProviderOutage,
 			ProcessStatus:     providerResult.Process.Status,
 			Reports:           reported,
+			RefusedReports:    refusedReports,
 			ReportProblem:     reportProblem,
 		}
 	}
