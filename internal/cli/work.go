@@ -565,6 +565,7 @@ func runReportOf(outcome orchestrator.Outcome) chat.RunReport {
 		Reported:            len(outcome.Reports),
 		ReportedWorst:       worstReported,
 		ReportProblem:       outcome.ReportProblem,
+		ReportsKept:         report.ClosingBlock(outcome.UnreadReports, outcome.RefusedReports),
 	}
 	if outcome.Integration != nil {
 		report.Integrated = true

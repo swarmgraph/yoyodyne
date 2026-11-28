@@ -347,6 +347,15 @@ func (s *Session) renderUnhandledReports() string {
 		// A report later runs repeated is shown once, with how often and by whom
 		// last, rather than once for every run that said it.
 		text += report.RepeatLine(repeated[reported.ID], time.Local)
+		// A report for a role no pass reads here is shown to her pass marked as
+		// such, and is hers to handle as a report naming no role is. The reader
+		// is worked out now, from the configuration, and never written on the
+		// report, so a pass enabled later reads it in her place.
+		if s.options.ReportReaders != nil {
+			if says := s.options.ReportReaders.ReachesNoPassSays(reported); says != "" {
+				text += "  " + says + "\n\n"
+			}
+		}
 		if says, settled := answered[reported.ID]; settled {
 			text += "  " + says + "\n\n"
 		}

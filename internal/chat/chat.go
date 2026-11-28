@@ -272,6 +272,11 @@ type Options struct {
 	// already on. It is optional like the rest, and a conversation without one
 	// says so rather than showing an empty pile.
 	Reports Reports
+	// ReportReaders is which roles have an enabled recurring pass in the
+	// project's configuration. The Lead Product Manager's pass marks a report
+	// whose addressee no pass reads as hers to handle (report.Readers); nil
+	// marks nothing.
+	ReportReaders report.Readers
 	// Builds counts a report's build against the target branch, so a report
 	// filed from a build that predates a fix says by how many changes wherever it
 	// is shown — to the operator in /reports and to the product manager in the

@@ -1347,9 +1347,11 @@ and "worst critical" reads the same for one as for five. Every number on it
 comes from one derivation, so the terminal and the channel cannot disagree
 about them. While any report stands unhandled, `yoyo status` and the dashboard
 also show the count for each addressee (described below), whether or not the
-pile is draining. Only once the oldest undecided report has been waiting more
-than a week is the pile named on `yoyo status`'s "needs a human" line as the
-Lead Product Manager's. That line is what
+pile is draining. Once the oldest undecided report has been waiting more
+than a week the pile is named on `yoyo status`'s "needs a human" line as the
+Lead Product Manager's, and reports that no pass reads at all are named there
+at once (see [a report always reaches a
+reader](#a-report-always-reaches-a-reader-and-none-is-lost-to-a-refusal)). That line is what
 catches both failures a single reading cannot tell apart: a cadence that has
 stopped keeping up, and no cadence configured at all. The queue of proposed
 amendments has the same line as a sibling, on the same threshold and for the
@@ -1379,6 +1381,53 @@ each addressee under `standing.reports.addressees`, each with `role` (absent
 for no role named), `unhandled`, `critical`, and `read`, and the line itself as
 `standing.reports_says`; the dashboard shows the same line and figures at the
 top of the band ([design](designs/reports-nobody-reads.md)).
+
+### A report always reaches a reader, and none is lost to a refusal
+
+A report is accepted whether or not any pass will read it, and the role it
+names is kept as written. Who reads it is worked out from the configuration
+each time reports are listed, and nothing about it is written on the report,
+so enabling a pass later sends the reports already waiting to it.
+
+- **Where the Lead Product Manager's pass runs**, a report for a role no pass
+  reads here is shown to her with the others, with the line `Addressed to the
+  development manager, a role no pass reads here, so it is yours to handle as
+  you handle a report naming no role.` She handles it as she handles a report
+  naming no role.
+- **Where no pass runs at all, hers included**, the line of things needing a
+  person on `yoyo status` names these reports at once, without waiting for the
+  oldest to be a week old:
+
+  ```text
+  3 unhandled report(s) that no pass reads here, the Lead Product Manager's included (development manager 2, no role named 1); read them with yoyo reports
+  ```
+
+  `--json` marks that entry with `unread_reports`, and each addressee under
+  `standing.reports.addressees` with `reaches_no_pass`. The run that filed each
+  such report prints it whole when it ends, with its severity and the role it
+  is for, and writes the same text into the work item's notes.
+
+A report is refused only for what the harness cannot accept as written: a
+message past the 4096-byte limit, a severity not on the list, or a `"for"` that
+is not one of the roles above. One entry refused no longer costs the entries
+beside it in a developer's or reviewer's block. Each refusal is said in the
+run's closing lines, with what was wrong and that what it said is kept, and the
+message is copied, cut to 4096 bytes with the cut said, into what the run
+prints when it ends and into the work item's notes:
+
+```text
+a developer report was refused: for "operator" must be one of [product-manager architect development-manager program-manager]; a report is never addressed to the operator; what it said is kept in this run's summary and in the work item's notes
+Reports this run filed that no pass reads here, the Lead Product Manager's included; nobody but a person will read them:
+- warning report report-…, for the development manager, which no pass reads here: the test server is left running after the suite
+Reports this run gave that were refused, kept here so what they said is not lost:
+- refused note report from the developer, for "operator": the temporary folder is refused
+```
+
+`yoyo run`, `yoyo review`, and a run reported in a conversation print that
+block after the outcome, the reports no pass reads first and the refused
+messages after them; `--json` carries them as `unread_reports` and
+`refused_reports`. A conversation's own report block is still refused whole
+when any entry in it is refused.
 
 ## What agents propose changing, and who decides
 
