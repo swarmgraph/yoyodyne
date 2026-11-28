@@ -10,16 +10,25 @@ revisions:
       by: architect
       at: 2026-11-27T17:56:47.39387Z
       reason: 'Answers yoyodyne-ifd.428.218: a run''s processes carry its identifier in their environment and are stopped when it ends, after each session, and on maintenance for a run with nothing going. A process only found inside the run''s folders is named and never stopped, because stopping the wrong one is the worse mistake. Unstoppable ones are named with their port on status. The search lives in internal/execution; the process start code was not read.'
+    - action: amended
+      by: architect
+      at: 2026-11-27T23:57:41.876902Z
+      reason: 'Answers the helper check (yoyodyne-ifd.428.233), reviewer report d485972e: the design never said when a leftover process is still used. A marked process holding an open local connection to a process the same stop would leave alone, or whose other end cannot be found, is left running and shown as in use; a listening port with nothing connected is not use, and connections are read again before every signal. It applies to every stop and needs a build piece of its own, since the scheduler start piece (428.218.1) was approved without it.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-11-27T17:56:47.39387Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4256, for document-4256.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-11-27T23:57:41.876902Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4298, for document-4298.1 under the automatic approval policy
 ---
 # Stopping every process a run started when the run ends
 
-This design answers the item on stopping every process a run started (yoyodyne-ifd.428.218). It serves the goal that implementation tasks are isolated in worktrees the harness manages: a run's work must not outlive the run and reach into later runs.
+This design answers the item on stopping every process a run started (yoyodyne-ifd.428.218). It serves the goal that implementation tasks are isolated in worktrees the harness manages: a run's work must not outlive the run and reach into later runs. Decision 6, on a process that something still alive is using, answers the item on the helper check (yoyodyne-ifd.428.233).
 
 ## What happened
 
@@ -45,7 +54,7 @@ The harness lists the processes of the user it runs as. It never looks at anothe
 
 For each process it reads the environment the process started with. On macOS this is the kernel's argument and environment record for the process. On Linux it is the process's environ file.
 
-A process is the run's, and is stopped, when either of these holds:
+A process is the run's, and is stopped unless Decision 6 leaves it running, when either of these holds:
 
 - its starting environment carries this run's identifier;
 - it holds the file the harness already hands a launch to tell whether anything from it still lives.
@@ -65,8 +74,8 @@ A process is never stopped while a session or check of its own run is going. The
 ## Decision 4: how a process is stopped
 
 1. When it finds a process, the harness records its number and the time it started.
-2. Before every signal, it reads the start time again. If the number now belongs to a process started at a different time, that process is left alone.
-3. It sends the stop signal. Where the process leads a process group, the signal goes to that group, and only to the members that also carry the identifier.
+2. Before every signal, it reads the start time again. If the number now belongs to a process started at a different time, that process is left alone. It also reads the process's connections again, and leaves it running if Decision 6 now holds.
+3. It sends the stop signal. Where the process leads a process group, the signal goes to that group, and only to the members that also carry the identifier and are not left running by Decision 6.
 4. It waits up to 10 seconds, then sends the kill signal and waits up to 5 more seconds.
 5. A process that is gone is stopped.
 
@@ -89,11 +98,39 @@ a process this run started is still running: process 4242, java, listening on 12
 
 Every maintenance pass tries again and clears the line once the process is gone. A process still running after three passes files one report to the development manager, naming the run, the process and the port. A named process that carries no sign of the run is shown and never reported, because only a person can say whether it is theirs.
 
+## Decision 6: a process something still alive is using is left running
+
+The case that matters is a build server or other helper a run started, which another run, a person, or the harness itself has connected to since. Stopping it would break work that is not this run's.
+
+Before any stop under Decision 3, whichever of its three points calls it, the harness reads each found process's open local connections with `lsof`: connections over 127.0.0.1 or the machine's other loopback addresses, and connections over a socket file. For each one it finds the process at the other end.
+
+A found process is **in use, and left running**, when any of its open local connections leads to:
+
+- a process this stop would leave alone: another run's process while that run has something going, a person's process, or the harness's own; or
+- a process the harness cannot find, or a connection whose other end it cannot read.
+
+The second case leans toward leaving the process running for the same reason as Decision 2: stopping the wrong process is the worse mistake.
+
+These are **not** use:
+
+- a port the process listens on with nothing connected;
+- a connection to another process the same stop is stopping.
+
+Connections are read when the process is found and again before every signal, as Decision 4 says, so a connection made between one look and the next keeps the process running.
+
+An in-use process is written into the run's record and shown on `yoyo status` under its run, naming the process at the other end, for example:
+
+```text
+a process this run started is still running: process 4242, gradle, left running because process 5150 (java, run run-1a2b3c4d) is connected to it
+```
+
+Being in use is not a fault, so it never counts toward the three passes of Decision 5 and files no report. Every maintenance pass checks it again. Once nothing that would be left alone is connected, that pass stops it and clears the line.
+
 ## Where it lives
 
-The search and the stop belong to `internal/execution`, the package the provider adapters hand each command to. It already starts the commands for both providers, so one owner both marks a process and stops it. The code that reads another process's environment and working directory is split by operating system.
+The search and the stop belong to `internal/execution`, the package the provider adapters hand each command to. It already starts the commands for both providers, so one owner both marks a process and stops it. The code that reads another process's environment, working directory and connections is split by operating system.
 
-The orchestrator calls it at the end of a session and of a run, and the maintenance pass calls it as point 3 says. Neither keeps a list of its own.
+The orchestrator calls it at the end of a session and of a run, and the maintenance pass calls it as point 3 of Decision 3 says. Neither keeps a list of its own.
 
 The code that starts and signals processes today was not read for this design. A builder who finds the start of processes elsewhere than `internal/execution` puts the search beside it, and stops and asks the architect if the two are in different places.
 
@@ -108,10 +145,12 @@ Checks the merge queue runs on a candidate belong to a queue entry rather than a
 - **Watching the process tree while the session runs.** A server that starts itself in the background passes to process 1 between one look and the next.
 - **Process groups alone.** That is how this server got away.
 - **Grouping the processes in the kernel.** macOS has nothing like Linux's control groups.
+- **Leaving every marked process running while it listens on a port.** Every leftover test server listens, so nothing would ever be stopped, and the reported server would still be running.
+- **Stopping an in-use process and letting its users start another.** A build another run has under way would fail for a reason that has nothing to do with that run's change, which is the harm this design exists to prevent.
 
 ## Build pieces
 
-This is one piece, expected at about 400 to 600 changed lines with tests:
+The first piece, already approved and split into pieces, covers:
 
 - the identifier in the environment;
 - the search for each operating system;
@@ -119,7 +158,7 @@ This is one piece, expected at about 400 to 600 changed lines with tests:
 - the calls at the end of a session and of a run, and from maintenance;
 - the record and status line of Decision 5.
 
-If it is expected to pass about 1,200 lines, the development manager splits off the maintenance pass and the report into a second piece.
+Decision 6 was ruled after those pieces were filed, so it is a further piece: reading each process's local connections and the processes at their other ends for each operating system, leaving an in-use process running, reading connections again before every signal, and its record and status line. It is expected at about 200 to 400 changed lines with tests. Where the scheduler start and maintenance piece (yoyodyne-ifd.428.218.1) has not started, the development manager may fold it in, provided the total stays under about 1,200 lines.
 
 ## What a reviewer can check
 
@@ -130,4 +169,7 @@ If it is expected to pass about 1,200 lines, the development manager splits off 
 - A process that cannot be signalled is shown on status with its number and port.
 - A harness stopped between a session's end and the stop finds the process on its next start or maintenance pass and stops it. A process of a run with a session still going is left alone.
 - Another run's process, which carries that run's identifier, is untouched.
+- A marked process of a run with nothing going, with an open local connection from a process that carries no identifier, is left running and shown on status naming that process. After that connection closes, the next maintenance pass stops it.
+- A marked process that only listens, with nothing connected, is stopped.
+- A connection made after the process was found but before the signal keeps it running.
 - make test passes.
