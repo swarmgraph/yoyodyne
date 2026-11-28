@@ -38,7 +38,10 @@ import (
 // to the development manager once, naming the run, the process, its command
 // and its ports. One named only because it works inside the run's folders is
 // shown and never reported, because only a person can say whether it is
-// theirs.
+// theirs. One left running because something the pass leaves alone is
+// connected to it is in use rather than stuck: it is shown, counts no passes,
+// and is never reported, and the pass that finds nothing protected connected
+// to it any more stops it (execution, runprocesses_inuse.go).
 
 // StepLeftovers is the step that stops what ended runs left running.
 const StepLeftovers = "leftovers"
@@ -127,7 +130,7 @@ func (l *Leftovers) Stop(ctx context.Context) runstate.SweepStep {
 	}
 	sort.Strings(order)
 
-	var stopped, busy, left, reported []string
+	var stopped, busy, left, inUse, reported []string
 	for _, id := range order {
 		found, err := l.stopRun(ctx, id)
 		if err != nil {
@@ -141,7 +144,12 @@ func (l *Leftovers) Stop(ctx context.Context) runstate.SweepStep {
 			stopped = append(stopped, id)
 		default:
 			for _, process := range found.left {
-				left = append(left, fmt.Sprintf("run %s: %s", id, process.Describe()))
+				line := fmt.Sprintf("run %s: %s", id, process.Describe())
+				if process.InUse {
+					inUse = append(inUse, line)
+				} else {
+					left = append(left, line)
+				}
 			}
 		}
 		reported = append(reported, found.reported...)
@@ -153,6 +161,9 @@ func (l *Leftovers) Stop(ctx context.Context) runstate.SweepStep {
 	}
 	if len(left) > 0 {
 		said = append(said, "STILL RUNNING: "+strings.Join(left, "; "))
+	}
+	if len(inUse) > 0 {
+		said = append(said, "in use, so left running: "+strings.Join(inUse, "; "))
 	}
 	if len(reported) > 0 {
 		said = append(said, "reported to the development manager after three passes: "+strings.Join(reported, ", "))
@@ -209,7 +220,28 @@ type leftoverRun struct {
 	// busy is a run something holds the lease of.
 	busy     bool
 	left     []execution.LeftProcess
+	inUse    []execution.LeftProcess
 	reported []string
+}
+
+// idle says of another run's identifier that the run is one of this product's
+// with nothing going, so a process of it connected to the run being stopped
+// does not keep that run's process running: this pass stops it as well. An
+// identifier no run of this product has, or a run something holds, is going
+// as far as the stop can tell.
+func (l *Leftovers) idle(runID string) bool {
+	if !runstate.ValidRunID(runID) {
+		return false
+	}
+	if _, err := l.Runs.Read(runID); err != nil {
+		return false
+	}
+	lease, free, err := l.Runs.TryIdleRun(runID)
+	if err != nil || !free {
+		return false
+	}
+	lease.Release()
+	return true
 }
 
 // stopRun stops one run's processes where nothing holds the run, and records
@@ -242,7 +274,7 @@ func (l *Leftovers) stopRun(ctx context.Context, runID string) (leftoverRun, err
 		folders = append(folders, scratch)
 	}
 	holds, _ := l.Runs.LaunchHolds(runID)
-	left := l.Processes.Stop(context.WithoutCancel(ctx), execution.RunProcessesRequest{RunID: runID, Holds: holds, Folders: folders})
+	left := l.Processes.Stop(context.WithoutCancel(ctx), execution.RunProcessesRequest{RunID: runID, Holds: holds, Folders: folders, Idle: l.idle})
 	if len(left) > maxLeftoverProcesses {
 		left = left[:maxLeftoverProcesses]
 	}
@@ -251,6 +283,14 @@ func (l *Leftovers) stopRun(ctx context.Context, runID string) (leftoverRun, err
 	var problems []string
 	for index := range left {
 		process := &left[index]
+		if process.InUse {
+			// Being in use is not a fault: it counts no passes and is never
+			// reported, and the next pass stops it once nothing it would
+			// leave alone is connected.
+			process.Passes, process.Reported = 0, ""
+			found.inUse = append(found.inUse, *process)
+			continue
+		}
 		process.Passes = 1
 		for _, before := range state.LeftProcesses {
 			if runstate.SameLeftProcess(before, *process) {

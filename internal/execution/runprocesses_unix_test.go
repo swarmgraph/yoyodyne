@@ -23,7 +23,9 @@ const runProcessHelperVariable = "GO_WANT_RUN_PROCESS_HELPER"
 // TestRunProcessesHelper is the test binary as a helper. "launch" starts a
 // server in a session of its own, so it leaves the launcher's process group,
 // and exits at once; "serve" listens on a port, writes its number and port, and
-// ends on its own after a minute however the test went.
+// ends on its own after a minute however the test went; "connect" connects to
+// RUN_PROCESS_HELPER_ADDRESS and holds the connection, and "hold" holds the
+// files it was handed, each also for a minute.
 func TestRunProcessesHelper(t *testing.T) {
 	switch os.Getenv(runProcessHelperVariable) {
 	case "launch":
@@ -39,9 +41,31 @@ func TestRunProcessesHelper(t *testing.T) {
 		if err != nil {
 			os.Exit(2)
 		}
+		// Each connection is accepted and held, as a server holds a client's.
+		go func() {
+			var held []net.Conn
+			for {
+				connection, err := listener.Accept()
+				if err != nil {
+					return
+				}
+				held = append(held, connection)
+			}
+		}()
 		said := strconv.Itoa(os.Getpid()) + " " + listener.Addr().String()
 		_ = os.WriteFile(os.Getenv("RUN_PROCESS_HELPER_FILE")+".tmp", []byte(said), 0o600)
 		_ = os.Rename(os.Getenv("RUN_PROCESS_HELPER_FILE")+".tmp", os.Getenv("RUN_PROCESS_HELPER_FILE"))
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	case "connect":
+		connection, err := net.Dial("tcp", os.Getenv("RUN_PROCESS_HELPER_ADDRESS"))
+		if err != nil {
+			os.Exit(2)
+		}
+		defer connection.Close()
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	case "hold":
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}

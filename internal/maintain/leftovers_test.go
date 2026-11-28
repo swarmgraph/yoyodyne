@@ -20,6 +20,9 @@ type scriptedProcesses struct {
 	marked  []string
 	left    map[string][]execution.LeftProcess
 	stopped []string
+	// asked is the other runs each stop asked Idle about, and what it said.
+	ask   []string
+	asked map[string]bool
 }
 
 func (s *scriptedProcesses) MarkedRuns() ([]string, error) {
@@ -32,6 +35,14 @@ func (s *scriptedProcesses) Stop(_ context.Context, request execution.RunProcess
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopped = append(s.stopped, request.RunID)
+	if request.Idle != nil {
+		if s.asked == nil {
+			s.asked = map[string]bool{}
+		}
+		for _, other := range s.ask {
+			s.asked[other] = request.Idle(other)
+		}
+	}
 	return append([]execution.LeftProcess(nil), s.left[request.RunID]...)
 }
 
@@ -210,5 +221,61 @@ func TestLeftoversWithNothingToStop(t *testing.T) {
 	}
 	if step := (&Pass{}).stopLeftovers(context.Background()); step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "no stop") {
 		t.Fatalf("unwired step = %+v", step)
+	}
+}
+
+// A process in use, because something the stop leaves alone is connected to
+// it, is recorded and shown under its run, counts no passes, and is never
+// reported, however many passes find it; the pass that finds nothing
+// connected any more stops it and clears the line. The stop is told which
+// other runs have nothing going: one of this product whose lease nobody
+// holds, and not one something holds or one of no run of this product.
+func TestLeftoversShowAProcessInUseAndNeverReportIt(t *testing.T) {
+	t.Parallel()
+	helper := execution.LeftProcess{PID: 4242, Command: "gradle", InUse: true, Why: "left running because process 5150 (java, run run-other) is connected to it over a local socket"}
+	processes := &scriptedProcesses{left: map[string][]execution.LeftProcess{}}
+	leftovers, runs, reports := newLeftovers(t, processes)
+	ended := leftoverRecord(t, runs, "calc-4", runstate.StatusFailed)
+	idle := leftoverRecord(t, runs, "calc-5", runstate.StatusFailed)
+	working := leftoverRecord(t, runs, "calc-6", runstate.StatusRunning)
+	lease, held, err := runs.TryIdleRun(working.RunID)
+	if err != nil || !held {
+		t.Fatalf("TryIdleRun() = %v, %v", held, err)
+	}
+	defer lease.Release()
+	processes.marked = []string{ended.RunID}
+	processes.left[ended.RunID] = []execution.LeftProcess{helper}
+	processes.ask = []string{idle.RunID, working.RunID, "run-not-of-this-product"}
+
+	for pass := 1; pass <= 4; pass++ {
+		step := leftovers.Stop(context.Background())
+		if !strings.Contains(step.Detail, "in use, so left running: run "+ended.RunID+": a process this run started is still running: process 4242, gradle, left running because process 5150") ||
+			strings.Contains(step.Detail, "STILL RUNNING") {
+			t.Fatalf("pass %d: step = %s", pass, step.Detail)
+		}
+		recorded, err := runs.Read(ended.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(recorded.LeftProcesses) != 1 || !recorded.LeftProcesses[0].InUse || recorded.LeftProcesses[0].Passes != 0 {
+			t.Fatalf("pass %d: recorded %+v", pass, recorded.LeftProcesses)
+		}
+	}
+	if listed, err := reports.List(); err != nil || len(listed) != 0 {
+		t.Fatalf("reports = %+v, %v; want none for a process in use", listed, err)
+	}
+	processes.mu.Lock()
+	asked := processes.asked
+	processes.mu.Unlock()
+	if !asked[idle.RunID] || asked[working.RunID] || asked["run-not-of-this-product"] {
+		t.Fatalf("Idle answered %v; want only %s idle", asked, idle.RunID)
+	}
+
+	processes.mu.Lock()
+	processes.left[ended.RunID] = nil
+	processes.mu.Unlock()
+	leftovers.Stop(context.Background())
+	if left, err := runs.LeftRunning(); err != nil || len(left) != 0 {
+		t.Fatalf("LeftRunning() = %v, %v; want the line cleared once nothing is connected", left, err)
 	}
 }

@@ -21,6 +21,10 @@ func (systemProcessTable) listening(int) []string { return nil }
 
 func (systemProcessTable) holding([]string) map[int]bool { return nil }
 
+func (systemProcessTable) connections() (map[int][]localConnection, error) {
+	return nil, errRunProcessesUnsupported
+}
+
 func sendSignal(int, syscall.Signal) error { return errRunProcessesUnsupported }
 
 // ReadsSystemProgramEnvironment cannot be answered on this platform.

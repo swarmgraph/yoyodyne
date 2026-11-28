@@ -94,6 +94,20 @@ func (systemProcessTable) listening(pid int) []string {
 	return lsofListening(pid)
 }
 
+// connections reads every established TCP socket and every socket file lsof
+// can see, and finds each live local connection's other end among them.
+func (systemProcessTable) connections() (map[int][]localConnection, error) {
+	tcp, err := lsofOutput("pfdn", "-iTCP", "-sTCP:ESTABLISHED")
+	if err != nil {
+		return nil, err
+	}
+	sockets, err := lsofOutput("pfdn", "-U")
+	if err != nil {
+		return nil, err
+	}
+	return lsofConnections(tcp, sockets), nil
+}
+
 func sendSignal(pid int, signal syscall.Signal) error {
 	return syscall.Kill(pid, signal)
 }
