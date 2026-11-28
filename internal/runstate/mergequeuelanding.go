@@ -587,6 +587,11 @@ type MergeQueueHandback struct {
 	// Review is the candidate's review that decided the hand-back, with every
 	// finding, where a review did. Reason holds no more than its summary.
 	Review *ReviewBefore `json:"review,omitempty"`
+	// FailedCheck is the candidate's configured check whose failure decided the
+	// hand-back, with its failing tests, whether the change touches each, and
+	// the end of its output, where a check that ran to its end did. Reason
+	// names the tests and says whether each was touched; this keeps them whole.
+	FailedCheck *MergeQueueFailedCheck `json:"failed_check,omitempty"`
 	// Generation through Candidate are the failed candidate, as its generation
 	// records it.
 	Generation uint64   `json:"generation"`
@@ -712,6 +717,9 @@ func (h MergeQueueHandback) validate() []error {
 		if err := h.Review.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("handback review: %w", err))
 		}
+	}
+	if err := h.FailedCheck.validate(); err != nil {
+		problems = append(problems, fmt.Errorf("handback failed check: %w", err))
 	}
 	conflicted := h.Conflict != nil
 	switch {

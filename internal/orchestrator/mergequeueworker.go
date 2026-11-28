@@ -1031,6 +1031,9 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	if runErr != nil {
 		evidence.Problem = boundedEvidence("the checks could not be run: " + runErr.Error())
 	}
+	if evidence.Problem == "" {
+		w.recordFailedChecks(ctx, generation, results, ran)
+	}
 	// A record that judged the candidate answers its checks in their order and
 	// stops at the first without a result, which is what the gate and recovery
 	// read by position. One that judged nothing keeps every passed result,
@@ -1131,6 +1134,60 @@ func queueCheckResult(result checks.Result) runstate.MergeQueueCheckResult {
 		queued.FailingTests = boundedEvidence(result.FailingTests.Describe())
 	}
 	return queued
+}
+
+// recordFailedChecks puts on each result of a check that ran to its own end
+// and failed what its hand-back carries (runstate.MergeQueueFailedCheck): its
+// failing tests judged against the paths the candidate changes, and the end of
+// its output with secrets removed. ran answers results position by position.
+// The candidate's paths are listed once, and only where a failing test needs
+// judging; where they cannot be, every test is judged with that said, and the
+// check's failure is recorded all the same.
+func (w MergeQueueWorker) recordFailedChecks(ctx context.Context, generation runstate.MergeQueueGeneration, results []checks.Result, ran []runstate.MergeQueueCheckResult) {
+	var changed []string
+	listed, unknown := false, ""
+	for index, result := range results {
+		if index >= len(ran) || result.Passed || result.CouldNotRun != "" || result.Process.Status != execution.ProcessFailed {
+			continue
+		}
+		failed := &runstate.MergeQueueFailedCheck{Command: result.Command, Output: queueCheckOutput(result)}
+		if result.FailingTests != nil {
+			if !listed {
+				listed = true
+				var err error
+				if changed, err = w.candidatePaths(ctx, generation); err != nil {
+					unknown = err.Error()
+				}
+			}
+			tests := *result.FailingTests
+			judged := checks.JudgeTouched(tests, changed, unknown, nil)
+			failed.Tests, failed.Touched = &tests, &judged
+		}
+		ran[index].Failure = failed
+	}
+}
+
+// candidatePaths is every path the generation's candidate changes against its
+// base, which for a candidate of one head is exactly the change.
+func (w MergeQueueWorker) candidatePaths(ctx context.Context, generation runstate.MergeQueueGeneration) ([]string, error) {
+	if w.Candidates == nil {
+		return nil, errors.New("the merge queue has no way to list the candidate's paths")
+	}
+	paths, err := w.Candidates.CandidatePaths(ctx, generation.TargetBase, generation.Candidate)
+	if err != nil {
+		return nil, fmt.Errorf("the paths generation %d's candidate changes could not be listed: %v", generation.Number, err)
+	}
+	return paths, nil
+}
+
+// queueCheckOutput is the end of what a failed check printed, as a candidate's
+// record keeps it: the runner's bounded failure output (checks.FailureOutput),
+// already redacted of the values the runner was given, with every secret
+// recognized by its shape removed too, cut to its last
+// runstate.MaxMergeQueueCheckOutputBytes.
+func queueCheckOutput(result checks.Result) string {
+	output := execution.NewRedactor().WithSecretShapes().Redact(strings.TrimSpace(checks.FailureOutput(result)))
+	return boundedTail(output, runstate.MaxMergeQueueCheckOutputBytes)
 }
 
 // orderedQueueResults puts the kept results and those of the checks run now
