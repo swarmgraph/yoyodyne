@@ -9,6 +9,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/epiccost"
 	"github.com/mason-bryant/yoyodyne/internal/epicprogress"
 	"github.com/mason-bryant/yoyodyne/internal/epicscope"
+	"github.com/mason-bryant/yoyodyne/internal/epicwake"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -316,5 +317,28 @@ func TestJudgmentsAndChecksOfTheWholeEpicAreInItsCost(t *testing.T) {
 	// Prices that cannot price a call leave every call unpriced.
 	if plain := epiccost.Of(view, epic, b.runs); plain.UnpricedCalls != 3 || !near(plain.KnownUSD, 1) {
 		t.Fatalf("without call prices the cost is %+v", plain)
+	}
+}
+
+// The passes an event of the epic woke are in its cost, a shared one in equal
+// part, and one not priced is said beside the figure.
+func TestThePassesAnEpicWokeAreInItsCost(t *testing.T) {
+	t.Parallel()
+	naming := epicprogress.Naming{WorkItemID: "yoyodyne-ep", NamedAt: time.Date(2026, 11, 28, 17, 0, 0, 0, time.UTC)}
+	other := epicprogress.Naming{WorkItemID: "yoyodyne-other", NamedAt: naming.NamedAt}
+	wakes := epicwake.Record{Passes: []epicwake.Pass{
+		{ID: "shared", Namings: []epicprogress.Naming{naming, other}, At: naming.NamedAt, Ended: &epicwake.Ended{CostUSD: 4, Known: true}},
+		{ID: "unpriced", Namings: []epicprogress.Naming{naming}, At: naming.NamedAt},
+		{ID: "elsewhere", Namings: []epicprogress.Naming{other}, At: naming.NamedAt, Ended: &epicwake.Ended{CostUSD: 9, Known: true}},
+	}}
+	spend := epiccost.Spend{KnownUSD: 1, Runs: 1}.WithPasses(wakes, naming)
+	if spend.KnownUSD != 3 || spend.Passes != 2 || spend.UnpricedPasses != 1 {
+		t.Fatalf("spend = %+v, want $3.00 over two passes, one not priced", spend)
+	}
+	says := epiccost.Standing{Spend: spend}.Says("yoyodyne-ep")
+	for _, want := range []string{"$3.00 in provider reported cost, over 1 run and 2 role passes it woke", "1 role pass whose cost is unknown"} {
+		if !strings.Contains(says, want) {
+			t.Fatalf("%q does not say %q", says, want)
+		}
 	}
 }

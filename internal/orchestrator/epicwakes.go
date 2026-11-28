@@ -191,4 +191,3 @@ func leftToTheirRoles(pending []report.Report, on bool) []report.Report {
 // EpicWakeKnown is whether what a pass cost is known: a pass that took no turn
 // cost nothing, and one that did and reported no cost is not known.
 func EpicWakeKnown(fired Fired) bool { return fired.Turns == 0 || fired.CostUSD > 0 }
-

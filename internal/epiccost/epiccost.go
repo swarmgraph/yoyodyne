@@ -191,7 +191,7 @@ func (s Standing) Why() string {
 func (s Standing) Says(epic string) string {
 	said := fmt.Sprintf("Cost: %s in provider reported cost, over %s", Dollars(s.KnownUSD), count(s.Runs, "run"))
 	if s.Passes > 0 {
-		said += " and " + count(s.Passes, "role pass") + " it woke"
+		said += " and " + passes(s.Passes) + " it woke"
 	}
 	switch {
 	case s.Budget == nil:
@@ -213,7 +213,7 @@ func (s Standing) Says(epic string) string {
 		unknown = append(unknown, count(s.UnpricedCalls, "other paid call")+" whose cost is unknown in whole or in part")
 	}
 	if s.UnpricedPasses > 0 {
-		unknown = append(unknown, count(s.UnpricedPasses, "role pass")+" whose cost is unknown in whole or in part")
+		unknown = append(unknown, passes(s.UnpricedPasses)+" whose cost is unknown in whole or in part")
 	}
 	if len(unknown) > 0 {
 		said += ". Not in that figure, and not counted toward a limit: " + strings.Join(unknown, ", and ")
@@ -243,4 +243,11 @@ func count(n int, thing string) string {
 		return "1 " + thing
 	}
 	return fmt.Sprintf("%d %ss", n, thing)
+}
+
+func passes(n int) string {
+	if n == 1 {
+		return "1 role pass"
+	}
+	return fmt.Sprintf("%d role passes", n)
 }

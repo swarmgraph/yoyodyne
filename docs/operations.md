@@ -2298,9 +2298,22 @@ does not ask, and nothing is kept as refused for it.
 A role's pass asks too, when it has come due and before anything is claimed for
 it: its recurring pass, and one started by an event, a label, a request, a
 critical report, an automatic hold or a refused tracker block. With epic mode on,
-passes of the Lead Product Manager, the development manager and the architect
-start while a named epic is open, and no program manager's does. A pass already
-begun takes all its turns. The review of unmet goals and the reading of outside
+no pass starts by the clock and no program manager's pass starts at all. A pass of
+the Lead Product Manager, the development manager or the architect starts only
+while a named epic is open, and then only because something waits on that role:
+a step `yoyo status` names as owed by it in an open epic, a report waiting on it
+that names an item of an open epic (one waiting on a program manager that does
+goes to the Lead Product Manager), a critical report waiting on it, or feedback
+left after an epic was delivered, for the Lead Product Manager, while another epic
+is still being worked. What waits on you or on something outside starts nobody,
+so a day in which every epic waits on you costs no pass. Such things are gathered
+for ten minutes, so several at once cost one pass, and the pass is told what they
+are. One that a pass leaves as it was comes back an hour later; after two such
+passes it goes to the Lead Product Manager, and after two of hers it is shown on
+`yoyo status` as a problem and nothing more starts for it. What each such pass
+cost is part of the cost of the epics it was for, shared equally where it was for
+more than one. Turning epic mode off brings the passes by the clock back. A pass
+already begun takes all its turns. The review of unmet goals and the reading of outside
 messages do not start at all. A refused pass changes nothing else: its schedule,
 events, requests, labels and reports wait as they were, it is not recorded as
 missed, and the pass after it in the order starts. An automatic hold is placed
