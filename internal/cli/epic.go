@@ -103,7 +103,9 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	if err != nil {
 		return 2
 	}
-	if len(named) != count {
+	// start and add may also name the items outside an epic that could block a
+	// member, which is what their refusal asks for.
+	if many := verb == "start" || verb == "add"; many && len(named) < count || !many && len(named) != count {
 		fmt.Fprintf(c.stderr, "epic %s takes %d argument(s), and was given %d\n\n", verb, count, len(named))
 		printEpicUsage(c.stderr)
 		return 2
@@ -138,9 +140,9 @@ func (c epicCommand) run(ctx context.Context, args []string) int {
 	operator = operator.Knowing(epicprogress.Holding(stateRoot, c.product))
 	switch verb {
 	case "start":
-		return c.start(ctx, operator, named[0])
+		return c.start(ctx, operator, named[0], named[1:]...)
 	case "add":
-		return c.add(ctx, operator, named[0], named[1])
+		return c.add(ctx, operator, named[0], named[1:]...)
 	case "remove":
 		return c.remove(ctx, operator, named[0], named[1])
 	case "end":
@@ -180,7 +182,7 @@ func refusedUntilWired(paths []maystart.PathEntry) error {
 	return errors.New("epic mode cannot be turned on yet: work could still start outside the epics you name, because each of these starts work without asking whether it may:" + strings.Join(unwired, ""))
 }
 
-func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id string) int {
+func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id string, also ...string) int {
 	items, err := c.items(ctx)
 	if err != nil {
 		return c.fail(err)
@@ -198,6 +200,26 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 	for _, item := range below {
 		naming.Members = append(naming.Members, item.ID)
 		naming.Texts[item.ID] = epicscope.TextOf(item)
+	}
+	// An epic still open keeps its members, so starting it again only turns epic
+	// mode on, and there is nothing new to follow links from.
+	if !c.stillOpen(id) {
+		for _, item := range also {
+			added, found := findItem(items, item)
+			if !found {
+				return c.fail(fmt.Errorf("the tracker has no work item %s", item))
+			}
+			if item != id && !slices.Contains(naming.Members, item) {
+				naming.Members = append(naming.Members, item)
+				naming.Texts[item] = epicscope.TextOf(added)
+			}
+		}
+		inside := append([]string{id}, naming.Members...)
+		if blockers := beads.OutsideBlockers(inside, func(item string) bool { return slices.Contains(inside, item) }, items); len(blockers) > 0 {
+			return c.fail(outsideRefusal(fmt.Sprintf("epic %s cannot be started", titles.Name(id)), "yoyo epic start "+id, also, blockers))
+		}
+	} else if len(also) > 0 {
+		return c.fail(fmt.Errorf("epic %s is still open, so its members are unchanged by starting it; `yoyo epic add %s %s` adds to it", id, id, strings.Join(also, " ")))
 	}
 	started, err := operator.Start(naming, time.Now())
 	if err != nil {
@@ -276,39 +298,86 @@ func (c epicCommand) describes(epic beads.WorkItem) error {
 	if strings.TrimSpace(epic.Description) != "" {
 		return nil
 	}
-	if record, err := epicscope.Read(c.stateRoot, c.product); err == nil {
-		if named, found := record.Named(epic.ID); found && named.Open() {
-			return nil
-		}
+	if c.stillOpen(epic.ID) {
+		return nil
 	}
 	return fmt.Errorf("epic %s has an empty description, so it cannot be named: when it is done, the check of the whole epic compares the work with what its description asks, and there would be nothing to compare it with. Write what the epic is for in its description, then name it again with yoyo epic start", epic.ID)
 }
 
-func (c epicCommand) add(ctx context.Context, operator *epicscope.Operator, epic, item string) int {
-	// The record is the operator's word for exactly this item, so a name the
+// stillOpen says the record holds the epic open. A record that cannot be read
+// answers no, and the act that follows reads it again and refuses.
+func (c epicCommand) stillOpen(epic string) bool {
+	record, err := epicscope.Read(c.stateRoot, c.product)
+	if err != nil {
+		return false
+	}
+	named, found := record.Named(epic)
+	return found && named.Open()
+}
+
+// outsideRefusal is a start or an add refused because open items outside the
+// epic could block a member: each is named with how, and the one command that
+// brings them all in as one act of the operator's
+// (docs/designs/epic-mode-second-part.md, "An item outside the epic that could
+// block a member").
+func outsideRefusal(refused, command string, listed []string, blockers []beads.OutsideBlocker) error {
+	var lines strings.Builder
+	fmt.Fprintf(&lines, "%s while open work outside it could block a member, because nothing outside the epics you name starts:", refused)
+	for _, blocker := range blockers {
+		fmt.Fprintf(&lines, "\n  %s", blocker.Describe())
+	}
+	words := append([]string{command}, listed...)
+	for _, blocker := range blockers {
+		words = append(words, blocker.ID)
+	}
+	fmt.Fprintf(&lines, "\nthe command that brings them all in, as one act:\n  %s", strings.Join(words, " "))
+	return errors.New(lines.String())
+}
+
+func (c epicCommand) add(ctx context.Context, operator *epicscope.Operator, epic string, adding ...string) int {
+	// The record is the operator's word for exactly these items, so a name the
 	// tracker does not have is refused rather than kept as a member that can
 	// never start.
 	items, err := c.items(ctx)
 	if err != nil {
 		return c.fail(err)
 	}
-	added, found := findItem(items, item)
-	if !found {
-		return c.fail(fmt.Errorf("the tracker has no work item %s", item))
+	// Each item's text is copied beside it, so a piece split from it is judged
+	// against what it said when you put it in.
+	texts := map[string]epicscope.Text{}
+	for _, item := range adding {
+		added, found := findItem(items, item)
+		if !found {
+			return c.fail(fmt.Errorf("the tracker has no work item %s", item))
+		}
+		texts[item] = epicscope.TextOf(added)
 	}
 	titles := c.titlesOf(items)
-	// Its text is copied beside it, so a piece split from it is judged against
-	// what it said when you put it in.
-	text := epicscope.TextOf(added)
-	record, err := operator.AddCopying(epic, item, &text, time.Now())
+	// What is in the epic already is read only to bound the walk; an epic that is
+	// not open is refused by the act itself, with its own reason.
+	if record, err := epicscope.Read(c.stateRoot, c.product); err == nil {
+		if named, found := record.Named(epic); found && named.Open() {
+			view, err := epicprogress.Read(c.stateRoot, c.product, record)
+			if err != nil {
+				return c.fail(fmt.Errorf("what is already in epic %s cannot be read, so whether these items could be blocked by work outside it cannot be known: %w", epic, err))
+			}
+			inside := append(append([]string{epic}, view.Items(named)...), adding...)
+			if blockers := beads.OutsideBlockers(adding, func(item string) bool { return slices.Contains(inside, item) }, items); len(blockers) > 0 {
+				return c.fail(outsideRefusal(fmt.Sprintf("adding to epic %s is refused", titles.Name(epic)), "yoyo epic add "+epic, adding, blockers))
+			}
+		}
+	}
+	record, err := operator.AddAll(epic, adding, texts, time.Now())
 	if err != nil {
-		return c.refused(titles, err, epic, item)
+		return c.refused(titles, err, append([]string{epic}, adding...)...)
 	}
 	c.settle()
 	if c.jsonOutput {
 		return writeJSON(c.stdout, c.stderr, epicOutput{Record: &record})
 	}
-	fmt.Fprintf(c.stdout, "%s is a member of epic %s\n", titles.Name(item), titles.Name(epic))
+	for _, item := range adding {
+		fmt.Fprintf(c.stdout, "%s is a member of epic %s\n", titles.Name(item), titles.Name(epic))
+	}
 	if !record.On() {
 		fmt.Fprintln(c.stdout, "epic mode is off, so this changes nothing that starts until `yoyo epic start` turns it on")
 	}
@@ -559,11 +628,14 @@ description or the member it came from, as that member read when you put it in; 
 "start" is refused until every way the harness starts work asks whether it may
 start, and the refusal names each one that does not yet.
 
-  start <item>       name an epic, with every open item below it as its members,
-                     and turn epic mode on; an epic that ended is named again.
-                     On an epic still open while epic mode is off, turn epic mode
-                     back on and leave its members as they are
-  add <epic> <item>  add an item to an open epic's members
+  start <item> [<item>...]
+                     name an epic, with every open item below it and any other
+                     items given as its members, and turn epic mode on; an epic
+                     that ended is named again. On an epic still open while epic
+                     mode is off, turn epic mode back on and leave its members as
+                     they are
+  add <epic> <item> [<item>...]
+                     add items to an open epic's members, as one act
   remove <epic> <item>
                      take an item out of an open epic, a member or a piece that
                      joined it; --words is required. "add" puts it back
@@ -576,7 +648,9 @@ start, and the refusal names each one that does not yet.
   off                return the factory to goal mode; no epic is ended
 
 "start" and "add" refuse an item another open epic has or that joined one, and
-name that epic.
+name that epic. They also refuse while an open item outside the epic could block
+a member, by a dependency it waits on or a child it holds, followed at any
+depth; the refusal names each such item and the one command that adds them all.
 
 All but "list" are a person's. A process the harness launched for a role, or
 started itself, is refused them and told so.

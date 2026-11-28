@@ -303,3 +303,28 @@ func (p Pipeline) startPath() maystart.Path {
 		return maystart.ReadyWork
 	}
 }
+
+// EpicHolding is the open epic an item is in while epic mode is on, as a member,
+// a piece that joined, or the epic's own item, and whether another item is in
+// that same epic; no epic while epic mode is off or the item is in none. The
+// harness wires it to the progress of the named epics (epicprogress.Store).
+type EpicHolding func(item string) (epic string, inside func(string) bool, err error)
+
+// outsideEpic is why item may not be made to wait on open work, and empty where
+// it may: item is in a named epic and the work is outside it, so nothing would
+// start it without the operator (docs/designs/epic-mode-second-part.md, "An item
+// outside the epic that could block a member", point 4).
+func (e EpicHolding) outsideEpic(item, waitsOn string) string {
+	if e == nil {
+		return ""
+	}
+	epic, inside, err := e(item)
+	if err != nil {
+		return fmt.Sprintf("whether this item is in a named epic could not be read (%v), so it is not made to wait on that work", err)
+	}
+	if epic == "" || inside(waitsOn) {
+		return ""
+	}
+	return fmt.Sprintf("this item is in epic %s and that work is open outside it, so it would wait until the operator adds it with `yoyo epic add %s %s`, "+
+		"because nothing outside the epics he named starts", epic, epic, waitsOn)
+}

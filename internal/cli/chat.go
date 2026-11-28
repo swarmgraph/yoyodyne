@@ -1043,6 +1043,7 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// Where a piece correcting a check of a named epic is linked to that check.
 		EpicCorrections: conversationEpicCorrections(parts),
 		EpicAnswers:     conversationEpicAnswers(parts),
+		EpicLinks:       conversationEpicLinks(parts),
 		// Where she records which version of an item stands when two machines'
 		// versions of it could not be merged.
 		TrackerMerge: conversationTrackerMerge(parts),
@@ -2163,6 +2164,24 @@ func conversationTrackerMerge(parts components) chat.TrackerMergeDecisions {
 // conversationEpicCorrections is the epics' progress, where a correcting piece the
 // development manager writes is linked to its check, or nil where it cannot be
 // opened, which refuses such a piece.
+// conversationEpicLinks is what a role's links are checked against. The store
+// fails to open only for a state root or product no record can be read under, and
+// then every link a role asks for is refused with that reason, because whether it
+// reaches into a named epic cannot be known.
+func conversationEpicLinks(parts components) chat.EpicLinks {
+	store, err := parts.epicProgress()
+	if err != nil {
+		return unreadableEpicLinks{err}
+	}
+	return store
+}
+
+type unreadableEpicLinks struct{ err error }
+
+func (u unreadableEpicLinks) EpicHolding(string) (string, func(string) bool, error) {
+	return "", nil, u.err
+}
+
 func conversationEpicCorrections(parts components) chat.EpicCorrections {
 	store, err := parts.epicProgress()
 	if err != nil {

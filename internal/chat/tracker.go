@@ -2291,6 +2291,14 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			outcome.Failure = refusal
 			return
 		}
+		// Work created under an item in a named epic is outside that epic, so it is
+		// refused unless it is a piece judged for joining in this same act.
+		if !s.createsJoiningPiece(action) {
+			if refusal := s.outsideEpicRefusal(ctx, action.parent(), "", true); refusal != "" {
+				outcome.Failure = refusal
+				return
+			}
+		}
 		// A lane admission carries the lane label in this same write whether or not
 		// the reply named it, so it never exists outside the lane it was admitted
 		// into, and its notes say whose lane that is.
@@ -2479,6 +2487,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 				outcome.Failure = refusal
 				return
 			}
+			if refusal := s.outsideEpicRefusal(ctx, parent, id, true); refusal != "" {
+				outcome.Failure = refusal
+				return
+			}
 		}
 		if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{Parent: &parent}); err != nil {
 			outcome.fail(err)
@@ -2566,6 +2578,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// A parent made to wait on work broken out of it waits for ever; see
 		// circularWaitRefusal.
 		if refusal := s.circularWaitRefusal(ctx, id, beads.WaitStep{ID: dependsOn, Via: beads.WaitViaLink}); refusal != "" {
+			outcome.Failure = refusal
+			return
+		}
+		if refusal := s.outsideEpicRefusal(ctx, id, dependsOn, false); refusal != "" {
 			outcome.Failure = refusal
 			return
 		}

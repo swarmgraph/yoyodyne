@@ -99,6 +99,10 @@ const (
 	// rejection: nobody turned it down, and a record reading as though the
 	// operator had would put words in his mouth.
 	EventProposalWithdrawn EventType = "proposal.withdrawn"
+	// A decided proposal the harness refused to carry out, because creating it
+	// would leave work in a named epic holding open work outside it. Nothing was
+	// created, and the refusal went back to the role that made the proposal.
+	EventProposalRefused EventType = "proposal.refused"
 	// A document an owning role wrote, the operator's decision about it, and the
 	// write itself are three events rather than one. What was drafted is evidence
 	// whether or not it was ever filed, an approval is the operator's and is

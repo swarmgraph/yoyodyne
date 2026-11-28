@@ -631,6 +631,10 @@ type Pipeline struct {
 	MayStart StartDecision
 	// EpicStarts reserves a fresh run's start in the progress of its epic.
 	EpicStarts EpicStarts
+	// EpicHolding says which open epic an item is in while epic mode is on, and
+	// what else is inside it, so a landing cannot make a member wait on open work
+	// outside its epic. Nil is a caller that names no epic.
+	EpicHolding EpicHolding
 	// PieceTexts is asked of the item's text before each developer session, so a
 	// piece that joined an epic is never given text no judgment found inside it.
 	PieceTexts PieceTexts

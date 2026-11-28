@@ -1877,6 +1877,49 @@ A member waits on a prerequisite outside the members, which is not started.
 `start` and `add` refuse an item that another open epic has, or that joined one,
 and name that epic.
 
+`start` is also refused while open work outside the epic could block a member,
+because nothing outside the epics you name starts and the member would wait for
+it. From every member and the epic itself, it follows each dependency an item
+waits on and each child it holds, at any depth, stopping at closed work and at
+work in the epic. The refusal names every open item it reached, its title, the
+member it could block and how, and ends with one command that names the epic
+with all of them added, such as
+`yoyo epic start yoyodyne-ab1 yoyodyne-x yoyodyne-y`: `start` takes items to add
+beside the epic, and so does `add`, as one act. `add` is refused the same way
+while the items it adds reach open work outside the epic, and its refusal gives
+the one `add` that brings them all in. Both read the links from the tracker each
+time, and are refused where it cannot be read.
+
+While epic mode is on, a role is refused a link that would make a member, a piece
+that joined, or the epic itself wait on open work outside its epic, or hold such
+work as a child: adding the dependency, moving the work under it, creating an
+item under it, or proposing new work under it. A proposal is checked when it is
+made, so it is neither admitted nor put to you, and again when it is carried out,
+whoever decided it, you included: one refused then creates nothing, is no longer
+waiting on anybody, and its refusal is recorded on it. The refusal goes to the role, names the member, the item and the
+`yoyo epic add` that would bring it in, and nothing is changed. The one creation
+allowed is the development manager's split of a member or a correction the epic
+owes, which is judged for joining as it is made. A developer's landing that names
+such work as what its item waits on is held to the same rule: the item is parked
+instead, and the parking reason names the epic and the add. Your own commands, and
+changes a person makes to the tracker directly, are never refused, and no link is
+ever removed.
+
+Such work can still come to block a member: a link made before this rule, one a
+person wrote to the tracker directly, or closed work opened again. On each
+scheduler pass while epic mode is on, the harness follows the same links from
+every open epic, and for each open item outside it finds, it files one question
+to the Lead Product Manager, naming the epic, the member, the item, the link and
+the `yoyo epic add` that would add it. Its identifier is written into the epic's
+progress first, in `epic-progress.json`, so one item is asked about once for one
+naming, a restart files nothing twice, and a pass that cannot read the tracker
+files nothing and tries again on the next. `yoyo status` names it as the Lead
+Product Manager's step while the item is open and outside, and Slack sends it to
+you directly once, for your information. The item never joins on its own and
+starts nothing; her answer is to have the work rewritten so the member no longer
+needs it, or to ask you whether to add it. A build older than this one refuses a
+progress file holding such a question, and so starts nothing.
+
 `remove` takes one item out of an open epic, a member or a piece that joined it.
 Your words are required and kept, with when it was taken out and, for a member,
 when and how it had been put in. The item no longer starts, a run under way for it

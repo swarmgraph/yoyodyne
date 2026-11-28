@@ -310,6 +310,13 @@ func (r Report) Addressee() domain.AgentRole {
 // gives this one the harness's.
 const HarnessReporter domain.AgentRole = "harness"
 
+// OutsideEpicBlockerRun opens the run identifier of the question the harness
+// files when an open item outside a named epic could block one of its members
+// (internal/epicjoin). The design has it said once to the operators directly, as
+// information, as well as to the Lead Product Manager it is for, and this is what
+// a surface knows it by.
+const OutsideEpicBlockerRun = "epic-outside-blocker:"
+
 var (
 	idPattern = regexp.MustCompile(`^report-[a-f0-9]{32}$`)
 	// buildPattern is what a recorded build may look like: a Git object name,

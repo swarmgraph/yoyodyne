@@ -73,6 +73,7 @@ type Progress interface {
 	Alone() (release func() error, held bool, err error)
 	Noted(epic, check string) error
 	AskEvidence(naming epicprogress.Naming, check, reportID string) error
+	BlockerAsked(naming epicprogress.Naming, blocker epicprogress.Blocker) (string, error)
 	EvidenceAnswered(naming epicprogress.Naming, check, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error
 }
 
@@ -160,7 +161,10 @@ func (j Joiner) Owed(ctx context.Context) (bool, error) {
 	if err != nil || len(notes) > 0 {
 		return len(notes) > 0, err
 	}
-	return j.evidenceOwed()
+	if owed, err := j.evidenceOwed(); err != nil || owed {
+		return owed, err
+	}
+	return j.blockersOwed(ctx)
 }
 
 // unnoted is each correction that names its piece and has no note on it yet.
@@ -212,7 +216,7 @@ func (j Joiner) Round(ctx context.Context) error {
 		return err
 	}
 	defer release()
-	noted := errors.Join(j.note(ctx), j.evidence())
+	noted := errors.Join(j.note(ctx), j.evidence(), j.askBlockers(ctx))
 	found, items, err := j.owed(ctx)
 	if err != nil {
 		return errors.Join(noted, err)
