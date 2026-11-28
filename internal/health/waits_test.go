@@ -78,12 +78,19 @@ func TestTheHealthCheckSaysWhetherTheWorkAStoppageWaitsOnHasClosed(t *testing.T)
 	}}}
 	listed := trackerOf{"blocked": {{ID: item, Title: "the loopback sandbox", Status: "blocked"}}}
 
-	needs := func(t *testing.T, tracker readmodel.Tracker) string {
+	// The limit bounds every tracker command the reading makes, the listing that
+	// finds the held item included, and the listing is answered on another
+	// goroutine (readmodel's sharedTracker). A limit the listing can miss on a
+	// loaded machine leaves the held item unlisted and the observation empty, so
+	// a tracker that answers gets a limit nothing waits out, and the one that does
+	// not answer gets one long enough for the listing beside it to finish.
+	const answers, silentFor = time.Minute, 2 * time.Second
+	needs := func(t *testing.T, tracker readmodel.Tracker, limit time.Duration) string {
 		t.Helper()
 		observer, _ := whole(t)
 		services := observer.standing(context.Background()).Services
 		sources := readmodel.Sources{Runs: fakeRuns{}, Stoppages: stoppedRuns{stopped}, Decisions: decisions, Tracker: tracker,
-			TrackerTimeout: 50 * time.Millisecond, Capacity: 2, Now: func() time.Time { return observedAt }}
+			TrackerTimeout: limit, Capacity: 2, Now: func() time.Time { return observedAt }}
 		observer.Standing = func(ctx context.Context) readmodel.Standing {
 			standing := readmodel.ReadStanding(ctx, sources)
 			standing.Services = services
@@ -101,7 +108,7 @@ func TestTheHealthCheckSaysWhetherTheWorkAStoppageWaitsOnHasClosed(t *testing.T)
 		t.Parallel()
 		said := needs(t, showingTracker{trackerOf: listed, shown: map[string]beads.WorkItem{
 			waitsOn: {ID: waitsOn, Status: "closed", ClosedAt: closedAt},
-		}})
+		}}, answers)
 		for _, want := range []string{
 			waitsOn + ", the work the development manager was waiting on, closed " + closedAt.Local().Format("2006-01-02 15:04 MST"),
 			"that wait is over and the stoppage needs her decision",
@@ -118,7 +125,7 @@ func TestTheHealthCheckSaysWhetherTheWorkAStoppageWaitsOnHasClosed(t *testing.T)
 		t.Parallel()
 		said := needs(t, showingTracker{trackerOf: listed, shown: map[string]beads.WorkItem{
 			waitsOn: {ID: waitsOn, Status: "in_progress"},
-		}})
+		}}, answers)
 		if !strings.Contains(said, "decided to wait on "+waitsOn) || !strings.Contains(said, "once it is closed") ||
 			strings.Contains(said, "could not be read") {
 			t.Fatalf("held stoppage needs %q, want the wait standing, as the other surfaces say it", said)
@@ -126,7 +133,7 @@ func TestTheHealthCheckSaysWhetherTheWorkAStoppageWaitsOnHasClosed(t *testing.T)
 	})
 	t.Run("tracker does not answer", func(t *testing.T) {
 		t.Parallel()
-		said := needs(t, showingTracker{trackerOf: listed, silent: true})
+		said := needs(t, showingTracker{trackerOf: listed, silent: true}, silentFor)
 		for _, want := range []string{"whether " + waitsOn + " is closed could not be read", "the tracker did not answer in time",
 			"cannot say whether that wait still stands"} {
 			if !strings.Contains(said, want) {
