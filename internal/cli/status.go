@@ -67,6 +67,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/mcpcall"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -541,6 +542,7 @@ func printStanding(stdout io.Writer, standing *readmodel.Standing, summary *read
 	}
 	if standing != nil {
 		fmt.Fprint(stdout, standing.RenderLines())
+		fmt.Fprint(stdout, standing.RenderReports())
 		fmt.Fprint(stdout, standing.RenderEpics())
 		fmt.Fprint(stdout, standing.RenderLandingHolds())
 		fmt.Fprint(stdout, standing.RenderUsageWindows())
@@ -826,6 +828,7 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.CheaperFirst = cfg.Execution.DeveloperCheaperFirst
 	sources.ConflictResolutionModel = cfg.Execution.ConflictResolutionModel
 	sources.CompareDocumentReviews = cfg.Execution.ReviewerModels.CompareDocuments
+	sources.ReportReaders = report.ReadersOf(cfg.RecurringPassRoles())
 	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		sources.Tracker = unreadableTracker{err}

@@ -205,6 +205,9 @@ type Pile struct {
 	// thing is costing somebody when it may be five, and a critical is the
 	// severity that means somebody has to act — each one of them.
 	Critical int `json:"critical,omitempty"`
+	// Addressees is the unhandled reports counted by the role they were
+	// addressed to, most first, and summing to Unhandled (addressees.go).
+	Addressees []AddresseeCount `json:"addressees,omitempty"`
 }
 
 // Draining reports whether there is anything left to work through.
@@ -278,7 +281,9 @@ func SummarizeHandled(reports []Report, handled map[string]Handling, now time.Ti
 		if pile.Worst == "" || reported.Severity.rank() < pile.Worst.rank() {
 			pile.Worst = reported.Severity
 		}
+		pile.Addressees = countAddressee(pile.Addressees, reported)
 	}
+	orderAddressees(pile.Addressees)
 	if !pile.Oldest.IsZero() {
 		pile.OldestAge = now.UTC().Sub(pile.Oldest.UTC())
 	}

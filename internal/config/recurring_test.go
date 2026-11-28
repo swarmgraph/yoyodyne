@@ -437,3 +437,23 @@ func TestMinimumCadenceIsAboveTheAccident(t *testing.T) {
 		t.Errorf("MinRecurringInterval = %s, which does not catch a minute typed for an hour", MinRecurringInterval)
 	}
 }
+
+// The roles an enabled recurring task wakes are what say whether a pass reads
+// an addressee's reports; a task switched off wakes nobody.
+func TestRecurringPassRolesAreTheRolesOfEnabledTasks(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{RecurringTasks: map[string]RecurringTask{
+		"sweep":        {Role: domain.RoleDevelopmentManager, Enabled: true},
+		"second-sweep": {Role: domain.RoleDevelopmentManager, Enabled: true},
+		"lead":         {Role: domain.RoleProductManager, Enabled: false},
+		"design":       {Role: domain.RoleArchitect, Enabled: true},
+	}}
+	got := cfg.RecurringPassRoles()
+	if len(got) != 2 || got[0] != domain.RoleArchitect || got[1] != domain.RoleDevelopmentManager {
+		t.Fatalf("roles = %v, want the architect and the development manager once each", got)
+	}
+	if len((Config{}).RecurringPassRoles()) != 0 {
+		t.Fatal("a project with no recurring tasks has a role woken")
+	}
+}
