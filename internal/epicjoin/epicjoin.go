@@ -11,6 +11,10 @@
 // read only from the owed correction in the epic's progress that names the piece.
 // The third act is added where it is built, through the same judgment.
 //
+// A change request on a member's open pull request is judged by the same kind
+// of session before the existing repair from pull request feedback answers it
+// (comment.go).
+//
 // It also judges again a piece whose title, description or acceptance criteria
 // changed since it was judged, and puts each judgment of outside or cannot tell
 // to the Lead Product Manager as a report, whose handling is her answer. The
@@ -504,7 +508,9 @@ func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.Work
 	}
 	says, err := j.Progress.Call(naming, piece.Judgment, "the judgment of whether "+piece.WorkItemID+" joins",
 		func() (string, epicprogress.Looked, error) { return j.lookUp(piece.Judgment) },
-		func() (string, error) { return j.send(ctx, naming, piece.Judgment, prompt(one, items)) })
+		func() (string, error) {
+			return j.send(ctx, maystart.JudgmentOfAPiece(naming), piece.Judgment, system, prompt(one, items))
+		})
 	if errors.Is(err, epicprogress.ErrResultUnknown) {
 		return nil // kept as unknown, which status shows
 	}
@@ -633,9 +639,10 @@ func (s sending) permission() budget.Permission {
 	return budget.Decide(budget.Spent{Turns: s.failures}, budget.Limits{Turns: maxFailures}).Permission
 }
 
-// send makes the call. What it is and what came of it are written to its log
+// send makes the call, a piece's judgment or a review comment's, after the one
+// decision allows start. What it is and what came of it are written to its log
 // before and after.
-func (j Joiner) send(ctx context.Context, naming epicprogress.Naming, id, asked string) (string, error) {
+func (j Joiner) send(ctx context.Context, start maystart.Start, id, system, asked string) (string, error) {
 	events, err := j.Log.LoadEvents(id)
 	if err != nil {
 		return "", err
@@ -645,7 +652,7 @@ func (j Joiner) send(ctx context.Context, naming epicprogress.Naming, id, asked 
 	if !permission.Granted() {
 		return "", errors.New("no further session may be started for it")
 	}
-	if decision := j.decide(naming); !decision.MayStart() {
+	if decision := j.MayStart(start); !decision.MayStart() {
 		return "", fmt.Errorf("the judgment may not start: %s", decision.Why)
 	}
 	if paused, err := j.Paused(); err != nil {
@@ -747,23 +754,36 @@ Reply with one JSON object and nothing else: {"answer":"inside, outside or canno
 // taken out with the operator's words, and the piece's text.
 func prompt(one owed, items map[string]beads.WorkItem) string {
 	var said strings.Builder
-	fmt.Fprintf(&said, "# The description of epic %s, as it read when the operator named it\n\n%s\n\n# Items the operator took out, with their words\n\n", one.epic.WorkItemID, one.epic.Description)
-	out := 0
-	for _, removal := range one.epic.Removed {
-		if one.epic.TakenOut(removal.WorkItemID) {
-			item := items[removal.WorkItemID]
-			fmt.Fprintf(&said, "- %s, %s: %s\n  The operator: %s\n", removal.WorkItemID, item.Title, item.Description, removal.Words)
-			out++
-		}
+	listed := make([]beads.WorkItem, 0, len(items))
+	for _, item := range items {
+		listed = append(listed, item)
 	}
-	if out == 0 {
-		said.WriteString("None.\n")
-	}
+	fmt.Fprintf(&said, "# The description of epic %s, as it read when the operator named it\n\n%s\n\n# Items the operator took out, with their words\n\n%s", one.epic.WorkItemID, one.epic.Description, removedOf(one.epic, listed))
 	fmt.Fprintf(&said, "\n# The piece, %s, made from %s\n\n%s\n\n%s\n", one.item.ID, one.piece.From, one.item.Title, one.item.Description)
 	for _, part := range []struct{ name, text string }{{"Design guidance", one.item.Design}, {"Acceptance criteria", one.item.AcceptanceCriteria}} {
 		if part.text != "" {
 			fmt.Fprintf(&said, "\n## %s\n\n%s\n", part.name, part.text)
 		}
+	}
+	return said.String()
+}
+
+// removedOf is each item the operator took out of the epic and has not put back,
+// with the operator's words, as a judging session is given them.
+func removedOf(epic epicscope.Epic, items []beads.WorkItem) string {
+	var said strings.Builder
+	for _, removal := range epic.Removed {
+		if !epic.TakenOut(removal.WorkItemID) {
+			continue
+		}
+		var item beads.WorkItem
+		if at := slices.IndexFunc(items, func(listed beads.WorkItem) bool { return listed.ID == removal.WorkItemID }); at >= 0 {
+			item = items[at]
+		}
+		fmt.Fprintf(&said, "- %s, %s: %s\n  The operator: %s\n", removal.WorkItemID, item.Title, item.Description, removal.Words)
+	}
+	if said.Len() == 0 {
+		return "None.\n"
 	}
 	return said.String()
 }

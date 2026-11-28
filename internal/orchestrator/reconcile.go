@@ -184,6 +184,11 @@ type Reconciler struct {
 	// before a repair round is put on a run and before a run is put back to bring
 	// its pull request up to date. See StartDecision.
 	MayStart StartDecision
+	// EpicComments judges a change request on a pull request waiting for a
+	// person's merge against the named epic its item is in, before a repair
+	// answers it (forgefeedback.go). Nil judges nothing, and every change request
+	// is answered as it is without epic mode.
+	EpicComments EpicComments
 	// UpdateNotDue takes away the refused update of a run by one path, kept by
 	// MayStart, where a check of the run finds no update due, cannot tell, or
 	// finds the run cannot be put back (maystart.UpdateNotDue). The list of

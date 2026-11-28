@@ -54,6 +54,7 @@ var drivenBy = map[maystart.Path][]drive{
 	maystart.TeamBranchUpdate: {driveTeamBranchUpdate},
 	maystart.JoiningJudgment:  {driveJoiningJudgment},
 	maystart.WholeEpicCheck:   {driveWholeEpicCheck},
+	maystart.CommentJudgment:  {driveCommentJudgment},
 }
 
 // Every path on the closed list that asks is driven with an item outside the
@@ -449,6 +450,43 @@ func driveJoiningJudgment(t *testing.T, decide StartDecision) int {
 			return backend.RunResult{SessionID: "session-1", FinalText: `{"answer":"inside","why":"it is asked for"}`}, nil
 		}}
 	if err := joiner.Round(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return sent
+}
+
+// driveCommentJudgment judges a change request on a member's pull request, of an
+// epic that is open in its own records.
+func driveCommentJudgment(t *testing.T, decide StartDecision) int {
+	root := t.TempDir()
+	operator, err := epicscope.ForOperator(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operator.Start(epicscope.Naming{Epic: "yoyodyne-ep", From: "terminal", Members: []string{"yoyodyne-ep.1"}}, baseTime); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := epicprogress.Open(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := runstate.NewBranchReviewStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decide == nil {
+		decide = func(start maystart.Start) maystart.Decision { return maystart.Decide(root, "yoyodyne", start) }
+	}
+	sent := 0
+	joiner := epicjoin.Joiner{StateRoot: root, Product: "yoyodyne", Progress: progress, Log: log, NewID: runstate.NewBranchReviewID, MayStart: decide, Now: time.Now,
+		Paused: func() (bool, error) { return false, nil },
+		Items:  func(context.Context) ([]beads.WorkItem, error) { return nil, nil },
+		Judge: func(context.Context, epicjoin.Request) (backend.RunResult, error) {
+			sent++
+			return backend.RunResult{SessionID: "session-1", FinalText: `{"answer":"inside","why":"it is asked for"}`}, nil
+		}}
+	_, err = joiner.JudgeComment(context.Background(), epicjoin.Comment{Member: "yoyodyne-ep.1", PullRequest: 7, ID: "PRR_1", Author: "a-person", Body: "Rename it."})
+	if err != nil && sent > 0 {
 		t.Fatal(err)
 	}
 	return sent

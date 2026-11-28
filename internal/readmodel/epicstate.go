@@ -297,6 +297,8 @@ func (s *epicStandings) runsOf(id string) ([]runstate.State, error) {
 type epicMember struct {
 	done, handed, underway, refusedByBudget bool
 	waits                                   []EpicWait
+	// heads is each approved head handed over for a person to merge.
+	heads []string
 }
 
 // of is where an epic stands, with what it has cost.
@@ -365,6 +367,7 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		}
 	}
 	allDone, handed, underway, refused := true, false, false, false
+	var heads []string
 	for _, id := range s.view.Items(epic) {
 		member, err := s.member(epic, entry, id, standing.Budget != "", map[string]bool{})
 		if err != nil {
@@ -373,6 +376,7 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		questions := s.questions(id)
 		allDone = allDone && member.done && len(questions) == 0
 		handed = handed || member.handed
+		heads = append(heads, member.heads...)
 		underway = underway || member.underway
 		refused = refused || member.refusedByBudget
 		if !member.done {
@@ -395,12 +399,16 @@ func (s *epicStandings) stateOf(epic epicscope.Epic, cost *epiccost.Standing, co
 		allDone = false
 		standing.Waits = append(standing.Waits, waits...)
 	}
+	if waits := commentsUnknown(entry); len(waits) > 0 {
+		allDone = false
+		standing.Waits = append(standing.Waits, waits...)
+	}
 	delivered := EpicIntegrated
 	if handed {
 		delivered = EpicHandedOver
 	}
 	if allDone {
-		waits := s.checkOwed(epic, entry, opened)
+		waits := s.checkOwed(epic, entry, opened, heads)
 		if len(waits) == 0 && s.needsProblem != "" {
 			return fail("whether a question about it is open could not be read: " + s.needsProblem)
 		}
@@ -720,16 +728,21 @@ func closedUnmerged(run runstate.State) *time.Time {
 
 // checkOwed is what the check of the whole epic still needs, and nothing where it
 // passed. One that did not pass is made again after a removal, and is then not a
-// round of correction. Each step the check found the description reserves for a
+// round of correction; so is one that passed and is made again because a change
+// handed over was repaired since, on the new approved heads (Entry.Repaired). Each step the check found the description reserves for a
 // person waits on the operator beside whatever else the check owes, so a
 // question to the Lead Product Manager or a correction never hides it.
-func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time) []EpicWait {
+func (s *epicStandings) checkOwed(epic epicscope.Epic, entry epicprogress.Entry, opened time.Time, heads []string) []EpicWait {
 	last := s.lastCheck(epic, entry, opened)
-	if last == nil {
-		if id, underway := entry.CheckUnderway(); underway {
-			return []EpicWait{{Owner: MoverOf(domain.RoleReviewer), Says: fmt.Sprintf("every member is done and the check of the whole epic is under way, as %s", id), CheckUnderway: true}}
+	if repaired := last != nil && last.Passed() && entry.Repaired(epic, heads); last == nil || repaired {
+		done, again := "every member is done and", ""
+		if repaired {
+			done, again = "a change handed over was repaired after the check of the whole epic passed, so", " again, on the new approved heads, before the epic is delivered again"
 		}
-		return []EpicWait{{Owner: MoverOf(domain.RoleReviewer), Says: "every member is done and the check of the whole epic is owed", CheckOwed: true}}
+		if id, underway := entry.CheckUnderway(); underway {
+			return []EpicWait{{Owner: MoverOf(domain.RoleReviewer), Says: fmt.Sprintf("%s the check of the whole epic is under way%s, as %s", done, again, id), CheckUnderway: true}}
+		}
+		return []EpicWait{{Owner: MoverOf(domain.RoleReviewer), Says: done + " the check of the whole epic is owed" + again, CheckOwed: true}}
 	}
 	if last.Passed() {
 		return nil
@@ -833,6 +846,13 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 		if s.capacity[id] {
 			return waits(MoverProvider, "has a run that waits for the provider")
 		}
+		// A repair answering a change request on its pull request is named, so a
+		// handed over epic shows what it is Working on. Runs that cannot be read
+		// leave it named only as under way.
+		runs, _ := s.runsOf(id)
+		if at := slices.IndexFunc(runs, func(run runstate.State) bool { return run.Status == runstate.StatusRunning && run.ForgeFeedback != nil }); at >= 0 {
+			return epicMember{underway: true, waits: []EpicWait{s.wait(id, MoverHarness, "", "has a repair under way answering the changes asked for on pull request #%d", runs[at].ForgeFeedback.PullRequest)}}, nil
+		}
 		return epicMember{underway: true}, nil
 	}
 	runs, err := s.runsOf(id)
@@ -841,7 +861,11 @@ func (s *epicStandings) member(epic epicscope.Epic, entry epicprogress.Entry, id
 	}
 	for _, run := range runs {
 		if run.Discharges() && (run.WaitingForPersonMerge() || run.WaitingForTeamMerge() && run.TeamMerge.PullRequest != nil) {
-			return epicMember{done: true, handed: true}, nil
+			handed := epicMember{done: true, handed: true}
+			if run.WaitingForPersonMerge() {
+				handed.heads = []string{run.PullRequest.HeadCommit}
+			}
+			return handed, nil
 		}
 	}
 	returned := len(runs) > 0 && closedUnmerged(runs[0]) != nil
@@ -1116,6 +1140,7 @@ func (s *epicStandings) replaced(epic epicscope.Epic, entry epicprogress.Entry, 
 		}
 		pieces++
 		whole.done, whole.handed = whole.done && stands.done, whole.handed || stands.handed
+		whole.heads = append(whole.heads, stands.heads...)
 	}
 	if pieces > 0 {
 		// What the pieces wait for is said of them.
@@ -1200,6 +1225,21 @@ func (s *epicStandings) piecesAsked(epic epicscope.Epic, entry epicprogress.Entr
 			from = piece.From + " of the whole epic"
 		}
 		waits = append(waits, EpicWait{WorkItemID: id, Owner: owner, Says: fmt.Sprintf("%s, made from %s, %s", s.name(id, ""), from, says)})
+	}
+	return waits
+}
+
+// commentsUnknown is each review comment whose judgment was sent and has no known
+// answer, which the development manager decides about. Its change request starts
+// no repair meanwhile.
+func commentsUnknown(entry epicprogress.Entry) []EpicWait {
+	var waits []EpicWait
+	for _, comment := range entry.Comments {
+		if reserved, _ := entry.Reservation(comment.Judgment); comment.Outcome == nil && reserved.Result != nil && reserved.Result.Unknown {
+			waits = append(waits, EpicWait{WorkItemID: comment.Member, Owner: MoverDevelopmentManager, Says: fmt.Sprintf(
+				"the change request %s on pull request #%d of %s was sent to be judged against the epic and has no known answer (%s), so no repair answers it: decide what becomes of it",
+				comment.ID, comment.PullRequest, comment.Member, singleLine(reserved.Result.Says, maxEpicReasonBytes))})
+		}
 	}
 	return waits
 }

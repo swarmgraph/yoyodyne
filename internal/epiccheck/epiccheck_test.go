@@ -345,3 +345,20 @@ func TestACheckStoppedBetweenItsReservationAndItsAnswerIsLookedUpFirst(t *testin
 		})
 	}
 }
+
+// A check made again after a change handed over was repaired is kept as made
+// again, so what it finds missing is not a round of correction.
+func TestACheckMadeAgainAfterARepairIsKeptAsMadeAgain(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	naming := named(t, root)
+	c := checkerAt(t, root, answering(epicprogress.Finding{Asks: "the first thing", Answer: epicprogress.NotMet, Says: "the repair took it out"}))
+	given := givenAt(t, root)
+	given.HandedOver, given.Again = true, true
+	check, _, err := c.Check(context.Background(), naming, "check-again", given)
+	must(t, err)
+	entry := entryOf(t, root, naming)
+	if !check.Again || len(entry.Checks) != 1 || !entry.Checks[0].Again || entry.Rounds(given.Epic) != 0 || entry.Checks[0].Owed == nil {
+		t.Fatalf("the check is kept as %+v, %d rounds; want it made again, owing a correction, and no round", entry.Checks, entry.Rounds(given.Epic))
+	}
+}

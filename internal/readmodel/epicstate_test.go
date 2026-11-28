@@ -974,3 +974,51 @@ func TestStatusNamesTheCheckOfTheWholeEpicAsOwedOrUnderWay(t *testing.T) {
 		t.Fatalf("delivered: %+v", standing)
 	}
 }
+
+// A change request on an open pull request of a handed over epic, judged inside,
+// makes the epic Working while its repair runs; once the repaired change is
+// approved, the check of the whole epic is owed again on the new head before
+// the epic is shown as delivered again.
+func TestARepairOfAHandedOverEpicIsCheckedAgainBeforeItIsDeliveredAgain(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.landed(stateOne)
+	b.handedOver(stateTwo)
+	b.lastRun(stateTwo, func(run *runstate.State) { run.PullRequest.HeadCommit = "head-1" })
+	b.entry.Checks = []epicprogress.Check{{ID: "check-1", Commit: "head-1", Found: epicprogress.FoundAllMet, At: hours(2)}}
+	b.entry.Deliveries = []epicprogress.Delivery{{At: hours(2), Evidence: "check-1"}}
+	b.wants(EpicHandedOver)
+
+	b.lastRun(stateTwo, func(run *runstate.State) {
+		run.Status, run.ForgeFeedback = runstate.StatusRunning, &runstate.ForgeFeedback{PullRequest: 7}
+	})
+	b.inFlight = []runstate.State{b.runs[stateTwo][0]}
+	b.wants(EpicWorking, "has a repair under way answering the changes asked for on pull request #7")
+
+	b.inFlight = nil
+	b.lastRun(stateTwo, func(run *runstate.State) {
+		run.Status, run.ForgeFeedback, run.PullRequest.HeadCommit = runstate.StatusSucceeded, nil, "head-2"
+	})
+	if standing := b.wants(EpicWorking, "was repaired after the check of the whole epic passed, so the check of the whole epic is owed again, on the new approved heads"); !standing.CheckDue() {
+		t.Fatalf("waits = %+v, want the check of the whole epic owed", standing.Waits)
+	}
+	b.entry.Checks = append(b.entry.Checks, epicprogress.Check{ID: "check-2", Commit: "head-2", Found: epicprogress.FoundAllMet, At: hours(4), Again: true})
+	b.wants(EpicHandedOver)
+}
+
+// A change request whose judgment has no known answer is the development
+// manager's to decide, and keeps the epic from being delivered.
+func TestAChangeRequestWhoseJudgmentIsUnknownIsTheDevelopmentManagers(t *testing.T) {
+	t.Parallel()
+	b := newStateBench(t)
+	b.landed(stateOne)
+	b.handedOver(stateTwo)
+	b.deliver(hours(2))
+	b.entry.Comments = []epicprogress.Comment{{ID: "PRR_1", Became: "read", At: hours(3), Member: stateTwo, PullRequest: 7, Judgment: "judgment-1"}}
+	b.entry.Reservations = []epicprogress.Reservation{{ID: "judgment-1", For: "the judgment of review comment PRR_1", At: hours(3),
+		Result: &epicprogress.Result{At: hours(3), Says: "nothing shows whether it was sent", Unknown: true}}}
+	standing := b.wants(EpicWorking, "PRR_1 on pull request #7", "no known answer")
+	if len(standing.Waits) != 1 || standing.Waits[0].Owner != MoverDevelopmentManager {
+		t.Errorf("waits = %+v, want the development manager's", standing.Waits)
+	}
+}
