@@ -407,6 +407,66 @@ func (s *Store) MergedCommentRead(naming Naming, comment Comment, missing string
 	return standing, made, err
 }
 
+// DeliveredCommentRead writes feedback on a member's merged pull request read once
+// the epic was delivered, under the forge's identifier, before anything else is
+// done with it. It answers the comment that stands, which for one read before
+// says whether its item was filed already, so the same comment read twice, or
+// again after a restart, files one item. A comment first read while the epic was
+// not delivered keeps the correcting piece it owes and becomes no item.
+func (s *Store) DeliveredCommentRead(naming Naming, comment Comment, says string) (Comment, error) {
+	if comment.ID == "" || comment.PullRequest <= 0 || !beads.ValidIssueID(comment.Member) || strings.TrimSpace(says) == "" {
+		return Comment{}, errors.New("feedback on a merged pull request needs the forge's identifier, its member, its pull request and what it says")
+	}
+	standing := comment
+	err := epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		view, epic, err := s.open(record, naming)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(view.Items(epic), comment.Member) {
+			return fmt.Errorf("work item %s is not in epic %s", comment.Member, epic.WorkItemID)
+		}
+		return s.change(naming, func(entry *Entry) error {
+			if kept, found := entry.Comment(comment.ID); found {
+				standing = kept
+				return errUnchanged
+			}
+			standing.At, standing.Judgment, standing.Outcome, standing.Question, standing.Owed = s.now().UTC(), "", nil, "", nil
+			standing.Later = &Later{Says: strings.TrimSpace(says)}
+			standing.Became = fmt.Sprintf("read on merged pull request #%d of %s once the epic was delivered, so it becomes one item that starts nothing, for the Lead Product Manager", comment.PullRequest, comment.Member)
+			entry.Comments = append(entry.Comments, standing)
+			return nil
+		})
+	})
+	return standing, err
+}
+
+// DeliveredCommentFiled writes the item filed for feedback after delivery into
+// its comment. Writing the same item again changes nothing, and a different one
+// is refused, so a comment names one item.
+func (s *Store) DeliveredCommentFiled(naming Naming, id, item string) error {
+	if !beads.ValidIssueID(item) {
+		return fmt.Errorf("%q is not a work item's identifier", item)
+	}
+	return epicscope.UnderLock(s.stateRoot, s.product, func(record epicscope.Record) error {
+		if _, _, err := s.open(record, naming); err != nil {
+			return err
+		}
+		return s.changeComment(naming, id, func(comment *Comment) error {
+			switch {
+			case comment.Later == nil:
+				return fmt.Errorf("the review comment %s was not read after delivery", id)
+			case comment.Later.Item == item:
+				return errUnchanged
+			case comment.Later.Item != "":
+				return fmt.Errorf("the review comment %s already became %s", id, comment.Later.Item)
+			}
+			comment.Later.Item = item
+			return nil
+		})
+	})
+}
+
 // commentOwedFor is why a piece may not be written for a review comment of an
 // open epic, and nil where a correction is owed for it that names no piece, or
 // names this one.

@@ -328,6 +328,11 @@ type Options struct {
 	// been answered by a judgment made once more (epicprogress), so the pile marks
 	// them. It is optional, and a conversation without one marks none.
 	EpicAnswers EpicAnswers
+	// EpicFeedback is the feedback left on members' merged pull requests once their
+	// epic was delivered, each the item it became, put at the head of every turn of
+	// the role that handles the reports. It is optional, and a conversation without
+	// one shows none.
+	EpicFeedback EpicFeedback
 	// EpicLinks says which open epic an item is in, so that a link leaving work in
 	// a named epic waiting on open work outside it is refused when written. It is
 	// optional, and a conversation without one checks no link.
@@ -5543,6 +5548,9 @@ func (s *Session) turnPrompt(message string, picture *PictureAge) string {
 	// role that decides here rather than through somebody reading the pile and
 	// carrying one in, which is what a report channel with no standing reader
 	// otherwise depends on.
+	// Feedback after an epic was delivered waits on the Lead Product Manager, and
+	// is put in front of every turn of hers, however the turn started.
+	prompt.WriteString(s.renderEpicFeedback())
 	prompt.WriteString(s.renderUnhandledReports())
 	// The memory briefing is added when the turn is taken, after any save turn
 	// preceding compaction has recorded its writes.
