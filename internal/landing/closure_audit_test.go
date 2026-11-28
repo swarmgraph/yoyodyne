@@ -155,6 +155,11 @@ var auditedClosures = []closureSite{
 		Why: "a run settling its own item when the reviewer approved a change with no file differences from its base, so there is nothing to queue or promote. It closes only where the change discharges the item — the developer's claim and the reviewer's approval both saying so; an evidence claim or an evidence approval goes to the same undischarged settlement a landed evidence change takes, parked or waiting on the work the landing named.",
 	},
 	{
+		File: "internal/orchestrator/environmentsleft.go", Declaration: "(*activeRun) completeEnvironmentsConfirmed", Calls: 1,
+		ConsultsDischarge: true, Kind: kindSettlement,
+		Why: "a re-run settling its own item when the environments an earlier landed change left still to be checked all passed their tests, and the configured checks passed, at the target's head before any developer turn. There is no change, claim or review, so it closes only where the run's own record discharges the item — every environment it was given checked and passed — and refuses the closure otherwise.",
+	},
+	{
 		File: "internal/orchestrator/reconcile.go", Declaration: "(Reconciler) closeSettledMerge", Calls: 1,
 		ConsultsDischarge: true, Kind: kindSettlement,
 		Why: "the sweep settling a run whose queued merge the forge has since performed. The forge merging the change settles where the work is and not whether it discharges the item, so the claim and the approval are read back from the durable record the run that made them left behind.",

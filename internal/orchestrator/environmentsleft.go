@@ -256,6 +256,13 @@ func (a *activeRun) recheckSection() string {
 // sweep that retires an unintegrated run's artifacts.
 func (a *activeRun) completeEnvironmentsConfirmed(ctx context.Context) (Outcome, error) {
 	p := a.pipeline
+	// The closure reads the one rule every closure site reads. A run that ends
+	// here has no claim and no review, so it discharges its item exactly when no
+	// environment is still to be checked; anything else is a fault in getting
+	// here, and the item is left as it is.
+	if !a.state.Discharges() {
+		return a.fail(fmt.Errorf("the run reached the closure on its environments' tests while %s", nonEmpty(a.state.EnvironmentsStillToCheckSays(), "its record says it does not discharge its item")), runstate.StatusFailed)
+	}
 	a.outcome.EnvironmentsConfirmed = true
 	a.outcome.EnvironmentsStillToCheck = nil
 	if err := a.recordOutcomeOnce(ctx, func() string { return renderEnvironmentsConfirmedNotes(a.state) }); err != nil {
