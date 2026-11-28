@@ -545,6 +545,19 @@ Each pass takes fifteen steps, in this order, and each is recorded:
   `.git` any more, so after the first pass on a build that carries the move
   the step finds nothing and says so, unless it left a folder for a run still
   going, which the first pass after that run ends removes.
+- **leftovers** — every process that started with a run's identifier
+  (`YOYODYNE_RUN_ID`), for any run of this product, stopped where nothing holds
+  that run, so none of its sessions or checks is going; the processes of a run
+  still at work are left alone, and an identifier no run of this product has,
+  such as another product's run, is never touched
+  ([the design](designs/stopping-what-a-run-started.md)). A `yoyo work`
+  session takes the same stop once as it starts, and says what it did in its
+  log. Each process a run's record names as still running is tried again, and
+  its line goes from the run and from `yoyo status` once it is gone. One still
+  running after three passes is reported to the development manager once,
+  with the run, its number, its command and its ports; one named only because
+  it works inside the run's worktree or scratch folder is shown and never
+  reported, because only a person can say whether it is theirs.
 - **`build-cache`** — the build cache folder the harness names for every run, held
   under `execution.build_cache_limit_gib`, 40 GiB by default
   ([the design](designs/shared-build-cache-size.md)). Over the limit, files are

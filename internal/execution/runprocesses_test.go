@@ -222,3 +222,27 @@ func (unreadableTable) list() ([]processEntry, error)           { return nil, er
 func (unreadableTable) workingDirectories([]int) map[int]string { return nil }
 func (unreadableTable) listening(int) []string                  { return nil }
 func (unreadableTable) holding([]string) map[int]bool           { return nil }
+
+// MarkedRuns names every run a process started with, once each and in order,
+// and leaves out a process that has exited, process 1, and this process.
+func TestMarkedRunsNamesEachRunAProcessCarries(t *testing.T) {
+	fake := newFakeProcesses(
+		processEntry{PID: 1, Environment: []string{RunIdentityVariable + "=run-init"}},
+		processEntry{PID: os.Getpid(), Environment: []string{RunIdentityVariable + "=run-self"}},
+		processEntry{PID: 501, Start: "a", Environment: []string{RunIdentityVariable + "=run-b"}},
+		processEntry{PID: 502, Start: "a", Environment: []string{RunIdentityVariable + "=run-a"}},
+		processEntry{PID: 503, Start: "a", Environment: []string{RunIdentityVariable + "=run-b"}},
+		processEntry{PID: 504, Start: "a", Gone: true, Environment: []string{RunIdentityVariable + "=run-gone"}},
+		processEntry{PID: 505, Start: "a", Environment: []string{"PATH=/bin"}},
+	)
+	marked, err := (RunProcesses{table: fake}).MarkedRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"run-a", "run-b"}; !slices.Equal(marked, want) {
+		t.Fatalf("MarkedRuns() = %v, want %v", marked, want)
+	}
+	if _, err := (RunProcesses{table: unreadableTable{}}).MarkedRuns(); err == nil {
+		t.Fatal("MarkedRuns() said nothing of a table it could not read")
+	}
+}

@@ -470,6 +470,11 @@ func (u SpendWaitRecorded) apply(state *State) (bool, error) {
 // LeftProcessesFound records what the harness found still running for the run
 // the last time it stopped what the run started (State.LeftProcesses),
 // replacing what an earlier stop found. The same finding again changes nothing.
+//
+// An entry that counts no passes and names no report takes both from the entry
+// for the same process it replaces, so a stop made as a session or the run
+// ends, which counts nothing, neither starts a process's three passes again nor
+// lets it be reported a second time.
 type LeftProcessesFound struct {
 	Left []execution.LeftProcess
 	At   time.Time
@@ -479,14 +484,34 @@ func (u LeftProcessesFound) apply(state *State) (bool, error) {
 	if len(u.Left) == 0 && len(state.LeftProcesses) == 0 {
 		return false, nil
 	}
+	u.Left = append([]execution.LeftProcess(nil), u.Left...)
+	for index := range u.Left {
+		found := &u.Left[index]
+		if found.Passes != 0 || found.Reported != "" {
+			continue
+		}
+		for _, before := range state.LeftProcesses {
+			if SameLeftProcess(before, *found) {
+				found.Passes, found.Reported = before.Passes, before.Reported
+				break
+			}
+		}
+	}
 	if encoded, err := json.Marshal(u.Left); err == nil {
 		if before, err := json.Marshal(state.LeftProcesses); err == nil && string(before) == string(encoded) {
 			return false, nil
 		}
 	}
-	state.LeftProcesses = append([]execution.LeftProcess(nil), u.Left...)
+	state.LeftProcesses = u.Left
 	state.UpdatedAt = u.At
 	return true, nil
+}
+
+// SameLeftProcess reports two findings of one process: the same number and
+// command, found the same way. A number the system handed to another program
+// is another process.
+func SameLeftProcess(a, b execution.LeftProcess) bool {
+	return a.PID > 0 && a.PID == b.PID && a.Command == b.Command && a.Unmarked == b.Unmarked
 }
 
 // LateStopRecorded records a stop that reached the run only after its checks

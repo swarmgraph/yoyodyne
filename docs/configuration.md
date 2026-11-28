@@ -2922,7 +2922,13 @@ the file the harness handed its launch to tell whether anything from it lives;
 one that shows neither and is working inside the run's worktree or scratch
 folder is named on the run and on `yoyo status` instead, never stopped, as is
 any process the harness could not stop, with its number and the ports it
-listens on. So background load a check
+listens on. A harness that stopped between a session's end and that stop is
+covered too: as a `yoyo work` session starts, and on every maintenance pass,
+the harness looks for every process carrying a run's identifier and stops
+those of each run nothing holds, so no session or check of it is going. Every
+pass tries again for each process a run's record names, and the line goes once
+the process is gone; one still running after three passes is reported to the
+development manager once. So background load a check
 spawns should still stop on its own however the check ends.
 
 ### The environment a check runs in

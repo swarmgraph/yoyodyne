@@ -83,6 +83,14 @@ type LeftProcess struct {
 	Unmarked bool `json:"unmarked,omitempty"`
 	// Why says why it is still running.
 	Why string `json:"why"`
+	// Passes is how many maintenance passes, or scheduler starts, have tried to
+	// stop it and found it still running, and Reported the report filed to the
+	// development manager once that reached three. A stop made as a session or
+	// the run ends keeps both from the entry it replaces (runstate,
+	// LeftProcessesFound), so a process is reported once however often it is
+	// found.
+	Passes   int    `json:"passes,omitempty"`
+	Reported string `json:"reported,omitempty"`
 }
 
 // Describe is the line every surface shows for the process. An entry with no
@@ -213,6 +221,39 @@ func (r RunProcesses) Stop(ctx context.Context, request RunProcessesRequest) []L
 	}
 	sort.Slice(left, func(i, j int) bool { return left[i].PID < left[j].PID })
 	return left
+}
+
+// MarkedRuns is every run identifier a process of the user the harness runs as
+// started with, sorted, for whoever has to find the processes of runs nothing is
+// working on any more: the scheduler's start and the maintenance pass. It
+// skips what Stop skips: process 1, a process that has exited, and this process
+// and the processes it descends from. An identifier is not a run until the run
+// store says so; the caller decides which of them to stop.
+func (r RunProcesses) MarkedRuns() ([]string, error) {
+	table := r.table
+	if table == nil {
+		table = systemProcessTable{}
+	}
+	entries, err := table.list()
+	if err != nil {
+		return nil, fmt.Errorf("the harness could not list this machine's processes: %w", err)
+	}
+	excluded := ownLineage(entries)
+	found := map[string]bool{}
+	for _, entry := range entries {
+		if entry.PID <= 1 || entry.Gone || excluded[entry.PID] {
+			continue
+		}
+		if id, carries := runIdentityIn(entry.Environment); carries {
+			found[id] = true
+		}
+	}
+	ids := make([]string, 0, len(found))
+	for id := range found {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 // stopAll sends the stop signal to every target, waits, sends the kill signal
