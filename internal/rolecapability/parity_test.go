@@ -242,6 +242,13 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // oldest-admitted-first tie-break. Ordering is hers, so they are held under
 // backlog.order, which only she holds, with no lane-scoped name.
 //
+// The product manager's `put-first` and `drop-first` name an item for one
+// role's next recurring pass to take before anything else it carries, and take
+// that back (yoyodyne-ifd.430.121): a step the development manager owed on a
+// developer's item waited behind her whole order, and a placement orders only
+// developer runs. Ordering is hers, so they are held under backlog.order too,
+// with no lane-scoped name.
+//
 // The development manager's `queue` releases the entry at the head of the
 // harness's merge queue, handing it back to its item or recording it as landed
 // outside the queue where its approved commit is already on the target, so a
@@ -282,7 +289,7 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // on came back on every pass until the Lead Product Manager recorded a handling
 // for it, so the role records its own.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "grant"},
+	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment", "place", "unplace", "put-first", "drop-first", "grant"},
 	domain.RoleArchitect:          {"handle", "amendment", "agree"},
 	domain.RoleDevelopmentManager: {"brake", "held_document", "keep_version", "label", "queue", "team_conflict", "handle"},
 }

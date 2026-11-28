@@ -178,8 +178,13 @@ type RecurringConversationWork interface {
 // stands, and States every waiting item as this reading found it, left out or
 // not; both are empty for a role that keeps no standing rulings
 // (standingrulings.go).
+//
+// Named is what the turn is told before anything else it carries, the docket
+// included, where the Lead Product Manager named items for this pass to take
+// first (contextbundle.ConversationWorkNamed); those items lead Items too.
 type ConversationWorkReading struct {
 	Section  string
+	Named    string
 	Items    []runstate.DeliveredWork
 	Standing []string
 	States   []WaitingState
@@ -1451,6 +1456,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			problems = append(problems, problem)
 		}
 	}
+	// named is the latest reading's items the Lead Product Manager put first
+	// for this pass, said at the top of each turn's message.
+	var named string
 	limit := task.Turns()
 	for turn := 0; turn < limit; turn++ {
 		// Whatever sends the pass on, the turn is told again what its closing
@@ -1470,6 +1478,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			if err == nil && keepsRulings {
 				watch.note(work, readAt)
 			}
+			named = work.Named
 			section := f.addressed.besideConversationWork(work)
 			if said := standingRulingsSaid(task.Role, work.Standing); said != "" {
 				section = strings.TrimRight(section, "\n") + "\n\n" + said + "\n"
@@ -1494,6 +1503,12 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		}
 		if docket != nil {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
+		}
+		// The items the Lead Product Manager named for this pass go above the
+		// docket and everything else, because naming one is her deciding it is
+		// what this pass reaches first.
+		if named != "" {
+			message = named + "\n" + message
 		}
 		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message, options)
 		recorded.ConversationWait += max(answered.Waited, 0)
@@ -1830,6 +1845,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	problems = append(problems, overdue.record(name, actedOn, merged))
 	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, &recorded, earlier))
 	problems = append(problems, t.noteSettled(ctx, pass, recorded))
+	problems = append(problems, t.endTakenFirst(ctx, pass, task.Role, recorded))
 	// The rulings the next pass is compared with, read once the pass's own
 	// notes are written so they are part of what the next pass sees unchanged.
 	if keepsRulings && recorded.Turns > 0 {
