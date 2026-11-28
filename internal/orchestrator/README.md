@@ -69,7 +69,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `ContinuationMismatchError`), `reclaimSlot` (a paused run asks the
    checkout, `refuseUnreadyResume`, before it takes its slot back; every other
    path that makes a run live asks `checkoutReadyToTakeUp` before
-   `ReserveLive`), `resumeRun` (picks the step
+   `ReserveLive`), `takeUp` (`takeup.go`: `Run` and `Continue` take a
+   waiting run up through it, and a refusal before the run is under way puts
+   its wait back, giving the slot back at once, `giveSlotBack`; the steps
+   `resumeRun` takes before the run is under way are bounded by
+   `Pipeline.TakeUpLimit`, ten minutes by default, past which the take-up is
+   ended as `TakeUpTimeoutError` with the run's work kept), `resumeRun` (picks the step
    to resume at from the record), `resumedDeveloperPrompt`, and the predicates
    that read a record: `handedBackRepair`, `owesVerification`,
    `resumesAnExistingChange`, `continuableStall`, `stallResumesPastTheAttempt`,
