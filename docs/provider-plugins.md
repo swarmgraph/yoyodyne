@@ -654,7 +654,12 @@ The check launches the installed CLI the way a developer is launched — the sam
 settings, flags, directory (the primary checkout), and environment — with
 `--input-format stream-json` and `--no-session-persistence`, asks it three
 questions over its control protocol, and closes its input. No prompt is sent,
-so no provider call is made; it takes under a second. It refuses on any of:
+so no provider call is made; it takes under a second. The check is over once
+all three answers are in: a CLI still running three seconds after its last
+answer, or one that has left a process holding its output open, is ended and
+judged on what it said, so only a CLI that has not answered can time the check
+out. A timeout names the question it was waiting on, how many of the three
+answers had come back, and the last thing the CLI wrote. It refuses on any of:
 
 - **a rejected setting**: `get_settings` lists a settings file the CLI failed to
   validate, which is the sign the whole payload was dropped;
