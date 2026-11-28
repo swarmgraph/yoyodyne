@@ -85,7 +85,9 @@ func (b *bench) joiner() Joiner {
 	b.must(err)
 	log, err := runstate.NewBranchReviewStore(b.root, product)
 	b.must(err)
-	return Joiner{StateRoot: b.root, Product: product, Progress: store, Log: log, NewID: runstate.NewBranchReviewID, Evidence: Evidence{Reports: b.reports(), RepositoryID: "yoyodyne"},
+	// The progress record keeps the bench's time, so what it says was seen before
+	// or after another record does not turn on the machine's clock.
+	return Joiner{StateRoot: b.root, Product: product, Progress: store.Clocked(func() time.Time { return b.now }), Log: log, NewID: runstate.NewBranchReviewID, Evidence: Evidence{Reports: b.reports(), RepositoryID: "yoyodyne"},
 		SplitFrom: chat.SplitByDevelopmentManager, Now: func() time.Time { return b.now }, MayStart: func(start maystart.Start) maystart.Decision { return maystart.Decide(b.root, product, start) },
 		Paused: func() (bool, error) { return b.paused, b.unread },
 		Items:  func(context.Context) ([]beads.WorkItem, error) { return b.items, nil },

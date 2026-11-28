@@ -23,7 +23,8 @@
 // to the Lead Product Manager as a report, whose handling is her answer. The
 // rule is the design's "A piece edited after it joined" and "What records the
 // answer on scope". The code that starts a developer reads the same record
-// (epicprogress.View.TextWait).
+// (epicprogress.View.TextWait). Where her handling names the operator, the
+// harness puts its own one question to him (operator.go).
 package epicjoin
 
 import (
@@ -69,6 +70,7 @@ type Progress interface {
 	Questioned(naming epicprogress.Naming, item, judgment, report string) (string, error)
 	SawText(naming epicprogress.Naming, item, digest string) error
 	ScopeAnswered(naming epicprogress.Naming, item, reportID, reason string, recorded time.Time, operator ownership.OperatorReason) error
+	OperatorAsked(naming epicprogress.Naming, item string, asked epicprogress.OperatorQuestion) (epicprogress.OperatorQuestion, error)
 	Call(naming epicprogress.Naming, id, purpose string, lookUp func() (string, epicprogress.Looked, error), send func() (string, error)) (string, error)
 	Alone() (release func() error, held bool, err error)
 	Noted(epic, check string) error
@@ -151,6 +153,10 @@ const (
 	// came from, of a piece judged outside or cannot tell without it whose question
 	// has no handling (epicprogress.Piece.MayReread).
 	rereadIt
+	// askOperator files the one question the harness puts to the operator where
+	// the Lead Product Manager's handling of a piece's question about scope named
+	// him (operator.go).
+	askOperator
 )
 
 // Owed reports whether a judgment, a note on a correcting piece, or a question
@@ -393,6 +399,14 @@ func (j Joiner) next(entry epicprogress.Entry, piece epicprogress.Piece, item be
 				return noteAnswer, err == nil, err
 			}
 		}
+		if answer := piece.Answered; answer != nil && answer.Operator != "" {
+			if answer.Asked == nil {
+				return askOperator, true, nil
+			}
+			if filed, err := pile.filed(answer.Asked.Report); err != nil || !filed {
+				return askOperator, err == nil, err
+			}
+		}
 		if rereads && piece.MayReread() {
 			return rereadIt, true, nil
 		}
@@ -498,6 +512,8 @@ func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.Work
 	switch one.step {
 	case putQuestion:
 		return j.askScope(naming, piece.WorkItemID)
+	case askOperator:
+		return j.askOperator(naming, piece.WorkItemID)
 	case noteSeen:
 		return j.Progress.SawText(naming, piece.WorkItemID, epicprogress.TextDigest(one.item))
 	case noteAnswer:
@@ -514,17 +530,19 @@ func (j Joiner) judge(ctx context.Context, one owed, items map[string]beads.Work
 		if err := j.Progress.ScopeAnswered(naming, piece.WorkItemID, piece.Question, handling.Reason, handling.RecordedAt, operator); err != nil {
 			return err
 		}
-		// An edit seen after her answer is judged in the same round.
+		// An edit seen after her answer is judged in the same round, and the
+		// operator is asked in it where her answer names him.
 		view, err := j.read()
 		if err != nil {
 			return err
 		}
 		entry, _ := view.Entry(naming)
 		now, _ := entry.Asked(piece.WorkItemID)
-		if next, due, err := j.next(entry, now, one.item, &pile{reports: j.Evidence.Reports}, false); err != nil || !due || next != judgeAgain {
+		next, due, err := j.next(entry, now, one.item, &pile{reports: j.Evidence.Reports}, false)
+		if err != nil || !due || next != judgeAgain && next != askOperator {
 			return err
 		}
-		one.piece, one.step = now, judgeAgain
+		one.piece, one.step = now, next
 		return j.judge(ctx, one, items)
 	case judgeAgain:
 		id, err := j.NewID()
@@ -631,10 +649,14 @@ func (j Joiner) askScope(naming epicprogress.Naming, item string) error {
 			return err
 		}
 	}
-	message := fmt.Sprintf("A question about scope: %s, made from %s, was judged %q for epic %s (judgment %s of the text with digest %s): %s. It starts no developer. Record your handling of this report as the answer: say that the development manager should rewrite it to fit, and its next edit after your handling is judged again; or, where the epic can be delivered without it, handle it as needing the operator for the reason %s, because only he can take it out, with `yoyo epic remove %s %s --words ...`; the piece then waits and nothing more is judged.",
-		item, piece.From, piece.Outcome.Answer, naming.WorkItemID, piece.Judgment, piece.Digest, piece.Outcome.Why, ownership.OperatorOwnHold, naming.WorkItemID, item)
+	offers := "`yoyo epic add " + naming.WorkItemID + " " + item + "`, which puts it in"
+	if entry.Has(item) {
+		offers = "`yoyo epic add " + naming.WorkItemID + " " + item + "`, which keeps it as it now reads, or `yoyo epic remove " + naming.WorkItemID + " " + item + " --words ...`, which lets the epic be delivered without it"
+	}
+	message := fmt.Sprintf("A question about scope: %s, made from %s, was judged %q for epic %s (judgment %s of the text with digest %s): %s. It starts no developer. Record your handling of this report as the answer: say that the development manager should rewrite it to fit, and its next edit after your handling is judged again; or say that it is left out, and it stays as it is; or, where the epic cannot be delivered without it or a person asked for it in review, handle it as needing the operator for the reason %s, and the harness asks him, offering %s, with your reason beside it.",
+		item, piece.From, piece.Outcome.Answer, naming.WorkItemID, piece.Judgment, piece.Digest, piece.Outcome.Why, ownership.OperatorOwnHold, offers)
 	return j.Evidence.Reports.Append(report.Report{
-		SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter, RunID: "epic-join:" + piece.Judgment,
+		SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter, RunID: report.ScopeQuestionRun + piece.Judgment,
 		WorkItemID: item, DuringEpic: naming.WorkItemID, Build: j.Evidence.Build, ProductID: j.Product, RepositoryID: j.Evidence.RepositoryID,
 		Severity: report.SeverityWarning, For: domain.RoleProductManager,
 		Message: oneline.Fold(message, report.MaxMessageBytes-len(oneline.Marker)), RecordedAt: j.Now().UTC(),

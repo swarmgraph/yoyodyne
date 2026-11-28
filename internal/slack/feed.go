@@ -544,8 +544,11 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	// member is said to the operators directly as well, once, as information: it
 	// names the add only he can make (docs/designs/epic-mode-second-part.md, "An
 	// item outside the epic that could block a member", point 5).
+	// So is the one question the harness puts to the operator about a piece of a
+	// named epic once the Lead Product Manager's answer named him ("What records
+	// the answer on scope", point 6).
 	for at := range reported {
-		if strings.HasPrefix(reported[at].Notification.Event.Refs.RunID, report.OutsideEpicBlockerRun) {
+		if runID := reported[at].Notification.Event.Refs.RunID; strings.HasPrefix(runID, report.OutsideEpicBlockerRun) || strings.HasPrefix(runID, report.ScopeOperatorQuestionRun) {
 			reported[at].Direct = true
 		}
 	}
@@ -1597,7 +1600,10 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 			continue
 		}
 		advanced = advanced.With(mark)
-		if predates(since, action.Since) {
+		// Her handling of a question about scope that names the operator is not said
+		// to him: the harness writes his one question from the identifiers instead,
+		// and says that (askedByTheHarness).
+		if predates(since, action.Since) || askedByTheHarness(action, filed) {
 			deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
 			continue
 		}
@@ -1721,3 +1727,20 @@ func completion(state runstate.State) time.Time {
 }
 
 func stamp(at time.Time) string { return at.UTC().Format(time.RFC3339Nano) }
+
+// askedByTheHarness reports a finding made by the Lead Product Manager's handling
+// of a question about scope the harness filed her: where it names the operator,
+// the harness puts its own question to him, built from the identifiers with her
+// words beside it (docs/designs/epic-mode-second-part.md, "What records the
+// answer on scope", point 6), so her words are not put to him as a second one.
+func askedByTheHarness(action readmodel.OperatorAction, filed []report.Report) bool {
+	if action.ReportID == "" {
+		return false
+	}
+	for _, reported := range filed {
+		if reported.ID == action.ReportID {
+			return reported.Role == report.HarnessReporter && strings.HasPrefix(reported.RunID, report.ScopeQuestionRun)
+		}
+	}
+	return false
+}

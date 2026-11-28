@@ -44,6 +44,15 @@ func Open(stateRoot string, product domain.ProductID) (*Store, error) {
 	return &Store{stateRoot: filepath.Clean(stateRoot), product: product, now: time.Now}, nil
 }
 
+// Clocked is the store with every time it writes taken from now rather than the
+// machine's clock, for a caller that keeps its own, such as a test whose other
+// records are written at fixed times.
+func (s *Store) Clocked(now func() time.Time) *Store {
+	clocked := *s
+	clocked.now = now
+	return &clocked
+}
+
 // Begin writes a naming's empty entry and lists it, before the harness first
 // acts on it. One that was begun is left as it is.
 func (s *Store) Begin(naming Naming) error {
@@ -282,6 +291,30 @@ func (s *Store) ScopeAnswered(naming Naming, item, reportID, reason string, reco
 		piece.Answered = &answer
 		return nil
 	})
+}
+
+// OperatorAsked writes the identifier of the one question the harness puts to the
+// operator about a piece, once the Lead Product Manager's handling of its question
+// about scope named him, before that question is filed. It answers the question
+// that stands, which is this one or one written before.
+func (s *Store) OperatorAsked(naming Naming, item string, asked OperatorQuestion) (OperatorQuestion, error) {
+	if !report.ValidID(asked.Report) || asked.At.IsZero() {
+		return OperatorQuestion{}, errors.New("the question to the operator needs a report identifier and a time")
+	}
+	standing := asked
+	err := s.changePiece(naming, item, func(piece *Piece) error {
+		switch answer := piece.Answered; {
+		case answer == nil || answer.Operator == "":
+			return fmt.Errorf("the Lead Product Manager's answer about work item %s does not name the operator", item)
+		case answer.Asked != nil:
+			standing = *answer.Asked
+			return errUnchanged
+		}
+		asked.At = asked.At.UTC()
+		piece.Answered.Asked = &asked
+		return nil
+	})
+	return standing, err
 }
 
 // SawText writes when a text no judgment judged was first seen, while the piece
