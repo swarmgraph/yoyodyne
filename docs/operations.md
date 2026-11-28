@@ -1955,11 +1955,29 @@ is taken back out, and one that cannot be written down is not started.
 An item the development manager creates under a member, splitting or replacing it,
 may join the epic without you. A session in the reviewer's role that wrote nothing it
 judges is given the epic's description as it read when you named it, the items you took
-out with your words, and the piece's title, description, design and acceptance criteria.
-Where it answers that the piece asks only for what the description already asks, the
-piece joins and may start. Where it answers that the piece asks for more, or cannot
-tell, the piece does not join and starts nothing, and it is a question about scope for
-the Lead Product Manager, which `yoyo status` names.
+out with your words, the text of what the piece came from, and the piece's title,
+description, design and acceptance criteria. What it came from is the member's title,
+description and acceptance criteria as they read when you put it in: `yoyo epic start`
+and `yoyo epic add` copy them beside each member, so a later edit of the member does not
+widen what its pieces may ask. A member you put in before this copy was kept is copied
+the first time a piece of it is judged, marked as copied late, and that copy is used
+from then on. For a piece split from a piece that joined, it is that piece's text where
+it reads as a judgment found inside; for a correction, what the check of the whole epic
+found missing. A member you took out gives nothing, and a piece of it does not join.
+
+Where it answers that the piece asks only for what the description or what it came from
+already asks, the piece joins and may start, so a piece that carries out part of a member
+you added joins, whatever the description says. Where it answers that the piece asks for
+more than both, or cannot tell, the piece does not join and starts nothing, and it is a
+question about scope for the Lead Product Manager, which `yoyo status` names.
+
+A piece judged outside, or cannot tell, before the text of what it came from was given,
+whose question has no handling yet, is judged once more with that text. Judged inside,
+it joins where fewer than twelve have, and its progress entry records that the judgment
+answered its question. The report stays in front of the Lead Product Manager, marked
+beside it as already answered, with the piece that joined, so she records that nothing
+more is needed rather than asking you to add what you already put in. Judged outside again, the same question stands and
+no second one is filed.
 
 A question about scope is a report the harness files to the Lead Product Manager,
 naming the epic, the piece and the text judged. Her handling of that report is her

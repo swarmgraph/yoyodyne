@@ -104,9 +104,9 @@ func TestEveryFieldIsWrittenAndReadBack(t *testing.T) {
 		Words:       "work only on this",
 		Description: namingA().Description,
 		Members: []Member{
-			{"yoyodyne-9k1y.2", namedAt, ActStart},
-			{"yoyodyne-9k1y.3", namedAt, ActStart},
-			{"yoyodyne-9k1y.8", namedAt.Add(time.Hour), ActAdd},
+			{"yoyodyne-9k1y.2", namedAt, ActStart, nil},
+			{"yoyodyne-9k1y.3", namedAt, ActStart, nil},
+			{"yoyodyne-9k1y.8", namedAt.Add(time.Hour), ActAdd, nil},
 		},
 		Ended: &Ending{At: namedAt.Add(2 * time.Hour), Words: "done"},
 	}}}
@@ -244,7 +244,7 @@ func TestAnEndedEpicNamedAgainHasTwoEntries(t *testing.T) {
 		t.Fatalf("epics = %+v, want the ended entry unchanged and a second", record.Epics)
 	}
 	want := Epic{WorkItemID: epicA, NamedAt: namedAt.Add(time.Hour), NamedFrom: "terminal", Words: again.Words,
-		Description: "as it reads now", Members: []Member{{"yoyodyne-9k1y.7", namedAt.Add(time.Hour), ActStart}}}
+		Description: "as it reads now", Members: []Member{{"yoyodyne-9k1y.7", namedAt.Add(time.Hour), ActStart, nil}}}
 	if latest, _ := record.Named(epicA); !reflect.DeepEqual(latest, want) {
 		t.Fatalf("the second entry = %+v, want %+v", latest, want)
 	}

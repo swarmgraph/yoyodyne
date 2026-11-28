@@ -68,6 +68,9 @@ type Naming struct {
 	Words       string // what the operator said, if anything
 	Description string // the epic's description as it reads now
 	Members     []string
+	// Texts is each member's text as it reads now, copied beside it. A member with
+	// none is kept without one.
+	Texts map[string]Text
 }
 
 // Started is what Start did.
@@ -109,7 +112,11 @@ func (o *Operator) Start(naming Naming, at time.Time) (Started, error) {
 			Members:     []Member{},
 		}
 		for _, item := range naming.Members {
-			epic.Members = append(epic.Members, Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActStart})
+			member := Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActStart}
+			if text, copied := naming.Texts[item]; copied {
+				member.Text = &text
+			}
+			epic.Members = append(epic.Members, member)
 		}
 		record.Epics = append(record.Epics, epic)
 		started.Epic, started.Named = epic, true
@@ -125,6 +132,12 @@ func (o *Operator) Start(naming Naming, at time.Time) (Started, error) {
 // Add adds an item to an open epic's members. An item the epic already has is
 // left as it was, with when it was first added.
 func (o *Operator) Add(epic, item string, at time.Time) (Record, error) {
+	return o.AddCopying(epic, item, nil, at)
+}
+
+// AddCopying is Add with the item's text as it reads now copied beside it, which
+// is what the operator's command does.
+func (o *Operator) AddCopying(epic, item string, text *Text, at time.Time) (Record, error) {
 	return o.change(func(record *Record) error {
 		index, err := record.open(epic)
 		if err != nil {
@@ -136,7 +149,7 @@ func (o *Operator) Add(epic, item string, at time.Time) (Record, error) {
 		if err := o.free(*record, epic, item); err != nil {
 			return err
 		}
-		record.Epics[index].Members = append(record.Epics[index].Members, Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActAdd})
+		record.Epics[index].Members = append(record.Epics[index].Members, Member{WorkItemID: item, AddedAt: at.UTC(), Act: ActAdd, Text: text})
 		return nil
 	})
 }

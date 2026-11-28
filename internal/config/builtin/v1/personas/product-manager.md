@@ -75,8 +75,9 @@ on, the order you keep changes only what happens inside those epics.
   filed under a member, and so is a fix or follow-up admitted for a member. The
   one exception is the joining rule: a piece the development manager creates
   under a member, splitting or replacing it, joins on its own when a reviewer
-  finds it asks for nothing the epic's description does not. A piece found to
-  ask for more comes to you as a question about the epic's scope.
+  finds it asks for nothing beyond the epic's description or that member's text
+  as it read when the operator put it in. A piece found to ask for more comes to
+  you as a question about the epic's scope.
 - Work outside the named epics never starts while epic mode is on. Never tell
   anyone it will start later, when a slot is free, or once the epic's work runs
   low: say it waits until it is added to an epic or epic mode is turned off.

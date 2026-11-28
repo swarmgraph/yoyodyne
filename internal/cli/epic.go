@@ -194,9 +194,10 @@ func (c epicCommand) start(ctx context.Context, operator *epicscope.Operator, id
 		return c.refused(titles, err, id)
 	}
 	below := beads.UnfinishedBelow(id, items)
-	naming := epicscope.Naming{Epic: id, From: viaCommandLine, Words: c.words, Description: epic.Description}
+	naming := epicscope.Naming{Epic: id, From: viaCommandLine, Words: c.words, Description: epic.Description, Texts: map[string]epicscope.Text{}}
 	for _, item := range below {
 		naming.Members = append(naming.Members, item.ID)
+		naming.Texts[item.ID] = epicscope.TextOf(item)
 	}
 	started, err := operator.Start(naming, time.Now())
 	if err != nil {
@@ -291,11 +292,15 @@ func (c epicCommand) add(ctx context.Context, operator *epicscope.Operator, epic
 	if err != nil {
 		return c.fail(err)
 	}
-	if _, found := findItem(items, item); !found {
+	added, found := findItem(items, item)
+	if !found {
 		return c.fail(fmt.Errorf("the tracker has no work item %s", item))
 	}
 	titles := c.titlesOf(items)
-	record, err := operator.Add(epic, item, time.Now())
+	// Its text is copied beside it, so a piece split from it is judged against
+	// what it said when you put it in.
+	text := epicscope.TextOf(added)
+	record, err := operator.AddCopying(epic, item, &text, time.Now())
 	if err != nil {
 		return c.refused(titles, err, epic, item)
 	}
@@ -547,8 +552,9 @@ Name the epics the factory works only on. While epic mode is on, only the member
 of an open epic and the pieces that joined it are to start. The members are the list
 recorded when the epic was named and what you add to it: nothing is worked out from
 the tracker afterwards, and the epic itself is not one of them. A piece made from a
-member joins without you only where it is judged to ask for nothing the epic's
-description does not; see "What joins a named epic" in the operations guide.
+member joins without you only where it is judged to ask for nothing beyond the epic's
+description or the member it came from, as that member read when you put it in; see
+"What joins a named epic" in the operations guide.
 
 "start" is refused until every way the harness starts work asks whether it may
 start, and the refusal names each one that does not yet.

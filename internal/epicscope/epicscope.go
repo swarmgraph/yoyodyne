@@ -105,6 +105,34 @@ type Member struct {
 	WorkItemID string    `json:"work_item_id"`
 	AddedAt    time.Time `json:"added_at"`
 	Act        Act       `json:"act"`
+	// Text is the member's text as it read when the operator put it in, so that a
+	// piece split from it is judged against what the operator chose, and a later
+	// edit of the member does not widen what its pieces may ask. A member put in
+	// before texts were copied has none (epicprogress copies it late).
+	Text *Text `json:"text,omitempty"`
+}
+
+// Text is what a joining judgment is given of an item: its title, description and
+// acceptance criteria.
+type Text struct {
+	Title              string `json:"title"`
+	Description        string `json:"description,omitempty"`
+	AcceptanceCriteria string `json:"acceptance_criteria,omitempty"`
+}
+
+// TextOf is an item's text as it reads now.
+func TextOf(item beads.WorkItem) Text {
+	return Text{Title: item.Title, Description: item.Description, AcceptanceCriteria: item.AcceptanceCriteria}
+}
+
+// MemberText is the text a member's entry copied when the operator put it in.
+func (e Epic) MemberText(item string) (Text, bool) {
+	for _, member := range e.Members {
+		if member.WorkItemID == item && member.Text != nil {
+			return *member.Text, true
+		}
+	}
+	return Text{}, false
 }
 
 // Removal is the operator taking one item out of an epic.

@@ -324,6 +324,10 @@ type Options struct {
 	// the whole epic it corrects. It is optional, and a conversation without one
 	// refuses a creation that names a check.
 	EpicCorrections EpicCorrections
+	// EpicAnswers says which questions about scope the harness filed have since
+	// been answered by a judgment made once more (epicprogress), so the pile marks
+	// them. It is optional, and a conversation without one marks none.
+	EpicAnswers EpicAnswers
 	// TrackerMerge is where the development manager's decision about an item
 	// held because two machines' versions cannot be merged is recorded.
 	TrackerMerge TrackerMergeDecisions
