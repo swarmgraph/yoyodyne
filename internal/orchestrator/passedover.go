@@ -70,7 +70,8 @@ func boundedDelivery(items []runstate.DeliveredWork) []runstate.DeliveredWork {
 		if len(kept) == runstate.MaxSweepDelivered {
 			break
 		}
-		kept = append(kept, runstate.DeliveredWork{ID: strings.TrimSpace(item.ID), Priority: max(item.Priority, 0), HeldOutside: boundedLeftReason(item.HeldOutside)})
+		kept = append(kept, runstate.DeliveredWork{ID: strings.TrimSpace(item.ID), Priority: max(item.Priority, 0), HeldOutside: boundedLeftReason(item.HeldOutside),
+			NamedFirst: boundedLeftReason(item.NamedFirst)})
 	}
 	return kept
 }

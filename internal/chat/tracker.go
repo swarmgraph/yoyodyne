@@ -198,8 +198,17 @@ const (
 	// argument: the action's "reason" is what the placement records.
 	actionPlace   = "place"
 	actionUnplace = "unplace"
-	actionLink    = "link"
-	actionUnlink  = "unlink"
+	// actionPutFirst names an item for one role's next recurring pass to take
+	// before anything else it carries, and actionDropFirst takes that back. A
+	// placement orders developer runs; these order what a pass is handed, for
+	// the step a role owes on an item its own queue never lists, such as
+	// taking off a design hold on a developer's item (passfirst.go). "to" is
+	// the role that owes the step, and the action's "reason" is the step and
+	// why it cannot wait.
+	actionPutFirst  = "put-first"
+	actionDropFirst = "drop-first"
+	actionLink      = "link"
+	actionUnlink    = "unlink"
 	// actionRepair corrects backlog state the records have made stale: a status
 	// of blocked with nothing unfinished behind it, a dependency on work that
 	// closed, an attribution the goals no longer state. It is not an update with
@@ -316,6 +325,8 @@ var trackerActionArguments = map[string][]string{
 	actionUnpark:       {},
 	actionPlace:        {},
 	actionUnplace:      {},
+	actionPutFirst:     {"to"},
+	actionDropFirst:    {},
 	actionLink:         {"depends_on"},
 	actionUnlink:       {"depends_on"},
 	actionRepair:       {"state", "depends_on", "goal"},
@@ -371,12 +382,16 @@ var trackerCapabilities = map[string]capability.Capability{
 	// manager reorders inside its lane by priority and asks her for a placement.
 	actionPlace:   capability.BacklogOrder,
 	actionUnplace: capability.BacklogOrder,
-	actionLink:    capability.WorkDecompose,
-	actionUnlink:  capability.WorkDecompose,
-	actionRepair:  capability.WorkItemRepairState,
-	actionClose:   capability.BacklogAdmit,
-	actionRetire:  capability.BacklogAdmit,
-	actionTriage:  capability.WorkTriage,
+	// Putting an item first in a role's pass is ordering too, and hers alone
+	// for the same reason.
+	actionPutFirst:  capability.BacklogOrder,
+	actionDropFirst: capability.BacklogOrder,
+	actionLink:      capability.WorkDecompose,
+	actionUnlink:    capability.WorkDecompose,
+	actionRepair:    capability.WorkItemRepairState,
+	actionClose:     capability.BacklogAdmit,
+	actionRetire:    capability.BacklogAdmit,
+	actionTriage:    capability.WorkTriage,
 	// Deciding that admitted work is superseded, narrowed, or to be retired is
 	// admission run backwards, as closing and retiring are; what it decides about
 	// the run in flight is nothing, which is the development manager's.
@@ -451,7 +466,7 @@ var addressedCapabilities = map[string]capability.Capability{
 // so a refusal names exactly what was available.
 var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
-	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionLink, actionUnlink, actionRepair,
+	actionReprioritize, actionPark, actionUnpark, actionPlace, actionUnplace, actionPutFirst, actionDropFirst, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionKeepVersion, actionWithdraw,
 	actionDirective, actionAmendment, actionQueue, actionHeldDocument, actionTeamConflict, actionGrant, actionAgree,
 }
@@ -1423,6 +1438,8 @@ func (a TrackerAction) validateArguments() []error {
 		} else if strings.ContainsAny(reason, "\r\n") {
 			problems = append(problems, errors.New("reason is the placement's reason and must be one line"))
 		}
+	case actionPutFirst:
+		problems = append(problems, putFirstProblems(a)...)
 	case actionLink, actionUnlink:
 		if strings.TrimSpace(a.DependsOn) == "" {
 			problems = append(problems, fmt.Errorf("%s requires \"depends_on\", the item this one waits for", a.Action))
@@ -2101,6 +2118,10 @@ func refuseWhenClosed(action, id, status string) string {
 		return fmt.Sprintf("%s is closed and has left the backlog, so there is no work of its priority for it to go before; nothing was placed", id)
 	case actionUnplace:
 		return fmt.Sprintf("%s is closed, and closing it already ended any placement it had; nothing was changed", id)
+	case actionPutFirst:
+		return fmt.Sprintf("%s is closed, so no role owes a step on it; nothing was put first", id)
+	case actionDropFirst:
+		return fmt.Sprintf("%s is closed, and closing it already ended any request to take it first; nothing was changed", id)
 	case actionClose:
 		return fmt.Sprintf("%s is already closed, so there was nothing to close", id)
 	case actionRetire:
@@ -2536,6 +2557,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.placeFirst(ctx, outcome)
 	case actionUnplace:
 		s.removePlacement(ctx, outcome)
+	case actionPutFirst:
+		s.putFirst(ctx, outcome)
+	case actionDropFirst:
+		s.dropFirst(ctx, outcome)
 	case actionLink:
 		dependsOn := strings.TrimSpace(action.DependsOn)
 		// A parent made to wait on work broken out of it waits for ever; see

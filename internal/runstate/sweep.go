@@ -679,6 +679,10 @@ const MaxSweepDelivered = 200
 // whose note could not be written, so the next pass writes it rather than
 // counting itself a repeat of a note the item does not carry. A record written
 // before passes carried either wrote its note.
+//
+// NamedFirst is, on an item the Lead Product Manager named for this pass to
+// take first (beads.PassFirst), the line saying who named it, when, and why.
+// Such items lead the order, so a pass that left one is what status names.
 type DeliveredWork struct {
 	ID             string `json:"id"`
 	Priority       int    `json:"priority"`
@@ -691,6 +695,7 @@ type DeliveredWork struct {
 	SentBack       bool   `json:"sent_back,omitempty"`
 	NoteRepeated   bool   `json:"note_repeated,omitempty"`
 	NoteUnwritten  bool   `json:"note_unwritten,omitempty"`
+	NamedFirst     string `json:"named_first,omitempty"`
 }
 
 // What a pass did about an item it was told not to leave again.
@@ -1256,6 +1261,8 @@ func (s Sweep) Validate() error {
 			problems = append(problems, fmt.Errorf("delivered[%d] reason is %d bytes, limit is %d", i, len(delivered.Reason), MaxSweepTextBytes))
 		case len(delivered.HeldOutside) > MaxSweepTextBytes:
 			problems = append(problems, fmt.Errorf("delivered[%d] held outside is %d bytes, limit is %d", i, len(delivered.HeldOutside), MaxSweepTextBytes))
+		case len(delivered.NamedFirst) > MaxSweepTextBytes:
+			problems = append(problems, fmt.Errorf("delivered[%d] named first is %d bytes, limit is %d", i, len(delivered.NamedFirst), MaxSweepTextBytes))
 		case delivered.Settled != "" && delivered.Settled != SettledDecided && delivered.Settled != SettledAsked:
 			problems = append(problems, fmt.Errorf("delivered[%d] settled %q must be %q or %q", i, delivered.Settled, SettledDecided, SettledAsked))
 		case delivered.Settled != "" && !delivered.Taken:

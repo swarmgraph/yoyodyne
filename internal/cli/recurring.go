@@ -350,13 +350,19 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole, 
 	items, err := w.items.List(ctx, "")
 	if err != nil {
 		problem := fmt.Errorf("read the work waiting in the %s's conversation: %w", role.Title(), err)
-		return orchestrator.ConversationWorkReading{Section: contextbundle.ConversationWorkSection(nil, problem.Error())}, problem
+		return orchestrator.ConversationWorkReading{Section: contextbundle.ConversationWorkSection(role, nil, problem.Error())}, problem
 	}
 	waiting := readmodel.ConversationWork(items, role)
 	var reading orchestrator.ConversationWorkReading
 	if orchestrator.KeepsStandingRulings(role) {
 		kept := waiting[:0:0]
 		for _, item := range waiting {
+			// An item named first for this pass is put to it whatever its
+			// ruling, because naming it is asking for this pass's step on it.
+			if item.FirstInPassOf(role) != nil {
+				kept = append(kept, item)
+				continue
+			}
 			state := orchestrator.WaitingStateOf(item, role, w.citedContents(item))
 			reading.States = append(reading.States, state)
 			if state.Ruled && standing.Holds(state.Snapshot) {
@@ -367,7 +373,8 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole, 
 		}
 		waiting = kept
 	}
-	reading.Section = contextbundle.ConversationWorkSection(waiting, "")
+	reading.Section = contextbundle.ConversationWorkSection(role, waiting, "")
+	reading.Named = contextbundle.ConversationWorkNamed(role, waiting)
 	unfinished := map[string]struct{}{}
 	for _, item := range items {
 		if item.Status != "closed" {
@@ -375,7 +382,11 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole, 
 		}
 	}
 	for _, item := range contextbundle.ConversationWorkListed(waiting) {
-		reading.Items = append(reading.Items, runstate.DeliveredWork{ID: item.ID, Priority: item.Priority, HeldOutside: heldOutside(item, unfinished)})
+		delivered := runstate.DeliveredWork{ID: item.ID, Priority: item.Priority, HeldOutside: heldOutside(item, unfinished)}
+		if named := item.FirstInPassOf(role); named != nil {
+			delivered.NamedFirst = named.Line()
+		}
+		reading.Items = append(reading.Items, delivered)
 	}
 	return reading, nil
 }
@@ -445,6 +456,21 @@ func (n trackerNotes) ItemNotes(ctx context.Context, id string) (string, error) 
 
 func (n trackerNotes) AppendNote(ctx context.Context, id, note string) error {
 	_, err := n.tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note})
+	return err
+}
+
+// EndFirstInPass ends the request putting an item first in the role's next
+// pass, once a pass of that role took it. The item is read first, so a request
+// made again since to another role, or already ended, is left as it stands.
+func (n trackerNotes) EndFirstInPass(ctx context.Context, id string, role domain.AgentRole, note string) error {
+	item, err := n.tracker.Show(ctx, id)
+	if err != nil {
+		return err
+	}
+	if item.FirstInPassOf(role) == nil {
+		return nil
+	}
+	_, err = n.tracker.Update(ctx, id, beads.WorkItemChange{PassFirst: &beads.PassFirst{}, AppendNotes: note})
 	return err
 }
 

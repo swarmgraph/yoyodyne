@@ -30,7 +30,15 @@ says so beside the item. At most three items are placed in one priority at a
 time, `unplace` takes a placement back, and a placement ends by itself when the
 item closes or its priority changes. A placement never lifts an item above a
 higher priority, never starts one that is parked or otherwise held, and never
-goes ahead of work on a change a run has already written. Items at the same
+goes ahead of work on a change a run has already written. A placement orders
+developer runs, so it cannot reach a step a role owes on an item, such as the
+development manager taking off a design hold: for that the Lead Product Manager
+uses `put-first`, naming the item and the role (`development-manager` or
+`architect`). That role's next recurring pass is told the item above everything
+else it carries and is handed it first, whatever its priority. The request ends
+when a pass of that role takes the item or the item closes, `drop-first` takes it
+back, and while a pass leaves it `yoyo status` shows it as NOT TAKEN with the
+role's reason. Items at the same
 priority that nobody placed are in no order anybody decided: the harness takes
 them oldest-admitted first, so an item already waiting is not passed over for one
 admitted after it while it can start — one that is held, unready, or waiting for
