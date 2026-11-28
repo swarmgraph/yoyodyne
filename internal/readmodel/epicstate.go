@@ -94,6 +94,60 @@ type EpicStanding struct {
 	// TakenOut is each item the operator took out of a delivered epic, with the
 	// operator's words, shown beside the delivery.
 	TakenOut []EpicTakenOut `json:"taken_out,omitempty"`
+	// Feedback is each comment left on a member's merged pull request once the
+	// epic was delivered, and the item it became, shown beside the epic while that
+	// item is open and outside it, also once the epic opened again for another
+	// reason. It starts nothing; the Lead Product
+	// Manager asks the operator whether to add it.
+	Feedback []EpicFeedback `json:"feedback,omitempty"`
+}
+
+// EpicFeedback is one comment left after delivery and the item it became, which
+// is empty until the harness has filed it.
+type EpicFeedback struct {
+	Comment     string `json:"comment"`
+	Member      string `json:"member"`
+	PullRequest int    `json:"pull_request"`
+	Says        string `json:"says"`
+	WorkItemID  string `json:"work_item_id,omitempty"`
+}
+
+// feedbackAfterDelivery is each comment the naming read once the epic was
+// delivered whose item is not closed and has not been put in the epic.
+func feedbackAfterDelivery(epic epicscope.Epic, entry epicprogress.Entry, items map[string]beads.WorkItem) []EpicFeedback {
+	var feedback []EpicFeedback
+	for _, comment := range entry.Comments {
+		later := comment.Later
+		if later == nil || later.Item != "" && (epic.Has(later.Item) || entry.Has(later.Item) || items[later.Item].Status == "closed") {
+			continue
+		}
+		feedback = append(feedback, EpicFeedback{Comment: comment.ID, Member: comment.Member, PullRequest: comment.PullRequest, Says: later.Says, WorkItemID: later.Item})
+	}
+	return feedback
+}
+
+// EpicFeedbackWaiting is each comment left after delivery, in every naming the
+// operator has not ended, whose item is not closed and is not in its epic, as the
+// lines the Lead Product Manager's turns are shown. items is what is known of the
+// items filed; one not in it is shown.
+func EpicFeedbackWaiting(record epicscope.Record, view epicprogress.View, items map[string]beads.WorkItem) []string {
+	var lines []string
+	for _, epic := range record.OpenEpics() {
+		entry, _ := view.Entry(epicprogress.Of(epic))
+		for _, feedback := range feedbackAfterDelivery(epic, entry, items) {
+			lines = append(lines, fmt.Sprintf("Epic %s: feedback %s", epic.WorkItemID, feedback.Line(epic.WorkItemID)))
+		}
+	}
+	return lines
+}
+
+// Line is what status and the Lead Product Manager's turns show for it.
+func (f EpicFeedback) Line(epic string) string {
+	said := fmt.Sprintf("after delivery, on merged pull request #%d of %s (comment %s): %s", f.PullRequest, f.Member, f.Comment, singleLine(f.Says, maxEpicReasonBytes))
+	if f.WorkItemID == "" {
+		return said + "; the harness files it as an item that starts nothing"
+	}
+	return fmt.Sprintf("%s; it is %s, which starts nothing: the Lead Product Manager asks you whether to add it with `yoyo epic add %s %s`, which opens the epic again", said, f.WorkItemID, epic, f.WorkItemID)
 }
 
 // EpicTakenOut is one item the operator took out and has not put back.
@@ -149,6 +203,9 @@ func (s EpicStanding) render() string {
 		for _, out := range s.TakenOut {
 			fmt.Fprintf(&rendered, "    Delivered without %s, which you took out at %s: %s\n", out.WorkItemID, localMoment(out.At), out.Words)
 		}
+	}
+	for _, feedback := range s.Feedback {
+		fmt.Fprintf(&rendered, "    Feedback %s\n", feedback.Line(s.epic))
 	}
 	switch {
 	case s.Cost != nil:
@@ -320,6 +377,9 @@ func (s *epicStandings) of(epic epicscope.Epic) EpicStanding {
 	}
 	standing := s.stateOf(epic, cost, costProblem)
 	standing.Cost, standing.CostProblem, standing.epic = cost, costProblem, epic.WorkItemID
+	if entry, _ := s.view.Entry(epicprogress.Of(epic)); epic.Open() && s.view.Unreadable(epicprogress.Of(epic)) == "" {
+		standing.Feedback = feedbackAfterDelivery(epic, entry, s.items)
+	}
 	return standing
 }
 

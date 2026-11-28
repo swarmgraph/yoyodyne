@@ -2128,7 +2128,9 @@ member's merged pull request: the one whose merge, with its merge commit, the ha
 recorded for that member. It reads them on the same schedule as the pull requests
 waiting for a person's merge, with the same rule for whose words count, so the
 factory's own comments are left out, and approvals are not feedback. Only what was
-said after the recorded merge is read. A pull request closed unmerged is not read,
+said after the merge is read, by the merge time the forge reports on the pull request
+itself, so a comment made after the forge merged it and before the harness recorded
+the merge is read too. A pull request closed unmerged is not read,
 because the item already went back to the Lead Product Manager, and a member done with
 no pull request has nothing to read. With no epic named, or once you end the naming, no
 merged pull request is read.
@@ -2146,8 +2148,21 @@ once a reviewer session that did not write it, given the epic's description, the
 and the comment, judges it inside. Judged outside, or where the session cannot tell, it
 is a question about scope for the Lead Product Manager.
 
-A comment read once the epic is delivered, integrated or handed over, is left as it is
-and records nothing yet; it is read again by every check.
+A comment read once the epic is delivered, integrated or handed over, becomes one
+parked work item that starts nothing, for the Lead Product Manager. The comment is
+written into the epic's entry first, and the item's identifier after the harness files
+it; the item's notes carry a line naming the epic and the comment, by which the harness
+finds it again if it stopped in between. So the same comment read twice, or again after
+a restart, makes one item. Status shows it beside the epic, with the command that adds
+it, and every turn of the Lead Product Manager's conversation, including one your own
+message starts, opens with it, until it is added or closed. Filing it starts no role's
+pass. She decides what it needs: where it should be done she asks you whether to add it,
+and `yoyo epic add <epic> <item>` puts it in and opens the epic again, after which she
+unparks it; where it needs nothing she closes it.
+
+An epic whose standing status cannot work out is skipped for that reading: what was said
+on its members' merged pull requests is neither acted on nor recorded, and is read again
+by the next check.
 
 ## Holding landing on one branch
 

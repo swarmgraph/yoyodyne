@@ -59,10 +59,10 @@ func TestFeedbackReadsReviewsLineCommentsAndCommentsWithTheirAuthors(t *testing.
 func TestFeedbackSaysAMergedRequestIsMerged(t *testing.T) {
 	t.Parallel()
 	runner := feedbackRunner()
-	runner.reply("pulls/7 --jq", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"state":"closed","merged":true,"opener":"factory-bot"}`})
+	runner.reply("pulls/7 --jq", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"state":"closed","merged":true,"merged_at":"2026-11-27T09:30:00Z","opener":"factory-bot"}`})
 	reading, err := GitHub{Runner: runner, Binary: "gh", GitBinary: "git"}.Feedback(context.Background(), 7)
-	if err != nil || reading.State != "MERGED" {
-		t.Fatalf("Feedback() = %q, %v, want MERGED", reading.State, err)
+	if err != nil || reading.State != "MERGED" || !reading.MergedAt.Equal(time.Date(2026, 11, 27, 9, 30, 0, 0, time.UTC)) {
+		t.Fatalf("Feedback() = %q at %v, %v, want MERGED at the forge's merge time", reading.State, reading.MergedAt, err)
 	}
 }
 

@@ -59,7 +59,10 @@ type FeedbackComment struct {
 type FeedbackReading struct {
 	Number int
 	// State is the request's state as the forge names it, such as OPEN.
-	State        string
+	State string
+	// MergedAt is when the forge says the request merged, read with the request
+	// itself, and zero for one that has not merged or where the forge gave no time.
+	MergedAt     time.Time
 	Reviews      []FeedbackReview
 	LineComments []FeedbackComment
 	Comments     []FeedbackComment
@@ -82,7 +85,7 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 	// reading is Unchanged where the forge said so of all four.
 	unchanged := g.Responses != nil
 	requestEndpoint := fmt.Sprintf("repos/{owner}/{repo}/pulls/%d", number)
-	requestSelection := "{state: .state, merged: .merged}"
+	requestSelection := "{state: .state, merged: .merged, merged_at: .merged_at}"
 	var requestBody string
 	if g.Responses != nil {
 		answer, err := g.conditionalRead(ctx, requestEndpoint, requestSelection)
@@ -101,8 +104,9 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 		requestBody = request.Stdout
 	}
 	var head struct {
-		State  string `json:"state"`
-		Merged bool   `json:"merged"`
+		State    string `json:"state"`
+		Merged   bool   `json:"merged"`
+		MergedAt string `json:"merged_at"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(requestBody)), &head); err != nil {
 		return FeedbackReading{}, fmt.Errorf("decode pull request %d: %w", number, err)
@@ -110,6 +114,9 @@ func (g GitHub) Feedback(ctx context.Context, number int) (FeedbackReading, erro
 	reading.State = strings.ToUpper(strings.TrimSpace(head.State))
 	if head.Merged {
 		reading.State = "MERGED"
+		if at, err := time.Parse(time.RFC3339, strings.TrimSpace(head.MergedAt)); err == nil {
+			reading.MergedAt = at.UTC()
+		}
 	}
 
 	type entry struct {

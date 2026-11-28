@@ -79,3 +79,37 @@ func TestAPieceForAMergedCommentJudgedOutsideDoesNotJoin(t *testing.T) {
 		t.Fatal("a piece judged outside joined")
 	}
 }
+
+// Feedback read once the epic was delivered is written before its item is filed,
+// and names one item: read twice, or again by a store opened after a restart, it
+// is the comment that stands, and a second item is refused.
+func TestACommentAfterDeliveryNamesOneItem(t *testing.T) {
+	t.Parallel()
+	root, a, _ := twoNamed(t)
+	comment := Comment{ID: "comment-31", Member: memberA, PullRequest: 7}
+	kept, err := storeAt(t, root).DeliveredCommentRead(a, comment, "teammate said: the flag still has the old name")
+	must(t, err)
+	if kept.Later == nil || kept.Later.Item != "" || kept.Owed != nil || kept.Judgment != "" {
+		t.Fatalf("kept = %#v; want it read after delivery, owing no piece and no item filed yet", kept)
+	}
+	must(t, storeAt(t, root).DeliveredCommentFiled(a, comment.ID, "yoyodyne-later"))
+	again, err := storeAt(t, root).DeliveredCommentRead(a, comment, "said again")
+	must(t, err)
+	if again.Later == nil || again.Later.Item != "yoyodyne-later" || again.Later.Says != "teammate said: the flag still has the old name" {
+		t.Fatalf("read again = %#v; want the comment that stands, with its item", again)
+	}
+	must(t, storeAt(t, root).DeliveredCommentFiled(a, comment.ID, "yoyodyne-later"))
+	wantError(t, storeAt(t, root).DeliveredCommentFiled(a, comment.ID, "yoyodyne-other"), "already became yoyodyne-later")
+	if comments := entry(t, root, a).Comments; len(comments) != 1 {
+		t.Fatalf("comments = %#v, want one", comments)
+	}
+	// A comment first read before delivery keeps its owed piece and becomes no item.
+	_, _, err = storeAt(t, root).MergedCommentRead(a, Comment{ID: "comment-32", Member: memberA, PullRequest: 7}, "rename the flag")
+	must(t, err)
+	before, err := storeAt(t, root).DeliveredCommentRead(a, Comment{ID: "comment-32", Member: memberA, PullRequest: 7}, "rename the flag")
+	must(t, err)
+	if before.Later != nil || before.Owed == nil {
+		t.Fatalf("before = %#v; want the owed piece kept and no item", before)
+	}
+	wantError(t, storeAt(t, root).DeliveredCommentFiled(a, "comment-32", "yoyodyne-later"), "was not read after delivery")
+}

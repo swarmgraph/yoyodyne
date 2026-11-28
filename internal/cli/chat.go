@@ -1044,6 +1044,9 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		EpicCorrections: conversationEpicCorrections(parts),
 		EpicAnswers:     conversationEpicAnswers(parts),
 		EpicLinks:       conversationEpicLinks(parts),
+		// Feedback on a delivered epic's members, which waits on the Lead Product
+		// Manager and is put in front of each of her turns.
+		EpicFeedback: epicFeedbackOf{parts},
 		// Where she records which version of an item stands when two machines'
 		// versions of it could not be merged.
 		TrackerMerge: conversationTrackerMerge(parts),
