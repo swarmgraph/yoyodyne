@@ -30,6 +30,8 @@ type queueForge struct {
 	pushes   []string
 	ensured  []publish.Request
 	readsFor []string
+	// output is what CheckOutput gives for a check's log, and empty where nil.
+	output func(publish.RequiredCheck) (publish.CheckOutput, error)
 }
 
 func (f *queueForge) PushBranch(context.Context, publish.PushRequest) error { return nil }
@@ -51,7 +53,10 @@ func (f *queueForge) RequiredChecks(_ context.Context, commit string, required [
 	return reading, nil
 }
 
-func (f *queueForge) CheckOutput(context.Context, publish.RequiredCheck) (publish.CheckOutput, error) {
+func (f *queueForge) CheckOutput(_ context.Context, check publish.RequiredCheck) (publish.CheckOutput, error) {
+	if f.output != nil {
+		return f.output(check)
+	}
 	return publish.CheckOutput{}, nil
 }
 

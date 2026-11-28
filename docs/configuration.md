@@ -3999,7 +3999,13 @@ digest and with the target still at the candidate's base. A required check
 still running is waited for on the queue's next pass, holding no developer slot.
 A failure is the change's, and goes back to its run for a repair, only where the
 same check passed at the candidate's base on GitHub; where it failed there too,
-the entry waits for the target to move. A required check GitHub has not
+the entry waits for the target to move. When a required check fails, the
+harness reads the failed job's log on GitHub, with secrets removed, and the
+hand-back names each failing Go test the log names, with its package and
+whether the change touches it, and keeps the end of the log, as it does for a
+check run here (see `failing_tests`). A test whose package line is not in the
+end of the log that was read is named without one, and a log that cannot be
+read is said as such, with why. A required check GitHub has not
 started 20 minutes after the push (or half of `wait_limit`, if that is
 shorter), or that ends skipped or cancelled, is asked of GitHub once more: the
 request is written down beside the queue with why, and the entry stays at the
@@ -4265,8 +4271,17 @@ record lists each failing test with its file, under
 `check_failure.failing_tests`. The check's failure output, which goes to the
 developer, the work item's notes and the development manager's list, says the
 same in one line. A merge queue candidate that is handed back over a failed
-check names the failing tests in the reason it is handed back with. At most
-twenty tests are listed, and the line says how many more there were.
+check names the failing tests in the reason it is handed back with: each test,
+the directory its file is in (for Go, its package), and whether the change
+touches that directory, judged as described below against the paths the
+candidate changes. The hand-back also keeps those tests whole and the last
+4 KiB of what the check printed, with secrets removed, and gives both to the
+run's record under `check_failure`, and the last 2 KiB of the output to the work
+item's note and the development manager's list. The output is kept for every
+check that failed, including one no reading applies to, such as `make vet`.
+A required check GitHub runs is named from the failed job's log instead, each
+test with its package, as "Checks on CI" above says. At most twenty tests are
+listed, and the line says how many more there were.
 
 **When the output cannot be read that way.** The reading is all or nothing. If
 any failure in the output cannot be named as a test with its file, the record
