@@ -79,6 +79,8 @@ var structuredStrings = map[string]string{
 	"config_comparison.template_mismatches[].template_path": "the shipped template's path",
 	"config_comparison.template_mismatches[].keys[]":        "names of configuration keys",
 
+	"standing_reports_offered[]": "validated as report ids",
+
 	"run_id":                                      "matched against the run id pattern",
 	"product_id":                                  "a validated identifier",
 	"repository_id":                               "an identifier the configuration names",

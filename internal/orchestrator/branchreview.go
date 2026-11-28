@@ -162,6 +162,10 @@ type BranchReviewOutcome struct {
 	Invariants        []string        `json:"invariants,omitempty"`
 	Reports           []report.Report `json:"reports,omitempty"`
 	ReportProblem     string          `json:"report_problem,omitempty"`
+	// Repeats are reports the reviewer filed that were kept as repeats of a
+	// standing report, matched by plain form: a branch review is handed no list
+	// of standing reports, so it names none.
+	Repeats []report.Counted `json:"repeats,omitempty"`
 	// Shadow says this review was made to measure the reviewer, and gates
 	// nothing. It is carried on the outcome as well as the record so that a
 	// caller reading the verdict cannot read it as an approval either.
@@ -578,8 +582,13 @@ func (b BranchReviewer) collectReportsWithoutToolAudit(outcome *BranchReviewOutc
 		return
 	}
 	for _, reported := range collected {
-		if err := b.Reports.Append(reported); err != nil {
+		filed, err := fileReport(b.Reports, reported, "", nil)
+		if err != nil {
 			b.noteReportProblem(outcome, err)
+			continue
+		}
+		if filed.Repeat != nil {
+			outcome.Repeats = append(outcome.Repeats, report.Counted{Repeat: *filed.Repeat, Count: filed.Count})
 			continue
 		}
 		outcome.Reports = append(outcome.Reports, reported)

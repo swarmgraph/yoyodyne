@@ -377,7 +377,7 @@ func (s *Session) dispatch(ctx context.Context, line string, out io.Writer) (boo
 		if err != nil {
 			fmt.Fprintf(out, "none of these is shown as handled: %v\n", err)
 		}
-		fmt.Fprint(out, renderCollectedReports(s.theme, reports, handled, s.buildGauge(), s.workItemTitles(), s.options.clock().Now(), readmodel.ReadTextTerms(s.options.Repository)))
+		fmt.Fprint(out, renderCollectedReports(s.theme, reports, handled, s.reportRepeats(), s.buildGauge(), s.workItemTitles(), s.options.clock().Now(), readmodel.ReadTextTerms(s.options.Repository)))
 		fmt.Fprintln(out)
 		return false, nil
 	case "/work":

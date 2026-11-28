@@ -38,7 +38,7 @@ import (
 )
 
 type reportsOutput struct {
-	Reports []report.Report `json:"reports"`
+	Reports []listedReport `json:"reports"`
 	// Handlings are what became of the reports somebody has decided about, in
 	// the order they were recorded. They are a separate list rather than a field
 	// on each report because that is what they are on disk: the pile is never
@@ -54,6 +54,14 @@ type reportsOutput struct {
 	// they are counted in could not be found.
 	BuildsProblem string `json:"builds_problem,omitempty"`
 	Error         string `json:"error,omitempty"`
+}
+
+// listedReport is one report as `yoyo reports --json` carries it: the report
+// as its run filed it, and under it every report later runs filed that was
+// kept as a repeat of it.
+type listedReport struct {
+	report.Report
+	Repeats []report.Repeat `json:"repeats,omitempty"`
 }
 
 func readReports(args []string, stdout, stderr io.Writer) int {
@@ -88,6 +96,14 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return reportReportsError(stdout, stderr, *jsonOutput, err)
 	}
+	// The repeats are read with the pile and fail the command with it, for the
+	// reason the handlings do: a count left off is a report that reads as said
+	// once.
+	repeats, err := store.Repeats()
+	if err != nil {
+		return reportReportsError(stdout, stderr, *jsonOutput, err)
+	}
+	repeated := report.RepeatsOf(repeats)
 	// How far each report's build is behind the target branch, asked of the
 	// product's repository. A repository that cannot be found costs the counts
 	// and nothing else: every report still names its build.
@@ -103,7 +119,11 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 		if handlings == nil {
 			handlings = []report.Handling{}
 		}
-		output := reportsOutput{Reports: collected, Handlings: handlings, Builds: gauge.Measure(collected)}
+		listed := make([]listedReport, 0, len(collected))
+		for _, reported := range collected {
+			listed = append(listed, listedReport{Report: reported, Repeats: repeated[reported.ID]})
+		}
+		output := reportsOutput{Reports: listed, Handlings: handlings, Builds: gauge.Measure(collected)}
 		if buildsErr != nil {
 			output.BuildsProblem = buildsErr.Error()
 		}
@@ -136,7 +156,7 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 	// A report is a role's own words, a program manager's digest among them, so
 	// each work item it names is printed with its priority, labels, and title.
 	// A tracker that cannot be listed marks each item as unreadable.
-	writeReports(stdout, theme, collected, handled, gauge, reportTitles(*configPath), reportTerms(*configPath))
+	writeReports(stdout, theme, collected, handled, repeated, gauge, reportTitles(*configPath), reportTerms(*configPath))
 	// Why the counts are missing is said once, under the listing, rather than
 	// under every report it affects.
 	switch {
@@ -176,7 +196,7 @@ func reportBuilds(configPath string) (report.Builds, error) {
 
 // writeReports prints each report dressed by its severity, with what became of
 // it plainly under it, and every work item either names with its priority, labels, and title.
-func writeReports(out io.Writer, theme console.Theme, collected []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, wording ...*readmodel.TextTerms) {
+func writeReports(out io.Writer, theme console.Theme, collected []report.Report, handled map[string]report.Handling, repeated map[string][]report.Repeat, gauge *report.Gauge, titles *readmodel.WorkItemTitles, wording ...*readmodel.TextTerms) {
 	var words *readmodel.TextTerms
 	if len(wording) > 0 {
 		words = wording[0]
@@ -185,6 +205,7 @@ func writeReports(out io.Writer, theme console.Theme, collected []report.Report,
 	for _, reported := range collected {
 		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), text))
+		fmt.Fprint(out, report.RepeatLine(repeated[reported.ID], time.Local))
 		if !reported.ReferencesKept {
 			unresolved += titles.Unresolved(reported.Message)
 		}

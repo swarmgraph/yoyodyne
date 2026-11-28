@@ -65,7 +65,7 @@ func TestStreamingFlagsTheWordsShownBeforeATurnIsCutOff(t *testing.T) {
 func TestTheConversationReportsListingFlagsADigestsWords(t *testing.T) {
 	t.Parallel()
 	digest := report.Report{ID: "report-one", Role: "program-manager", Message: "digest: the posture changed"}
-	text := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, nil, nil, nil, fixedClock{}.Now(), readmodel.ReadTextTerms("../.."))
+	text := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, nil, nil, nil, nil, fixedClock{}.Now(), readmodel.ReadTextTerms("../.."))
 	if !strings.Contains(text, `[wording: "posture" was replaced; write tool access`) {
 		t.Fatalf("digest = %q, want the register's correction beside it", text)
 	}

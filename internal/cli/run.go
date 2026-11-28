@@ -1738,6 +1738,14 @@ func reportCollectedReports(writer io.Writer, theme console.Theme, outcome orche
 			"%sreported %d thing(s) without stopping the run (%s); `yoyo reports` shows them, as does /reports in `yoyo chat`\n",
 			worst.Prefix(), len(outcome.Reports), report.Tally(outcome.Reports))))
 	}
+	// A report kept as a repeat of a standing one says which, and the count it
+	// brought that report to, in place of saying something new was reported.
+	for _, counted := range outcome.Repeats {
+		fmt.Fprint(writer, theme.Severity(console.Severity(counted.Repeat.Severity), counted.Says()+"\n"))
+	}
+	if outcome.ReportNotes != "" {
+		fmt.Fprintln(writer, outcome.ReportNotes)
+	}
 	if outcome.ReportProblem != "" {
 		fmt.Fprintln(writer, outcome.ReportProblem)
 	}
