@@ -164,6 +164,11 @@ type Request struct {
 	// Permit is what this stage's heavy checks ask for their places with
 	// (permits.go). It is read only by a runner given Permits.
 	Permit PermitRequest
+	// Wrap, where set, is given each check's command as the runner would start
+	// it and returns the command to start in its place, such as the same
+	// command under the developer session's restrictions
+	// (DeveloperRestrictions.Wrap). Nil starts every check as it is.
+	Wrap func(execution.Command) (execution.Command, error)
 }
 
 type Runner struct {
@@ -388,7 +393,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			}
 		}
 		gate = gateWithPermit(gate, permit)
-		processResult, err := r.Process.Run(ctx, execution.Command{
+		launched := execution.Command{
 			Name:    shell,
 			Args:    []string{"-c", command},
 			Dir:     request.Directory,
@@ -400,7 +405,19 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			OutputRecord: execution.EventLogOf(request.RunID),
 			Redactor:     redactor,
 			Gate:         gate,
-		}, func(output execution.Output) {
+		}
+		if request.Wrap != nil {
+			wrapped, wrapErr := request.Wrap(launched)
+			if wrapErr != nil {
+				finishPermit(permit, execution.ProcessResult{}, 0)
+				if gate != nil && gate.Hold != nil {
+					_ = gate.Hold.Close()
+				}
+				return results, lastAccepted, fmt.Errorf("prepare check %q to run under its restrictions: %w", safeCommand, wrapErr)
+			}
+			launched = wrapped
+		}
+		processResult, err := r.Process.Run(ctx, launched, func(output execution.Output) {
 			failure.add(redactor.Redact(output.Text))
 			if tests != nil {
 				tests.add(redactor.Redact(output.Text))

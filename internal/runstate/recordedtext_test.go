@@ -254,6 +254,8 @@ var structuredStrings = map[string]string{
 	"install[].directory":                                                                    "the checkout the harness ran the step in",
 	"install[].input_digest":                                                                 "a sha256 digest, validated by InstallRun.Validate",
 	"install[].result":                                                                       "an InstallResult, validated by InstallRun.Validate",
+	"environments[].result":                                                                  "an EnvironmentResult, validated by EnvironmentCheck.Validate",
+	"environments[].where":                                                                   "developer or harness, validated by EnvironmentCheck.Validate",
 	"starting_target.target_branch":                                                          "a local branch name, validated by StartingTarget.Validate",
 	"starting_target.commit":                                                                 "a validated commit",
 	"starting_target.remote_commit":                                                          "a validated commit",

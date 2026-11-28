@@ -3030,6 +3030,11 @@ type activeRun struct {
 	// endpoint pair at that round opens it as a genuine new operation rather than
 	// one already under way (adoptDeveloperRouting).
 	repairBegunHere int
+	// environmentsChecked is set once this process has run the checks of the
+	// environments the work item names (environments.go). It is deliberately
+	// not durable: a resumed or continued run is a new process and runs them
+	// again before its next developer turn.
+	environmentsChecked bool
 
 	// promotionLease is the target branch's promotion lease while integrate
 	// holds it, and nil otherwise. A wait for GitHub part-way through a
@@ -5208,6 +5213,13 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			a.observeDevelopEnded(ctx, err)
 			return err
 		}
+	}
+	// The environments the work item names are checked once the dependencies
+	// are in place and before the turn, so a run none of whose environments is
+	// usable ends here with no attempt spent (environments.go).
+	if err := a.checkEnvironmentsBeforeTurn(ctx); err != nil {
+		a.observeDevelopEnded(ctx, err)
+		return err
 	}
 	// A change this developer proposed that the harness refused opens the prompt,
 	// ahead of the contract and of whatever this invocation is actually for. It is
