@@ -80,6 +80,7 @@ var structuredStrings = map[string]string{
 	"config_comparison.template_mismatches[].keys[]":        "names of configuration keys",
 
 	"standing_reports_offered[]": "validated as report ids",
+	"left_processes[].reported":  "the id of the report the harness filed about the process (report.Collect mints it)",
 
 	"run_id":                                      "matched against the run id pattern",
 	"product_id":                                  "a validated identifier",

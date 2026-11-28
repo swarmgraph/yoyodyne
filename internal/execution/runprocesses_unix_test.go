@@ -145,3 +145,14 @@ func TestRunProcessesStopsADetachedChildHoldingTheLaunchFile(t *testing.T) {
 		t.Fatalf("process %d, which holds the run's launch file, is still running", pid)
 	}
 }
+
+// The check of whether this harness can read a system program's starting
+// environment answers either way and leaves nothing running. Its answer is
+// logged: in a developer run's sandbox on macOS it has been no.
+func TestReadsSystemProgramEnvironmentAnswers(t *testing.T) {
+	readable, err := (RunProcesses{}).ReadsSystemProgramEnvironment()
+	if err != nil {
+		t.Fatalf("ReadsSystemProgramEnvironment() error = %v", err)
+	}
+	t.Logf("the starting environment of %s can be read here: %v", systemProgram, readable)
+}

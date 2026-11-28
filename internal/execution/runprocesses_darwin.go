@@ -71,7 +71,8 @@ func darwinStartingArguments(pid int) (string, []string) {
 	if len(fields) < argc {
 		return command, nil
 	}
-	var environment []string
+	// Read, even if empty: nil is kept for a record that could not be read.
+	environment := []string{}
 	for _, field := range fields[argc:] {
 		if len(field) == 0 {
 			break

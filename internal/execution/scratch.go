@@ -85,6 +85,18 @@ func PrepareScratchDirectory(stateRoot, runID string) (string, error) {
 	return created, nil
 }
 
+// ScratchDirectoryPath names where the run named by runID has its scratch
+// directory under stateRoot, as PrepareScratchDirectory makes it, and creates
+// nothing. It is for a reader that only has to recognise the folder, such as
+// the search for processes working inside a run's folders.
+func ScratchDirectoryPath(stateRoot, runID string) (string, error) {
+	root, relative, err := scratchUnder(stateRoot, runID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root.Path(), filepath.FromSlash(relative)), nil
+}
+
 // RemoveScratchDirectory removes the scratch directory of the run named by
 // runID, and everything in it, from under stateRoot. A directory already gone
 // is a removal already made.

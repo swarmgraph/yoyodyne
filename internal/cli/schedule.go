@@ -811,8 +811,11 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		summons = trigger
 	}
 	pull := orchestrator.Pull{
-		Tracker:   tracker,
-		Runs:      parts.store,
+		Tracker: tracker,
+		Runs:    parts.store,
+		// What runs with nothing going left running, stopped as the session
+		// starts; the maintenance pass takes the same stop on every pass.
+		Leftovers: leftoversFrom(parts.store, parts.reports, parts.stateRoot, parts.config, time.Now),
 		Stoppages: parts.store,
 		Decisions: parts.store.Triage(),
 		Remains:   remainsOf(parts),
