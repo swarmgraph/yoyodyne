@@ -65,3 +65,14 @@ The item "The weekly reading of what reviews achieved counts a second document
 review's cost under that review, not under the run's next verdict"
 (yoyodyne-ifd.432.59) is open, asks for the same thing, and already waits on
 the second-document-review item. One of the two should be retired.
+
+## What was built once that change landed
+
+The second-document-review change landed, and the four points above were built
+in the item's next run. Each second review records the provider sessions it ran
+in (`runstate.ReviewComparison.Sessions`), and the reading of what the spend
+accomplished matches each comparison line in the cost log to the review whose
+record names its session (`internal/readmodel/comparisoncost.go`). It lists
+each second review with its own cost, and counts comparison lines no record
+names as the run's second-review cost without tying them to one review.
+`docs/reporting.md` says where that is shown.

@@ -2056,6 +2056,9 @@ var standingWarningAgeSeconds = 5 * 60;
     row("reviews", reviews.length === 0 ? "no review in these weeks" : count((reading.reviews || []).length, "review") + ": " + reviews.map(function (share) {
       return share.count + " " + share.says + " (" + Math.round(share.share * 100) + "%)";
     }).join(", "));
+    if (reading.comparisons_says) {
+      row("second reviews", reading.comparisons_says);
+    }
     var completedItems = (reading.completed || []).length;
     row("completed", completedItems === 0 ? "no item completed" : count(completedItems, "item") + " at " + money(reading.cost_per_completed_item) + " each in full, development, review, retries, and management together");
     if (reading.unnamed_passes) {

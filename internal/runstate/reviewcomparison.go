@@ -37,6 +37,13 @@ type ReviewComparison struct {
 	CheaperFindings int    `json:"cheaper_findings,omitempty"`
 	// Problem says why the second review reached no verdict.
 	Problem string `json:"problem,omitempty"`
+	// Sessions are the provider sessions the second review ran in, read off the
+	// events that carried what it cost, a failed review's included. Each line the
+	// review wrote to the cost log names one of them, which is how the
+	// accomplishment reading counts that cost as this review's own rather than
+	// matching it to a verdict by time. A review the harness did not make has
+	// none, and so does every pair recorded before they were kept.
+	Sessions []string `json:"sessions,omitempty"`
 }
 
 // Compared reports a pair in which both reviews reached a verdict.

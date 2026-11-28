@@ -50,7 +50,11 @@ func publishComparedDesign(t *testing.T, compare bool, whileDeciding func(*testi
 			}
 			if cheaper {
 				result.FinalText = repairVerdict
+				// The second review runs in a session of its own, which is what
+				// ties its cost line to it.
+				result.SessionID = "second-review-session"
 			}
+			result.CostUSD, result.CostReported = cost, true
 			result.LastEvent, err = emitTerminal(request, domain.RoleReviewer, cost, false)
 			return result, err
 		}
@@ -154,8 +158,20 @@ func TestASecondDocumentReviewThatDisagreesIsRecordedAndChangesNothing(t *testin
 		Spend: recordedSpendLines(log.lines), Runs: runs,
 		Now: func() time.Time { return state.StartedAt.AddDate(0, 0, 2) },
 	}, readmodel.AccomplishmentRange{From: day, To: state.StartedAt.AddDate(0, 0, 1).Format("2006-01-02")})
-	if len(accomplished.Reviews) != 1 || accomplished.Reviews[0].Outcome != readmodel.ReviewApprovedUnchanged || accomplished.Reviews[0].Invocations != 1 {
-		t.Fatalf("accomplished reviews = %+v, want the deciding approval alone (%s)", accomplished.Reviews, accomplished.Problem)
+	if len(accomplished.Reviews) != 1 || accomplished.Reviews[0].Outcome != readmodel.ReviewApprovedUnchanged || accomplished.Reviews[0].Invocations != 1 || accomplished.Reviews[0].CostUSD != 1 {
+		t.Fatalf("accomplished reviews = %+v, want the deciding approval alone at its own cost (%s)", accomplished.Reviews, accomplished.Problem)
+	}
+	// The second review's cost is matched to it by the session its line names,
+	// counted once as its own, and the total is every line's.
+	if session := log.lines[1].SessionID; session == "" || len(comparison.Sessions) != 1 || comparison.Sessions[0] != session {
+		t.Fatalf("second review sessions = %v, want the session its cost line names (%q)", comparison.Sessions, session)
+	}
+	if seconds := accomplished.Comparisons; len(seconds) != 1 || seconds[0].Unattributed || seconds[0].RunID != state.RunID ||
+		seconds[0].Model != "sonnet" || seconds[0].Decision != "repair" || seconds[0].CostUSD != 0.25 || seconds[0].Invocations != 1 {
+		t.Fatalf("second reviews = %+v, want the one on sonnet at its own cost", seconds)
+	}
+	if accomplished.ComparisonCostUSD != 0.25 || accomplished.CostUSD != 1.25 || !strings.Contains(accomplished.ComparisonsSays, "1 second review of documents on the cheaper model cost $0.25") {
+		t.Fatalf("second reviews cost %v of %v in all, said %q; want 0.25 of 1.25", accomplished.ComparisonCostUSD, accomplished.CostUSD, accomplished.ComparisonsSays)
 	}
 }
 
