@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-11-28T06:44:51.527313Z
       reason: 'yoyodyne-ifd.428.218.1: answers the developer''s report 9f2df9c3 that macOS gave no environment for a system program. An unreadable environment still never makes a process the run''s; a running parent carrying the run''s identifier now does; a named process says when its environment could not be read; the build records whether the harness outside the sandbox can read it. Only Decision 2 changes.'
+    - action: amended
+      by: architect
+      at: 2026-11-28T10:38:49.932105Z
+      reason: 'Answers reviewer report ebda7f24 on yoyodyne-ifd.428.218.2: Decisions 5 and 6 and ''Where it lives'' now say connections are read with lsof on macOS, and on Linux from /proc and by asking the kernel, as that piece built. Decision 2 again says a process with a sign of the run is stopped unless Decision 6 leaves it running, which the last revision lost. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-11-28T06:44:51.527313Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4326, for document-4326.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-11-28T10:38:49.932105Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 4354, for document-4354.1 under the automatic approval policy
 ---
 # Stopping every process a run started when the run ends
 
@@ -63,7 +72,7 @@ The harness lists the processes of the user it runs as. It never looks at anothe
 
 For each process it reads the environment the process started with. On macOS this is the kernel's argument and environment record for the process. On Linux it is the process's environ file. macOS can withhold that record. On November 27, 2026, in a developer run's sandbox, it gave no environment for a test process running /bin/sleep, while it gave one for the same kind of process started from the Go test binary. A process whose environment cannot be read is treated as carrying no identifier. It is never taken to be the run's on that account alone.
 
-A process is the run's, and is stopped, when any of these holds:
+A process is the run's when any of these holds, and is stopped unless Decision 6 leaves it running:
 
 - its starting environment carries this run's identifier;
 - a process it descends from, still running, carries this run's identifier;
@@ -103,7 +112,7 @@ A process the harness could not stop is written into the run's record with:
 
 - its number;
 - its command;
-- every address and port it listens on, read with `lsof`;
+- every address and port it listens on, read as Decision 6 reads connections: with `lsof` on macOS, and on Linux from the process's entries under /proc and by asking the kernel;
 - why it could not be stopped.
 
 The same record is kept for a process named under Decision 2. `yoyo status` shows each one under its run, for example:
@@ -118,7 +127,7 @@ Every maintenance pass tries again and clears the line once the process is gone.
 
 The case that matters is a build server or other helper a run started, which another run, a person, or the harness itself has connected to since. Stopping it would break work that is not this run's.
 
-Before any stop under Decision 3, whichever of its three points calls it, the harness reads each found process's open local connections with `lsof`: connections over 127.0.0.1 or the machine's other loopback addresses, and connections over a socket file. For each one it finds the process at the other end.
+Before any stop under Decision 3, whichever of its three points calls it, the harness reads each found process's open local connections: connections over 127.0.0.1 or the machine's other loopback addresses, and connections over a socket file. On macOS it reads them with `lsof`. On Linux it reads them from the process's entries under /proc and by asking the kernel for its open sockets, without running `lsof`. For each connection it finds the process at the other end.
 
 A found process is **in use, and left running**, when any of its open local connections leads to:
 
@@ -144,7 +153,7 @@ Being in use is not a fault, so it never counts toward the three passes of Decis
 
 ## Where it lives
 
-The search and the stop belong to `internal/execution`, the package the provider adapters hand each command to. It already starts the commands for both providers, so one owner both marks a process and stops it. The code that reads another process's environment, working directory and connections is split by operating system.
+The search and the stop belong to `internal/execution`, the package the provider adapters hand each command to. It already starts the commands for both providers, so one owner both marks a process and stops it. The code that reads another process's environment, working directory and connections is split by operating system: on macOS it uses the kernel's process records and `lsof`, and on Linux it reads /proc and asks the kernel.
 
 The orchestrator calls it at the end of a session and of a run, and the maintenance pass calls it as point 3 of Decision 3 says. Neither keeps a list of its own.
 
