@@ -1106,8 +1106,10 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// The invocation carries the role it is made for, so the verbs that record
 	// a person's decision -- pause, resume, release, approve -- can refuse a
 	// shell this agent opens. It is under the harness's own family, which the
-	// allowlist carries through to everything the agent goes on to start.
-	environment := execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role)
+	// allowlist carries through to everything the agent goes on to start. It
+	// carries the run it is made for too, which is how the harness finds what
+	// the session started once it ends (execution.RunProcesses).
+	environment := execution.WithRunIdentity(execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role), request.RunID)
 	if lifetime := promptCacheLifetimeFor(request.Role); lifetime != "" {
 		environment = withPromptCacheLifetime(environment, lifetime)
 	}

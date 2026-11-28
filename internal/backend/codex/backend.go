@@ -696,6 +696,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		environment = withProviderHome(environment, prepared)
 	}
 	environment = execution.WithAgentRole(environment, request.Role)
+	// The run it is made for, which is how the harness finds what the session
+	// started once it ends (execution.RunProcesses).
+	environment = execution.WithRunIdentity(environment, request.RunID)
 	if profile == profileDeveloper {
 		environment = execution.WithGoBuildCache(environment, repository)
 		if len(directories) > 0 {
