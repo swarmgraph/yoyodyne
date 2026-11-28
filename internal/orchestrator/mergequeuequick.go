@@ -315,6 +315,7 @@ func (w MergeQueueWorker) settleForge(ctx context.Context, lease *runstate.Lease
 		since = last
 	}
 	overdue := !since.IsZero() && w.now().Sub(since) > ci.WaitLimitInForce()
+	prior := generation.CIChecks
 	read, err := w.readCIChecks(ctx, lease, key, generation)
 	if err != nil {
 		if !overdue {
@@ -329,15 +330,18 @@ func (w MergeQueueWorker) settleForge(ctx context.Context, lease *runstate.Lease
 		return generation, "", false, nil
 	}
 	if failed := evidence.FailedOnForge(); len(failed) > 0 {
+		// What GitHub's log of each failed job says goes on the record, so the
+		// hand-back names the failing tests and carries the end of the log
+		// (mergequeueforgefailure.go).
+		revised := w.readForgeFailures(ctx, generation, *evidence, prior, failed)
 		if base, err := w.Pipeline.CIForge.RequiredChecks(ctx, generation.TargetBase, failed); err == nil && base.Commit == generation.TargetBase {
-			revised := *evidence
 			for _, check := range base.Checks {
 				revised.AtBase = append(revised.AtBase, runstate.CICheckEvidence{Name: check.Name, Result: string(check.Result), Commit: check.Commit})
 			}
-			generation.CIChecks = &revised
-			if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
-				return generation, "", false, fmt.Errorf("record the forge's checks at generation %d's base: %w", generation.Number, err)
-			}
+		}
+		generation.CIChecks = &revised
+		if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
+			return generation, "", false, fmt.Errorf("record the forge's failed checks on generation %d's candidate and its base: %w", generation.Number, err)
 		}
 		return generation, "", false, nil
 	}
@@ -433,6 +437,15 @@ func forgeFailure(failure MergeQueueFailure, generation runstate.MergeQueueGener
 	}
 	failure.Reason = fmt.Sprintf("the forge's required check %s failed on generation %d's candidate %s, %s at %s with %s merged onto it, and passes on %s at that base; the review was stopped when it failed",
 		check, generation.Number, generation.Candidate, generation.TargetBranch, generation.TargetBase, strings.Join(generation.Heads, ", "), generation.TargetBranch)
+	// What GitHub's log of the failed job says goes with it, as a local check's
+	// failing tests do (ClassifyMergeQueueFailure): the tests, each with its
+	// package and whether the change touches it, or why the log was not read.
+	if read := evidence.FailureOf(check); read != nil {
+		failure.FailedCheck = read
+		failure.Reason += ". " + strings.TrimSuffix(read.DescribeTests(), ".")
+	} else {
+		failure.Reason += ". GitHub's log of the failed job was not read for this candidate, so its failing tests are not named here"
+	}
 	return defect(failure, generation, suspected), true
 }
 

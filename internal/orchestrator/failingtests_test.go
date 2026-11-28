@@ -135,11 +135,14 @@ func TestACandidateHandedBackForAFailedCheckNamesItsFailingTests(t *testing.T) {
 	if result.Passed || !strings.HasPrefix(result.FailingTests, named) {
 		t.Fatalf("the candidate's record of %s = %#v, want its failing test named", failing, result)
 	}
+	// The hand-back's reason names the test with its directory and whether the
+	// change touches it; the change adds feature.txt at the top, not there.
+	const judged = "Failing test: TestFeature in internal/feature (internal/feature/feature_test.go), a directory the change does not touch"
 	recovered, err := f.recover()
-	if err != nil || recovered.Failure.Class != runstate.MergeQueueCandidateDefect || !strings.Contains(recovered.Failure.Reason, named) {
+	if err != nil || recovered.Failure.Class != runstate.MergeQueueCandidateDefect || !strings.Contains(recovered.Failure.Reason, judged) {
 		t.Fatalf("Recover() = %#v, %v; want the change's defect, naming its failing test", recovered, err)
 	}
-	if handback := f.landing().Handback; handback == nil || !strings.Contains(handback.Reason, named) || !strings.HasPrefix(handback.Reason, "! grep -q implemented feature.txt") {
+	if handback := f.landing().Handback; handback == nil || !strings.Contains(handback.Reason, judged) || !strings.HasPrefix(handback.Reason, "! grep -q implemented feature.txt") {
 		t.Fatalf("handback = %#v, want it to name the failed check and its failing test", handback)
 	}
 }

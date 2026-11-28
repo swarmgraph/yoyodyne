@@ -485,6 +485,11 @@ type MergeQueueCheckResult struct {
 	// (checks.FailingTests.Describe). The hand-back of a candidate the check
 	// failed carries it, so the developer is told which tests failed.
 	FailingTests string `json:"failing_tests,omitempty"`
+	// Failure is, for a check that ran to its own end and failed, its failing
+	// tests judged against the candidate's changed paths and the end of its
+	// output (MergeQueueFailedCheck). It is nil for every other result, and on
+	// a record written before it was kept.
+	Failure *MergeQueueFailedCheck `json:"failure,omitempty"`
 }
 
 // MergeQueueReviewEvidence is one independent review of a generation's
@@ -559,7 +564,7 @@ type MergeQueueInterruption struct {
 
 func sameInterruption(a, b MergeQueueInterruption) bool {
 	return a.Stage == b.Stage && a.StartedAt.Equal(b.StartedAt) && a.FoundAt.Equal(b.FoundAt) &&
-		a.Problem == b.Problem && a.Binding == b.Binding && slices.Equal(a.Passed, b.Passed) && a.Unreadable == b.Unreadable
+		a.Problem == b.Problem && a.Binding == b.Binding && sameCheckResults(a.Passed, b.Passed) && a.Unreadable == b.Unreadable
 }
 
 // UnreadableReviews counts the replies to this generation's review that no
@@ -832,6 +837,12 @@ func (g MergeQueueGeneration) validate() error {
 			}
 			if len(result.FailingTests) > maxMergeQueueEvidenceText {
 				problems = append(problems, errors.New("a check's failing tests exceed their bound"))
+			}
+			if result.Failure != nil && (result.Passed || result.Failure.Command != result.Command) {
+				problems = append(problems, errors.New("a check's failure is recorded beside a pass, or names another check"))
+			}
+			if err := result.Failure.validate(); err != nil {
+				problems = append(problems, err)
 			}
 		}
 	}
@@ -1155,12 +1166,7 @@ func sameCheckEvidence(a, b *MergeQueueCheckEvidence) bool {
 		!slices.Equal(a.Kept, b.Kept) || a.RunWhole != b.RunWhole {
 		return false
 	}
-	for index := range a.Results {
-		if a.Results[index] != b.Results[index] {
-			return false
-		}
-	}
-	return true
+	return sameCheckResults(a.Results, b.Results)
 }
 
 func sameReviewEvidence(a, b *MergeQueueReviewEvidence) bool {
@@ -1319,6 +1325,12 @@ type MergeQueueCIEvidence struct {
 	// says whether the failure is the change's or the target's, as a local
 	// check's base check does (BaseCheck).
 	AtBase []CICheckEvidence `json:"at_base,omitempty"`
+	// Failures is, for each required check that failed on the candidate, what
+	// GitHub's log of its job says: the failing tests it names, each with its
+	// package and judged against the candidate's paths, and the end of the log
+	// with secrets removed, or why the log could not be read. The hand-back of
+	// a candidate the forge failed carries the one for its failing check.
+	Failures []MergeQueueFailedCheck `json:"failures,omitempty"`
 	// FellBack is why the forge's checks could not settle this candidate — one
 	// that ended without judging it, or one still unfinished past the wait
 	// limit — so the entry's next candidate runs the full local checks instead.
@@ -1339,6 +1351,21 @@ func (e *MergeQueueCIEvidence) FailedOnForge() []string {
 		}
 	}
 	return failed
+}
+
+// FailureOf is what GitHub's log said about a required check that failed on
+// the candidate, and nil where it was not read.
+func (e *MergeQueueCIEvidence) FailureOf(name string) *MergeQueueFailedCheck {
+	if e == nil {
+		return nil
+	}
+	for index := range e.Failures {
+		if e.Failures[index].Command == name {
+			failure := e.Failures[index]
+			return &failure
+		}
+	}
+	return nil
 }
 
 // ResultAtBase is a required check's result on the candidate's base, and
@@ -1409,6 +1436,14 @@ func (e *MergeQueueCIEvidence) validate(binding string) error {
 	}
 	if len(e.FellBack) > maxMergeQueueEvidenceText {
 		problems = append(problems, errors.New("why the forge's checks could not settle exceeds its bound"))
+	}
+	if len(e.Failures) > maxMergeQueueCIChecks {
+		problems = append(problems, fmt.Errorf("its forge check reading records %d failed checks' logs, and a generation keeps at most %d", len(e.Failures), maxMergeQueueCIChecks))
+	}
+	for index := range e.Failures {
+		if err := e.Failures[index].validate(); err != nil {
+			problems = append(problems, fmt.Errorf("a failed forge check: %w", err))
+		}
 	}
 	return errors.Join(problems...)
 }

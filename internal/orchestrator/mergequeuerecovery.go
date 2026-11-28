@@ -142,6 +142,10 @@ type MergeQueueFailure struct {
 	Reason string
 	// Review is the candidate's review, where its verdict is what failed.
 	Review *runstate.ReviewBefore
+	// FailedCheck is the check that ran to its end and failed, with its failing
+	// tests and the end of its output, where one is what failed and its record
+	// keeps them.
+	FailedCheck *runstate.MergeQueueFailedCheck
 }
 
 // MergeQueueFailureEvidence is what a failed candidate is classified from.
@@ -264,11 +268,20 @@ func ClassifyMergeQueueFailure(evidence MergeQueueFailureEvidence) (MergeQueueFa
 		}
 		failure.Reason = fmt.Sprintf("%s failed on generation %d's candidate, %s at %s with %s merged onto it, and passes on %s at that base",
 			result.Command, generation.Number, generation.TargetBranch, generation.TargetBase, strings.Join(generation.Heads, ", "), generation.TargetBranch)
-		// The failing tests the project's reading named go with it, so the
-		// developer the change is handed back to is told which tests failed
-		// rather than only which check.
-		if result.FailingTests != "" {
-			failure.Reason += ". " + strings.TrimSuffix(result.FailingTests, ".")
+		// The failing tests the project's reading named go with it, each with
+		// its directory and whether the change touches it, so whoever the change
+		// is handed back to is told which tests failed rather than only which
+		// check; the check's details, its output included, go whole on the
+		// hand-back (decide).
+		tests := result.FailingTests
+		if result.Failure != nil {
+			failure.FailedCheck = result.Failure
+			if described := result.Failure.DescribeTests(); described != "" {
+				tests = described
+			}
+		}
+		if tests != "" {
+			failure.Reason += ". " + strings.TrimSuffix(tests, ".")
 		}
 		return defect(failure, generation, evidence.SuspectedHeads), true, nil
 	}
@@ -863,7 +876,7 @@ func (p MergeQueuePromoter) targetRed(ctx context.Context, target string) func(s
 func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueHandback {
 	generation := failure.Generation
 	handback := &runstate.MergeQueueHandback{
-		At: q.now(), Class: failure.Class, Reason: oneline.Fold(failure.Reason, 1500), Review: failure.Review,
+		At: q.now(), Class: failure.Class, Reason: oneline.Fold(failure.Reason, 1500), Review: failure.Review, FailedCheck: failure.FailedCheck,
 		Generation: generation.Number, Binding: generation.Binding(), TargetBase: generation.TargetBase,
 		Heads: append([]string(nil), generation.Heads...), Candidate: generation.Candidate,
 		ApprovedHead: q.entry.ApprovedHead, ResolvedHead: q.entry.ResolvedHead,
@@ -1219,6 +1232,15 @@ type MergeQueueRunHandback struct {
 
 var _ MergeQueueRepair = MergeQueueRunHandback{}
 
+// failedCheckOutputTitle opens the end of a failed check's output where a
+// hand-back writes it, on the run's failed check and on the item.
+const failedCheckOutputTitle = "End of the failed check's output, secrets removed:\n"
+
+// maxHandbackNoteOutputBytes bounds the end of a failed check's output a
+// hand-back writes on the item and the blocker; the run's own failed check
+// keeps more of it.
+const maxHandbackNoteOutputBytes = 2 << 10
+
 // mergeQueueHandbackMarker is the line a hand-back writes on the run's failure
 // and blocker, which is how a second hand-back of the same candidate finds the
 // first already made.
@@ -1259,6 +1281,12 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	}
 	if handback.Continuation == runstate.MergeQueueBudgetExhausted {
 		notes += fmt.Sprintf(" It has spent %d of its %d repair attempts, so what follows is the development manager's decision.", handback.RepairAttempts, handback.RepairBudget)
+	}
+	if failed := handback.FailedCheck; failed != nil && failed.Output != "" && !resumes {
+		// The end of what the failed check printed goes on the item and the
+		// blocker too, so whoever decides between a repair and a fresh run reads
+		// the failure itself rather than running the check again to find it.
+		notes += "\n" + failedCheckOutputTitle + boundedTail(failed.Output, maxHandbackNoteOutputBytes)
 	}
 	// The item is read before the run's record changes, because a harness
 	// run's item takes its status from that record (HarnessRunItems). The run's
@@ -1319,6 +1347,21 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 		// repair earns its checks again, as a red queued merge's does
 		// (handBackRedMergeWithCheck).
 		state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes), QueueReview: handback.Review}
+		if failed := handback.FailedCheck; failed != nil {
+			// The check that failed on the candidate is recorded as a run's own
+			// failed check is: its failing tests, each judged against the
+			// change, and the end of what it printed, after the marker and the
+			// reason the hand-back is found by.
+			// A required check GitHub ran keeps the command the reason names it
+			// by, which says it ran on the forge.
+			if failed.ForgeTests == nil && failed.Unread == "" {
+				state.CheckFailure.Command = failed.Command
+			}
+			state.CheckFailure.FailingTests, state.CheckFailure.TouchedTests = failed.Tests, failed.Touched
+			if failed.Output != "" {
+				state.CheckFailure.Output = marker + "\n" + handback.Reason + "\n" + failedCheckOutputTitle + boundedTail(failed.Output, runstate.MaxCheckOutputBytes-len(marker)-len(handback.Reason)-len(failedCheckOutputTitle)-2)
+			}
+		}
 		state.ChecksPassed = nil
 		// A resolution admitted on the approval of the head it resolves had the
 		// candidate's review as its only one; where that review refused it, every
@@ -1473,6 +1516,9 @@ func (h MergeQueueRunHandback) Report(ctx context.Context, entry runstate.MergeQ
 	failure := fmt.Sprintf("The merge queue handed this change back and no single run can take it up (%s): %s", handback.Continuation, handback.Reason)
 	if handback.IsSetAside() {
 		failure = fmt.Sprintf("The merge queue set this change aside: %s. It had come back from the queue because %s", handback.SetAside, handback.Reason)
+	}
+	if failed := handback.FailedCheck; failed != nil && failed.Output != "" {
+		failure += "\n" + failedCheckOutputTitle + boundedTail(failed.Output, maxHandbackNoteOutputBytes)
 	}
 	if h.Docket != nil {
 		if _, err := h.Docket.RecordUnstartedAttempt(UnstartedAttempt{
